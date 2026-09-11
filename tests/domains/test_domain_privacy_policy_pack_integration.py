@@ -243,3 +243,24 @@ def test_definition_round_trips_policy_benchmarks_quality_schema_and_privacy() -
     assert restored.privacy_policy == definition.privacy_policy
     assert restored.knowledge_package_schema == definition.knowledge_package_schema
     assert restored.to_dict() == payload
+
+
+# ── Remediation V1 MAJOR-01: declarative Pack nested privacy is fail-closed ───
+
+
+def test_declarative_pack_rejects_nested_privacy_unknown_field() -> None:
+    payload = _declarative_payload()
+    payload["privacy_policy"]["default_privacy"]["allow_cross_domain"] = True
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_nested_privacy_secret_metadata() -> None:
+    payload = _declarative_payload()
+    payload["privacy_policy"]["default_privacy"]["metadata"] = {
+        "api_key": "SHOULD_NOT_SURVIVE"
+    }
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)

@@ -234,3 +234,84 @@ def test_domain_privacy_policy_error_hierarchy() -> None:
     assert issubclass(
         DomainPrivacyPolicySerializationError, DomainPrivacyPolicyContractError
     )
+
+
+# ── Remediation V1 MAJOR-01: nested default_privacy is fail-closed ────────────
+
+
+def test_from_dict_rejects_unknown_nested_privacy_field() -> None:
+    payload = _policy().to_dict()
+    payload["default_privacy"]["unknown_authority"] = True
+
+    with pytest.raises(DomainPrivacyPolicySerializationError):
+        DomainPrivacyPolicy.from_dict(payload)
+
+
+def test_from_dict_rejects_nested_allow_cross_domain() -> None:
+    payload = _policy().to_dict()
+    payload["default_privacy"]["allow_cross_domain"] = True
+
+    with pytest.raises(DomainPrivacyPolicySerializationError):
+        DomainPrivacyPolicy.from_dict(payload)
+
+
+def test_from_dict_rejects_nested_default_privacy_api_key_metadata() -> None:
+    payload = _policy().to_dict()
+    payload["default_privacy"]["metadata"] = {"api_key": "SHOULD_NOT_SURVIVE"}
+
+    with pytest.raises(DomainPrivacyPolicySerializationError):
+        DomainPrivacyPolicy.from_dict(payload)
+
+
+def test_from_dict_rejects_nested_default_privacy_token_recursively() -> None:
+    payload = _policy().to_dict()
+    payload["default_privacy"]["metadata"] = {
+        "audit": [{"nested": {"token": "SHOULD_NOT_SURVIVE"}}]
+    }
+
+    with pytest.raises(DomainPrivacyPolicySerializationError):
+        DomainPrivacyPolicy.from_dict(payload)
+
+
+def test_direct_constructor_rejects_sensitive_default_privacy_metadata() -> None:
+    with pytest.raises(DomainPrivacyPolicyContractError):
+        _policy(default_privacy=_privacy(metadata={"api_key": "SHOULD_NOT_SURVIVE"}))
+
+    with pytest.raises(DomainPrivacyPolicyContractError):
+        _policy(
+            default_privacy=_privacy(
+                metadata={"audit": [{"credentials": "SHOULD_NOT_SURVIVE"}]}
+            )
+        )
+
+
+def test_valid_default_privacy_still_round_trips_exactly() -> None:
+    policy = _policy(
+        default_privacy=_privacy(metadata={"note": "declared", "count": 2})
+    )
+
+    payload = policy.to_dict()
+    restored = DomainPrivacyPolicy.from_dict(payload)
+
+    assert restored == policy
+    assert restored.default_privacy == policy.default_privacy
+    assert restored.to_dict() == payload
+    assert payload["default_privacy"]["metadata"] == {"note": "declared", "count": 2}
+
+
+def test_phase8_privacy_mapping_remains_tolerant_outside_domain_adapter() -> None:
+    """The canonical Phase 8 parser stays tolerant; only the Domain adapter is strict."""
+    parsed = PrivacyMetadata.from_mapping(
+        {
+            "schema_version": 1,
+            "policy": "remote_allowed",
+            "allowed_processing_locations": ["local", "remote"],
+            "allow_remote": True,
+            "allow_cross_domain": True,
+            "metadata": {"api_key": "SHOULD_NOT_BE_REJECTED_HERE"},
+        }
+    )
+
+    assert parsed.policy is PrivacyPolicy.REMOTE_ALLOWED
+    assert parsed.allow_remote is True
+    assert parsed.metadata["api_key"] == "SHOULD_NOT_BE_REJECTED_HERE"

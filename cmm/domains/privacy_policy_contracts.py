@@ -71,6 +71,32 @@ _KNOWN = frozenset(
     }
 )
 
+# Exact canonical serialized ``PrivacyMetadata`` field set, derived from
+# ``PrivacyMetadata.serialize()`` in ``cmm/cognitive/privacy.py``. The Domain
+# declarative adapter is deliberately stricter than the tolerant canonical
+# ``from_mapping`` parser: it fails closed on unknown nested authority-like
+# fields (for example ``allow_cross_domain``) instead of silently ignoring them.
+_PRIVACY_METADATA_FIELDS = frozenset(
+    {
+        "schema_version",
+        "policy",
+        "sensitivity",
+        "allowed_processing_locations",
+        "allowed_providers",
+        "prohibited_providers",
+        "allow_remote",
+        "allow_premium",
+        "allow_cache",
+        "allow_export",
+        "requires_redaction",
+        "requires_approval",
+        "inherited_from",
+        "permissions",
+        "permissions_denied",
+        "metadata",
+    }
+)
+
 
 # ── JSON-safety, freezing and validation helpers ──────────────────────────────
 
@@ -192,6 +218,32 @@ def _require_metadata(value: Any, field_name: str) -> MappingProxyType[str, Any]
     return _freeze_json(value)
 
 
+def _validate_declarative_privacy_mapping(value: Any) -> None:
+    """Fail closed on a nested Domain-declarative ``default_privacy`` payload.
+
+    Rejects unknown serialized keys and credential/secret-like nested
+    ``metadata`` before the tolerant canonical ``PrivacyMetadata.from_mapping``
+    parser sees them. Secret values are never included in the raised error.
+    """
+    if not isinstance(value, Mapping):
+        raise DomainPrivacyPolicySerializationError(
+            "default_privacy must be a mapping", field="default_privacy"
+        )
+    unknown = set(value) - _PRIVACY_METADATA_FIELDS
+    if unknown:
+        raise DomainPrivacyPolicySerializationError(
+            "default_privacy got unknown fields",
+            field="default_privacy",
+            details={"unknown_fields": sorted(str(item) for item in unknown)},
+        )
+    try:
+        _reject_sensitive_metadata(value.get("metadata"), "default_privacy.metadata")
+    except DomainPrivacyPolicyContractError as exc:
+        raise DomainPrivacyPolicySerializationError(
+            exc.message, field=exc.field, details=dict(exc.details)
+        ) from exc
+
+
 # ── Serialization helpers ─────────────────────────────────────────────────────
 
 
@@ -270,6 +322,9 @@ class DomainPrivacyPolicy:
             "default_privacy",
             _require_privacy_metadata(self.default_privacy, "default_privacy"),
         )
+        _reject_sensitive_metadata(
+            self.default_privacy.metadata, "default_privacy.metadata"
+        )
         object.__setattr__(
             self,
             "require_approval_for_remote",
@@ -303,12 +358,12 @@ class DomainPrivacyPolicy:
                     field=name,
                 )
         try:
+            default_privacy_payload = mapping["default_privacy"]
+            _validate_declarative_privacy_mapping(default_privacy_payload)
             return cls(
                 schema_version=mapping["schema_version"],
                 domain_id=_coerce_domain_id(mapping["domain_id"]),
-                default_privacy=PrivacyMetadata.from_mapping(
-                    mapping["default_privacy"]
-                ),
+                default_privacy=PrivacyMetadata.from_mapping(default_privacy_payload),
                 require_approval_for_remote=mapping.get(
                     "require_approval_for_remote", False
                 ),
