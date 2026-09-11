@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import json
 import pathlib
@@ -11,7 +12,10 @@ import pytest
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel, TemporalScopeKind
 from cmm.cognitive.knowledge import Evidence, KnowledgeItem, TemporalScope
-from cmm.cognitive.knowledge_packages import KnowledgePackage
+from cmm.cognitive.knowledge_packages import KnowledgePackage, KnowledgePackageRequest
+from cmm.domains.cognitive_integration_contracts import (
+    DomainCognitiveIntegrationRequest,
+)
 from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.concerns.knowledge_package import (
     build_concerns_knowledge_package_schema,
@@ -172,6 +176,60 @@ _FORBIDDEN_SERIALIZATION_TOKENS = (
     "https://",
 )
 
+# --- Canonical construction reachability -------------------------------------
+# A first-party schema is bound to a real DomainDefinition and is exercised
+# through the canonical ``Domain -> Cognitive`` seam: a
+# ``DomainCognitiveIntegrationRequest`` is adapted by
+# ``cmm.domains.cognitive_integration._build_knowledge_package`` into a
+# ``KnowledgePackageRequest`` passed to the canonical ``KnowledgePackageBuilder``.
+# A hard requirement (``required_non_empty``) is only legitimate when that path
+# can actually populate the field; otherwise the schema makes every real package
+# unbuildable.
+
+PACKAGE_FIELDS = frozenset(field.name for field in dataclasses.fields(KnowledgePackage))
+BUILDER_REQUEST_FIELDS = frozenset(
+    field.name for field in dataclasses.fields(KnowledgePackageRequest)
+)
+DOMAIN_INTEGRATION_REQUEST_FIELDS = frozenset(
+    field.name for field in dataclasses.fields(DomainCognitiveIntegrationRequest)
+)
+
+# Package fields the canonical builder fills from the store, the retrieved
+# knowledge items and the adapted resources.
+_STORE_DERIVED_FIELDS = frozenset(
+    {
+        "facts",
+        "observations",
+        "inferences",
+        "hypotheses",
+        "other_knowledge",
+        "contradictions",
+        "resources",
+    }
+)
+
+# Fields the integrator forwards: the shared request fields plus the two
+# package fields it derives from the integration request itself.
+_INTEGRATION_FORWARDED_FIELDS = (
+    BUILDER_REQUEST_FIELDS & DOMAIN_INTEGRATION_REQUEST_FIELDS
+) | {"domain", "temporal_scope"}
+
+
+def _is_canonically_reachable(field_name: str) -> bool:
+    """Return True when the canonical Domain -> Cognitive path can populate it.
+
+    Reachability is a property of the canonical construction seam, not of an
+    individual Domain.
+    """
+    if field_name not in PACKAGE_FIELDS:
+        return False
+    if field_name in _STORE_DERIVED_FIELDS:
+        return True
+    if field_name not in BUILDER_REQUEST_FIELDS:
+        # The canonical builder can never receive this field at all.
+        return False
+    return field_name in _INTEGRATION_FORWARDED_FIELDS
+
 
 @pytest.mark.parametrize("slug", sorted(EXPECTED))
 def test_schema_binds_exactly_its_domain(slug: str) -> None:
@@ -317,6 +375,30 @@ def test_first_party_knowledge_package_policies_are_meaningfully_domain_specific
     shapes = {repr(_normalized_policy_body(schema)) for schema in schemas.values()}
 
     assert len(shapes) >= 4
+
+
+def test_all_first_party_required_non_empty_fields_are_canonically_reachable() -> None:
+    """No first-party schema may hard-require a field the canonical path cannot build.
+
+    Every ``required_non_empty`` policy must be satisfiable through the real
+    ``Domain -> Cognitive`` construction seam. A requirement that the canonical
+    builder can never populate turns the schema into a permanent validation
+    failure, so it must be removed rather than rescued with extra plumbing.
+    """
+    schemas = _all_first_party_schemas()
+
+    unreachable: set[str] = set()
+
+    for domain_name, schema in schemas.items():
+        for policy in schema.field_policies:
+            if not policy.required_non_empty:
+                continue
+            if not _is_canonically_reachable(policy.field_name):
+                unreachable.add(f"{domain_name}.{policy.field_name}")
+
+    ordered = sorted(unreachable)
+
+    assert ordered == [], f"UNREACHABLE_REQUIRED_FIELDS={ordered}"
 
 
 @pytest.mark.parametrize("slug", sorted(EXPECTED))
