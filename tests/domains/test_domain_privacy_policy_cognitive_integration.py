@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from cmm.cognitive.enums import SensitivityLevel
+from cmm.cognitive.contracts import Confidence
+from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel
+from cmm.cognitive.knowledge import KnowledgeItem
+from cmm.cognitive.knowledge_packages import (
+    KnowledgePackageBuilder,
+    KnowledgePackageRequest,
+)
 from cmm.cognitive.privacy import (
     PrivacyDecisionStatus,
     PrivacyMetadata,
@@ -20,14 +26,25 @@ from cmm.cognitive.privacy import (
     PrivacyPolicy,
     ProcessingLocation,
     evaluate_privacy_operation,
+    privacy_from_knowledge_package,
     resolve_effective_privacy_metadata,
 )
+from cmm.cognitive.resources import (
+    Resource,
+    ResourceKind,
+    ResourceProvenance,
+    ResourceSourceKind,
+    ResourceTemporalScope,
+)
+from cmm.cognitive.store_memory import InMemoryKnowledgeStore
 from cmm.domains.errors import DomainPrivacyPolicyContractError
+from cmm.domains.health.privacy import build_health_privacy_policy
 from cmm.domains.identifiers import DomainId
 from cmm.domains.privacy_policy_contracts import (
     DomainPrivacyPolicy,
     project_domain_privacy_metadata,
 )
+from cmm.domains.university.privacy import build_university_privacy_policy
 
 NOW = datetime(2026, 9, 11, 9, 0, tzinfo=timezone.utc)
 
@@ -388,3 +405,172 @@ def test_provider_prohibition_cannot_be_re_enabled_by_domain_default() -> None:
     )
     assert decision.allowed is False
     assert decision.reason_code == "provider_prohibited"
+
+
+# ── Real canonical KnowledgePackage composition ───────────────────────────────
+#
+# These use the real canonical Phase 8 ``KnowledgePackageBuilder`` and
+# ``privacy_from_knowledge_package``. No authority component is mocked.
+
+
+def _resource(
+    resource_id: str = "resource:health-record",
+    *,
+    sensitivity: SensitivityLevel = SensitivityLevel.SENSITIVE,
+) -> Resource:
+    return Resource(
+        id=resource_id,
+        domain="domain:health",
+        kind=ResourceKind.DOCUMENT,
+        source=ResourceSourceKind.USER_INPUT,
+        content="clinical notes",
+        provenance=ResourceProvenance(
+            source_type=ResourceSourceKind.USER_INPUT,
+            source_id="user:1",
+            retrieved_at=NOW,
+        ),
+        reliability=Confidence(value=0.9),
+        temporal_scope=ResourceTemporalScope(ingested_at=NOW),
+        sensitivity=sensitivity,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def _store(resource: Resource) -> InMemoryKnowledgeStore:
+    store = InMemoryKnowledgeStore()
+    store.save_item(
+        KnowledgeItem(
+            id="item:health-record",
+            statement="Recorded blood pressure observation.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(value=0.9),
+            resource_id=resource.id,
+            sensitivity=SensitivityLevel.SENSITIVE,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+    return store
+
+
+def _package(resource: Resource):
+    return KnowledgePackageBuilder(store=_store(resource), resources=(resource,)).build(
+        KnowledgePackageRequest(
+            objective="health record review", domain="domain:health"
+        )
+    )
+
+
+def test_health_package_privacy_is_local_only_and_cannot_export() -> None:
+    resource = _resource()
+    package = _package(resource)
+
+    package_privacy = privacy_from_knowledge_package(package)
+    domain_privacy = project_domain_privacy_metadata(
+        build_health_privacy_policy(), processing_location=ProcessingLocation.REMOTE
+    )
+
+    effective = resolve_effective_privacy_metadata(
+        package_privacy, domain_privacy
+    ).effective
+
+    assert effective.policy is PrivacyPolicy.LOCAL_ONLY
+    assert effective.allow_remote is False
+    assert effective.allow_export is False
+    assert effective.sensitivity is SensitivityLevel.SENSITIVE
+
+    export_decision = evaluate_privacy_operation(
+        effective, PrivacyOperation.EXPORT, PrivacyOperationContext(at=NOW)
+    )
+    assert export_decision.allowed is False
+    assert export_decision.reason_code == "export_blocked"
+
+    remote_decision = evaluate_privacy_operation(
+        effective,
+        PrivacyOperation.PROCESS_REMOTE,
+        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, at=NOW),
+    )
+    assert remote_decision.allowed is False
+    assert remote_decision.reason_code == "remote_blocked_local_only"
+
+
+def test_university_remote_default_does_not_widen_local_only_package() -> None:
+    resource = _resource("resource:university-notes")
+    package = _package(resource)
+
+    effective = resolve_effective_privacy_metadata(
+        privacy_from_knowledge_package(package),
+        project_domain_privacy_metadata(
+            build_university_privacy_policy(),
+            processing_location=ProcessingLocation.REMOTE,
+        ),
+    ).effective
+
+    assert effective.policy is PrivacyPolicy.LOCAL_ONLY
+    assert effective.allow_remote is False
+    assert effective.allowed_processing_locations == (ProcessingLocation.LOCAL,)
+
+
+def test_package_privacy_and_domain_privacy_raise_sensitivity_above_orientation() -> (
+    None
+):
+    resource = _resource(
+        "resource:restricted-notes", sensitivity=SensitivityLevel.RESTRICTED
+    )
+    package = _package(resource)
+
+    effective = resolve_effective_privacy_metadata(
+        privacy_from_knowledge_package(package),
+        project_domain_privacy_metadata(
+            build_university_privacy_policy(),
+            processing_location=ProcessingLocation.LOCAL,
+        ),
+    ).effective
+
+    assert effective.sensitivity is SensitivityLevel.RESTRICTED
+    assert effective.policy is PrivacyPolicy.LOCAL_ONLY
+
+
+def test_health_domain_privacy_never_mutates_the_canonical_package() -> None:
+    resource = _resource()
+    package = _package(resource)
+    before = package.serialize()
+
+    project_domain_privacy_metadata(
+        build_health_privacy_policy(), processing_location=ProcessingLocation.REMOTE
+    )
+    privacy_from_knowledge_package(package)
+
+    assert package.serialize() == before
+
+
+def test_university_domain_default_alone_permits_remote_but_package_blocks_it() -> None:
+    university_remote = project_domain_privacy_metadata(
+        build_university_privacy_policy(),
+        processing_location=ProcessingLocation.REMOTE,
+    )
+    domain_only = resolve_effective_privacy_metadata(university_remote).effective
+    assert domain_only.policy is PrivacyPolicy.REMOTE_ALLOWED
+
+    domain_only_remote = evaluate_privacy_operation(
+        domain_only,
+        PrivacyOperation.PROCESS_REMOTE,
+        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, at=NOW),
+    )
+    assert domain_only_remote.allowed is True
+
+    resource = _resource("resource:university-notes")
+    package = _package(resource)
+    composed = resolve_effective_privacy_metadata(
+        privacy_from_knowledge_package(package), university_remote
+    ).effective
+
+    composed_remote = evaluate_privacy_operation(
+        composed,
+        PrivacyOperation.PROCESS_REMOTE,
+        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, at=NOW),
+    )
+    assert composed.policy is PrivacyPolicy.LOCAL_ONLY
+    assert composed_remote.allowed is False
+    assert composed_remote.reason_code == "remote_blocked_local_only"
