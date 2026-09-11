@@ -6885,6 +6885,55 @@ Domains must not:
 * transfer information to supporting domains without permission;
 * omit privacy decisions from the Domain Trace.
 
+Implementation status (Phase 10.50)
+
+Phase 10.50 is implemented and reported, pending independent audit. It declares
+one additive, immutable, versioned `DomainPrivacyPolicy` per first-party Domain
+that projects into the canonical Phase 8 `PrivacyMetadata` and participates in
+canonical most-restrictive resolution and operation evaluation. The Domain
+policy is a restrictive input only: it never grants remote, provider, export,
+cache or approval authority, never weakens `LOCAL_ONLY`, and never replaces the
+canonical Phase 8 privacy owner or the Phase 10.15 permission chain.
+
+```text
+PHASE10_49=CLOSED
+PHASE10_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+
+DP-050=PASS_REPORTED
+AT-DP-050=PASS_REPORTED
+
+DOMAIN_PRIVACY_POLICY_CONTRACT=PASS
+CANONICAL_PRIVACY_METADATA_REUSE=PASS
+PARALLEL_PRIVACY_ENGINE=NONE
+PARALLEL_PRIVACY_RESOLVER=NONE
+PARALLEL_PRIVACY_REGISTRY=NONE
+PARALLEL_PRIVACY_STORE=NONE
+PARALLEL_PRIVACY_RUNTIME=NONE
+PRIVACY_POLICY_SENSITIVE_ENUM_ADDED=NO
+CROSS_DOMAIN_PRIVACY_AUTHORITY_ADDED=NO
+FIRST_PARTY_DOMAINS=12
+FIRST_PARTY_DECLARED_PRIVACY_POLICIES=11
+GENERAL_DOMAIN_PRIVACY_DEFAULT=NONE
+```
+
+The `SENSITIVE` shorthand in the objective above is an orientation label, not a
+`PrivacyPolicy` enum member. A sensitive Domain expresses that orientation
+through canonical `PrivacyPolicy.LOCAL_ONLY` plus canonical
+`SensitivityLevel.SENSITIVE`. Phase 10.50 does not add
+`PrivacyPolicy.SENSITIVE`, does not add `allow_cross_domain`, and does not
+create `DomainPrivacyEngine`, `DomainPrivacyResolver`, `DomainPrivacyRegistry`,
+`DomainPrivacyStore` or `DomainPrivacyRuntime`.
+
+Twelve first-party Domains are implemented; eleven declare an explicit privacy
+policy. General is the explicit no-Domain-wide-default case, so its privacy is
+resolved per resource/package/operation/context and absence of a Domain policy
+never becomes `REMOTE_ALLOWED`.
+
+Independent-audit severity counts are never published before the independent
+audit supplies them. Phase 10.50 is not closed; `DP-050=VERIFIED_EXISTING`,
+`AT-DP-050=PASS` and `CLOSURE_ELIGIBLE=YES` may only be recorded after that
+independent audit passes. Reference: `docs/reference/domain-privacy-policies.md`.
+
 ⸻
 
 10.51 - Implementation Order
