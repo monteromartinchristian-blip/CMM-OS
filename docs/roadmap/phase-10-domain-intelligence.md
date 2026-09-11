@@ -6750,13 +6750,60 @@ Plan:
 Pre-audit gate evidence on the frozen implementation HEAD:
 
 ```text
-V3_FINAL_GATE_COUNTS=PENDING_FINAL_EXACT_HEAD_RUN
+V3_EVIDENCE_TREE_HEAD=152dd19e1fe245a3752e526f71fe4933c7f698e8
+V3_EVIDENCE_METHOD=exact-HEAD git clone / git archive export
+V3_EVIDENCE_DATE=2026-09-11
+
+FOCUSED_PHASE_10_49_TESTS=308
+FOCUSED_PHASE_10_49_RESULT=PASS
+REMEDIATION_EVIDENCE_TESTS=10
+REMEDIATION_EVIDENCE_RESULT=PASS
+PHASE8_REGRESSIONS=104
+PHASE8_CONTRADICTION_PRIVACY_RESOURCE_REGRESSIONS=168
+PHASE10_39_REGRESSIONS=112
+PHASE10_40_REGRESSIONS=158
+PHASE10_44_REGRESSIONS=106
+PHASE10_46_47_48_REGRESSIONS=765
+DOMAIN_PACK_REGRESSIONS=94
+DOMAIN_LOADER_MANIFEST_REGRESSIONS=205
+REGRESSION_GATE_RESULT=PASS
+
+DOMAIN_SUITE_TESTS=10981
+DOMAIN_SUITE_FAILURES=0
+DOMAIN_SUITE_ERRORS=0
+GLOBAL_SUITE_TESTS=16742
+GLOBAL_SUITE_FAILURES=0
+GLOBAL_SUITE_ERRORS=0
+
+COMPILEALL=PASS
+RUFF_VERSION=0.16.2
+BASELINE_HEAD=6f9deeb37b6e3237bea4564c5e5607249eb12b70
+GLOBAL_RUFF_BASELINE=839
+GLOBAL_RUFF_CURRENT=839
+GLOBAL_FORMAT_BASELINE=271
+GLOBAL_FORMAT_CURRENT=271
+CHANGED_PYTHON_FILES=52
+CHANGED_PYTHON_RUFF_VIOLATIONS=0
+CHANGED_PYTHON_FORMAT_FILES=0
+NO_NEW_RUFF_REGRESSIONS=PASS
+NO_NEW_FORMAT_REGRESSIONS=PASS
+BASELINE_AWARE_GATE=PASS
+
+CLAUSE_COVERAGE=PASS
+UNCLASSIFIED_CLAUSES=0
+DUPLICATE_PRIMARY_MAPPINGS=0
+DIFF_HYGIENE=CLEAN
 ```
 
 The single authoritative V3 pre-audit gate set is frozen after the final
 exact-HEAD run and is recorded identically across the live Phase 10.49 surfaces.
 Independent-audit severity counts are never published before the independent
-re-audit supplies them.
+re-audit supplies them. The Domain and global suites were executed against an
+exact-HEAD `git clone` of the same committed tree (with a `git archive` export
+cross-check of the Domain suite); a plain archive export without `.git` produces
+one environment-only false failure
+(`tests/agent_runtime/test_observation_engine.py::test_git_observer_real_repo`)
+that is not a Phase 10.49 defect.
 
 > Sandbox artifact errors (PermissionError: EEXIST on pytest temp directories) are
 > pre-existing filesystem broker interference from the local AI execution

@@ -551,22 +551,69 @@ Independent-audit severity counts are never published here before the
 independent re-audit supplies them.
 
 ```text
-V3_FINAL_GATE_COUNTS=PENDING_FINAL_EXACT_HEAD_RUN
+V3_EVIDENCE_TREE_HEAD=152dd19e1fe245a3752e526f71fe4933c7f698e8
+V3_EVIDENCE_METHOD=exact-HEAD git clone / git archive export
+V3_EVIDENCE_DATE=2026-09-11
+
+FOCUSED_PHASE_10_49_TESTS=308
+FOCUSED_PHASE_10_49_RESULT=PASS
+REMEDIATION_EVIDENCE_TESTS=10
+REMEDIATION_EVIDENCE_RESULT=PASS
+PHASE8_REGRESSIONS=104
+PHASE8_CONTRADICTION_PRIVACY_RESOURCE_REGRESSIONS=168
+PHASE10_39_REGRESSIONS=112
+PHASE10_40_REGRESSIONS=158
+PHASE10_44_REGRESSIONS=106
+PHASE10_46_47_48_REGRESSIONS=765
+DOMAIN_PACK_REGRESSIONS=94
+DOMAIN_LOADER_MANIFEST_REGRESSIONS=205
+REGRESSION_GATE_RESULT=PASS
+
+DOMAIN_SUITE_TESTS=10981
+DOMAIN_SUITE_FAILURES=0
+DOMAIN_SUITE_ERRORS=0
+GLOBAL_SUITE_TESTS=16742
+GLOBAL_SUITE_FAILURES=0
+GLOBAL_SUITE_ERRORS=0
+
+COMPILEALL=PASS
+RUFF_VERSION=0.16.2
+BASELINE_HEAD=6f9deeb37b6e3237bea4564c5e5607249eb12b70
+GLOBAL_RUFF_BASELINE=839
+GLOBAL_RUFF_CURRENT=839
+GLOBAL_FORMAT_BASELINE=271
+GLOBAL_FORMAT_CURRENT=271
+CHANGED_PYTHON_FILES=52
+CHANGED_PYTHON_RUFF_VIOLATIONS=0
+CHANGED_PYTHON_FORMAT_FILES=0
+NO_NEW_RUFF_REGRESSIONS=PASS
+NO_NEW_FORMAT_REGRESSIONS=PASS
+BASELINE_AWARE_GATE=PASS
+
+CLAUSE_COVERAGE=PASS
+UNCLASSIFIED_CLAUSES=0
+DUPLICATE_PRIMARY_MAPPINGS=0
+DIFF_HYGIENE=CLEAN
 ```
 
-The focused gate is the ten Phase 10.49 test files (eight contract/behaviour
-files, the architecture guard, the DP-049 connected acceptance, the baseline
-gate decision tests and the clause-coverage ledger invariant). The regression
+The focused gate is the eight Phase 10.49 contract/behaviour, architecture,
+first-party and DP-049 acceptance test files. The baseline-gate decision tests
+and the clause-coverage ledger invariant run as separate gates. The regression
 gate is the Phase 8 knowledge-package, Phase 10.39 fragmentation, Phase 10.40
 cognitive-integration, Phase 10.44 memory/knowledge, Phase 10.46–10.48
-model-policy/benchmark/quality and Domain Pack/SDK inventories. The global gate
-is the canonical `python -m pytest -ra` over `tests`.
+model-policy/benchmark/quality and Domain Pack/SDK/loader/manifest inventories.
+The global gate is the canonical `python -m pytest -ra` over `tests`.
 
 Execution-environment note: the local sandbox brokers filesystem operations that
 leave the session workspace to a host process, which adds latency per operation
-and makes workspace-resident suite execution impractically slow. Suite evidence
-is therefore produced against an exact `git archive` export / clone of the same
-clean committed HEAD, executed with the repository's own `.venv` interpreter.
+and makes workspace-resident suite execution impractically slow. The Domain and
+global suites were therefore executed against an exact-HEAD `git clone` of the
+same committed tree (with a `git archive` export cross-check of the Domain
+suite), using the repository's own `.venv` interpreter. A first pass against a
+plain `git archive` export without `.git` produced one false failure —
+`tests/agent_runtime/test_observation_engine.py::test_git_observer_real_repo`,
+which asserts the working directory is a git repository — and is **not** a Phase
+10.49 defect; it passes in the repository and in the exact-HEAD clone.
 Workspace-resident false positives previously isolated and **not** Phase 10.49
 defects:
 
@@ -577,7 +624,7 @@ defects:
 * The Phase 10.34 session lifecycle fixtures perform many brokered `mkdir`
   calls, which stalls suite progress without failing.
 
-Both pass in the unbrokered run.
+Both pass in the unbrokered run recorded above.
 
 ## 21. Status
 
