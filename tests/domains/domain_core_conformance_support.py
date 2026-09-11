@@ -31,9 +31,7 @@ class CoreConformanceClassification(str, Enum):
 
     CANONICAL_OWNER_VERIFIED = "canonical_owner_verified"
     CANONICAL_ADAPTER_VERIFIED = "canonical_adapter_verified"
-    INTENTIONALLY_DEFERRED_TO_10_52_10_53 = (
-        "intentionally_deferred_to_10_52_10_53"
-    )
+    INTENTIONALLY_DEFERRED_TO_10_52_10_53 = "intentionally_deferred_to_10_52_10_53"
     INTENTIONALLY_PHASE11 = "intentionally_phase11"
     NOT_APPLICABLE_SUPERSEDED_BY_CANONICAL_OWNER = (
         "not_applicable_superseded_by_canonical_owner"
