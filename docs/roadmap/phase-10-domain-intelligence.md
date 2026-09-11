@@ -6590,7 +6590,7 @@ REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
 Phase 10.48 is complete, independently re-audited and closed after final
 Independent Re-audit V4 `PASS`. Historical V1/V2/V3 failures remain preserved.
 Phase 10.49 has since been implemented on top of that closure baseline and is
-awaiting independent re-audit V3; its implementation status is recorded below.
+closed after independent re-audit V3 PASS; its implementation status is recorded below.
 
 ⸻
 
@@ -6662,7 +6662,7 @@ A package may be composed across domains through explicit schemas and permission
 
 Implementation status (Phase 10.49)
 
-Phase 10.49 is implemented and remediated, awaiting independent re-audit V3. It
+Phase 10.49 is implemented and remediated, closed after independent re-audit V3 PASS. It
 declares an immutable, versioned Domain specialization of the canonical Phase 8
 `KnowledgePackage`. A schema may only narrow or reject; it never grants
 execution, provider, network, file, resource, cross-domain, approval, privacy
