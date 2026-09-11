@@ -1068,6 +1068,25 @@ class DomainKnowledgePackageValidationError(DomainKnowledgePackageError):
     code = "DOMAIN_KNOWLEDGE_PACKAGE_VALIDATION_ERROR"
 
 
+# Phase 10.50 – Domain Privacy Policies
+class DomainPrivacyPolicyError(DomainError):
+    """Base error for Domain-owned privacy policy declarations."""
+
+    code = "DOMAIN_PRIVACY_POLICY_ERROR"
+
+
+class DomainPrivacyPolicyContractError(DomainPrivacyPolicyError, ValueError):
+    """Raised when a Domain privacy policy contract is invalid."""
+
+    code = "DOMAIN_PRIVACY_POLICY_CONTRACT_ERROR"
+
+
+class DomainPrivacyPolicySerializationError(DomainPrivacyPolicyContractError):
+    """Raised when a Domain privacy policy payload is malformed."""
+
+    code = "DOMAIN_PRIVACY_POLICY_SERIALIZATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -1152,6 +1171,9 @@ __all__ = [
     "DomainPermissionRegistryError",
     "DomainPermissionResolutionError",
     "DomainPermissionSerializationError",
+    "DomainPrivacyPolicyContractError",
+    "DomainPrivacyPolicyError",
+    "DomainPrivacyPolicySerializationError",
     "DomainProfileCompositionError",
     "DomainProfileConfigurationError",
     "DomainProfileContractError",
