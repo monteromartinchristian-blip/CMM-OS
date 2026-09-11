@@ -28,13 +28,20 @@ from cmm.cognitive.privacy import (
     evaluate_privacy_operation,
 )
 from cmm.domains.errors import DomainTraceContractError, DomainTraceError
+from cmm.domains.trace_assembler import DomainTraceAssembler
 from cmm.domains.trace_contracts import (
+    DomainTraceAssemblyRequest,
+    DomainTraceContribution,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceRole,
+    DomainTraceValidationCode,
     PrivacyDecisionTraceEvidence,
 )
+from cmm.domains.trace_validation import DefaultDomainTraceReferenceValidator
 
 NOW = datetime(2026, 9, 11, 11, 0, tzinfo=timezone.utc)
 
@@ -412,3 +419,161 @@ def test_trace_inventory_rejects_unknown_privacy_reference_kind() -> None:
             kind="privacy_decision_v2",
             domain_id="domain:health",
         )
+
+
+# ── Validator pairing against the authoritative inventory ─────────────────────
+
+
+def _trace_with_privacy_reference(
+    evidence: PrivacyDecisionTraceEvidence,
+    *,
+    reference: DomainTraceReference | None = None,
+) -> object:
+    ref = reference if reference is not None else evidence.to_reference()
+    request = DomainTraceAssemblyRequest(
+        request_id="request:privacy-1",
+        primary_domain=evidence.domain_id,
+        contributions=(
+            DomainTraceContribution(
+                evidence.domain_id,
+                DomainTraceRole.PRIMARY,
+                (ref,),
+            ),
+        ),
+        references=DomainTraceReferences(
+            "resolution-context:1", "resolution-result:1", "composition:1"
+        ),
+        started_at=NOW,
+        completed_at=NOW.replace(second=1),
+    )
+    return DomainTraceAssembler().assemble(request)
+
+
+def _privacy_inventory(
+    evidence: PrivacyDecisionTraceEvidence,
+    *,
+    reference: DomainTraceReference | None = None,
+) -> DomainTraceReferenceInventory:
+    bound = reference if reference is not None else evidence.to_reference()
+    return DomainTraceReferenceInventory(
+        references=(*_global_references(), bound),
+        expected_primary_domain=evidence.domain_id,
+        resolution_result_domains=DomainTraceDomainSelection(
+            "resolution-result:1", evidence.domain_id
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            "composition:1", evidence.domain_id
+        ),
+        privacy_decisions=(evidence,),
+    )
+
+
+def _global_references() -> tuple[DomainTraceReference, ...]:
+    return (
+        DomainTraceReference(
+            "resolution-context:1", DomainTraceReferenceKind.RESOLUTION_CONTEXT
+        ),
+        DomainTraceReference(
+            "resolution-result:1", DomainTraceReferenceKind.RESOLUTION_RESULT
+        ),
+        DomainTraceReference("composition:1", DomainTraceReferenceKind.COMPOSITION),
+    )
+
+
+def _with_contribution(trace: object, contribution: DomainTraceContribution) -> object:
+    object.__setattr__(trace, "contributions", (contribution,))
+    return trace
+
+
+def test_validator_accepts_real_bound_privacy_decision_reference() -> None:
+    evidence = _evidence()
+
+    result = DefaultDomainTraceReferenceValidator().validate(
+        _trace_with_privacy_reference(evidence), _privacy_inventory(evidence)
+    )
+
+    assert result.valid
+    assert result.codes == ()
+
+
+def test_validator_rejects_fake_privacy_decision_reference() -> None:
+    evidence = _evidence()
+    fake = DomainTraceReference(
+        ref_id="privacy-decision:000000000000000000000000",
+        kind=DomainTraceReferenceKind.PRIVACY_DECISION,
+        domain_id=evidence.domain_id,
+    )
+    trace = _with_contribution(
+        _trace_with_privacy_reference(evidence),
+        DomainTraceContribution(evidence.domain_id, DomainTraceRole.PRIMARY, (fake,)),
+    )
+
+    result = DefaultDomainTraceReferenceValidator().validate(
+        trace, _privacy_inventory(evidence)
+    )
+
+    assert not result.valid
+    assert DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in result.codes
+
+
+def test_validator_rejects_stale_privacy_decision_reference() -> None:
+    stale = _evidence(_privacy_decision())
+    current = _evidence(_allowed_decision())
+    assert stale.decision_id != current.decision_id
+
+    result = DefaultDomainTraceReferenceValidator().validate(
+        _trace_with_privacy_reference(stale), _privacy_inventory(current)
+    )
+
+    assert not result.valid
+    assert DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in result.codes
+
+
+def test_validator_rejects_privacy_decision_domain_mismatch() -> None:
+    evidence = _evidence()
+    mismatched = DomainTraceReference(
+        ref_id=evidence.decision_id,
+        kind=DomainTraceReferenceKind.PRIVACY_DECISION,
+        domain_id="domain:university",
+    )
+    trace = _with_contribution(
+        _trace_with_privacy_reference(evidence),
+        DomainTraceContribution(
+            "domain:university", DomainTraceRole.PRIMARY, (mismatched,)
+        ),
+    )
+
+    result = DefaultDomainTraceReferenceValidator().validate(
+        trace, _privacy_inventory(evidence)
+    )
+
+    assert not result.valid
+    assert DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in result.codes
+
+
+def test_validator_rejects_privacy_decision_kind_mismatch() -> None:
+    evidence = _evidence()
+    inventory = DomainTraceReferenceInventory(
+        references=(
+            *_global_references(),
+            DomainTraceReference(
+                ref_id=evidence.decision_id,
+                kind=DomainTraceReferenceKind.FINDING,
+                domain_id=evidence.domain_id,
+            ),
+        ),
+        expected_primary_domain=evidence.domain_id,
+        resolution_result_domains=DomainTraceDomainSelection(
+            "resolution-result:1", evidence.domain_id
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            "composition:1", evidence.domain_id
+        ),
+    )
+
+    result = DefaultDomainTraceReferenceValidator().validate(
+        _trace_with_privacy_reference(evidence), inventory
+    )
+
+    assert not result.valid
+    assert DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in result.codes

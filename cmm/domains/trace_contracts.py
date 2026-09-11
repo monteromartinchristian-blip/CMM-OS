@@ -1485,6 +1485,7 @@ class DomainTraceValidationCode(str, Enum):
     FOREIGN_CONTRIBUTION = "foreign_contribution"
     CROSS_DOMAIN_PAIRING_MISMATCH = "cross_domain_pairing_mismatch"
     DOMAIN_RESULT_PAIRING_MISMATCH = "domain_result_pairing_mismatch"
+    PRIVACY_DECISION_PAIRING_MISMATCH = "privacy_decision_pairing_mismatch"
     INVALID_TIMESTAMP = "invalid_timestamp"
     INVALID_DURATION = "invalid_duration"
     UNKNOWN_STATUS = "unknown_status"

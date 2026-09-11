@@ -5,6 +5,14 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 
+from cmm.cognitive.privacy import (
+    PrivacyMetadata,
+    PrivacyOperation,
+    PrivacyOperationContext,
+    PrivacyPolicy,
+    ProcessingLocation,
+    evaluate_privacy_operation,
+)
 from cmm.domains.trace_assembler import DomainTraceAssembler
 from cmm.domains.trace_contracts import (
     CrossDomainTraceReference,
@@ -18,6 +26,7 @@ from cmm.domains.trace_contracts import (
     DomainTraceReferences,
     DomainTraceRole,
     DomainTraceValidationCode,
+    PrivacyDecisionTraceEvidence,
 )
 from cmm.domains.trace_validation import DefaultDomainTraceReferenceValidator
 
@@ -130,3 +139,37 @@ def test_validator_rejects_naive_completed_time_without_crashing() -> None:
     result = DefaultDomainTraceReferenceValidator().validate(trace, inventory)
 
     assert DomainTraceValidationCode.INVALID_TIMESTAMP in result.codes
+
+
+def test_validator_rejects_unbound_privacy_decision_reference() -> None:
+    """A privacy reference with no authoritative inventory evidence fails closed."""
+    trace, inventory = _trace_and_inventory()
+    now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
+    evidence = PrivacyDecisionTraceEvidence.from_privacy_decision(
+        domain_id="domain:life-plan",
+        operation=PrivacyOperation.PROCESS_REMOTE,
+        decision=evaluate_privacy_operation(
+            PrivacyMetadata(policy=PrivacyPolicy.LOCAL_ONLY),
+            PrivacyOperation.PROCESS_REMOTE,
+            PrivacyOperationContext(
+                processing_location=ProcessingLocation.REMOTE, at=now
+            ),
+        ),
+    )
+    primary = trace.contributions[0]
+    tampered = replace(
+        trace,
+        contributions=(
+            DomainTraceContribution(
+                primary.domain_id,
+                primary.role,
+                (*primary.references, evidence.to_reference()),
+            ),
+            *trace.contributions[1:],
+        ),
+    )
+
+    result = DefaultDomainTraceReferenceValidator().validate(tampered, inventory)
+
+    assert not result.valid
+    assert DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in result.codes

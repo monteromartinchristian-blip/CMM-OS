@@ -21,6 +21,7 @@ from cmm.domains.trace_contracts import (
     DomainTraceStatus,
     DomainTraceValidationCode,
     DomainTraceValidationResult,
+    PrivacyDecisionTraceEvidence,
     _contains_private_marker,
     _freeze_metadata,
 )
@@ -106,6 +107,12 @@ class DefaultDomainTraceReferenceValidator:
             (
                 "cross-domain",
                 lambda: self._validate_cross_domain(trace, inventory, codes, details),
+            ),
+            (
+                "privacy-decisions",
+                lambda: self._validate_privacy_decisions(
+                    trace, inventory, codes, details
+                ),
             ),
         ):
             self._run_check(check, codes, details, label)
@@ -446,6 +453,48 @@ class DefaultDomainTraceReferenceValidator:
             for item in trace.references.cross_domain_results
         ):
             codes.append(DomainTraceValidationCode.CROSS_DOMAIN_PAIRING_MISMATCH)
+
+    @staticmethod
+    def _validate_privacy_decisions(
+        trace: DomainTrace,
+        inventory: DomainTraceReferenceInventory,
+        codes: list[DomainTraceValidationCode],
+        details: dict[str, list[str]],
+    ) -> None:
+        """Pair trace privacy references with authoritative inventory evidence."""
+        evidence_by_id = {
+            item.decision_id: item
+            for item in inventory.privacy_decisions
+            if isinstance(item, PrivacyDecisionTraceEvidence)
+        }
+        if len(evidence_by_id) != len(inventory.privacy_decisions):
+            codes.append(DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH)
+            details["invariant"].append("privacy-decision-evidence")
+        privacy_references = [
+            reference
+            for reference in trace.all_references()
+            if isinstance(reference, DomainTraceReference)
+            and reference.kind is DomainTraceReferenceKind.PRIVACY_DECISION
+        ]
+        bound: set[str] = set()
+        for reference in privacy_references:
+            evidence = evidence_by_id.get(reference.ref_id)
+            if evidence is None or evidence.domain_id != reference.domain_id:
+                codes.append(
+                    DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH
+                )
+                details["invariant"].append("privacy-decision-pairing")
+                continue
+            if reference.ref_id in bound:
+                codes.append(
+                    DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH
+                )
+                details["invariant"].append("privacy-decision-duplicate")
+                continue
+            bound.add(reference.ref_id)
+        if bound != set(evidence_by_id):
+            codes.append(DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH)
+            details["invariant"].append("privacy-decision-coverage")
 
 
 def _aware(value: Any) -> bool:
