@@ -6974,11 +6974,12 @@ policy. General is the explicit no-Domain-wide-default case, so its privacy is
 resolved per resource/package/operation/context and absence of a Domain policy
 never becomes `REMOTE_ALLOWED`.
 
-Independent-audit severity counts are only published where the independent
-audit supplies them. Phase 10.50 is not closed; `MAJOR_01=VERIFIED_REMEDIATED`,
-`MAJOR_02=VERIFIED_REMEDIATED`, `DP-050=VERIFIED_EXISTING`, `AT-DP-050=PASS`
-and `CLOSURE_ELIGIBLE=YES` may only be recorded after Independent Re-audit V2
-passes. Reference: `docs/reference/domain-privacy-policies.md`.
+Independent Audit V1 `FAIL` remains preserved as historical evidence. Phase
+10.50 is closed after Independent Re-audit V2 `PASS`: `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `MAJOR_01=VERIFIED_REMEDIATED`, `MAJOR_02=VERIFIED_REMEDIATED`,
+`MAJOR_03=WITHDRAWN_FALSE_POSITIVE`, `DP-050=VERIFIED_EXISTING`,
+`AT-DP-050=PASS`, and `CLOSURE_ELIGIBLE=YES`. Reference:
+`docs/reference/domain-privacy-policies.md`.
 
 ⸻
 
