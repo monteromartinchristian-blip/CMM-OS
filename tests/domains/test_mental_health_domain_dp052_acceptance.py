@@ -15,7 +15,10 @@ from datetime import datetime, timezone
 
 import pytest
 
+from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
     PermissionCapability,
     PermissionOutcome,
 )
@@ -25,6 +28,7 @@ from cmm.cognitive.privacy import (
     resolve_effective_privacy_metadata,
 )
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainKind, DomainResolutionStatus
@@ -50,6 +54,10 @@ from cmm.domains.mental_health.workflows import (
 from cmm.domains.permission_contracts import (
     CrossDomainPermissionRequest,
     DomainPermissionRequest,
+)
+from cmm.domains.permission_gate import (
+    DomainPermissionGate,
+    PermissionGateOutcome,
 )
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.privacy_policy_contracts import project_domain_privacy_metadata
@@ -671,6 +679,87 @@ def _health_and_mental_health_bootstrap():
     return bootstrap
 
 
+# ── Connected permission-gated projection path (V4 MAJOR-03) ─────────────────
+#
+# The V3 re-audit proved that a structurally valid ``CrossDomainContextTransfer``
+# is not the same thing as *current permission authority*: a supplied transfer
+# for a field the real canonical resolver denies could still reach the
+# minimization rule.  ``PurposeMinimizedCrossDomainRule`` owns minimization and
+# provenance only — it is deliberately not a second permission engine — so the
+# authority decision belongs at the projection boundary, *before* a transfer is
+# admitted.  The path below is that boundary.  It composes only canonical
+# components: the real ``DomainPermissionResolver``, the real
+# ``DomainPermissionGate`` (with the canonical ``ApprovalService`` /
+# ``InMemoryApprovalRepository`` on the approval-gated path), the canonical
+# ``CrossDomainPermissionRequest`` / ``CrossDomainContextTransfer`` contracts,
+# and the Mental Health minimization rule.  Current permission authority is
+# what permits a concrete field transfer; structural transfer validity alone
+# never does.
+
+
+def _connected_permission_stack(resolver):
+    """Real canonical gate + approval stack over an already-built resolver."""
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: NOW)
+    return approval_service, gate
+
+
+def _grant_canonical_cross_domain_approval(approval_service, gate, request):
+    """Drive the canonical approval lifecycle for ``request`` to consumption."""
+    pending = gate.evaluate_cross_domain(request)
+    assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    requirement = PermissionApprovalRequirement.from_dict(
+        pending.approval_requirements[0]
+    )
+    approval_request = approval_service.create_request_from_requirement(
+        to_approval_requirement(requirement, agent_run_id="run-at-dp-052"),
+        requested_by="user",
+    )
+    approval_service.approve(approval_request.id, "user")
+    return approval_request.id
+
+
+def _admit_cross_domain_transfers(
+    *,
+    request,
+    candidates,
+    resolver,
+    gate,
+    approval_request_id=None,
+    now=NOW,
+):
+    """Admit only transfers backed by effective *current* permission authority.
+
+    Returns ``(decision, gate_result, admitted)``.  ``decision`` is the current
+    canonical policy resolution, ``gate_result`` is the effective authority
+    after the canonical approval path and ``admitted`` are the candidate
+    transfers allowed to reach ``PurposeMinimizedCrossDomainRule``.
+
+    A candidate is admitted only when the gate reports effective authority
+    (``ALLOW`` or ``APPROVAL_CONSUMED`` — never an unconsumed
+    ``APPROVAL_REQUIRED``, never ``DENY``) *and* its own authority tuple —
+    source domain, target domain, resource identifier and reason — is the exact
+    tuple that authority was issued for.  Candidates are supplied by the caller
+    whether or not they are authorized; a structurally valid matching transfer
+    is therefore genuinely presented in every denial case.
+    """
+    decision = resolver.resolve_cross_domain(request, now=now)
+    gate_result = gate.evaluate_cross_domain(
+        request, approval_request_id=approval_request_id
+    )
+    admitted = ()
+    if gate_result.allowed:
+        admitted = tuple(
+            candidate
+            for candidate in candidates
+            if candidate["identifier"] in request.resource_ids
+            and candidate["source_domain"] == request.source_domain
+            and candidate["target_domain"] == request.target_domain
+            and candidate["reason"] == request.reason
+        )
+    return decision, gate_result, admitted
+
+
 def test_checkpoint_13_supporting_context_is_purpose_minimized():
     from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
 
@@ -720,14 +809,45 @@ def test_checkpoint_13_supporting_context_is_purpose_minimized():
     assert transfer.private is False
     assert transfer.reason == projection["purpose"]
 
-    # Current canonical permission authority for that exact projected path.
-    authorized = _authorized_cross_domain_resolver().resolve_cross_domain(
-        _cross_domain_permission_request(
-            "req-at-dp-052-13", "documented_medication_change"
-        )
+    # Current canonical permission authority for that exact projected path is
+    # approval-gated, and only canonical consumption of that approval is
+    # authorization — an unconsumed ``APPROVAL_REQUIRED`` decision admits
+    # nothing.  The connected boundary therefore admits the transfer only once
+    # ``DomainPermissionGate`` reports ``APPROVAL_CONSUMED``.
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    projected_request = _cross_domain_permission_request(
+        "req-at-dp-052-13", "documented_medication_change"
     )
-    assert authorized.request_id == "req-at-dp-052-13"
-    assert authorized.decision is not PermissionOutcome.DENY
+    candidates = (_canonical_transfer("documented_medication_change"),)
+    decision, gate_result, admitted = _admit_cross_domain_transfers(
+        request=projected_request,
+        candidates=candidates,
+        resolver=authorized_resolver,
+        gate=gate,
+    )
+    assert decision.request_id == "req-at-dp-052-13"
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert gate_result.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    assert admitted == ()
+
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, projected_request
+    )
+    decision, gate_result, admitted = _admit_cross_domain_transfers(
+        request=projected_request,
+        candidates=candidates,
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert gate_result.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert admitted == candidates
+
+    # Only now does the projection apply, and only from admitted evidence.
+    gated = _evaluate(projection, admitted)
+    assert gated.status.value == "applied"
+    assert gated.metadata["included_fields"] == ("documented_medication_change",)
 
     # Canonical privacy composition for the projected path stays SENSITIVE.
     from cmm.domains.mental_health.privacy import build_mental_health_privacy_policy
@@ -914,6 +1034,251 @@ def test_checkpoint_13f_duplicate_transfer_evidence_is_deterministic():
         "finding:health:b",
     )
     assert result.metadata["source_domains"] == ("domain:health",)
+
+
+def test_checkpoint_13g_current_permission_deny_blocks_a_matching_transfer():
+    """V4 MAJOR-03: DENY plus a matching transfer object is still not authority.
+
+    The exact V3 re-audit adversarial: the real canonical registries deny the
+    path, yet a structurally valid canonical transfer for the denied field is
+    supplied.  Omitting that transfer is not a valid fix — it is presented, and
+    the connected boundary must refuse to admit it into the projection.
+    """
+    real_resolver = DomainPermissionResolver(
+        _health_and_mental_health_bootstrap().permission_registry
+    )
+    _approval_service, gate = _connected_permission_stack(real_resolver)
+    denied_request = _cross_domain_permission_request(
+        "req-at-dp-052-v4-deny", "denied_field"
+    )
+    candidate = _canonical_transfer("denied_field", provenance=("prov:denied",))
+
+    # PERMISSION_DENY=YES — the real current canonical authority denies the path.
+    decision = real_resolver.resolve_cross_domain(denied_request, now=NOW)
+    assert decision.decision is PermissionOutcome.DENY
+    assert decision.granted_resources == ()
+    assert "source_cross_domain_denied" in decision.reasons
+    assert "target_cross_domain_denied" in decision.reasons
+
+    # MATCHING_TRANSFER_PRESENT=YES — the withheld evidence is a genuinely
+    # matching canonical transfer for exactly the denied resource.
+    assert candidate["identifier"] in denied_request.resource_ids
+    assert candidate["source_domain"] == denied_request.source_domain
+    assert candidate["target_domain"] == denied_request.target_domain
+    assert candidate["reason"] == denied_request.reason
+    assert candidate["transferable"] is True
+    assert candidate["private"] is False
+    assert candidate["provenance"] == ["prov:denied"]
+
+    # Boundary under test, deliberately asserted: ``PurposeMinimizedCrossDomainRule``
+    # owns minimization and provenance only — it is *not* the permission owner,
+    # so on its own it accepts evidence that current authority denies.  That is
+    # exactly why admission must be permission-gated before the rule runs.
+    ungated = _evaluate(_projection(denied_field=True), (candidate,))
+    assert ungated.metadata["included_fields"] == ("denied_field",)
+
+    # DENIED_TRANSFER_ADMITTED_TO_PROJECTION=NO / DENIED_FIELD_INCLUDED=NO.
+    decision, gate_result, admitted = _admit_cross_domain_transfers(
+        request=denied_request,
+        candidates=(candidate,),
+        resolver=real_resolver,
+        gate=gate,
+    )
+    assert decision.decision is PermissionOutcome.DENY
+    assert gate_result.outcome is PermissionGateOutcome.DENY
+    assert gate_result.allowed is False
+    assert admitted == ()
+    gated = _evaluate(_projection(denied_field=True), admitted)
+    assert gated.status.value == "blocked"
+    assert gated.metadata["included_fields"] == ()
+    assert gated.metadata["provenance_preserved"] is False
+    assert gated.metadata["source_domains"] == ()
+
+    # A supplied approval reference never repairs a canonical DENY.
+    repaired = gate.evaluate_cross_domain(
+        denied_request, approval_request_id="approval-req-supplied"
+    )
+    assert repaired.outcome is PermissionGateOutcome.DENY
+
+
+def test_checkpoint_13h_approval_required_is_not_authorization():
+    """V4 MAJOR-03: an unconsumed APPROVAL_REQUIRED admits no transfer.
+
+    The V3 positive control treated ``decision is not DENY`` as sufficient.
+    Canonical semantics do not: an approval-gated path becomes effective
+    authority only through canonical approval validation and consumption.
+    """
+    authorized_resolver = _authorized_cross_domain_resolver()
+    _approval_service, gate = _connected_permission_stack(authorized_resolver)
+    request = _cross_domain_permission_request(
+        "req-at-dp-052-v4-pending", "documented_medication_change"
+    )
+    candidate = _canonical_transfer("documented_medication_change")
+    decision, gate_result, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(candidate,),
+        resolver=authorized_resolver,
+        gate=gate,
+    )
+
+    # RESOLVER_OUTCOME=APPROVAL_REQUIRED / APPROVAL_CONSUMED=NO.
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert decision.granted_resources == ()
+    assert decision.approval_requirements
+    assert decision.approval_requirements[0].requirement_id == (
+        "cross-domain:req-at-dp-052-v4-pending"
+    )
+    assert gate_result.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    assert gate_result.allowed is False
+
+    # TRANSFER_EFFECTIVELY_AUTHORIZED=NO — the structurally valid matching
+    # transfer above is proposed evidence, not authority.
+    assert admitted == ()
+    # FIELD_INCLUDED=NO.
+    result = _evaluate(_projection(documented_medication_change=True), admitted)
+    assert result.status.value == "blocked"
+    assert result.metadata["included_fields"] == ()
+    assert result.metadata["provenance_preserved"] is False
+
+    # The SENSITIVE floor was not lowered to manufacture an ALLOW.
+    from cmm.domains.mental_health.privacy import build_mental_health_privacy_policy
+
+    floor = resolve_effective_privacy_metadata(
+        project_domain_privacy_metadata(
+            build_mental_health_privacy_policy(),
+            processing_location=ProcessingLocation.LOCAL,
+        )
+    ).effective
+    assert floor.sensitivity is SensitivityLevel.SENSITIVE
+
+
+def test_checkpoint_13i_consumed_canonical_approval_authorizes_the_exact_field():
+    """V4 MAJOR-03: only a consumed canonical approval admits the exact field."""
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    request = _cross_domain_permission_request(
+        "req-at-dp-052-v4-approved", "documented_medication_change"
+    )
+    candidates = (_canonical_transfer("documented_medication_change"),)
+
+    # RESOLVER_OUTCOME=APPROVAL_REQUIRED / PRE_APPROVAL_GATE=APPROVAL_REQUIRED.
+    decision, pending, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=candidates,
+        resolver=authorized_resolver,
+        gate=gate,
+    )
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    assert admitted == ()
+
+    # CANONICAL_APPROVAL_CREATED=YES / CANONICAL_APPROVAL_GRANTED=YES — the
+    # approval request is created from the canonical requirement exposed by the
+    # real gate and granted through the real canonical ApprovalService.
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, request
+    )
+    assert approval_service.repository.get_request(approval_request_id) is not None
+
+    # POST_APPROVAL_GATE=APPROVAL_CONSUMED.
+    decision, consumed, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=candidates,
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert consumed.allowed is True
+    evidence = consumed.approval_evidence
+    assert evidence["granted"] is True
+    assert evidence["consumed"] is True
+    assert evidence["requirement_id"] == f"cross-domain:{request.request_id}"
+    assert evidence["domain_id"] == request.source_domain
+    assert evidence["target_domain"] == request.target_domain
+    assert evidence["actor_id"] == request.actor_id
+    assert evidence["session_id"] == request.session_id
+
+    # MATCHING_TRANSFER_ADMITTED=YES.
+    assert admitted == candidates
+    # APPROVED_FIELD_INCLUDED=YES — and approval for one resource still
+    # authorizes only the field whose own transfer was admitted.
+    result = _evaluate(
+        _projection(documented_medication_change=True, appointment_phone=True),
+        admitted,
+    )
+    assert result.status.value == "applied"
+    assert result.metadata["included_fields"] == ("documented_medication_change",)
+    assert "appointment_phone" in result.metadata["excluded_fields"]
+    assert result.metadata["unbound_fields"] == ("appointment_phone",)
+    assert result.metadata["provenance_references"] == ("finding:health:13",)
+
+
+def test_checkpoint_13j_approval_for_one_field_cannot_authorize_another():
+    """V4 MAJOR-03: the authority tuple binds resource, actor and session.
+
+    A consumed canonical approval for one projected resource never authorizes a
+    different resource, nor the same resource for a different actor.
+    """
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    field_a = _cross_domain_permission_request("req-at-dp-052-v4-binding", "field_a")
+    field_b = _cross_domain_permission_request("req-at-dp-052-v4-binding", "field_b")
+
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, field_a
+    )
+    _decision, gate_a, admitted_a = _admit_cross_domain_transfers(
+        request=field_a,
+        candidates=(_canonical_transfer("field_a"),),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert gate_a.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert admitted_a == (_canonical_transfer("field_a"),)
+
+    # The same consumed approval cannot authorize a different resource, even
+    # though the transfer for it is structurally valid and matching.
+    _decision, gate_b, admitted_b = _admit_cross_domain_transfers(
+        request=field_b,
+        candidates=(_canonical_transfer("field_b"),),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert gate_b.outcome is PermissionGateOutcome.APPROVAL_DENIED
+    assert "approval.binding_failure" in gate_b.reasons
+    assert admitted_b == ()
+    result = _evaluate(_projection(field_b=True), admitted_b)
+    assert result.status.value == "blocked"
+    assert result.metadata["included_fields"] == ()
+
+    # Nor can it authorize the same resource for a different actor.
+    other_actor_request = CrossDomainPermissionRequest(
+        "req-at-dp-052-v4-binding",
+        source_domain=HEALTH_DOMAIN_ID,
+        target_domain=MENTAL_HEALTH_DOMAIN_ID,
+        resource_ids=("field_a",),
+        resource_kinds=(CROSS_DOMAIN_SOURCE_KIND,),
+        reason=CROSS_DOMAIN_PURPOSE,
+        actor_id="user-2",
+        session_id="session-1",
+        sensitivity_level=SensitivityLevel.RESTRICTED,
+        capability=PermissionCapability.RESOURCE_READ,
+    )
+    _decision, gate_actor, admitted_actor = _admit_cross_domain_transfers(
+        request=other_actor_request,
+        candidates=(_canonical_transfer("field_a"),),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert gate_actor.outcome is PermissionGateOutcome.APPROVAL_DENIED
+    assert "approval.binding_failure" in gate_actor.reasons
+    assert admitted_actor == ()
+    assert other_actor_request.actor_id != field_a.actor_id
 
 
 # ── Checkpoint 14: permission/privacy downgrade fails closed ─────────────────
