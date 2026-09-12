@@ -148,8 +148,8 @@ def _therapy_session_preparation() -> DomainWorkflowDefinition:
             ),
             _node(
                 "questions",
-                WorkflowNodeType.ASK_QUESTION,
-                "AskMaterialQuestions",
+                WorkflowNodeType.DETECT_GAPS,
+                "IdentifyMaterialQuestions",
                 dependencies=("prepare",),
             ),
             *_validate_only_tail(depends_on="questions"),
