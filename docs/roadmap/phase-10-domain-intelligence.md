@@ -7917,8 +7917,11 @@ changes. Independent Re-audit V2 is `PASS`: `PHASE10_51=CLOSED`,
 `AT-DP-051=PASS`, `CLOSURE_ELIGIBLE=YES`. Audited remediation HEAD
 `9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report
 `docs/audits/phase-10.51-independent-reaudit-v2.md`; report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`. `NEW_PRODUCTION_FILES=0`,
-`PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase 10.52 and 10.53 remain
-`NOT_STARTED`; Phase 11 remains out of scope.
+`PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase 10.52 is now
+`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` (the first-party inventory grows to
+`FIRST_PARTY_DOMAIN_PACKS=13` while the closed DP-051 historical baseline of
+twelve pre-10.52 packs and two deferred packs is preserved verbatim); Phase
+10.53 remains `NOT_STARTED`; Phase 11 remains out of scope.
 
 ⸻
 
@@ -8320,6 +8323,38 @@ Until those conditions are met:
 DP-052 = REQUIRES_PHASE_INSPECTION
 AT-DP-052 = PLANNED
 ```
+
+Implementation status (Phase 10.52, pre-audit)
+
+The Domain Pack is implemented over the existing shared infrastructure:
+`cmm/domains/mental_health/` (19 modules), `MentalHealthProfile`, 10 resources,
+13 rules, 8 operations, 8 shared-engine workflows, restrictive permissions,
+canonical `SENSITIVE` privacy, presentation, reference-only trace,
+proposal-first memory integration, Knowledge Package schema, model policy,
+benchmarks and quality metrics, atomic validation-first registration and
+`build_standard_mental_health_domain_bootstrap()`.
+
+`domain:mental-health` is the thirteenth first-party Domain Pack
+(`FIRST_PARTY_DOMAIN_PACKS=13`); the closed DP-051 historical baseline (twelve
+pre-10.52 packs, two deferred packs) is preserved verbatim and only the
+current inventory is extended. Health keeps clinical authority, ordinary
+emotional conversation is non-clinical by default, therapy transcript
+provenance is preserved, sensitive inference is never silently persisted,
+cross-domain context is purpose-minimized, and authority downgrades are
+revalidated and fail closed.
+
+```text
+PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP-052=PASS_REPORTED
+AT-DP-052=PASS_REPORTED
+CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT
+PHASE10_53=NOT_STARTED
+```
+
+Reference: `docs/reference/mental-health-domain.md`. Independent audit remains
+pending; `DP-052=VERIFIED_EXISTING`, `AT-DP-052=PASS` and
+`CLOSURE_ELIGIBLE=YES` are audit conclusions, not implementation
+self-certification.
 
 ⸻
 
