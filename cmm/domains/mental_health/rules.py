@@ -31,7 +31,9 @@ from cmm.cognitive.enums import (
     ReasoningRuleScope,
     ReasoningRuleStatus,
     ReasoningSeverity,
+    ResourceSourceKind,
 )
+from cmm.cognitive.errors import InvalidResourceProvenanceError
 from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningEscalation,
     ReasoningFinding,
@@ -41,7 +43,16 @@ from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningRuleResult,
     ReasoningRuleTraceEntry,
 )
-from cmm.domains.mental_health.catalog import CANONICAL_MENTAL_HEALTH_RULE_IDS
+from cmm.cognitive.resources import ResourceProvenance
+from cmm.domains.cross_domain_contracts import (
+    CrossDomainContextTransfer,
+    CrossDomainSerializationError,
+)
+from cmm.domains.errors import CrossDomainContractError
+from cmm.domains.mental_health.catalog import (
+    CANONICAL_MENTAL_HEALTH_RULE_IDS,
+    MENTAL_HEALTH_DOMAIN_ID,
+)
 from cmm.domains.rule_contracts import DomainReasoningRuleDefinition, DomainRuleResult
 
 MENTAL_HEALTH_RULE_IDS: tuple[str, ...] = CANONICAL_MENTAL_HEALTH_RULE_IDS
@@ -69,6 +80,9 @@ SPEAKER_MODEL = "model"
 SPEAKER_UNKNOWN = "unknown"
 
 _KNOWN_SPEAKERS = frozenset({SPEAKER_THERAPIST, SPEAKER_USER, SPEAKER_MODEL})
+
+# Source-domain slugs that never identify a real canonical transfer source.
+_UNKNOWN_SOURCE_SLUGS = frozenset({"", "unknown", "unspecified", "none"})
 
 # Content kinds that must never be silently persisted by Mental Health.
 _RESTRICTED_CONTENT_KINDS = frozenset(
@@ -196,6 +210,26 @@ def _seq(metadata: Mapping, key: str) -> tuple | None:
     return value if isinstance(value, (list, tuple)) else None
 
 
+def _strict_flag(metadata: Mapping, key: str, *, default: bool = False) -> bool:
+    """Fail-closed boolean semantics for high-stakes Mental Health flags.
+
+    Python truthiness makes ``bool("false")`` ``True``, so a naive read of an
+    authority / evidence / provenance / relevance / safety flag would let a
+    malformed JSON-like value (``"false"``, ``"0"``, ``1``, ``0``, ``{}``,
+    ``[]``) acquire a condition it must never hold (audit V1 MAJOR-01).
+
+    Only a literal ``True``/``False`` is honoured.  A missing key keeps the
+    contract's documented ``default`` — absence is not malformed input.  Any
+    other *present* value is malformed and fails closed to ``False``.
+
+    This is a single local pure helper, not a registry, engine or parser.
+    """
+    if key not in metadata:
+        return default
+    value = metadata[key]
+    return value if isinstance(value, bool) else False
+
+
 def _finding(
     definition: ReasoningRuleDefinition,
     code: str,
@@ -240,26 +274,26 @@ def classify_emotional_statement(statement: Mapping) -> str:
     classes win over ``fact`` so an ambiguous statement can never be promoted
     to fact.  ``fact`` requires an explicit non-inferential fact flag.
     """
-    if bool(statement.get("uncertainty")):
+    if _strict_flag(statement, "uncertainty"):
         return EPISTEMIC_UNCERTAINTY
-    if bool(statement.get("fear")) or bool(statement.get("fear_as_prediction")):
+    if _strict_flag(statement, "fear") or _strict_flag(statement, "fear_as_prediction"):
         return EPISTEMIC_FEAR
-    if bool(statement.get("intuition")):
+    if _strict_flag(statement, "intuition"):
         return EPISTEMIC_INTUITION
-    if bool(statement.get("interpretation")):
+    if _strict_flag(statement, "interpretation"):
         return EPISTEMIC_INTERPRETATION
-    if bool(statement.get("hypothesis")):
+    if _strict_flag(statement, "hypothesis"):
         return EPISTEMIC_HYPOTHESIS
-    if bool(statement.get("preference")):
+    if _strict_flag(statement, "preference"):
         return EPISTEMIC_PREFERENCE
-    if bool(statement.get("decision")):
+    if _strict_flag(statement, "decision"):
         return EPISTEMIC_DECISION
-    if bool(statement.get("observation")):
+    if _strict_flag(statement, "observation"):
         return EPISTEMIC_OBSERVATION
-    if bool(statement.get("fact")) and not (
-        statement.get("interpretation")
-        or statement.get("fear")
-        or statement.get("intuition")
+    if _strict_flag(statement, "fact") and not (
+        _strict_flag(statement, "interpretation")
+        or _strict_flag(statement, "fear")
+        or _strict_flag(statement, "intuition")
     ):
         return EPISTEMIC_FACT
     return EPISTEMIC_UNKNOWN
@@ -267,7 +301,7 @@ def classify_emotional_statement(statement: Mapping) -> str:
 
 def classify_speaker(turn: Mapping) -> str:
     """Return the closed speaker attribution class for a transcript turn."""
-    if bool(turn.get("model_interpretation")):
+    if _strict_flag(turn, "model_interpretation"):
         return SPEAKER_MODEL
     speaker = turn.get("speaker")
     if isinstance(speaker, str):
@@ -291,16 +325,109 @@ def persistence_is_authorized(authorization: Any) -> bool:
 
     Raw booleans, numerics, strings, ``None`` and arbitrary mappings never
     authorize.  Repetition, intensity or emotional certainty are not
-    authorization either.
+    authorization either.  The referenced proposal and binding must be real
+    non-empty identifiers — a malformed container must not stand in for one.
     """
     if not isinstance(authorization, Mapping):
         return False
     if authorization.get("approved") is not True:
         return False
     # A canonical approval chain requires a referenced proposal and binding.
-    return bool(authorization.get("proposal_id")) and bool(
+    return _is_non_empty_id(authorization.get("proposal_id")) and _is_non_empty_id(
         authorization.get("binding_id")
     )
+
+
+def _is_non_empty_id(value: Any) -> bool:
+    """True only for a real, non-blank string identifier."""
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _source_ref(turn: Mapping) -> str | None:
+    """Return the canonical per-turn source reference, or ``None`` if absent.
+
+    A speaker label is not a source reference: only a real non-blank string
+    identifier counts as provenance for a transcript turn.
+    """
+    value = turn.get("source_ref")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _canonical_source_provenance(value: Any) -> ResourceProvenance | None:
+    """Return validated canonical source provenance, else ``None``.
+
+    Reuses the existing canonical cognitive ``ResourceProvenance`` contract
+    (no second provenance model is invented for Mental Health).  The caller
+    supplies its JSON-safe canonical representation and this validates it
+    through that canonical constructor.  Malformed or incomplete evidence
+    fails closed to ``None`` rather than fabricating provenance.
+    """
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        source_type = ResourceSourceKind(value.get("source_type"))
+    except (ValueError, TypeError):
+        return None
+    try:
+        return ResourceProvenance(
+            source_type=source_type,
+            source_id=value.get("source_id"),
+            author=value.get("author"),
+            original_location=value.get("original_location"),
+            checksum=value.get("checksum"),
+        )
+    except (InvalidResourceProvenanceError, AttributeError, TypeError):
+        return None
+
+
+def _canonical_transfer(value: Any) -> CrossDomainContextTransfer | None:
+    """Return a validated canonical cross-domain transfer, else ``None``.
+
+    Reuses the existing canonical ``CrossDomainContextTransfer`` contract — no
+    Mental-Health-specific transfer or provenance model is invented.  That
+    contract already enforces distinct valid domains, non-empty provenance and
+    strict boolean transfer flags; malformed input fails closed to ``None``.
+    """
+    if isinstance(value, CrossDomainContextTransfer):
+        return value
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        return CrossDomainContextTransfer.from_dict(dict(value))
+    except (
+        CrossDomainSerializationError,
+        CrossDomainContractError,
+        TypeError,
+        ValueError,
+        KeyError,
+    ):
+        return None
+
+
+def _transfer_rejection(
+    transfer: CrossDomainContextTransfer, purpose: str
+) -> str | None:
+    """Return the canonical rejection reason, or ``None`` when acceptable.
+
+    The canonical transfer contract has already validated domain identity,
+    non-empty provenance and strict boolean flags; this adds only the
+    Mental-Health-side checks the contract cannot know about.
+    """
+    if str(transfer.target_domain) != MENTAL_HEALTH_DOMAIN_ID:
+        return "target_domain_not_mental_health"
+    if transfer.source_domain.slug.strip().casefold() in _UNKNOWN_SOURCE_SLUGS:
+        return "source_domain_unknown"
+    if not transfer.provenance:
+        return "provenance_missing"
+    if transfer.private:
+        return "private_context_not_transferable"
+    if not transfer.transferable:
+        return "transfer_not_permitted"
+    if transfer.reason.strip() != purpose:
+        return "purpose_mismatch"
+    return None
 
 
 def detect_health_owned_clinical_claim(claim: Mapping) -> dict:
@@ -318,7 +445,7 @@ def detect_health_owned_clinical_claim(claim: Mapping) -> dict:
         "medical_safety",
         "clinical_record",
     )
-    is_clinical = any(bool(claim.get(key)) for key in clinical_keys)
+    is_clinical = any(_strict_flag(claim, key) for key in clinical_keys)
     override_requested = isinstance(claim.get("requested"), str) and claim.get(
         "requested"
     ) in {
@@ -345,8 +472,8 @@ def evaluate_safety_proportionality(safety: Mapping) -> dict:
     Escalation requires material, credible immediate risk.  Emotional language,
     intensity, repetition or unverified claims never trigger escalation.
     """
-    material_risk = bool(safety.get("material_risk"))
-    credible = bool(safety.get("credible", True))
+    material_risk = _strict_flag(safety, "material_risk")
+    credible = _strict_flag(safety, "credible", default=True)
     specialized = safety.get("specialized_domain_result") is not None
     escalate = material_risk and credible
     return {
@@ -507,7 +634,7 @@ class MaterialGapQuestioningRule:
         for gap in gaps:
             if not isinstance(gap, Mapping):
                 continue
-            if not bool(gap.get("affects_reasoning")):
+            if not _strict_flag(gap, "affects_reasoning"):
                 continue
             topic = str(gap.get("topic", "unknown"))
             findings.append(
@@ -565,7 +692,7 @@ class AuthorizedLongitudinalContinuityRule:
         unauthorized = tuple(
             str(ref.get("id", "unknown"))
             for ref in references
-            if isinstance(ref, Mapping) and not bool(ref.get("authorized"))
+            if isinstance(ref, Mapping) and not _strict_flag(ref, "authorized")
         )
         if unauthorized:
             finding = _finding(
@@ -629,39 +756,93 @@ class TherapySpeakerProvenanceRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No transcript turns supplied.",
             )
+        # Source provenance is consumed from canonical evidence, never assumed.
+        # Speaker separation alone is not source provenance (audit V1 MAJOR-02).
+        provenance = _canonical_source_provenance(
+            context.metadata.get("source_provenance")
+        )
+        provenance_id = provenance.source_id if provenance is not None else None
         findings: list[ReasoningFinding] = []
         unknown_claim: list[str] = []
+        unprovenanced: list[str] = []
         for turn in turns:
             if not isinstance(turn, Mapping):
                 continue
             turn_id = str(turn.get("id", "unknown"))
             speaker = classify_speaker(turn)
+            source_ref = _source_ref(turn)
+            turn_provenanced = provenance is not None and source_ref is not None
+            if not turn_provenanced:
+                unprovenanced.append(turn_id)
             findings.append(
                 _finding(
                     self.definition,
                     "SPEAKER_ATTRIBUTION",
                     f"Turn {turn_id} attributed to {speaker}.",
-                    references=(turn_id,),
-                    metadata={"speaker": speaker, "source_identity_preserved": True},
+                    references=(turn_id,)
+                    if source_ref is None
+                    else (turn_id, source_ref),
+                    metadata={
+                        "speaker": speaker,
+                        "source_ref": source_ref,
+                        "source_identity_preserved": turn_provenanced,
+                        "model_interpretation_distinct": speaker is SPEAKER_MODEL,
+                    },
                 )
             )
-            if speaker is SPEAKER_UNKNOWN and bool(turn.get("clinical_claim")):
+            if speaker is SPEAKER_UNKNOWN and _strict_flag(turn, "clinical_claim"):
                 unknown_claim.append(turn_id)
-        if unknown_claim:
-            finding = _finding(
-                self.definition,
-                "SPEAKER_PROVENANCE_INSUFFICIENT",
-                "An unattributed clinical claim cannot support a high-confidence "
-                "conclusion.",
-                severity=ReasoningSeverity.WARNING,
-                references=tuple(unknown_claim),
-            )
+
+        if unprovenanced:
+            metadata: dict[str, Any] = {
+                "provenance_preserved": False,
+                "unprovenanced_turns": tuple(unprovenanced),
+                "source_provenance_id": provenance_id,
+                "high_confidence_output_blocked": True,
+            }
+            if unknown_claim:
+                metadata["unattributed_clinical_claims"] = tuple(unknown_claim)
             return _result(
                 self.definition,
                 context,
                 ReasoningRuleResultStatus.BLOCKED,
-                findings=(*findings, finding),
-                metadata={"unattributed_clinical_claims": tuple(unknown_claim)},
+                findings=(
+                    *findings,
+                    _finding(
+                        self.definition,
+                        "SPEAKER_PROVENANCE_INSUFFICIENT",
+                        "Turns without canonical source/provenance evidence cannot "
+                        "support a high-confidence conclusion.",
+                        severity=ReasoningSeverity.WARNING,
+                        references=tuple(unprovenanced),
+                    ),
+                ),
+                metadata=metadata,
+                code="SPEAKER_PROVENANCE_INSUFFICIENT",
+                message="High-confidence output blocked: source provenance insufficient.",
+            )
+        if unknown_claim:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                findings=(
+                    *findings,
+                    _finding(
+                        self.definition,
+                        "SPEAKER_PROVENANCE_INSUFFICIENT",
+                        "An unattributed clinical claim cannot support a high-confidence "
+                        "conclusion.",
+                        severity=ReasoningSeverity.WARNING,
+                        references=tuple(unknown_claim),
+                    ),
+                ),
+                metadata={
+                    "unattributed_clinical_claims": tuple(unknown_claim),
+                    "provenance_preserved": True,
+                    "source_provenance_id": provenance_id,
+                    "high_confidence_output_blocked": True,
+                },
                 code="SPEAKER_PROVENANCE_BLOCKED",
                 message="High-confidence output blocked: provenance insufficient.",
             )
@@ -671,7 +852,9 @@ class TherapySpeakerProvenanceRule:
             ReasoningRuleResultStatus.APPLIED,
             findings=tuple(findings),
             metadata={
-                "speaker_classes": sorted({f.metadata["speaker"] for f in findings})
+                "speaker_classes": sorted({f.metadata["speaker"] for f in findings}),
+                "provenance_preserved": True,
+                "source_provenance_id": provenance_id,
             },
             code="SPEAKER_PROVENANCE_PRESERVED",
             message="Speaker and source identity preserved.",
@@ -701,7 +884,7 @@ class TherapyStatementSeparationRule:
             str(turn.get("id", "unknown"))
             for turn in turns
             if isinstance(turn, Mapping)
-            and bool(turn.get("attributed_to_therapist"))
+            and _strict_flag(turn, "attributed_to_therapist")
             and classify_speaker(turn) is not SPEAKER_THERAPIST
         )
         findings = tuple(
@@ -968,15 +1151,81 @@ class PurposeMinimizedCrossDomainRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No cross-domain projection supplied.",
             )
+        raw_purpose = projection.get("purpose")
+        purpose = raw_purpose.strip() if isinstance(raw_purpose, str) else ""
         fields = projection.get("fields")
         if not isinstance(fields, Mapping):
             fields = {}
+        if not purpose:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                metadata={
+                    "included_fields": (),
+                    "excluded_fields": tuple(fields),
+                    "provenance_preserved": False,
+                    "rejected_transfers": ("purpose_missing",),
+                },
+                code="CROSS_DOMAIN_TRANSFER_BLOCKED",
+                message="Cross-domain import blocked: no authorized purpose supplied.",
+            )
+
+        # Only a literal ``True`` relevance flag survives minimization; a
+        # malformed value never gains relevance (audit V1 MAJOR-01/MAJOR-03).
         included = tuple(
             name
             for name, spec in fields.items()
-            if isinstance(spec, Mapping) and bool(spec.get("relevant"))
+            if isinstance(spec, Mapping) and _strict_flag(spec, "relevant")
         )
         excluded = tuple(name for name in fields if name not in included)
+
+        # Canonical transfer evidence is required — an untyped mapping is not
+        # provenance (audit V1 MAJOR-03).
+        accepted: list[CrossDomainContextTransfer] = []
+        rejected: list[str] = []
+        for item in _seq(context.metadata, "transfers") or ():
+            transfer = _canonical_transfer(item)
+            if transfer is None:
+                rejected.append("malformed_transfer")
+                continue
+            reason = _transfer_rejection(transfer, purpose)
+            if reason is not None:
+                rejected.append(reason)
+                continue
+            accepted.append(transfer)
+
+        if not accepted:
+            finding = _finding(
+                self.definition,
+                "CROSS_DOMAIN_TRANSFER_BLOCKED",
+                "Cross-domain import requires canonical transfer evidence with "
+                "non-empty provenance and current transfer authority.",
+                severity=ReasoningSeverity.WARNING,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                findings=(finding,),
+                metadata={
+                    "included_fields": (),
+                    "excluded_fields": tuple(fields),
+                    "provenance_preserved": False,
+                    "rejected_transfers": tuple(rejected),
+                    "purpose": purpose,
+                },
+                code="CROSS_DOMAIN_TRANSFER_BLOCKED",
+                message=(
+                    "Cross-domain import blocked: canonical transfer evidence "
+                    "missing or unauthorized."
+                ),
+            )
+
+        provenance_references = tuple(
+            sorted({ref for transfer in accepted for ref in transfer.provenance})
+        )
+        source_domains = tuple(sorted({str(item.source_domain) for item in accepted}))
         finding = _finding(
             self.definition,
             "PURPOSE_MINIMIZED_PROJECTION",
@@ -985,11 +1234,12 @@ class PurposeMinimizedCrossDomainRule:
                 "irrelevant sensitive fields were excluded."
             ),
             metadata={
-                "purpose": str(projection.get("purpose", "unknown")),
-                "source_domain": str(projection.get("source_domain", "unknown")),
+                "purpose": purpose,
+                "source_domains": list(source_domains),
                 "included_fields": list(included),
                 "excluded_fields": list(excluded),
                 "provenance_preserved": True,
+                "provenance_references": list(provenance_references),
             },
         )
         return _result(
@@ -1001,6 +1251,10 @@ class PurposeMinimizedCrossDomainRule:
                 "included_fields": included,
                 "excluded_fields": excluded,
                 "provenance_preserved": True,
+                "provenance_references": provenance_references,
+                "source_domains": source_domains,
+                "purpose": purpose,
+                "rejected_transfers": tuple(rejected),
             },
             code="CROSS_DOMAIN_MINIMIZED",
             message="Cross-domain import minimized to the authorized purpose.",

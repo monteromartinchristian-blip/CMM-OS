@@ -416,3 +416,48 @@ def test_proposal_remains_a_proposal_until_canonical_approval():
     )
     assert approved.is_valid is True
     assert binding.memory_proposal_ids == ("mp-mh-9",)
+
+
+# ── Audit V1 remediation — MINOR-01 stale binding after revocation ──────────
+
+
+def test_stale_binding_becomes_invalid_after_permission_revocation():
+    """A binding valid now must not stay valid after its permission is revoked.
+
+    Uses the real canonical memory integration validator over the official
+    Mental Health proposal/binding builders — no mock validator is involved.
+    """
+    from dataclasses import replace
+
+    binding, inventory, _view, _proposal = _full_chain("mp-mh-10")
+
+    # 1–2. The complete canonical chain validates before revocation.
+    before = validate_mental_health_memory_binding(binding=binding, inventory=inventory)
+    assert before.is_valid is True
+
+    # 3. Revoke the exact canonical permission decision the binding references.
+    assert len(inventory.permission_decisions) == 1
+    original_decision = inventory.permission_decisions[0]
+    assert original_decision.allowed is True
+    revoked_decision = replace(original_decision, allowed=False)
+    assert revoked_decision.decision_id == original_decision.decision_id
+
+    revoked_inventory = DomainMemoryReferenceInventory(
+        references=inventory.references,
+        proposals=inventory.proposals,
+        permission_decisions=(revoked_decision,),
+        approval_requests=inventory.approval_requests,
+        approval_decisions=inventory.approval_decisions,
+        traces=inventory.traces,
+        views=inventory.views,
+    )
+
+    # 4–5. Revalidating the *same stale binding* must now fail closed.
+    after = validate_mental_health_memory_binding(
+        binding=binding, inventory=revoked_inventory
+    )
+    assert after.is_valid is False
+
+    # The binding itself is unchanged: only current authority moved.
+    assert binding.permission_decision_ids == (original_decision.decision_id,)
+    assert binding.memory_proposal_ids == ("mp-mh-10",)

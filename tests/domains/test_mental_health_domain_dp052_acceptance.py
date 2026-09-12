@@ -308,6 +308,19 @@ def test_checkpoint_6_therapy_preparation_and_review_use_shared_workflows():
 
 
 def test_checkpoint_7_transcript_speaker_and_source_provenance_is_preserved():
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    # Real canonical source provenance for the transcript resource — the rule
+    # must consume and propagate it rather than asserting preservation.
+    source_id = "mental_health.therapy_transcript:session-42"
+    provenance = ResourceProvenance(
+        source_type=ResourceSourceKind.UPLOADED_FILE,
+        source_id=source_id,
+        author="user",
+        retrieved_at=NOW,
+    ).to_dict()
+
     rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
     provenance_rule = rules["mental_health.therapy_speaker_provenance"]
     context = ReasoningRuleContext(
@@ -316,19 +329,50 @@ def test_checkpoint_7_transcript_speaker_and_source_provenance_is_preserved():
         active_domains=("domain:mental-health",),
         primary_domain="domain:mental-health",
         metadata={
+            "source_provenance": provenance,
             "transcript_turns": [
-                {"id": "t1", "speaker": "therapist"},
-                {"id": "t2", "speaker": "user"},
-                {"id": "t3", "speaker": "model", "model_interpretation": True},
-            ]
+                {"id": "t1", "speaker": "therapist", "source_ref": "turn:1"},
+                {"id": "t2", "speaker": "user", "source_ref": "turn:2"},
+                {
+                    "id": "t3",
+                    "speaker": "model",
+                    "model_interpretation": True,
+                    "source_ref": "turn:3",
+                },
+            ],
         },
     )
     result = provenance_rule.evaluate(context)
+    assert result.status.value == "applied"
+    assert result.trace_entries[0].code == "SPEAKER_PROVENANCE_PRESERVED"
+    assert result.metadata["provenance_preserved"] is True
+    assert result.metadata["source_provenance_id"] == source_id
     assert {finding.metadata["speaker"] for finding in result.findings} == {
         "therapist",
         "user",
         "model",
     }
+    by_speaker = {finding.metadata["speaker"]: finding for finding in result.findings}
+    # The real per-turn source reference survives into the finding.
+    assert "turn:1" in by_speaker["therapist"].references
+    assert by_speaker["therapist"].metadata["source_identity_preserved"] is True
+    # Model interpretation stays distinguishable from source statements.
+    assert by_speaker["model"].metadata["model_interpretation_distinct"] is True
+    assert by_speaker["therapist"].metadata["model_interpretation_distinct"] is False
+
+    # Speaker-only turns carry no source evidence and must fail closed.
+    unprovenanced = provenance_rule.evaluate(
+        ReasoningRuleContext(
+            reasoning_id="rid",
+            timestamp=NOW,
+            active_domains=("domain:mental-health",),
+            primary_domain="domain:mental-health",
+            metadata={"transcript_turns": [{"id": "t1", "speaker": "therapist"}]},
+        )
+    )
+    assert unprovenanced.status.value == "blocked"
+    assert unprovenanced.metadata["provenance_preserved"] is False
+    assert unprovenanced.metadata["unprovenanced_turns"] == ("t1",)
 
     insufficient = provenance_rule.evaluate(
         ReasoningRuleContext(
@@ -487,31 +531,98 @@ def test_checkpoint_12_privacy_remains_canonical_sensitive():
 
 
 def test_checkpoint_13_supporting_context_is_purpose_minimized():
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    def _transfer(
+        identifier, *, transferable=True, private=False, reason="emotional_context"
+    ):
+        return CrossDomainContextTransfer(
+            source_domain="domain:health",
+            target_domain="domain:mental-health",
+            kind="finding",
+            identifier=identifier,
+            value=True,
+            reason=reason,
+            provenance=("finding:health:13",),
+            transferable=transferable,
+            private=private,
+        ).to_dict()
+
+    projection = {
+        "purpose": "emotional_context",
+        "fields": {
+            "documented_medication_change": {"relevant": True},
+            "appointment_phone": {"relevant": False},
+            "clinician_personal_notes": {"relevant": False},
+        },
+    }
     rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
-    result = rules["mental_health.purpose_minimized_cross_domain"].evaluate(
+    rule = rules["mental_health.purpose_minimized_cross_domain"]
+
+    result = rule.evaluate(
         ReasoningRuleContext(
             reasoning_id="rid",
             timestamp=NOW,
             active_domains=("domain:mental-health",),
             primary_domain="domain:mental-health",
             metadata={
-                "projection": {
-                    "purpose": "emotional_context",
-                    "source_domain": "domain:health",
-                    "fields": {
-                        "documented_medication_change": {"relevant": True},
-                        "appointment_phone": {"relevant": False},
-                        "clinician_personal_notes": {"relevant": False},
-                    },
-                }
+                "projection": projection,
+                "transfers": (
+                    _transfer("documented_medication_change"),
+                    _transfer("appointment_phone"),
+                    _transfer("clinician_personal_notes"),
+                ),
             },
         )
     )
+    assert result.status.value == "applied"
+    assert result.trace_entries[0].code == "CROSS_DOMAIN_MINIMIZED"
     assert result.metadata["included_fields"] == ("documented_medication_change",)
+    assert set(result.metadata["excluded_fields"]) == {
+        "appointment_phone",
+        "clinician_personal_notes",
+    }
+    # Provenance is proven by real canonical transfer evidence, not asserted.
     assert result.metadata["provenance_preserved"] is True
+    assert result.metadata["provenance_references"] == ("finding:health:13",)
+    assert result.metadata["source_domains"] == ("domain:health",)
     assert not set(result.metadata["included_fields"]) & set(
         result.metadata["excluded_fields"]
     )
+
+    # The same projection without canonical transfer evidence fails closed.
+    bare = rule.evaluate(
+        ReasoningRuleContext(
+            reasoning_id="rid",
+            timestamp=NOW,
+            active_domains=("domain:mental-health",),
+            primary_domain="domain:mental-health",
+            metadata={"projection": projection},
+        )
+    )
+    assert bare.status.value == "blocked"
+    assert bare.metadata["provenance_preserved"] is False
+    assert bare.metadata["included_fields"] == ()
+
+    # Current transfer authority is connected to the projection: an explicit
+    # permission denial for the projection's transfer blocks it.
+    denied = rule.evaluate(
+        ReasoningRuleContext(
+            reasoning_id="rid",
+            timestamp=NOW,
+            active_domains=("domain:mental-health",),
+            primary_domain="domain:mental-health",
+            metadata={
+                "projection": projection,
+                "transfers": (
+                    _transfer("documented_medication_change", transferable=False),
+                ),
+            },
+        )
+    )
+    assert denied.status.value == "blocked"
+    assert denied.metadata["provenance_preserved"] is False
+    assert denied.metadata["rejected_transfers"] == ("transfer_not_permitted",)
 
 
 # ── Checkpoint 14: permission/privacy downgrade fails closed ─────────────────
@@ -552,6 +663,43 @@ def test_checkpoint_14_authority_downgrade_is_revalidated_and_fails_closed():
     after = resolver.resolve(request)
     assert after.effective_permissions.decision is PermissionOutcome.DENY
     assert all(str(policy.version) != "1.0.0" for policy in after.domain_policies)
+
+    # The same downgrade must invalidate an already-validated memory binding
+    # that references the revoked canonical permission decision.
+    from dataclasses import replace
+
+    from cmm.domains.memory_contracts import DomainMemoryReferenceInventory
+    from cmm.domains.mental_health.memory import (
+        validate_mental_health_memory_binding,
+    )
+    from tests.domains.test_mental_health_domain_memory import _full_chain
+
+    binding, inventory, _view, _proposal = _full_chain("mp-at-dp-052-c14")
+    assert (
+        validate_mental_health_memory_binding(
+            binding=binding, inventory=inventory
+        ).is_valid
+        is True
+    )
+
+    revoked_decision = replace(inventory.permission_decisions[0], allowed=False)
+    stale = validate_mental_health_memory_binding(
+        binding=binding,
+        inventory=DomainMemoryReferenceInventory(
+            references=inventory.references,
+            proposals=inventory.proposals,
+            permission_decisions=(revoked_decision,),
+            approval_requests=inventory.approval_requests,
+            approval_decisions=inventory.approval_decisions,
+            traces=inventory.traces,
+            views=inventory.views,
+        ),
+    )
+    assert stale.is_valid is False
+    # The stale binding is unchanged; only current authority moved.
+    assert binding.permission_decision_ids == (
+        inventory.permission_decisions[0].decision_id,
+    )
 
 
 # ── Checkpoint 15: operations unavailable without injection ─────────────────

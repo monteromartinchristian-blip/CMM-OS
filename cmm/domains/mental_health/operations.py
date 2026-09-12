@@ -105,19 +105,24 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         ("note_refs",), {"note_refs": _ids(1)}
     ),
     # Transcript analysis structurally requires speaker-separated, sourced
-    # turns: without provenance the operation must remain limited.
+    # turns: without canonical source/provenance evidence the operation must
+    # remain limited.  ``source_provenance`` carries the canonical
+    # ``ResourceProvenance`` for the transcript resource and each turn carries
+    # its own ``source_ref`` — speaker separation alone is not provenance.
     "mental_health.analyze_therapy_transcript": _schema(
-        ("transcript_ref", "speaker_turns"),
+        ("transcript_ref", "source_provenance", "speaker_turns"),
         {
             "transcript_ref": {"type": "string"},
+            "source_provenance": {"type": "object"},
             "speaker_turns": {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["turn_id", "speaker"],
+                    "required": ["turn_id", "speaker", "source_ref"],
                     "properties": {
                         "turn_id": {"type": "string"},
                         "speaker": {"type": "string"},
+                        "source_ref": {"type": "string"},
                         "verbatim": {"type": "boolean"},
                     },
                     "additionalProperties": False,

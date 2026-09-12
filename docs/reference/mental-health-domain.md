@@ -1,8 +1,9 @@
 # Mental Health Domain (`domain:mental-health`)
 
 **Phase:** 10.52
-**Status:** `PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` — independent
-audit remains pending
+**Status:** `PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — independent
+audit V1 recorded `FAIL` (3 majors, 1 minor); all four findings were remediated
+and independent Re-audit V2 remains pending
 **Canonical identity:** `domain:mental-health` · namespace `mental_health.*` · version `1.0.0`
 **Canonical profile:** `MentalHealthProfile`
 **Design:** `docs/superpowers/specs/2026-09-11-phase-10.52-mental-health-domain-design.md`
@@ -10,9 +11,9 @@ audit remains pending
 **Acceptance:** `DP-052` / `AT-DP-052`
 **Kind:** `DomainKind.PERSONAL` · manifest `manifest:mental-health:1.0.0`
 
-> Pre-audit status only. This document reports implementation and
-> self-reported test results. It does **not** claim independent audit PASS and
-> does not close the phase.
+> Remediation status only. This document reports implementation, the applied
+> audit-V1 remediation and self-reported test results. It does **not** claim
+> independent audit PASS and does not close the phase.
 
 ---
 
@@ -468,15 +469,23 @@ extended to 13 packs and 1 deferred pack (Neurodivergence) through the existing
 extensibility seam. No Phase 10.51 validation was weakened to admit Mental
 Health.
 
-## 28. Pre-audit status
+## 28. Remediation status
 
 ```text
-PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-052=PASS_REPORTED
 AT-DP-052=PASS_REPORTED
-CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT
+CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_REAUDIT
 PHASE10_53=NOT_STARTED
 ```
 
-Independent audit is performed outside the implementation agent. This document
-does not claim audit PASS and does not close the phase.
+Independent Audit V1 (`docs/audits/phase-10.52-independent-audit-v1.md`) recorded
+`FAIL` with `MAJORS=3` and `MINORS=1`. All four findings were remediated under
+TDD: sensitive boolean flags now fail closed, therapy-transcript source
+provenance is consumed as real canonical evidence, cross-domain minimization
+consumes canonical `CrossDomainContextTransfer` evidence, and the stale
+memory-binding revocation proof is committed. The connected acceptance now
+exercises those real semantics rather than asserting unconditional claims.
+
+Independent Re-audit V2 is performed outside the implementation agent. This
+document does not claim audit PASS and does not close the phase.
