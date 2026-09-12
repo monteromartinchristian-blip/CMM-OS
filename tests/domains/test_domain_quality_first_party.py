@@ -18,6 +18,12 @@ from cmm.domains.languages.definition import build_languages_domain_definition
 from cmm.domains.languages.quality_metrics import build_languages_quality_metrics
 from cmm.domains.life_plan.definition import build_life_plan_domain_definition
 from cmm.domains.life_plan.quality_metrics import build_life_plan_quality_metrics
+from cmm.domains.mental_health.definition import (
+    build_mental_health_domain_definition,
+)
+from cmm.domains.mental_health.quality_metrics import (
+    build_mental_health_quality_metrics,
+)
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.oppositions.quality_metrics import build_oppositions_quality_metrics
 from cmm.domains.parenthood.definition import build_parenthood_domain_definition
@@ -126,6 +132,17 @@ EXPECTED: dict[str, tuple[tuple[str, str, str, bool], ...]] = {
         ("tool-calling-quality", "0.20", "0.85", True),
         ("structured-output", "0.15", "0.80", False),
     ),
+    "mental-health": (
+        ("health-authority-boundary-fidelity", "0.20", "1.00", True),
+        ("epistemic-separation", "0.15", "0.95", True),
+        ("provenance-fidelity", "0.15", "0.95", True),
+        ("privacy-adherence", "0.15", "1.00", True),
+        ("safety-proportionality", "0.10", "0.95", True),
+        ("sensitive-memory-proposal-discipline", "0.10", "1.00", True),
+        ("non-pathologizing-behavior", "0.05", "0.90", True),
+        ("cross-domain-minimization", "0.05", "0.90", True),
+        ("therapy-context-fidelity", "0.05", "0.80", False),
+    ),
 }
 
 IMPLEMENTED_QUALITY_DOMAINS = {
@@ -141,6 +158,7 @@ IMPLEMENTED_QUALITY_DOMAINS = {
     "sport",
     "life-plan",
     "project",
+    "mental-health",
 }
 
 DEFINITION_BUILDERS = {
@@ -156,6 +174,7 @@ DEFINITION_BUILDERS = {
     "sport": build_sport_domain_definition,
     "life-plan": build_life_plan_domain_definition,
     "project": build_project_domain_definition,
+    "mental-health": build_mental_health_domain_definition,
 }
 
 FACTORY_BUILDERS = {
@@ -171,6 +190,7 @@ FACTORY_BUILDERS = {
     "sport": build_sport_quality_metrics,
     "life-plan": build_life_plan_quality_metrics,
     "project": build_project_quality_metrics,
+    "mental-health": build_mental_health_quality_metrics,
 }
 
 
@@ -219,14 +239,14 @@ def test_domain_definition_attaches_catalog(slug: str) -> None:
     assert definition.benchmark_suites
 
 
-def test_implemented_catalog_inventory_is_exactly_twelve() -> None:
+def test_implemented_catalog_inventory_is_thirteen_after_phase_10_52() -> None:
     assert set(EXPECTED) == IMPLEMENTED_QUALITY_DOMAINS
     assert set(FACTORY_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
     assert set(DEFINITION_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
-    assert len(IMPLEMENTED_QUALITY_DOMAINS) == 12
+    assert len(IMPLEMENTED_QUALITY_DOMAINS) == 13
 
 
-@pytest.mark.parametrize("slug", ("mental_health", "neurodivergence"))
+@pytest.mark.parametrize("slug", ("neurodivergence",))
 def test_future_domain_quality_catalogs_are_absent(slug: str) -> None:
     package_dir = pathlib.Path("cmm/domains") / slug
     assert not (package_dir / "quality_metrics.py").exists()

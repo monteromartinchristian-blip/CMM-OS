@@ -25,7 +25,7 @@ from cmm.domains.mental_health.knowledge_package import (
 def test_schema_identity_and_minimum_sensitivity():
     schema = build_mental_health_knowledge_package_schema()
     assert isinstance(schema, DomainKnowledgePackageSchema)
-    assert schema.id == "knowledge-package-schema:mental-health"
+    assert schema.id == "knowledge-package-schema:mental_health"
     assert str(schema.domain_id) == "domain:mental-health"
     assert schema.version == "1"
     assert schema.required_sections == ("objective",)

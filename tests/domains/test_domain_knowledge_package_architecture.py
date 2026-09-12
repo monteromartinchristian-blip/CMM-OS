@@ -313,8 +313,12 @@ def test_cognitive_layer_never_imports_domain_packages() -> None:
 
 
 def test_first_party_schema_modules_are_declarative_only() -> None:
-    """Each first-party module declares exactly one pure schema factory."""
-    assert len(FIRST_PARTY_SCHEMA_MODULES) == 12
+    """Each first-party module declares exactly one pure schema factory.
+
+    The twelve Phase 10.49 modules plus the Phase 10.52 ``mental_health``
+    module, which follows the same declarative convention.
+    """
+    assert len(FIRST_PARTY_SCHEMA_MODULES) == 13
 
     for path in FIRST_PARTY_SCHEMA_MODULES:
         tree = _parse(path)

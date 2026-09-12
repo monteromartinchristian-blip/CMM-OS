@@ -43,6 +43,12 @@ from cmm.domains.life_plan.definition import build_life_plan_domain_definition
 from cmm.domains.life_plan.knowledge_package import (
     build_life_plan_knowledge_package_schema,
 )
+from cmm.domains.mental_health.definition import (
+    build_mental_health_domain_definition,
+)
+from cmm.domains.mental_health.knowledge_package import (
+    build_mental_health_knowledge_package_schema,
+)
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.oppositions.knowledge_package import (
     build_oppositions_knowledge_package_schema,
@@ -88,6 +94,7 @@ EXPECTED: dict[str, str] = {
     "sport": "domain:sport",
     "life_plan": "domain:life-plan",
     "project": "domain:project",
+    "mental_health": "domain:mental-health",
 }
 
 # Approved minimum sensitivity floors. General, Sport and Life Plan are derived
@@ -105,6 +112,7 @@ EXPECTED_SENSITIVITY: dict[str, SensitivityLevel] = {
     "sport": SensitivityLevel.SENSITIVE,
     "life_plan": SensitivityLevel.SENSITIVE,
     "project": SensitivityLevel.INTERNAL,
+    "mental_health": SensitivityLevel.SENSITIVE,
 }
 
 IMPLEMENTED_SCHEMA_DOMAINS = set(EXPECTED)
@@ -122,6 +130,7 @@ SCHEMA_BUILDERS = {
     "sport": build_sport_knowledge_package_schema,
     "life_plan": build_life_plan_knowledge_package_schema,
     "project": build_project_knowledge_package_schema,
+    "mental_health": build_mental_health_knowledge_package_schema,
 }
 
 DEFINITION_BUILDERS = {
@@ -137,6 +146,7 @@ DEFINITION_BUILDERS = {
     "sport": build_sport_domain_definition,
     "life_plan": build_life_plan_domain_definition,
     "project": build_project_domain_definition,
+    "mental_health": build_mental_health_domain_definition,
 }
 
 
@@ -424,16 +434,16 @@ def test_implemented_schema_inventory_is_exactly_twelve() -> None:
     assert set(EXPECTED) == IMPLEMENTED_SCHEMA_DOMAINS
     assert set(SCHEMA_BUILDERS) == IMPLEMENTED_SCHEMA_DOMAINS
     assert set(DEFINITION_BUILDERS) == IMPLEMENTED_SCHEMA_DOMAINS
-    assert len(IMPLEMENTED_SCHEMA_DOMAINS) == 12
+    assert len(IMPLEMENTED_SCHEMA_DOMAINS) == 13
 
 
-def test_production_inventory_matches_exactly_twelve() -> None:
+def test_production_inventory_matches_exactly_thirteen() -> None:
     files = sorted(pathlib.Path("cmm/domains").glob("*/knowledge_package.py"))
 
     assert {path.parent.name for path in files} == IMPLEMENTED_SCHEMA_DOMAINS
 
 
-@pytest.mark.parametrize("slug", ("mental_health", "neurodivergence"))
+@pytest.mark.parametrize("slug", ("neurodivergence",))
 def test_future_domain_schemas_are_absent(slug: str) -> None:
     package_dir = pathlib.Path("cmm/domains") / slug
     assert not package_dir.exists()

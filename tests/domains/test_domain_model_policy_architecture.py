@@ -186,16 +186,33 @@ def test_phase_10_46_production_defines_no_parallel_owner_classes() -> None:
 
 
 def test_no_production_domain_pack_was_retrofitted_with_a_model_policy() -> None:
+    """DP-046 introduced the seam; Phase 10.52 is the first pack to declare one.
+
+    The guard still holds for the twelve pre-10.52 packs (the DP-046 seam was
+    additive and did not retrofit them).  ``domain:mental-health`` is the
+    approved Phase 10.52 pack that legitimately attaches its own declaration.
+    """
     allowed_names = {"model_policy_contracts.py", "contracts.py", "__init__.py"}
+    allowed_pack_dirs = {"mental_health"}
     offenders: list[str] = []
 
     for path in sorted((_REPO_ROOT / "cmm" / "domains").rglob("*.py")):
         if path.name in allowed_names:
             continue
+        if path.parent.name in allowed_pack_dirs:
+            continue
         if "DomainModelPolicy" in path.read_text(encoding="utf-8"):
             offenders.append(path.relative_to(_REPO_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_only_phase_10_52_pack_declares_a_model_policy() -> None:
+    declaring = {
+        path.parent.name
+        for path in (_REPO_ROOT / "cmm" / "domains").glob("*/model_policy.py")
+    }
+    assert declaring == {"mental_health"}
 
 
 # ── Detector calibration ──────────────────────────────────────────────────────

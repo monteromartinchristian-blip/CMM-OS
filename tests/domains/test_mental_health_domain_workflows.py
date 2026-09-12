@@ -19,6 +19,21 @@ from cmm.domains.mental_health.workflows import (
 )
 from cmm.workflows.enums import WorkflowNodeType
 
+
+def _context(**metadata):
+    from datetime import datetime, timezone
+
+    from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+
+    return ReasoningRuleContext(
+        reasoning_id="rid",
+        timestamp=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        active_domains=("domain:mental-health",),
+        primary_domain="domain:mental-health",
+        metadata=metadata,
+    )
+
+
 EXPECTED_OPERATION_TYPES = {
     "mental_health.review_emotional_context": "ANALYSIS",
     "mental_health.prepare_therapy_session": "PREPARATION",
@@ -178,3 +193,72 @@ def test_no_workflow_defines_its_own_executor_or_runtime():
         assert not hasattr(workflow, "executor")
         assert "executor" not in workflow.metadata
         assert "runtime" not in workflow.metadata
+
+
+# ── Therapy provenance (Task 9) ──────────────────────────────────────────────
+
+
+def test_transcript_workflow_requires_speaker_and_source_provenance():
+    workflow = next(
+        w
+        for w in build_mental_health_workflow_definitions()
+        if w.workflow_id == "mental_health.therapy_transcript_review"
+    )
+    assert workflow.metadata["speaker_provenance_required"] is True
+    assert workflow.metadata["source_identity_required"] is True
+    operation_ids = {
+        node.operation_id for node in workflow.nodes if node.operation_id is not None
+    }
+    # Speaker-separated evidence and epistemic mapping are both on the path.
+    assert "mental_health.analyze_therapy_transcript" in operation_ids
+    assert "mental_health.map_fact_interpretation_uncertainty" in operation_ids
+
+
+def test_transcript_rule_preserves_three_attribution_classes():
+    from cmm.domains.mental_health.rules import build_mental_health_rules
+
+    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
+    rule = rules["mental_health.therapy_statement_separation"]
+    result = rule.evaluate(
+        _context(
+            transcript_turns=[
+                {"id": "t1", "speaker": "therapist"},
+                {"id": "t2", "speaker": "user"},
+                {"id": "t3", "speaker": "model", "model_interpretation": True},
+            ]
+        )
+    )
+    sources = {finding.metadata["statement_source"] for finding in result.findings}
+    assert sources == {"therapist", "user", "model"}
+
+
+def test_fabricated_therapist_statement_is_blocked():
+    from cmm.domains.mental_health.rules import build_mental_health_rules
+
+    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
+    rule = rules["mental_health.therapy_statement_separation"]
+    result = rule.evaluate(
+        _context(
+            transcript_turns=[
+                {"id": "t1", "speaker": "user", "attributed_to_therapist": True},
+            ]
+        )
+    )
+    assert result.status.value == "blocked"
+    assert result.metadata["fabricated_therapist_statement"] is True
+
+
+def test_insufficient_provenance_blocks_high_confidence_output():
+    from cmm.domains.mental_health.rules import build_mental_health_rules
+
+    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
+    rule = rules["mental_health.therapy_speaker_provenance"]
+    result = rule.evaluate(
+        _context(
+            transcript_turns=[
+                {"id": "t1", "speaker": "unknown", "clinical_claim": True},
+            ]
+        )
+    )
+    assert result.status.value == "blocked"
+    assert result.metadata["unattributed_clinical_claims"] == ("t1",)

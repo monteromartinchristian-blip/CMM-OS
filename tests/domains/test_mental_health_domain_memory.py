@@ -350,3 +350,69 @@ def test_trace_validation_uses_canonical_validator():
     )
     result = validate_mental_health_trace(trace=trace, inventory=inventory)
     assert result.valid is True
+
+
+# ── Persistence discipline (Task 9) ──────────────────────────────────────────
+
+
+def test_discussing_sensitive_inference_performs_no_mutation():
+    """Talking about an inference is not authorization to persist it."""
+    from datetime import datetime, timezone
+
+    from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+    from cmm.domains.mental_health.rules import (
+        build_mental_health_rules,
+        is_persistence_restricted_content,
+        persistence_is_authorized,
+    )
+
+    assert is_persistence_restricted_content("inferred_emotional_pattern") is True
+    # Repetition, intensity or certainty are never authorization.
+    for authorization in (True, 1, "approved", {"approved": True}, None):
+        assert persistence_is_authorized(authorization) is False
+
+    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
+    rule = rules["mental_health.sensitive_persistence_control"]
+    context = ReasoningRuleContext(
+        reasoning_id="rid",
+        timestamp=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        active_domains=(DOMAIN,),
+        primary_domain=DOMAIN,
+        metadata={
+            "persistence_request": {
+                "content_kind": "inferred_emotional_pattern",
+                "authorization": None,
+                "repetition_count": 9,
+            }
+        },
+    )
+    result = rule.evaluate(context)
+    assert result.status.value == "blocked"
+    assert result.metadata["direct_write_performed"] is False
+    assert result.metadata["proposal_required"] is True
+
+
+def test_proposal_remains_a_proposal_until_canonical_approval():
+    binding, inventory, _view, proposal = _full_chain("mp-mh-9")
+    # Before approval the chain is incomplete and the proposal is not applied.
+    assert proposal.requires_confirmation is True
+
+    without_approval = DomainMemoryReferenceInventory(
+        references=inventory.references,
+        proposals=inventory.proposals,
+        permission_decisions=inventory.permission_decisions,
+        traces=inventory.traces,
+        views=inventory.views,
+    )
+    result = validate_mental_health_memory_binding(
+        binding=binding, inventory=without_approval
+    )
+    assert result.is_valid is False
+
+    # With the canonical approval chain the binding validates, and it still
+    # carries only references — never applied mutation state.
+    approved = validate_mental_health_memory_binding(
+        binding=binding, inventory=inventory
+    )
+    assert approved.is_valid is True
+    assert binding.memory_proposal_ids == ("mp-mh-9",)

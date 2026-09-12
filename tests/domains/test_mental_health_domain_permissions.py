@@ -184,3 +184,74 @@ def test_serialization_round_trip_is_deterministic():
     payload = policy.to_dict()
     assert json.loads(json.dumps(payload, sort_keys=True)) == payload
     assert policy.metadata["phase"] == "10.52"
+
+
+# ── Authority downgrade revalidation (Task 9) ────────────────────────────────
+
+
+def _downgraded_policy():
+    from dataclasses import replace
+
+    policy = build_mental_health_permission_policy()
+    return replace(
+        policy,
+        policy_id="domain-permission:mental-health:1.1.0",
+        version="1.1.0",
+        allowed_capabilities=(
+            PermissionCapability.MEMORY_READ,
+            PermissionCapability.OPERATION_EXECUTE,
+        ),
+        prohibited_capabilities=policy.prohibited_capabilities
+        + (PermissionCapability.SENSITIVE_INFERENCE,),
+        allow_sensitive_inference=False,
+    )
+
+
+def test_authority_downgrade_is_revalidated_and_fails_closed():
+    """BEFORE=ALLOW / AFTER=DENY / STALE_AUTHORITY_REUSED=NO.
+
+    A previously valid resolution does not grant permanent authority: the
+    canonical resolver reads current registry state, so a later boundary sees
+    the more restrictive policy and denies.
+    """
+    registry = _registry(build_mental_health_permission_policy())
+    resolver = DomainPermissionResolver(registry)
+
+    before = resolver.resolve(_request(PermissionCapability.SENSITIVE_INFERENCE))
+    assert before.effective_permissions.decision is PermissionOutcome.ALLOW
+
+    # Authority becomes more restrictive after the initial resolution.
+    registry.register(_downgraded_policy())
+
+    after = resolver.resolve(_request(PermissionCapability.SENSITIVE_INFERENCE))
+    assert after.effective_permissions.decision is PermissionOutcome.DENY
+    # The stale ALLOW result is not reused: the effective policy is the new one.
+    assert any(str(policy.version) == "1.1.0" for policy in after.domain_policies)
+    assert all(str(policy.version) != "1.0.0" for policy in after.domain_policies)
+
+
+def test_privacy_downgrade_stays_denied_after_composition():
+    from cmm.cognitive.privacy import (
+        PrivacyMetadata,
+        PrivacyPolicy,
+        ProcessingLocation,
+        resolve_effective_privacy_metadata,
+    )
+    from cmm.domains.mental_health.privacy import build_mental_health_privacy_policy
+
+    declared = build_mental_health_privacy_policy().default_privacy
+    # Even a maximally permissive sibling cannot widen Mental Health privacy.
+    permissive = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED,
+        sensitivity=SensitivityLevel.PUBLIC,
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
+        allow_remote=True,
+        allow_export=True,
+    )
+    effective = resolve_effective_privacy_metadata(permissive, declared).effective
+    assert effective.allow_remote is False
+    assert effective.allow_export is False
+    assert effective.sensitivity is SensitivityLevel.SENSITIVE

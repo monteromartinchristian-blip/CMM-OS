@@ -251,3 +251,119 @@ def test_eligible_emotional_objectives_reach_mental_health(objective):
         )
     )
     assert result.primary_domain == MENTAL_HEALTH
+
+
+# ── Authority boundaries (Task 9) ────────────────────────────────────────────
+
+
+def _health_and_mental_health_signal(value, domain, confidence=0.9):
+    return DomainResolutionSignal(
+        kind="intent",
+        source="test",
+        value=value,
+        domain_ids=(domain,),
+        confidence=confidence,
+        provenance={"source": "test"},
+    )
+
+
+def test_ordinary_emotional_conversation_is_not_clinical_by_default():
+    """MENTAL_HEALTH_RESOLVED=YES / CLINICAL_PRESENTATION_DEFAULT=NO."""
+    from cmm.domains.mental_health.profile import build_mental_health_profile
+
+    bootstrap = build_standard_mental_health_domain_bootstrap()
+    result = bootstrap.resolver.resolve(
+        _ctx(
+            bootstrap,
+            objective="feeling sad and lonely this week",
+            explicit=(MENTAL_HEALTH,),
+            signals=(_mental_health_signal(),),
+        )
+    )
+    assert result.primary_domain == MENTAL_HEALTH
+
+    profile = build_mental_health_profile()
+    required = " ".join(profile.presentation_policy.required_sections)
+    assert "diagnosis" not in required
+    assert "clinical" not in required
+    assert "diagnosis_presentation" in profile.prohibited_actions
+    assert "psychological_diagnosis" in profile.prohibited_actions
+    assert "medication_start" in profile.prohibited_actions
+    assert "treatment_plan_change" in profile.prohibited_actions
+
+
+def test_documented_medication_change_keeps_health_primary():
+    """HEALTH_AUTHORITY_PRESERVED=YES / MENTAL_HEALTH_SUPPORTING_ALLOWED=YES /
+    MENTAL_HEALTH_CLINICAL_OVERRIDE=NO."""
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.health.bootstrap import build_standard_health_domain_bootstrap
+    from cmm.domains.health.definition import build_health_domain_definition
+    from cmm.domains.mental_health.definition import (
+        build_mental_health_domain_definition,
+    )
+    from cmm.domains.mental_health.integration import register_mental_health_domain
+
+    bootstrap = build_standard_health_domain_bootstrap()
+    register_mental_health_domain(
+        domain_registry=bootstrap.domain_registry,
+        profile_registry=bootstrap.profile_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+    )
+
+    health = DomainId(slug="health")
+    result = bootstrap.resolver.resolve(
+        DomainResolutionContext(
+            id="ctx-medication",
+            objective=(
+                "my psychiatrist changed my medication and emotionally I feel different"
+            ),
+            available_domains=_registered(bootstrap),
+            authorized_domains=_registered(bootstrap),
+            explicit_domains=(),
+            signals=(
+                _health_and_mental_health_signal(
+                    "documented medication change", health, 0.95
+                ),
+                _health_and_mental_health_signal(
+                    "emotional effect", MENTAL_HEALTH, 0.6
+                ),
+            ),
+            created_at=NOW,
+        )
+    )
+    assert result.primary_domain == health
+    assert MENTAL_HEALTH in result.supporting_domains
+
+    composition = DefaultDomainComposer().compose(
+        result,
+        (
+            build_health_domain_definition(),
+            build_mental_health_domain_definition(),
+        ),
+    )
+    assert composition.primary_domain == health
+    assert MENTAL_HEALTH in composition.supporting_domains
+
+    # Mental Health may support but never becomes the clinical owner.
+    from cmm.domains.mental_health.profile import (
+        MENTAL_HEALTH_PROHIBITED_ACTIONS,
+    )
+    from cmm.domains.mental_health.rules import detect_health_owned_clinical_claim
+
+    assert "clinical_authority_claim" in MENTAL_HEALTH_PROHIBITED_ACTIONS
+    assert "treatment_plan_change" in MENTAL_HEALTH_PROHIBITED_ACTIONS
+
+    verdict = detect_health_owned_clinical_claim(
+        {
+            "documented_medication_change": True,
+            "emotional_effect": "more tired",
+            "requested": "adjust_medication",
+        }
+    )
+    assert verdict["primary_authority"] == "domain:health"
+    assert verdict["mental_health_may_override"] is False
+    assert verdict["mental_health_supporting_allowed"] is True

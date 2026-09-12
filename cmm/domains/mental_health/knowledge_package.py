@@ -32,7 +32,7 @@ def build_mental_health_knowledge_package_schema() -> DomainKnowledgePackageSche
     populate.
     """
     return DomainKnowledgePackageSchema(
-        id="knowledge-package-schema:mental-health",
+        id="knowledge-package-schema:mental_health",
         domain_id=DomainId(slug="mental-health"),
         version="1",
         required_sections=("objective",),

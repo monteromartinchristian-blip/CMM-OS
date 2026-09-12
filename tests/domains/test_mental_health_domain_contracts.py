@@ -410,3 +410,56 @@ def test_thirteen_rule_responsibilities_are_declared(rule_id):
     from cmm.domains.mental_health.catalog import MENTAL_HEALTH_RULE_IDS
 
     assert rule_id in MENTAL_HEALTH_RULE_IDS
+
+
+# ── Cross-domain minimization (Task 9) ───────────────────────────────────────
+
+
+def test_projection_resources_are_purpose_minimized_and_read_only():
+    from cmm.domains.mental_health.resources import (
+        build_mental_health_resource_definitions,
+    )
+
+    by_kind = {
+        resource.kind: resource
+        for resource in build_mental_health_resource_definitions()
+    }
+    for kind, source_domain in (
+        ("health_projection", "domain:health"),
+        ("relationship_projection", "domain:relationships"),
+    ):
+        resource = by_kind[kind]
+        assert resource.metadata["cross_domain_projection"] is True
+        assert resource.metadata["source_domain"] == source_domain
+        assert resource.metadata["purpose_minimized"] is True
+        assert resource.metadata["read_only_projection"] is True
+
+
+def test_purpose_minimized_projection_excludes_irrelevant_sensitive_fields():
+    from cmm.domains.mental_health.rules import build_mental_health_rules
+
+    rule = _by_id(build_mental_health_rules())[
+        "mental_health.purpose_minimized_cross_domain"
+    ]
+    result = rule.evaluate(
+        _context(
+            projection={
+                "purpose": "emotional_context",
+                "source_domain": "domain:health",
+                "fields": {
+                    "documented_medication_change": {"relevant": True},
+                    "appointment_phone": {"relevant": False},
+                    "clinician_personal_notes": {"relevant": False},
+                },
+            }
+        )
+    )
+    assert result.metadata["included_fields"] == ("documented_medication_change",)
+    assert set(result.metadata["excluded_fields"]) == {
+        "appointment_phone",
+        "clinician_personal_notes",
+    }
+    assert result.metadata["provenance_preserved"] is True
+    assert not set(result.metadata["included_fields"]) & set(
+        result.metadata["excluded_fields"]
+    )

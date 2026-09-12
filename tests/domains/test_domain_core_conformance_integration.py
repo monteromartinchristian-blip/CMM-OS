@@ -423,7 +423,8 @@ def test_first_party_knowledge_package_schemas_compose_with_a_sensitivity_floor(
         for definition in load_first_party_definitions()
         if definition.knowledge_package_schema is not None
     )
-    assert len(schemas) == 12
+    # Twelve pre-10.52 schemas plus the Phase 10.52 mental-health schema.
+    assert len(schemas) == 13
     effective = compose_domain_knowledge_package_schemas(schemas)
     # Composition narrows: the effective floor is at least SENSITIVE.
     assert effective.minimum_sensitivity is SensitivityLevel.SENSITIVE
