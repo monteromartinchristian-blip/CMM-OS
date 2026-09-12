@@ -2,8 +2,8 @@
 
 **Phase:** 10.52
 **Status:** `PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — independent
-audit V1 recorded `FAIL` (3 majors, 1 minor); all four findings were remediated
-and independent Re-audit V2 remains pending
+audits V1, V2 and V3 each recorded `FAIL`; every reported finding was remediated
+in the following cycle and an independent Re-audit V4 remains pending
 **Canonical identity:** `domain:mental-health` · namespace `mental_health.*` · version `1.0.0`
 **Canonical profile:** `MentalHealthProfile`
 **Design:** `docs/superpowers/specs/2026-09-11-phase-10.52-mental-health-domain-design.md`
@@ -12,8 +12,8 @@ and independent Re-audit V2 remains pending
 **Kind:** `DomainKind.PERSONAL` · manifest `manifest:mental-health:1.0.0`
 
 > Remediation status only. This document reports implementation, the applied
-> audit-V1 remediation and self-reported test results. It does **not** claim
-> independent audit PASS and does not close the phase.
+> audit-V1/V2/V3 remediations and self-reported test results. It does **not**
+> claim independent audit PASS and does not close the phase.
 
 ---
 
@@ -371,6 +371,39 @@ projection rule includes only explicitly relevant fields and excludes
 irrelevant sensitive fields while preserving source-domain provenance
 references.
 
+### 20.1 Permission-gated projection admission (V4 security note)
+
+`SECURITY.md` classifies cross-domain permission leakage as a security-relevant
+boundary, so the connected path is stated explicitly:
+
+```text
+Threat:            a structurally valid CrossDomainContextTransfer presented
+                   without effective *current* permission authority
+Abuse case:        a real canonical permission DENY, or an unconsumed
+                   APPROVAL_REQUIRED, combined with a matching transfer object
+Control:           DomainPermissionResolver + DomainPermissionGate evaluated
+                   *before* projection admission; only ALLOW or
+                   APPROVAL_CONSUMED admits a transfer
+Positive path:     APPROVAL_REQUIRED -> canonical approval request ->
+                   canonical grant -> DomainPermissionGate -> APPROVAL_CONSUMED
+Fail-closed:       DENY, a missing/consumed approval, a supplied approval
+                   reference that does not repair a DENY, or an authority tuple
+                   that does not match the transfer never admits the field
+Preserved boundary: PurposeMinimizedCrossDomainRule remains the minimization and
+                   provenance owner — it is not, and must not become, a second
+                   permission engine
+```
+
+Limitation, stated honestly: **structural transfer validity alone is not
+authority.** A `CrossDomainContextTransfer` is not a permission decision and not
+a consumed approval; supplying one is evidence, never authorization. Admission
+binds the exact authority tuple — source domain, target domain, resource
+identifier, reason, actor and session — so approval for one projected resource
+never authorizes another resource, nor the same resource for another actor. The
+positive path stays approval-gated: the canonical `SENSITIVE` privacy floor is
+never lowered to manufacture a direct `ALLOW`, and no `allow_cross_domain`
+bypass exists.
+
 ## 21. Safety semantics
 
 Mental Health owns no new safety system. Ordinary distress, sadness, anxiety,
@@ -444,6 +477,14 @@ supporting context, revalidated authority downgrade that fails closed,
 operations unavailable without injection, absence of parallel infrastructure,
 Phase 10.53 absence and preserved pre-10.52 first-party domains.
 
+Checkpoint 13 additionally connects purpose-minimized projection to current
+canonical permission authority: transfer admission runs through the real
+`DomainPermissionResolver` and `DomainPermissionGate`, the approval-gated path
+consumes a real canonical approval to `APPROVAL_CONSUMED`, and adversarial cases
+prove that a canonical `DENY` with a matching transfer stays blocked, that an
+unconsumed `APPROVAL_REQUIRED` is not authorization, and that a consumed
+approval for one resource cannot authorize another resource or another actor.
+
 ## 26. Anti-fragmentation invariants
 
 `tests/domains/test_mental_health_domain_architecture.py` reuses the canonical
@@ -479,13 +520,41 @@ CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_REAUDIT
 PHASE10_53=NOT_STARTED
 ```
 
+Remediation history, chronologically:
+
+```text
+V1 independent audit        -> FAIL (3 majors, 1 minor)
+V2 independent re-audit     -> FAIL
+V3 independent re-audit     -> FAIL (MAJOR-03 residual permission-authority gap)
+V4 remediation              -> implemented, pending independent V4 re-audit
+```
+
 Independent Audit V1 (`docs/audits/phase-10.52-independent-audit-v1.md`) recorded
 `FAIL` with `MAJORS=3` and `MINORS=1`. All four findings were remediated under
-TDD: sensitive boolean flags now fail closed, therapy-transcript source
-provenance is consumed as real canonical evidence, cross-domain minimization
-consumes canonical `CrossDomainContextTransfer` evidence, and the stale
-memory-binding revocation proof is committed. The connected acceptance now
-exercises those real semantics rather than asserting unconditional claims.
+TDD: sensitive boolean flags fail closed, therapy-transcript source provenance is
+consumed as real canonical evidence, cross-domain minimization consumes canonical
+`CrossDomainContextTransfer` evidence, and the stale memory-binding revocation
+proof is committed.
 
-Independent Re-audit V2 is performed outside the implementation agent. This
+Independent Re-audit V2 (`docs/audits/phase-10.52-independent-reaudit-v2.md`)
+recorded `FAIL`: one field/transfer laundering defect remained in the projection
+rule.
+
+Independent Re-audit V3 (`docs/audits/phase-10.52-independent-reaudit-v3.md`)
+confirmed the V3 field↔transfer binding fix but recorded a residual `MAJOR-03`:
+current canonical permission denial, and an unconsumed `APPROVAL_REQUIRED`, could
+each still be combined with a matching transfer object to reach the projection.
+
+V4 remediation (this revision) closes that gap at the projection boundary:
+transfer admission is gated by the real `DomainPermissionResolver` and
+`DomainPermissionGate`, the approval-gated path consumes a real canonical
+approval (`ApprovalService` + `InMemoryApprovalRepository`) to
+`APPROVAL_CONSUMED`, and the acceptance proves DENY + matching transfer stays
+blocked, an unconsumed `APPROVAL_REQUIRED` authorizes nothing, a consumed
+approval admits only the exact approved resource, and approval for one field
+cannot authorize another (see §20.1). The V3 field↔transfer binding behavior is
+preserved unchanged.
+
+Each historical audit report is immutable and is not rewritten by later cycles.
+Independent Re-audit V4 is performed outside the implementation agent. This
 document does not claim audit PASS and does not close the phase.
