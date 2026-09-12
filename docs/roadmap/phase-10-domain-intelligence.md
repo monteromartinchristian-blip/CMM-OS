@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain and Phase 10.53 — Neurodivergence Domain remain planned later Domain Packs.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain remains the next planned Domain Pack.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -7918,10 +7918,13 @@ changes. Independent Re-audit V2 is `PASS`: `PHASE10_51=CLOSED`,
 `9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report
 `docs/audits/phase-10.51-independent-reaudit-v2.md`; report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`. `NEW_PRODUCTION_FILES=0`,
 `PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase 10.52 is now
-`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` (the first-party inventory grows to
+independently re-audited and closed after final Re-audit V4 `PASS`
+(`PHASE10_52=CLOSED`, `DP-052=VERIFIED_EXISTING`, `AT-DP-052=PASS`,
+`CLOSURE_ELIGIBLE=YES`); the first-party inventory is
 `FIRST_PARTY_DOMAIN_PACKS=13` while the closed DP-051 historical baseline of
-twelve pre-10.52 packs and two deferred packs is preserved verbatim); Phase
-10.53 remains `NOT_STARTED`; Phase 11 remains out of scope.
+twelve pre-10.52 packs and two deferred packs remains preserved verbatim as
+historical evidence. Phase 10.53 remains `NOT_STARTED`; Phase 11 remains out of
+scope.
 
 ⸻
 
@@ -8277,7 +8280,7 @@ Blocking quality failures include:
 
 AT-DP-052 acceptance contract
 
-`AT-DP-052` is a future connected acceptance gate and must remain unpassed until the pack is implemented and independently verified.
+`AT-DP-052` is the connected acceptance gate for the pack and is independently verified `PASS` by final Re-audit V4.
 
 At minimum it must test:
 
@@ -8317,14 +8320,22 @@ Phase 10.52 is complete only when:
 * global regression suite passes;
 * independent closure audit passes.
 
-Until those conditions are met:
+Final independent closure evidence:
 
 ```text
-DP-052 = REQUIRES_PHASE_INSPECTION
-AT-DP-052 = PLANNED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+DP-052=VERIFIED_EXISTING
+AT-DP-052=PASS
+CLOSURE_ELIGIBLE=YES
 ```
 
-Implementation status (Phase 10.52, pre-audit)
+Final closure status (Phase 10.52)
 
 The Domain Pack is implemented over the existing shared infrastructure:
 `cmm/domains/mental_health/` (19 modules), `MentalHealthProfile`, 10 resources,
@@ -8344,17 +8355,29 @@ cross-domain context is purpose-minimized, and authority downgrades are
 revalidated and fail closed.
 
 ```text
-PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP-052=PASS_REPORTED
-AT-DP-052=PASS_REPORTED
-CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT
+PHASE10_52=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=CLOSED
+MAJOR_02=CLOSED
+MAJOR_03=CLOSED
+MINOR_01=CLOSED
+DP-052=VERIFIED_EXISTING
+AT-DP-052=PASS
+CLOSURE_ELIGIBLE=YES
 PHASE10_53=NOT_STARTED
 ```
 
-Reference: `docs/reference/mental-health-domain.md`. Independent audit remains
-pending; `DP-052=VERIFIED_EXISTING`, `AT-DP-052=PASS` and
-`CLOSURE_ELIGIBLE=YES` are audit conclusions, not implementation
-self-certification.
+Reference: `docs/reference/mental-health-domain.md`. Final independent Re-audit
+V4 is `PASS`; audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`; Re-audit V4
+bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; final report
+`docs/audits/phase-10.52-independent-reaudit-v4.md`; audit-report commit
+`78842087e7a52795c217ed7ca4b4a7f3a2112969`.
 
 ⸻
 

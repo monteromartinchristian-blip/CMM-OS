@@ -1,9 +1,10 @@
 # Mental Health Domain (`domain:mental-health`)
 
 **Phase:** 10.52
-**Status:** `PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — independent
-audits V1, V2 and V3 each recorded `FAIL`; every reported finding was remediated
-in the following cycle and an independent Re-audit V4 remains pending
+**Status:** `PHASE10_52=CLOSED` — independent Audit V1 and Re-audits V2/V3
+recorded `FAIL`; final independent Re-audit V4 recorded `PASS` with
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-052=VERIFIED_EXISTING`,
+`AT-DP-052=PASS`, and `CLOSURE_ELIGIBLE=YES`
 **Canonical identity:** `domain:mental-health` · namespace `mental_health.*` · version `1.0.0`
 **Canonical profile:** `MentalHealthProfile`
 **Design:** `docs/superpowers/specs/2026-09-11-phase-10.52-mental-health-domain-design.md`
@@ -11,9 +12,9 @@ in the following cycle and an independent Re-audit V4 remains pending
 **Acceptance:** `DP-052` / `AT-DP-052`
 **Kind:** `DomainKind.PERSONAL` · manifest `manifest:mental-health:1.0.0`
 
-> Remediation status only. This document reports implementation, the applied
-> audit-V1/V2/V3 remediations and self-reported test results. It does **not**
-> claim independent audit PASS and does not close the phase.
+> Final closure reference. Historical V1/V2/V3 failures remain preserved;
+> final independent Re-audit V4 is `PASS`. The dedicated docs-only closure
+> records `PHASE10_52=CLOSED` without changing production code.
 
 ---
 
@@ -442,7 +443,7 @@ introduced.
 
 ## 24. Test evidence
 
-Focused Phase 10.52 suite (self-reported, pre-audit):
+Focused Phase 10.52 suite (implementation evidence; final behavior independently verified in Re-audit V4):
 
 ```text
 tests/domains/test_mental_health_domain_contracts.py
@@ -513,10 +514,21 @@ Health.
 ## 28. Remediation status
 
 ```text
-PHASE10_52=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP-052=PASS_REPORTED
-AT-DP-052=PASS_REPORTED
-CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_REAUDIT
+PHASE10_52=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=CLOSED
+MAJOR_02=CLOSED
+MAJOR_03=CLOSED
+MINOR_01=CLOSED
+DP-052=VERIFIED_EXISTING
+AT-DP-052=PASS
+CLOSURE_ELIGIBLE=YES
 PHASE10_53=NOT_STARTED
 ```
 
@@ -526,7 +538,7 @@ Remediation history, chronologically:
 V1 independent audit        -> FAIL (3 majors, 1 minor)
 V2 independent re-audit     -> FAIL
 V3 independent re-audit     -> FAIL (MAJOR-03 residual permission-authority gap)
-V4 remediation              -> implemented, pending independent V4 re-audit
+V4 independent re-audit     -> PASS (closure eligible)
 ```
 
 Independent Audit V1 (`docs/audits/phase-10.52-independent-audit-v1.md`) recorded
@@ -556,5 +568,9 @@ cannot authorize another (see §20.1). The V3 field↔transfer binding behavior 
 preserved unchanged.
 
 Each historical audit report is immutable and is not rewritten by later cycles.
-Independent Re-audit V4 is performed outside the implementation agent. This
-document does not claim audit PASS and does not close the phase.
+Independent Re-audit V4 (`docs/audits/phase-10.52-independent-reaudit-v4.md`) recorded `PASS` with `BLOCKERS=0`,
+`MAJORS=0`, `MINORS=0`, `DP-052=VERIFIED_EXISTING`, `AT-DP-052=PASS`, and
+`CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`;
+Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; audit-report commit
+`78842087e7a52795c217ed7ca4b4a7f3a2112969`. Phase 10.52 is closed by the subsequent dedicated docs-only
+closure commit; Phase 10.53 remains `NOT_STARTED`.
