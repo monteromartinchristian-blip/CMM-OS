@@ -1139,6 +1139,15 @@ class HealthAuthorityRule:
 
 @dataclass(frozen=True, slots=True)
 class PurposeMinimizedCrossDomainRule:
+    """Minimize an inbound projection to the fields its own evidence backs.
+
+    A projected field is included only when an accepted canonical
+    ``CrossDomainContextTransfer`` exists whose ``identifier`` equals the field
+    name.  Provenance and source domains are derived from those backing
+    transfers only, so one authorized field can never launder another field
+    and an unrelated transfer grants no projection authority (V2 MAJOR-03).
+    """
+
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -1173,16 +1182,17 @@ class PurposeMinimizedCrossDomainRule:
 
         # Only a literal ``True`` relevance flag survives minimization; a
         # malformed value never gains relevance (audit V1 MAJOR-01/MAJOR-03).
-        included = tuple(
+        relevant = tuple(
             name
             for name, spec in fields.items()
             if isinstance(spec, Mapping) and _strict_flag(spec, "relevant")
         )
-        excluded = tuple(name for name in fields if name not in included)
 
         # Canonical transfer evidence is required — an untyped mapping is not
-        # provenance (audit V1 MAJOR-03).
-        accepted: list[CrossDomainContextTransfer] = []
+        # provenance (audit V1 MAJOR-03).  Accepted transfers are indexed by
+        # their canonical identifier so a projected field can only ever be
+        # authorized by transfer evidence for that same identifier.
+        accepted_by_identifier: dict[str, list[CrossDomainContextTransfer]] = {}
         rejected: list[str] = []
         for item in _seq(context.metadata, "transfers") or ():
             transfer = _canonical_transfer(item)
@@ -1193,14 +1203,25 @@ class PurposeMinimizedCrossDomainRule:
             if reason is not None:
                 rejected.append(reason)
                 continue
-            accepted.append(transfer)
+            accepted_by_identifier.setdefault(transfer.identifier, []).append(transfer)
 
-        if not accepted:
+        # A relevant field is included only when accepted canonical transfer
+        # evidence exists for that exact identifier.  One accepted transfer
+        # never authorizes another field, and a transfer whose identifier is
+        # absent from the projection grants no authority at all (V2 MAJOR-03).
+        included = tuple(name for name in relevant if name in accepted_by_identifier)
+        excluded = tuple(name for name in fields if name not in included)
+        # Relevant fields left with no matching accepted transfer: excluded by
+        # lack of authority, never by inheritance from another field's evidence.
+        unbound = tuple(name for name in relevant if name not in accepted_by_identifier)
+
+        if not included:
             finding = _finding(
                 self.definition,
                 "CROSS_DOMAIN_TRANSFER_BLOCKED",
                 "Cross-domain import requires canonical transfer evidence with "
-                "non-empty provenance and current transfer authority.",
+                "non-empty provenance and current transfer authority for each "
+                "projected field.",
                 severity=ReasoningSeverity.WARNING,
             )
             return _result(
@@ -1211,21 +1232,29 @@ class PurposeMinimizedCrossDomainRule:
                 metadata={
                     "included_fields": (),
                     "excluded_fields": tuple(fields),
+                    "unbound_fields": unbound,
                     "provenance_preserved": False,
+                    "provenance_references": (),
+                    "source_domains": (),
                     "rejected_transfers": tuple(rejected),
                     "purpose": purpose,
                 },
                 code="CROSS_DOMAIN_TRANSFER_BLOCKED",
                 message=(
-                    "Cross-domain import blocked: canonical transfer evidence "
-                    "missing or unauthorized."
+                    "Cross-domain import blocked: no projected field is backed "
+                    "by canonical transfer evidence for the same identifier."
                 ),
             )
 
-        provenance_references = tuple(
-            sorted({ref for transfer in accepted for ref in transfer.provenance})
+        # Provenance and source domains are derived only from the transfers
+        # actually backing an included field — never from unrelated evidence.
+        backing = tuple(
+            transfer for name in included for transfer in accepted_by_identifier[name]
         )
-        source_domains = tuple(sorted({str(item.source_domain) for item in accepted}))
+        provenance_references = tuple(
+            sorted({ref for transfer in backing for ref in transfer.provenance})
+        )
+        source_domains = tuple(sorted({str(item.source_domain) for item in backing}))
         finding = _finding(
             self.definition,
             "PURPOSE_MINIMIZED_PROJECTION",
@@ -1250,6 +1279,7 @@ class PurposeMinimizedCrossDomainRule:
             metadata={
                 "included_fields": included,
                 "excluded_fields": excluded,
+                "unbound_fields": unbound,
                 "provenance_preserved": True,
                 "provenance_references": provenance_references,
                 "source_domains": source_domains,

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
@@ -45,7 +47,10 @@ from cmm.domains.mental_health.rules import classify_emotional_statement
 from cmm.domains.mental_health.workflows import (
     build_mental_health_workflow_definitions,
 )
-from cmm.domains.permission_contracts import DomainPermissionRequest
+from cmm.domains.permission_contracts import (
+    CrossDomainPermissionRequest,
+    DomainPermissionRequest,
+)
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.privacy_policy_contracts import project_domain_privacy_metadata
 from cmm.domains.resolution_contracts import (
@@ -529,51 +534,162 @@ def test_checkpoint_12_privacy_remains_canonical_sensitive():
 
 # ── Checkpoint 13: supporting context is purpose-minimized ───────────────────
 
+CROSS_DOMAIN_PURPOSE = "emotional_context"
+CROSS_DOMAIN_SOURCE_KIND = "health_projection"
+HEALTH_DOMAIN_ID = "domain:health"
+
+
+def _canonical_transfer(
+    identifier,
+    *,
+    source_domain=HEALTH_DOMAIN_ID,
+    target_domain=MENTAL_HEALTH_DOMAIN_ID,
+    reason=CROSS_DOMAIN_PURPOSE,
+    provenance=("finding:health:13",),
+    transferable=True,
+    private=False,
+):
+    """Return the JSON-safe canonical ``CrossDomainContextTransfer`` mapping."""
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    return CrossDomainContextTransfer(
+        source_domain=source_domain,
+        target_domain=target_domain,
+        kind="finding",
+        identifier=identifier,
+        value=True,
+        reason=reason,
+        provenance=provenance,
+        transferable=transferable,
+        private=private,
+    ).to_dict()
+
+
+def _projection(**fields):
+    return {
+        "purpose": CROSS_DOMAIN_PURPOSE,
+        "fields": {name: {"relevant": value} for name, value in fields.items()},
+    }
+
+
+def _cross_domain_rule():
+    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
+    return rules["mental_health.purpose_minimized_cross_domain"]
+
+
+def _evaluate(projection, transfers=()):
+    """Evaluate the rule over a projection and canonical transfer evidence."""
+    return _cross_domain_rule().evaluate(
+        ReasoningRuleContext(
+            reasoning_id="rid-at-dp-052-13",
+            timestamp=NOW,
+            active_domains=(MENTAL_HEALTH_DOMAIN_ID,),
+            primary_domain=MENTAL_HEALTH_DOMAIN_ID,
+            metadata={"projection": projection, "transfers": tuple(transfers)},
+        )
+    )
+
+
+def _cross_domain_permission_request(request_id, resource_id):
+    """Real canonical cross-domain request bound to one projected resource."""
+    return CrossDomainPermissionRequest(
+        request_id,
+        source_domain=HEALTH_DOMAIN_ID,
+        target_domain=MENTAL_HEALTH_DOMAIN_ID,
+        resource_ids=(resource_id,),
+        resource_kinds=(CROSS_DOMAIN_SOURCE_KIND,),
+        reason=CROSS_DOMAIN_PURPOSE,
+        actor_id="user-1",
+        session_id="session-1",
+        sensitivity_level=SensitivityLevel.RESTRICTED,
+        capability=PermissionCapability.RESOURCE_READ,
+    )
+
+
+def _authorized_cross_domain_resolver():
+    """Canonical permission authority for one explicitly authorized path.
+
+    Mental Health never auto-grants cross-domain authority: with the real
+    registered policies every source -> Mental Health path resolves to DENY
+    (proved by ``test_checkpoint_13d_...``).  This positive control is built
+    from the same canonical ``DomainPermissionPolicy`` contract — by
+    ``dataclasses.replace`` on the real Health and Mental Health policies —
+    so the real ``DomainPermissionResolver`` stays the only authority.  The
+    SENSITIVE privacy floor is untouched, so the authorized decision remains
+    approval-gated rather than a silent ALLOW.
+    """
+    from dataclasses import replace
+
+    from cmm.domains.health.permissions import build_health_permission_policy
+    from cmm.domains.mental_health.permissions import (
+        MENTAL_HEALTH_PROHIBITED_CAPABILITIES,
+        build_mental_health_permission_policy,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+
+    source = build_health_permission_policy()
+    target = build_mental_health_permission_policy()
+    store = DomainPermissionRegistry()
+    store.register(
+        replace(
+            source,
+            allowed_capabilities=source.allowed_capabilities
+            + (PermissionCapability.DOMAIN_CROSS_ACCESS,),
+            allowed_target_domains=(MENTAL_HEALTH_DOMAIN_ID,),
+            allowed_resource_kinds=tuple(source.allowed_resource_kinds)
+            + (CROSS_DOMAIN_SOURCE_KIND,),
+        )
+    )
+    store.register(
+        replace(
+            target,
+            policy_id="domain-permission:mental-health:1.0.0-authorized-projection",
+            version="1.0.0-authorized-projection",
+            prohibited_capabilities=tuple(
+                item
+                for item in MENTAL_HEALTH_PROHIBITED_CAPABILITIES
+                if item is not PermissionCapability.DOMAIN_CROSS_ACCESS
+            ),
+            allowed_source_domains=(HEALTH_DOMAIN_ID,),
+        )
+    )
+    return DomainPermissionResolver(store)
+
+
+def _health_and_mental_health_bootstrap():
+    """Real canonical registries holding both Health and Mental Health policies."""
+    bootstrap = build_standard_health_domain_bootstrap()
+    register_mental_health_domain(
+        domain_registry=bootstrap.domain_registry,
+        profile_registry=bootstrap.profile_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+    )
+    return bootstrap
+
 
 def test_checkpoint_13_supporting_context_is_purpose_minimized():
     from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
 
-    def _transfer(
-        identifier, *, transferable=True, private=False, reason="emotional_context"
-    ):
-        return CrossDomainContextTransfer(
-            source_domain="domain:health",
-            target_domain="domain:mental-health",
-            kind="finding",
-            identifier=identifier,
-            value=True,
-            reason=reason,
-            provenance=("finding:health:13",),
-            transferable=transferable,
-            private=private,
-        ).to_dict()
-
     projection = {
-        "purpose": "emotional_context",
+        "purpose": CROSS_DOMAIN_PURPOSE,
         "fields": {
             "documented_medication_change": {"relevant": True},
             "appointment_phone": {"relevant": False},
             "clinician_personal_notes": {"relevant": False},
         },
     }
-    rules = {rule.definition.id: rule for rule in build_mental_health_rules()}
-    rule = rules["mental_health.purpose_minimized_cross_domain"]
 
-    result = rule.evaluate(
-        ReasoningRuleContext(
-            reasoning_id="rid",
-            timestamp=NOW,
-            active_domains=("domain:mental-health",),
-            primary_domain="domain:mental-health",
-            metadata={
-                "projection": projection,
-                "transfers": (
-                    _transfer("documented_medication_change"),
-                    _transfer("appointment_phone"),
-                    _transfer("clinician_personal_notes"),
-                ),
-            },
-        )
+    result = _evaluate(
+        projection,
+        (
+            _canonical_transfer("documented_medication_change"),
+            _canonical_transfer("appointment_phone"),
+            _canonical_transfer("clinician_personal_notes"),
+        ),
     )
     assert result.status.value == "applied"
     assert result.trace_entries[0].code == "CROSS_DOMAIN_MINIMIZED"
@@ -589,40 +705,215 @@ def test_checkpoint_13_supporting_context_is_purpose_minimized():
     assert not set(result.metadata["included_fields"]) & set(
         result.metadata["excluded_fields"]
     )
+    # Every included field is backed by its own accepted transfer evidence.
+    assert result.metadata["unbound_fields"] == ()
 
-    # The same projection without canonical transfer evidence fails closed.
-    bare = rule.evaluate(
-        ReasoningRuleContext(
-            reasoning_id="rid",
-            timestamp=NOW,
-            active_domains=("domain:mental-health",),
-            primary_domain="domain:mental-health",
-            metadata={"projection": projection},
+    # The included field is bound to a transfer with the same identifier.
+    transfer = CrossDomainContextTransfer.from_dict(
+        _canonical_transfer("documented_medication_change")
+    )
+    assert transfer.identifier in result.metadata["included_fields"]
+    assert transfer.source_domain.slug == "health"
+    assert str(transfer.target_domain) == MENTAL_HEALTH_DOMAIN_ID
+    assert transfer.provenance
+    assert transfer.transferable is True
+    assert transfer.private is False
+    assert transfer.reason == projection["purpose"]
+
+    # Current canonical permission authority for that exact projected path.
+    authorized = _authorized_cross_domain_resolver().resolve_cross_domain(
+        _cross_domain_permission_request(
+            "req-at-dp-052-13", "documented_medication_change"
         )
     )
+    assert authorized.request_id == "req-at-dp-052-13"
+    assert authorized.decision is not PermissionOutcome.DENY
+
+    # Canonical privacy composition for the projected path stays SENSITIVE.
+    from cmm.domains.mental_health.privacy import build_mental_health_privacy_policy
+
+    projected_privacy = project_domain_privacy_metadata(
+        build_mental_health_privacy_policy(),
+        processing_location=ProcessingLocation.LOCAL,
+    )
+    effective_privacy = resolve_effective_privacy_metadata(projected_privacy).effective
+    assert effective_privacy.sensitivity is SensitivityLevel.SENSITIVE
+    assert effective_privacy.allow_remote is False
+    assert effective_privacy.allow_export is False
+
+    # The same projection without canonical transfer evidence fails closed.
+    bare = _evaluate(projection)
     assert bare.status.value == "blocked"
     assert bare.metadata["provenance_preserved"] is False
     assert bare.metadata["included_fields"] == ()
 
     # Current transfer authority is connected to the projection: an explicit
     # permission denial for the projection's transfer blocks it.
-    denied = rule.evaluate(
-        ReasoningRuleContext(
-            reasoning_id="rid",
-            timestamp=NOW,
-            active_domains=("domain:mental-health",),
-            primary_domain="domain:mental-health",
-            metadata={
-                "projection": projection,
-                "transfers": (
-                    _transfer("documented_medication_change", transferable=False),
-                ),
-            },
-        )
+    denied = _evaluate(
+        projection,
+        (_canonical_transfer("documented_medication_change", transferable=False),),
     )
     assert denied.status.value == "blocked"
     assert denied.metadata["provenance_preserved"] is False
     assert denied.metadata["rejected_transfers"] == ("transfer_not_permitted",)
+    assert denied.metadata["unbound_fields"] == ("documented_medication_change",)
+
+
+def test_checkpoint_13a_unbound_relevant_field_is_excluded():
+    """V2 MAJOR-03: one authorized field never authorizes another field."""
+    result = _evaluate(
+        _projection(authorized_field=True, UNAUTHORIZED_SENSITIVE_FIELD=True),
+        (_canonical_transfer("authorized_field"),),
+    )
+    assert result.metadata["included_fields"] == ("authorized_field",)
+    assert "UNAUTHORIZED_SENSITIVE_FIELD" in result.metadata["excluded_fields"]
+    assert result.metadata["unbound_fields"] == ("UNAUTHORIZED_SENSITIVE_FIELD",)
+    # The unauthorized field inherits no provenance from the authorized one.
+    assert result.metadata["provenance_references"] == ("finding:health:13",)
+    assert result.metadata["source_domains"] == ("domain:health",)
+
+
+def test_checkpoint_13b_unrelated_transfer_cannot_authorize_projection():
+    """V2 MAJOR-03: a transfer absent from the projection grants no authority."""
+    result = _evaluate(
+        _projection(field_a=True, field_b=True),
+        (_canonical_transfer("not_in_projection"),),
+    )
+    assert result.status.value == "blocked"
+    assert result.metadata["included_fields"] == ()
+    assert result.metadata["provenance_preserved"] is False
+    assert result.metadata["unbound_fields"] == ("field_a", "field_b")
+    assert set(result.metadata["excluded_fields"]) == {"field_a", "field_b"}
+
+
+@pytest.mark.parametrize(
+    "denied_kwargs",
+    (
+        {"transferable": False},
+        {"private": True},
+        {"reason": "an_unrelated_purpose"},
+        {"target_domain": "domain:project"},
+    ),
+    ids=("non_transferable", "private", "purpose_mismatch", "target_mismatch"),
+)
+def test_checkpoint_13c_accepted_transfer_cannot_launder_rejected_field(
+    denied_kwargs,
+):
+    """V2 MAJOR-03: an accepted transfer never launders a rejected field."""
+    result = _evaluate(
+        _projection(allowed_field=True, denied_field=True),
+        (
+            _canonical_transfer("allowed_field"),
+            _canonical_transfer("denied_field", **denied_kwargs),
+        ),
+    )
+    assert result.metadata["included_fields"] == ("allowed_field",)
+    assert "denied_field" in result.metadata["excluded_fields"]
+    assert result.metadata["unbound_fields"] == ("denied_field",)
+
+
+def test_checkpoint_13d_current_canonical_permission_deny_blocks_the_projection():
+    """V2 MAJOR-03: a current canonical DENY excludes the denied field."""
+    real_resolver = DomainPermissionResolver(
+        _health_and_mental_health_bootstrap().permission_registry
+    )
+    denied_decision = real_resolver.resolve_cross_domain(
+        _cross_domain_permission_request("req-at-dp-052-deny", "denied_field")
+    )
+    assert denied_decision.decision is PermissionOutcome.DENY
+    assert denied_decision.granted_resources == ()
+
+    authorized_decision = _authorized_cross_domain_resolver().resolve_cross_domain(
+        _cross_domain_permission_request("req-at-dp-052-authorize", "allowed_field")
+    )
+    assert authorized_decision.decision is not PermissionOutcome.DENY
+
+    # Only the authorized path yields canonical transfer evidence, so the
+    # denied field cannot survive next to an authorized one.
+    result = _evaluate(
+        _projection(allowed_field=True, denied_field=True),
+        (_canonical_transfer("allowed_field"),),
+    )
+    assert result.metadata["included_fields"] == ("allowed_field",)
+    assert "denied_field" in result.metadata["excluded_fields"]
+
+    # With no authorized field at all the denied projection fails closed.
+    only_denied = _evaluate(_projection(denied_field=True))
+    assert only_denied.status.value == "blocked"
+    assert only_denied.metadata["included_fields"] == ()
+
+
+def test_checkpoint_13e_private_or_non_transferable_path_is_blocked():
+    """V2 MAJOR-03: a privacy-incompatible path never becomes a projection."""
+    from cmm.cognitive.privacy import PrivacyMetadata, PrivacyPolicy
+    from cmm.domains.mental_health.privacy import build_mental_health_privacy_policy
+
+    projected_privacy = project_domain_privacy_metadata(
+        build_mental_health_privacy_policy(),
+        processing_location=ProcessingLocation.LOCAL,
+    )
+    # A maximally permissive source can never widen Mental Health privacy.
+    permissive = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED,
+        sensitivity=SensitivityLevel.PUBLIC,
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
+        allow_remote=True,
+        allow_export=True,
+    )
+    effective = resolve_effective_privacy_metadata(
+        permissive, projected_privacy
+    ).effective
+    assert effective.sensitivity is SensitivityLevel.SENSITIVE
+    assert effective.allow_remote is False
+    assert effective.allow_export is False
+
+    # The private (privacy-incompatible) canonical transfer cannot survive
+    # beside an authorized one.
+    mixed = _evaluate(
+        _projection(allowed_field=True, private_field=True),
+        (
+            _canonical_transfer("allowed_field"),
+            _canonical_transfer("private_field", private=True),
+        ),
+    )
+    assert mixed.metadata["included_fields"] == ("allowed_field",)
+    assert "private_field" in mixed.metadata["excluded_fields"]
+
+    # A private field alone blocks the whole projection.
+    only_private = _evaluate(
+        _projection(private_field=True),
+        (_canonical_transfer("private_field", private=True),),
+    )
+    assert only_private.status.value == "blocked"
+    assert only_private.metadata["included_fields"] == ()
+
+    # A non-transferable field alone blocks the whole projection too.
+    only_non_transferable = _evaluate(
+        _projection(restricted_field=True),
+        (_canonical_transfer("restricted_field", transferable=False),),
+    )
+    assert only_non_transferable.status.value == "blocked"
+    assert only_non_transferable.metadata["included_fields"] == ()
+
+
+def test_checkpoint_13f_duplicate_transfer_evidence_is_deterministic():
+    """Duplicate accepted evidence authorizes once, with a deduplicated union."""
+    result = _evaluate(
+        _projection(deduplicated=True),
+        (
+            _canonical_transfer("deduplicated", provenance=("finding:health:b",)),
+            _canonical_transfer("deduplicated", provenance=("finding:health:a",)),
+        ),
+    )
+    assert result.metadata["included_fields"] == ("deduplicated",)
+    assert result.metadata["provenance_references"] == (
+        "finding:health:a",
+        "finding:health:b",
+    )
+    assert result.metadata["source_domains"] == ("domain:health",)
 
 
 # ── Checkpoint 14: permission/privacy downgrade fails closed ─────────────────
