@@ -19,7 +19,9 @@ Semantic invariants preserved here (frozen design §6, §7, §11, §28):
     absence of corroboration != disproof; competing evidence stays visible;
     overlap != co-diagnosis; imported fact keeps its source owner;
     Health clinical status is never overwritten;
-    a working hypothesis never silently becomes persistent memory.
+    a working hypothesis never silently becomes persistent memory;
+    clinical certainty is bound to canonical Health authority, never to a
+    caller-authored mapping (Audit V1 MAJOR-01).
 
 Certainty labels below are **pack-local derived labels**.  They are
 non-authoritative, never persisted as a second truth, and can never upgrade
@@ -55,7 +57,12 @@ from cmm.domains.cross_domain_contracts import (
     CrossDomainContextTransfer,
     CrossDomainSerializationError,
 )
-from cmm.domains.errors import CrossDomainContractError
+from cmm.domains.errors import (
+    CrossDomainContractError,
+    DomainContractValidationError,
+    DomainSerializationError,
+)
+from cmm.domains.identifiers import DomainId
 from cmm.domains.neurodivergence.catalog import (
     CANONICAL_NEURODIVERGENCE_RULE_IDS,
     NEURODIVERGENCE_DOMAIN_ID,
@@ -64,7 +71,11 @@ from cmm.domains.rule_contracts import DomainReasoningRuleDefinition, DomainRule
 
 NEURODIVERGENCE_RULE_IDS: tuple[str, ...] = CANONICAL_NEURODIVERGENCE_RULE_IDS
 
-HEALTH_DOMAIN_ID = "domain:health"
+#: The canonical Health owner identity.  Authority comparisons use the
+#: canonical ``DomainId`` contract, never a free-form domain string.
+HEALTH_DOMAIN = DomainId(slug="health")
+
+HEALTH_DOMAIN_ID = str(HEALTH_DOMAIN)
 
 # ── Pack-local certainty labels (derived, non-authoritative) ──────────────────
 # The canonical Phase 8 Cognitive Layer remains the source of truth for
@@ -374,29 +385,28 @@ def describe_certainty_state(label: Any) -> dict:
 def evaluate_certainty_transition(request: Mapping) -> dict:
     """Deterministically evaluate a proposed certainty-state transition.
 
-    A transition to ``CONFIRMED`` requires canonical authority, and for a
-    clinical/diagnostic claim that authority must be Health.  A transition to
-    ``RULED OUT`` is an exclusion claim and requires authority as well.  Every
-    other transition is informational and is reported without being blocked.
+    Clinical certainty promotion is gated on **canonical Health authority**, not
+    on a caller-authored mapping.  A transition to ``CONFIRMED`` requires a
+    canonical cross-domain carriage of a Health-owned documented clinical
+    record, and a transition to ``RULED OUT`` is never established here at all:
+    no existing canonical contract encodes an authoritative *negative* clinical
+    status, so an exclusion claim stays blocked rather than inventing one (the
+    spec does not require a new clinical-status subsystem).  Every other
+    transition is informational and is reported without being blocked.
     """
     from_state = _certainty_label(request.get("from_state"))
     to_state = _certainty_label(request.get("to_state"))
     evidence_kind = _normalized(request.get("evidence_kind"))
     clinical = _strict_flag(request, "clinical")
 
-    authority = _mapping(request, "authority") or {}
-    documented = _strict_flag(authority, "documented")
-    source_ref = authority.get("source_ref")
-    authority_domain = _normalized(authority.get("domain"))
-    documented_authority = documented and _is_non_empty_id(source_ref)
-    health_authority = documented_authority and authority_domain == HEALTH_DOMAIN_ID
-    # A clinical/diagnostic confirmation must come from Health; any other
-    # confirmed status still requires a documented authority reference.
-    authority_ok = health_authority if clinical else documented_authority
+    authority = _canonical_health_authority(request)
 
     promotes = to_state == CERTAINTY_CONFIRMED
     excludes = to_state == CERTAINTY_RULED_OUT
     requires_authority = promotes or excludes
+    # The canonical Health record establishes a *positive* documented
+    # diagnosis only, so it can never carry an exclusion.
+    authority_ok = promotes and authority is not None
     blocked = requires_authority and not authority_ok
 
     return {
@@ -405,8 +415,9 @@ def evaluate_certainty_transition(request: Mapping) -> dict:
         "certainty_state": from_state if blocked else to_state,
         "requires_authority": requires_authority,
         "authoritative_evidence": authority_ok,
-        "documented_authority": documented_authority,
-        "health_authority_supplied": health_authority,
+        "documented_authority": authority is not None,
+        "health_authority_supplied": authority is not None,
+        "canonical_authority": authority,
         "promotion_blocked": blocked and promotes,
         "exclusion_blocked": blocked and excludes,
         "certified_here": False,
@@ -695,6 +706,95 @@ def _transfer_rejection(
     return None
 
 
+def _canonical_domain_identity(value: Any) -> DomainId | None:
+    """Return the canonical ``DomainId`` for ``value``, else ``None``.
+
+    Reuses the canonical Phase 10.1 ``DomainId`` contract as the single
+    owner-identity validator, so no local slug regex or parallel identifier
+    vocabulary is introduced.  An already-valid ``DomainId`` is returned as-is;
+    a string must be the exact canonical ``domain:<slug>`` form.  A non-string,
+    a blank or padded value, a missing ``domain:`` prefix and an invalid slug
+    all fail closed to ``None``.
+    """
+    if isinstance(value, DomainId):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return DomainId.from_str(value)
+    except (DomainSerializationError, DomainContractValidationError):
+        return None
+
+
+def _canonical_health_authority(request: Mapping) -> dict | None:
+    """Return validated canonical Health clinical authority, else ``None``.
+
+    Positive clinical certainty is bound to the existing canonical
+    Health projection/transfer/provenance path rather than to a caller-authored
+    mapping.  Every component is an existing canonical contract:
+
+    * the carriage is a canonical ``CrossDomainContextTransfer`` whose source
+      domain is the canonical Health ``DomainId``, bound to the *same* claim
+      identifier and to the requested purpose, non-private, transferable and
+      carrying contract-enforced non-empty provenance;
+    * the clinical status carried by that transfer must be a Health-owned
+      documented clinical record identified by canonical ``ResourceProvenance``;
+    * the current canonical permission authority must admit the transfer — a
+      structurally valid transfer is not authority by itself, so the
+      fail-closed ``permission_authority`` decision of the canonical resolver and
+      gate is required as well.
+
+    No Neurodivergence-specific authority model, token or registry is
+    introduced.  Malformed, incomplete or forged input fails closed to ``None``.
+    """
+    claim_id = request.get("claim_id")
+    if not _is_non_empty_id(claim_id):
+        return None
+    claim_id = str(claim_id).strip()
+
+    raw_purpose = request.get("purpose")
+    purpose = raw_purpose.strip() if isinstance(raw_purpose, str) else ""
+    if not purpose:
+        return None
+
+    # The canonical resolver/gate decision, expressed as the same fail-closed
+    # flag the projection boundary uses.  A literal ``True`` is required.
+    if not _strict_flag(request, "permission_authority"):
+        return None
+
+    for item in _seq(request, "transfers") or ():
+        transfer = _canonical_transfer(item)
+        if transfer is None or transfer.identifier != claim_id:
+            continue
+        if transfer.source_domain != HEALTH_DOMAIN:
+            continue
+        if _transfer_rejection(transfer, purpose) is not None:
+            continue
+        status = transfer.value
+        if not isinstance(status, Mapping):
+            continue
+        # Only a Health-owned documented clinical record carries clinical truth;
+        # a malformed flag never acquires authority through truthiness.
+        if not _strict_flag(status, "documented_diagnosis"):
+            continue
+        provenance = _canonical_source_provenance(status.get("provenance"))
+        if provenance is None:
+            continue
+        return {
+            "claim_id": claim_id,
+            "source_domain": str(transfer.source_domain),
+            "target_domain": str(transfer.target_domain),
+            "transfer_identifier": transfer.identifier,
+            "transfer_kind": transfer.kind,
+            "transfer_reason": transfer.reason,
+            "provenance_references": tuple(transfer.provenance),
+            "provenance_source_id": provenance.source_id,
+            "provenance_source_type": provenance.source_type.value,
+            "purpose": purpose,
+        }
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. CertaintyStatePreservationRule
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -702,7 +802,12 @@ def _transfer_rejection(
 
 @dataclass(frozen=True, slots=True)
 class CertaintyStatePreservationRule:
-    """No upward certainty transition without authoritative evidence."""
+    """No upward certainty transition without canonical authoritative evidence.
+
+    Exploration stays permissive and useful; only *clinical certainty
+    promotion* is gated, and it is gated on canonical Health authority rather
+    than on a caller-authored mapping.
+    """
 
     definition: DomainReasoningRuleDefinition
 
@@ -885,10 +990,13 @@ class SourceAuthorityRule:
             if not isinstance(claim, Mapping):
                 continue
             claim_id = str(claim.get("id", "unknown"))
-            source_domain = str(claim.get("source_domain", "")).strip()
-            if source_domain.casefold() in _UNKNOWN_SOURCE_SLUGS:
+            # The owner must be a canonical domain identifier; an arbitrary
+            # string is not a domain and leaves the imported fact unowned.
+            owner = _canonical_domain_identity(claim.get("source_domain"))
+            if owner is None:
                 unknown.append(claim_id)
                 continue
+            source_domain = str(owner)
             source_domains.add(source_domain)
             re_emitted_as = claim.get("re_emitted_as")
             if _is_non_empty_id(re_emitted_as) and str(re_emitted_as).strip() != (

@@ -66,6 +66,7 @@ from tests.domains.test_neurodivergence_domain_architecture import (
 )
 from tests.domains.test_neurodivergence_domain_memory import _full_chain
 from tests.domains.test_neurodivergence_domain_permissions import (
+    CROSS_DOMAIN_PURPOSE,
     _admit_cross_domain_transfers,
     _authorized_cross_domain_resolver,
     _canonical_transfer,
@@ -665,6 +666,152 @@ def test_checkpoint_13_consumed_approval_admits_the_exact_transfer():
     )
     assert result.status.value == "applied"
     assert result.metadata["included_fields"] == ("emotional_context",)
+
+
+# ── Audit V1 MAJOR-01: genuine canonical Health authority still promotes ─────
+
+
+def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPOSE):
+    """A canonical Health clinical-status transfer carrying Health-owned proof."""
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    return CrossDomainContextTransfer(
+        source_domain=HEALTH,
+        target_domain=NEURODIVERGENCE,
+        kind="clinical_status",
+        identifier=identifier,
+        value={
+            "documented_diagnosis": True,
+            "provenance": ResourceProvenance(
+                source_type=ResourceSourceKind.UPLOADED_FILE,
+                source_id="clinical-record:nd-1",
+            ).to_dict(),
+        },
+        reason=reason,
+        provenance=("clinical-record:nd-1",),
+    ).to_dict()
+
+
+def test_canonical_health_authority_confirms_through_the_connected_path():
+    """CANONICAL_HEALTH_AUTHORITY_TO_CONFIRMED=PASS on the real canonical path.
+
+    The clinical-status transfer is admitted only after the real canonical
+    ``DomainPermissionResolver``, ``DomainPermissionGate`` and ``ApprovalService``
+    lifecycle produce APPROVAL_CONSUMED for this exact request; the certainty
+    rule then promotes using that admitted evidence.
+    """
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_gate import PermissionGateOutcome
+
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    request = _cross_domain_request("req-at-dp-053-authority", "clinical_status")
+    candidate = _canonical_clinical_status_transfer("clinical_status")
+
+    decision, pending, unadmitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(candidate,),
+        resolver=authorized_resolver,
+        gate=gate,
+    )
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    assert unadmitted == ()
+
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, request
+    )
+    _decision, consumed, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(candidate,),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert consumed.allowed is True
+    assert admitted == (candidate,)
+
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+    result = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "clinical_status",
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CROSS_DOMAIN_PURPOSE,
+                "permission_authority": consumed.allowed,
+                "transfers": admitted,
+            }
+        )
+    )
+
+    assert result.status.value == "applied"
+    assert result.metadata["certainty_state"] == "confirmed"
+    assert result.metadata["promotion_blocked"] is False
+    assert result.metadata["authoritative_evidence"] is True
+    assert result.metadata["health_authority_supplied"] is True
+    assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
+    assert result.metadata["canonical_authority"]["claim_id"] == "clinical_status"
+    assert result.metadata["confirmed_diagnosis_created"] is False
+
+    # The same canonical transfer without admitted current authority, and the
+    # same transfer under a real canonical DENY, confirm nothing.
+    without_authority = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "clinical_status",
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CROSS_DOMAIN_PURPOSE,
+                "permission_authority": False,
+                "transfers": (candidate,),
+            }
+        )
+    )
+    assert without_authority.status.value == "blocked"
+    assert without_authority.metadata["certainty_state"] == "in_evaluation"
+
+    denied_resolver = _real_neurodivergence_resolver()
+    _approval_service, denied_gate = _connected_permission_stack(denied_resolver)
+    denied_request = _cross_domain_request(
+        "req-at-dp-053-authority-deny", "clinical_status"
+    )
+    denied_decision, denied_gate_result, denied_admitted = (
+        _admit_cross_domain_transfers(
+            request=denied_request,
+            candidates=(candidate,),
+            resolver=denied_resolver,
+            gate=denied_gate,
+        )
+    )
+    assert denied_decision.decision is PermissionOutcome.DENY
+    assert denied_gate_result.allowed is False
+    assert denied_admitted == ()
+
+    denied = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "clinical_status",
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CROSS_DOMAIN_PURPOSE,
+                "permission_authority": denied_gate_result.allowed,
+                "transfers": denied_admitted,
+            }
+        )
+    )
+    assert denied.status.value == "blocked"
+    assert denied.metadata["certainty_state"] == "in_evaluation"
+    assert denied.metadata["authoritative_evidence"] is False
 
 
 def test_checkpoint_14_authority_tuple_binding_is_exact():
