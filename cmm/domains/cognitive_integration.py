@@ -7,7 +7,6 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
-from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.cognitive import (
     AdaptationContext,
     CognitiveValidationContext,
@@ -50,7 +49,10 @@ from cmm.domains.errors import (
 from cmm.domains.knowledge_package_validation import (
     validate_domain_knowledge_package,
 )
-from cmm.domains.permission_gate import PermissionGateResult
+from cmm.domains.permission_gate import (
+    PermissionCapability,
+    PermissionGateResult,
+)
 from cmm.domains.presentation_contracts import (
     DomainPresentationEpistemicKind,
     DomainPresentationItemRef,
