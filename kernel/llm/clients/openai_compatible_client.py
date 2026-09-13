@@ -79,6 +79,47 @@ class OpenAICompatibleClient:
             finish_reason,
         )
 
+    def list_models(self) -> tuple[str, ...]:
+        """Discover model IDs via the administrative /models endpoint.
+
+        This performs no inference: it only calls ``models.list()`` on
+        the underlying SDK client built from the existing connection
+        configuration. Provider order is preserved; duplicate IDs are
+        rejected rather than silently collapsed.
+        """
+
+        client = self._client or self._build_client()
+
+        try:
+            response = client.models.list()
+        except Exception as error:  # noqa: BLE001 - mapped to ProviderError
+            self._raise_provider_error(error)
+
+        data = getattr(response, "data", None)
+        if not isinstance(data, list):
+            raise ProviderError(
+                "OpenAI-compatible model listing response had no data list"
+            )
+
+        model_ids: list[str] = []
+        seen: set[str] = set()
+        for item in data:
+            model_id = getattr(item, "id", None)
+            if not isinstance(model_id, str) or not model_id:
+                raise ProviderError(
+                    "OpenAI-compatible model listing item lacks a "
+                    f"string id: {item!r}"
+                )
+            if model_id in seen:
+                raise ProviderError(
+                    "OpenAI-compatible model listing returned duplicate "
+                    f"id: {model_id}"
+                )
+            seen.add(model_id)
+            model_ids.append(model_id)
+
+        return tuple(model_ids)
+
     def _build_client(self) -> Any:
         try:
             dotenv = importlib.import_module("dotenv")
