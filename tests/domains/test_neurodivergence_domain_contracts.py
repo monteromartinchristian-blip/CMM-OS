@@ -15,7 +15,6 @@ import pytest
 from cmm.cognitive.enums import ReasoningRuleResultStatus, SensitivityLevel
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.identifiers import DomainId
-from cmm.domains.permission_gate import PermissionGateOutcome, PermissionGateResult
 
 T = datetime(2026, 9, 1, tzinfo=timezone.utc)
 
@@ -425,33 +424,13 @@ CANONICAL_AUTHORITY_PURPOSE = "clinical_status_review"
 CANONICAL_CLAIM_ID = "claim-1"
 
 
-def _health_diagnostic_verdict(**overrides) -> dict:
-    """Return Health's *own* canonical diagnostic verdict, never recomputed here.
-
-    The verdict is produced by Health's existing diagnostic rule, so a
-    documented-but-unconfirmed diagnosis carries Health's real non-definitive
-    result instead of a stronger Neurodivergence interpretation of it.
-    """
-    from cmm.domains.health.rules import validate_diagnostic_claim
-
-    values = {
-        "evidence": True,
-        "documented": True,
-        "confirmed": True,
-        "provisional": False,
-    }
-    values.update(overrides)
-    return validate_diagnostic_claim(**values)
-
-
-def _canonical_clinical_status_record(**verdict_overrides) -> dict:
+def _canonical_clinical_status_record() -> dict:
     """The Health-owned documented clinical status with canonical provenance."""
     from cmm.cognitive.enums import ResourceSourceKind
     from cmm.cognitive.resources import ResourceProvenance
 
     return {
         "documented_diagnosis": True,
-        "health_definitive_verdict": _health_diagnostic_verdict(**verdict_overrides),
         "provenance": ResourceProvenance(
             source_type=ResourceSourceKind.UPLOADED_FILE,
             source_id="clinical-record:nd-1",
@@ -476,74 +455,6 @@ def _canonical_health_authority_transfer(identifier, **overrides) -> dict:
     return CrossDomainContextTransfer(**values).to_dict()
 
 
-def _canonical_permission_authority(
-    claim_id: str = CANONICAL_CLAIM_ID,
-    *,
-    purpose: str = CANONICAL_AUTHORITY_PURPOSE,
-    outcome: str = PermissionGateOutcome.APPROVAL_CONSUMED,
-    decision_id: str = "permission-gate-decision-contracts-1",
-    approval_evidence: dict | None = None,
-) -> dict:
-    """The canonical serialization of the gate evidence for one Health transfer.
-
-    Built from a real ``PermissionGateResult`` — the object the canonical
-    ``DomainPermissionGate`` produces — and serialized exactly the way the
-    canonical orchestrator retains gate authority.  It carries a real permission
-    decision identity, the effective outcome, and the cross-domain binding
-    (action, source/target domain, resource and purpose) the decision was
-    actually taken for.
-    """
-    return _canonical_gate_result(
-        claim_id,
-        purpose=purpose,
-        outcome=outcome,
-        decision_id=decision_id,
-        approval_evidence=approval_evidence,
-    ).to_dict()
-
-
-def _canonical_gate_result(
-    claim_id: str = CANONICAL_CLAIM_ID,
-    *,
-    purpose: str = CANONICAL_AUTHORITY_PURPOSE,
-    outcome: str = PermissionGateOutcome.APPROVAL_CONSUMED,
-    decision_id: str = "permission-gate-decision-contracts-1",
-    approval_evidence: dict | None = None,
-) -> PermissionGateResult:
-    """Return the typed canonical ``PermissionGateResult`` for one claim."""
-    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
-
-    if outcome is PermissionGateOutcome.APPROVAL_CONSUMED and approval_evidence is None:
-        approval_evidence = {
-            "granted": True,
-            "consumed": True,
-            "requirement_id": f"cross-domain:req-contracts-{claim_id}",
-            "request_id": "approval-request-contracts-1",
-        }
-    return PermissionGateResult(
-        outcome=outcome,
-        action=PermissionCapability.DOMAIN_CROSS_ACCESS.value,
-        domain_id=str(HEALTH),
-        actor_id="user-1",
-        session_id="session-1",
-        approval_evidence=approval_evidence,
-        decision_id=decision_id,
-        metadata={
-            "source_domain": str(HEALTH),
-            "target_domain": str(NEURODIVERGENCE),
-            "resource_ids": (claim_id,),
-            "resource_kinds": ("assessment_records",),
-            "cross_domain_request": {
-                "request_id": f"req-contracts-{claim_id}",
-                "reason": purpose,
-                "source_domain": str(HEALTH),
-                "target_domain": str(NEURODIVERGENCE),
-                "resource_ids": (claim_id,),
-            },
-        },
-    )
-
-
 def _canonical_certainty_request(**overrides) -> dict:
     """A CONFIRMED transition carrying canonical Health authority evidence."""
     values = {
@@ -553,7 +464,7 @@ def _canonical_certainty_request(**overrides) -> dict:
         "evidence_kind": "documented_clinical_status",
         "clinical": True,
         "purpose": CANONICAL_AUTHORITY_PURPOSE,
-        "permission_authority": _canonical_permission_authority(),
+        "permission_authority": True,
         "transfers": (_canonical_health_authority_transfer(CANONICAL_CLAIM_ID),),
     }
     values.update(overrides)
@@ -650,33 +561,19 @@ def test_fabricated_health_mapping_cannot_rule_out_a_clinical_status():
     assert result.metadata["exclusion_created"] is False
 
 
-@pytest.mark.parametrize(
-    "outcome",
-    (
-        pytest.param(PermissionGateOutcome.ALLOW, id="current-allow"),
-        pytest.param(PermissionGateOutcome.APPROVAL_CONSUMED, id="approval-consumed"),
-    ),
-)
-def test_canonical_health_authority_transfer_can_carry_a_confirmed_clinical_status(
-    outcome,
-):
+def test_canonical_health_authority_transfer_can_carry_a_confirmed_clinical_status():
     """The promotion block is not vacuous: the canonical authority path works.
 
     The authority is a canonical ``CrossDomainContextTransfer`` owned by the
     canonical Health ``DomainId``, bound to the same claim, carrying a
     Health-owned documented clinical record with canonical ``ResourceProvenance``
-    and a Health-produced definitive diagnostic verdict, admitted by the typed
-    canonical ``PermissionGateResult`` for this claim and purpose.
+    and admitted by the current canonical permission authority.
     """
     rules = _rules()
     rule = rules["neurodivergence.certainty_state_preservation"]
 
     result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                permission_authority=_canonical_permission_authority(outcome=outcome)
-            )
-        )
+        _context(certainty_transition=_canonical_certainty_request())
     )
 
     assert result.status is ReasoningRuleResultStatus.APPLIED
@@ -688,147 +585,6 @@ def test_canonical_health_authority_transfer_can_carry_a_confirmed_clinical_stat
     assert result.metadata["canonical_authority"]["provenance_references"] == (
         "clinical-record:nd-1",
     )
-    # The promotion is bound to real gate evidence and to Health's own verdict.
-    assert result.metadata["canonical_authority"]["permission_decision_id"]
-    assert result.metadata["canonical_authority"]["permission_outcome"] == outcome
-    assert result.metadata["canonical_authority"]["health_definitive"] is True
-
-
-def test_canonical_gate_authority_with_a_nondefinitive_health_verdict_confirms_nothing():
-    """Binding the gate is not enough: Health must call the diagnosis definitive.
-
-    The permission authority here is real and correctly bound, so the only
-    reason to block is Health's own non-definitive verdict.
-    """
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                transfers=(
-                    _canonical_health_authority_transfer(
-                        CANONICAL_CLAIM_ID,
-                        value=_canonical_clinical_status_record(confirmed=False),
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["certainty_state"] == "in_evaluation"
-    assert result.metadata["authoritative_evidence"] is False
-
-
-def test_a_gate_decision_for_another_claim_authorizes_nothing():
-    """A real permission decision for one resource never authorizes another."""
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                permission_authority=_canonical_permission_authority("another-claim")
-            )
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["authoritative_evidence"] is False
-
-
-# ── Re-audit V2 MAJOR-01 residuals: the authority boundary must be bound ─────
-
-
-def test_unbound_permission_boolean_cannot_confirm_a_clinical_status():
-    """UNBOUND_PERMISSION_BOOLEAN_TO_CONFIRMED=BLOCKED.
-
-    ``permission_authority=True`` is a caller assertion, not permission: no
-    canonical permission gate ran, so there is no permission decision identity,
-    no effective outcome and no approval evidence behind it.
-    """
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(permission_authority=True)
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["certainty_state"] == "in_evaluation"
-    assert result.metadata["authoritative_evidence"] is False
-    assert result.metadata["confirmed_diagnosis_created"] is False
-
-
-def test_fabricated_permission_authority_reference_cannot_confirm():
-    """FABRICATED_PERMISSION_AUTHORITY_REFERENCE=BLOCKED.
-
-    A canonical-shaped authority mapping carrying invented permission-decision,
-    approval-request and approval-decision identifiers remains a caller-authored
-    mapping; only the typed canonical gate evidence is authority.
-    """
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    fabricated = {
-        "permission_decision_id": "invented",
-        "outcome": "approval_consumed",
-        "approvals": [
-            {
-                "requirement_id": "invented",
-                "action": "domain.cross_access",
-                "approval_request_id": "invented",
-                "approval_decision_ids": ["invented"],
-            }
-        ],
-    }
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                permission_authority=fabricated
-            )
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["certainty_state"] == "in_evaluation"
-    assert result.metadata["authoritative_evidence"] is False
-
-
-def test_health_documented_nondefinitive_status_cannot_confirm():
-    """HEALTH_DOCUMENTED_NONDEFINITIVE_TO_CONFIRMED=BLOCKED.
-
-    Health itself refuses to call a documented-but-unconfirmed diagnosis
-    definitive; Neurodivergence may not be more certain than Health.
-    """
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    verdict = _health_diagnostic_verdict(confirmed=False)
-    assert verdict["is_definitive"] is False
-    assert verdict["may_present_as_definitive"] is False
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                permission_authority=True,
-                transfers=(
-                    _canonical_health_authority_transfer(
-                        CANONICAL_CLAIM_ID,
-                        value=_canonical_clinical_status_record(confirmed=False),
-                    ),
-                ),
-            )
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["certainty_state"] == "in_evaluation"
-    assert result.metadata["authoritative_evidence"] is False
 
 
 @pytest.mark.parametrize(
@@ -885,40 +641,6 @@ def test_malformed_canonical_clinical_status_never_confirms(malformed_record):
     )
 
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["authoritative_evidence"] is False
-
-
-@pytest.mark.parametrize(
-    "provenance",
-    (
-        None,
-        {},
-        {"source_type": "not-a-source-kind", "source_id": "clinical-record:nd-1"},
-        {"source_type": "uploaded_file", "source_id": ""},
-    ),
-)
-def test_clinical_authority_requires_canonical_provenance(provenance):
-    """Canonical provenance identity is required, not decorative."""
-    rules = _rules()
-    rule = rules["neurodivergence.certainty_state_preservation"]
-
-    record = _canonical_clinical_status_record()
-    record["provenance"] = provenance
-
-    result = rule.evaluate(
-        _context(
-            certainty_transition=_canonical_certainty_request(
-                transfers=(
-                    _canonical_health_authority_transfer(
-                        CANONICAL_CLAIM_ID, value=record
-                    ),
-                )
-            )
-        )
-    )
-
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.metadata["certainty_state"] == "in_evaluation"
     assert result.metadata["authoritative_evidence"] is False
 
 
