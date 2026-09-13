@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cmm.cognitive.enums import SensitivityLevel
+import pytest
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus, SensitivityLevel
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 
 T = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -269,13 +271,1005 @@ def _by_id(rules):
     return {rule.definition.id: rule for rule in rules}
 
 
-def test_rule_inventory_matches_canonical_catalog():
+def _rules():
     from cmm.domains.neurodivergence.rules import build_neurodivergence_rules
 
+    return _by_id(build_neurodivergence_rules())
+
+
+def _canonical_transfer(identifier: str, *, reason: str = "differential_context"):
+    """Return the JSON-safe canonical ``CrossDomainContextTransfer`` mapping."""
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    return CrossDomainContextTransfer(
+        source_domain="domain:mental-health",
+        target_domain="domain:neurodivergence",
+        kind="finding",
+        identifier=identifier,
+        value=True,
+        reason=reason,
+        provenance=("finding:mental-health:7",),
+    ).to_dict()
+
+
+def _canonical_transfer_provenance() -> dict:
+    """Return the canonical JSON-safe ``ResourceProvenance`` representation."""
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    return ResourceProvenance(
+        source_type=ResourceSourceKind.UPLOADED_FILE,
+        source_id="assessment-report-1",
+    ).to_dict()
+
+
+def test_rule_inventory_matches_canonical_catalog():
     from cmm.domains.neurodivergence.catalog import NEURODIVERGENCE_RULE_IDS
+    from cmm.domains.neurodivergence.rules import build_neurodivergence_rules
 
     rules = build_neurodivergence_rules()
     ids = tuple(rule.definition.id for rule in rules)
     assert ids == NEURODIVERGENCE_RULE_IDS
     assert len(ids) == len(set(ids))
     assert len(ids) == 14
+
+
+# ── Exploratory inference is allowed and genuinely useful ────────────────────
+
+
+def test_exploratory_differential_reasoning_produces_useful_hypotheses():
+    """EXPLORATORY_MODEL_INFERENCE=ALLOWED — useful, applied, hypothesis-first."""
+    rules = _rules()
+    rule = rules["neurodivergence.differential_explanations"]
+
+    result = rule.evaluate(
+        _context(
+            exploration={
+                "objective": "Could these social and sensory patterns fit autism?",
+                "hypothesis": "autism",
+                "supporting": (
+                    {"id": "obs-1", "note": "consistent sensory preferences"},
+                    {"id": "obs-2", "note": "lifelong social exhaustion"},
+                ),
+                "unclear": ({"id": "gap-1", "note": "no early developmental record"},),
+                "conflicting": (
+                    {"id": "con-1", "note": "no childhood onset reported"},
+                ),
+                "alternatives": (
+                    {"id": "alt-1", "note": "anxiety-related social avoidance"},
+                ),
+                "clarifying_evidence": (
+                    {"id": "next-1", "note": "school observation records"},
+                ),
+            }
+        )
+    )
+
+    # Genuinely useful applied behavior — not merely "not blocked".
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["exploration_performed"] is True
+    assert result.metadata["exploratory_model_inference"] == "allowed"
+    assert result.metadata["hypothesis_state"] == "hypothesis"
+    assert result.metadata["confirmed_diagnosis_created"] is False
+    assert result.metadata["differential_reasoning"] == "balanced_not_adversarial"
+    assert result.metadata["negative_evidence_required"] is False
+    for category in (
+        "supporting",
+        "unclear",
+        "conflicting",
+        "alternatives",
+        "clarifying_evidence",
+    ):
+        assert category in result.metadata["categories_covered"]
+
+
+def test_exploratory_reasoning_needs_no_fabricated_negative_case():
+    """A hypothesis-only request is supported; no counterargument is invented."""
+    rules = _rules()
+    rule = rules["neurodivergence.differential_explanations"]
+
+    result = rule.evaluate(
+        _context(
+            exploration={
+                "objective": "Could this be related to ADHD?",
+                "hypothesis": "adhd",
+                "supporting": ({"id": "obs-1"},),
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["negative_evidence_required"] is False
+    assert result.metadata["fabricated_negative_evidence"] is False
+    assert result.metadata["refusal_generated"] is False
+    assert result.metadata["confirmed_diagnosis_created"] is False
+
+
+def test_exploratory_reasoning_does_not_produce_disclaimer_only_output():
+    """Ordinary exploration is reasoned about, not replaced by a disclaimer."""
+    rules = _rules()
+    rule = rules["neurodivergence.differential_explanations"]
+
+    result = rule.evaluate(
+        _context(
+            exploration={
+                "objective": "Why might this fit?",
+                "hypothesis": "autism",
+                "supporting": ({"id": "obs-1"},),
+                "alternatives": ({"id": "alt-1"},),
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["disclaimer_only_output"] is False
+    assert result.metadata["professional_assessment_substituted_reasoning"] is False
+    assert result.metadata["reasoning_present"] is True
+
+
+# ── Diagnostic promotion fails closed ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "source_kind",
+    ("screening", "self_report", "isolated_trait", "model_interpretation"),
+)
+def test_non_authoritative_evidence_cannot_become_confirmed_diagnosis(source_kind):
+    rules = _rules()
+    rule = rules["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "claim-1",
+                "from_state": "hypothesis",
+                "to_state": "confirmed",
+                "evidence_kind": source_kind,
+                "clinical": True,
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["confirmed_diagnosis_created"] is False
+    assert result.metadata["promotion_blocked"] is True
+    assert result.metadata["certainty_preserved"] is True
+
+
+def test_authoritative_health_evidence_can_carry_a_confirmed_clinical_status():
+    """The promotion block is not vacuous: the authoritative path works."""
+    rules = _rules()
+    rule = rules["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "claim-1",
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "authority": {
+                    "domain": "domain:health",
+                    "documented": True,
+                    "source_ref": "health-record:1",
+                },
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["promotion_blocked"] is False
+    assert result.metadata["authoritative_evidence"] is True
+    assert result.metadata["health_authority_supplied"] is True
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    ("false", "0", 1, 0, [], {}, "yes"),
+)
+def test_malformed_authority_never_supports_a_confirmed_diagnosis(malformed):
+    """Only a literal documented authority flag authorizes CONFIRMED."""
+    rules = _rules()
+    rule = rules["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "claim-1",
+                "from_state": "hypothesis",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "authority": {
+                    "domain": "domain:health",
+                    "documented": malformed,
+                    "source_ref": "health-record:1",
+                },
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["confirmed_diagnosis_created"] is False
+
+
+# ── Certainty hierarchy ──────────────────────────────────────────────────────
+
+
+def test_certainty_states_remain_semantically_distinct():
+    from cmm.domains.neurodivergence.rules import (
+        CERTAINTY_CONFIRMED,
+        CERTAINTY_HYPOTHESIS,
+        CERTAINTY_IN_EVALUATION,
+        CERTAINTY_INSUFFICIENTLY_SUPPORTED,
+        CERTAINTY_NOT_CONFIRMED,
+        CERTAINTY_RULED_OUT,
+    )
+
+    assert CERTAINTY_NOT_CONFIRMED != CERTAINTY_RULED_OUT
+    assert CERTAINTY_INSUFFICIENTLY_SUPPORTED != CERTAINTY_RULED_OUT
+    assert CERTAINTY_IN_EVALUATION != CERTAINTY_CONFIRMED
+    assert CERTAINTY_HYPOTHESIS != CERTAINTY_CONFIRMED
+    assert (
+        len(
+            {
+                CERTAINTY_CONFIRMED,
+                CERTAINTY_IN_EVALUATION,
+                CERTAINTY_HYPOTHESIS,
+                CERTAINTY_NOT_CONFIRMED,
+                CERTAINTY_RULED_OUT,
+                CERTAINTY_INSUFFICIENTLY_SUPPORTED,
+            }
+        )
+        == 6
+    )
+
+
+def test_certainty_state_semantics_are_derived_and_non_authoritative():
+    from cmm.domains.neurodivergence.rules import describe_certainty_state
+
+    confirmed = describe_certainty_state("confirmed")
+    ruled_out = describe_certainty_state("ruled_out")
+    not_confirmed = describe_certainty_state("not_confirmed")
+    in_evaluation = describe_certainty_state("in_evaluation")
+
+    # CONFIRMED and RULED_OUT require the owning authority; NOT CONFIRMED does
+    # not imply exclusion.
+    assert confirmed["requires_authority"] is True
+    assert confirmed["certified_here"] is False
+    assert ruled_out["requires_authority"] is True
+    assert ruled_out["certified_here"] is False
+    assert not_confirmed["implies_exclusion"] is False
+    assert ruled_out["implies_exclusion"] is True
+    assert in_evaluation["certified_here"] is False
+    assert describe_certainty_state("unknown")["label"] == "unknown"
+
+
+def test_certainty_state_preservation_rule_keeps_negative_states_separate():
+    rules = _rules()
+    rule = rules["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "claim-2",
+                "from_state": "not_confirmed",
+                "to_state": "ruled_out",
+                "evidence_kind": "model_interpretation",
+                "clinical": True,
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certified_here"] is False
+    assert result.metadata["exclusion_created"] is False
+
+
+# ── Screening / self-report / observation separation ─────────────────────────
+
+
+def test_screening_is_evidence_and_never_a_diagnosis():
+    rules = _rules()
+    rule = rules["neurodivergence.screening_diagnosis_separation"]
+
+    contributed = rule.evaluate(
+        _context(
+            screening={
+                "instrument": "screening-instrument",
+                "source_ref": "screening:1",
+                "claimed_as_diagnosis": False,
+            }
+        )
+    )
+    assert contributed.status is ReasoningRuleResultStatus.APPLIED
+    assert contributed.metadata["screening_is_evidence_only"] is True
+    assert contributed.metadata["diagnosis_created"] is False
+
+    promoted = rule.evaluate(
+        _context(
+            screening={
+                "instrument": "screening-instrument",
+                "source_ref": "screening:1",
+                "claimed_as_diagnosis": True,
+            }
+        )
+    )
+    assert promoted.status is ReasoningRuleResultStatus.BLOCKED
+    assert promoted.metadata["screening_promoted_to_diagnosis"] is False
+    assert promoted.metadata["confirmed_diagnosis_created"] is False
+
+
+def test_observation_self_report_and_third_party_report_stay_separate():
+    from cmm.domains.neurodivergence.rules import classify_evidence_source
+
+    rules = _rules()
+    rule = rules["neurodivergence.observation_report_separation"]
+
+    assert classify_evidence_source({"evidence_type": "direct_observation"}) == (
+        "direct_observation"
+    )
+    assert classify_evidence_source({"evidence_type": "retrospective_self_report"}) == (
+        "retrospective_self_report"
+    )
+    assert classify_evidence_source({"evidence_type": "third_party_report"}) == (
+        "third_party_report"
+    )
+    assert classify_evidence_source({}) == "unknown"
+
+    result = rule.evaluate(
+        _context(
+            evidence_items=(
+                {"id": "e1", "evidence_type": "direct_observation"},
+                {"id": "e2", "evidence_type": "retrospective_self_report"},
+                {"id": "e3", "evidence_type": "third_party_report"},
+            )
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["report_collapsed_into_observation"] is False
+    assert set(result.metadata["evidence_classes"]) == {
+        "direct_observation",
+        "retrospective_self_report",
+        "third_party_report",
+    }
+
+    collapsed = rule.evaluate(
+        _context(
+            evidence_items=(
+                {
+                    "id": "e4",
+                    "evidence_type": "retrospective_self_report",
+                    "presented_as": "direct_observation",
+                },
+            )
+        )
+    )
+    assert collapsed.status is ReasoningRuleResultStatus.BLOCKED
+    assert collapsed.metadata["report_collapsed_into_observation"] is True
+
+
+def test_observation_report_separation_requires_source_identity():
+    rules = _rules()
+    rule = rules["neurodivergence.observation_report_separation"]
+
+    result = rule.evaluate(
+        _context(
+            evidence_items=(
+                {
+                    "id": "e1",
+                    "evidence_type": "direct_observation",
+                    "source_ref": "observer:parent-1",
+                },
+                {"id": "e2", "evidence_type": "third_party_report"},
+            ),
+            source_provenance=_canonical_transfer_provenance(),
+        )
+    )
+    # A supplied provenance context makes an unprovenanced item fail closed
+    # instead of silently supporting a high-confidence conclusion.
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["unprovenanced_evidence_ids"] == ("e2",)
+    assert result.metadata["provenance_preserved"] is False
+
+
+# ── Developmental temporality ────────────────────────────────────────────────
+
+
+def test_historical_trait_is_not_generalized_to_current_impairment():
+    rules = _rules()
+    rule = rules["neurodivergence.developmental_temporality"]
+
+    result = rule.evaluate(
+        _context(
+            temporal_claim={
+                "claim_id": "t1",
+                "observed_period": "historical",
+                "observation_kind": "retrospective",
+                "generalized_to": "current_impairment",
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["temporal_generalization_blocked"] is True
+    assert result.metadata["current_vs_historical_distinguished"] is True
+
+
+def test_retrospective_report_is_not_a_contemporaneous_observation():
+    rules = _rules()
+    rule = rules["neurodivergence.developmental_temporality"]
+
+    result = rule.evaluate(
+        _context(
+            temporal_claim={
+                "claim_id": "t2",
+                "observed_period": "historical",
+                "observation_kind": "retrospective",
+                "presented_as": "contemporaneous",
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["retrospective_as_contemporaneous"] is True
+
+
+def test_temporal_claims_within_their_evidence_scope_are_applied():
+    rules = _rules()
+    rule = rules["neurodivergence.developmental_temporality"]
+
+    result = rule.evaluate(
+        _context(
+            temporal_claim={
+                "claim_id": "t3",
+                "observed_period": "current",
+                "observation_kind": "contemporaneous",
+                "generalized_to": "current_impairment",
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["temporal_generalization_blocked"] is False
+    assert result.metadata["current_vs_historical_distinguished"] is True
+
+
+# ── Trait vs functional significance ─────────────────────────────────────────
+
+
+def test_a_trait_is_not_clinically_significant_impairment_by_itself():
+    rules = _rules()
+    rule = rules["neurodivergence.trait_function_separation"]
+
+    separate = rule.evaluate(
+        _context(
+            trait_claim={
+                "trait": "prefers predictable routines",
+                "functional_impact_evidence": False,
+                "claimed_clinically_significant": False,
+            }
+        )
+    )
+    assert separate.status is ReasoningRuleResultStatus.APPLIED
+    assert separate.metadata["trait_treated_as_impairment"] is False
+    assert separate.metadata["functional_relevance_analyzed"] is True
+
+    promoted = rule.evaluate(
+        _context(
+            trait_claim={
+                "trait": "prefers predictable routines",
+                "functional_impact_evidence": False,
+                "claimed_clinically_significant": True,
+            }
+        )
+    )
+    assert promoted.status is ReasoningRuleResultStatus.BLOCKED
+    assert promoted.metadata["trait_treated_as_impairment"] is False
+
+
+# ── Longitudinal corroboration ───────────────────────────────────────────────
+
+
+def test_absent_longitudinal_corroboration_is_not_disproof():
+    rules = _rules()
+    rule = rules["neurodivergence.longitudinal_corroboration"]
+
+    result = rule.evaluate(
+        _context(
+            longitudinal={
+                "claim_id": "l1",
+                "periods": ({"id": "p1", "period": "current"},),
+                "sources": ({"id": "s1", "source": "self"},),
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["corroboration_present"] is False
+    assert result.metadata["confidence_reduced"] is True
+    assert result.metadata["absence_treated_as_disproof"] is False
+    assert result.metadata["disproof_created"] is False
+
+
+def test_explicit_disproof_from_absent_corroboration_is_blocked():
+    rules = _rules()
+    rule = rules["neurodivergence.longitudinal_corroboration"]
+
+    result = rule.evaluate(
+        _context(
+            longitudinal={
+                "claim_id": "l2",
+                "periods": ({"id": "p1", "period": "current"},),
+                "sources": ({"id": "s1", "source": "self"},),
+                "absence_is_disproof": True,
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["absence_treated_as_disproof"] is False
+    assert result.metadata["disproof_created"] is False
+
+
+def test_multiple_corroborating_periods_raise_confidence():
+    rules = _rules()
+    rule = rules["neurodivergence.longitudinal_corroboration"]
+
+    result = rule.evaluate(
+        _context(
+            longitudinal={
+                "claim_id": "l3",
+                "periods": (
+                    {"id": "p1", "period": "historical"},
+                    {"id": "p2", "period": "current"},
+                ),
+                "sources": (
+                    {"id": "s1", "source": "self"},
+                    {"id": "s2", "source": "third_party"},
+                ),
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["corroboration_present"] is True
+    assert result.metadata["confidence_reduced"] is False
+
+
+# ── Contradiction preservation ───────────────────────────────────────────────
+
+
+def test_competing_evidence_must_remain_visible():
+    rules = _rules()
+    rule = rules["neurodivergence.contradiction_preservation"]
+
+    erased = rule.evaluate(
+        _context(
+            evidence_set={
+                "hypothesis": "autism",
+                "evidence": (
+                    {"id": "e1", "direction": "supports"},
+                    {"id": "e2", "direction": "weakens"},
+                ),
+                "reported_evidence_ids": ("e1",),
+            }
+        )
+    )
+    assert erased.status is ReasoningRuleResultStatus.BLOCKED
+    assert erased.metadata["contradiction_erased"] is True
+    assert erased.metadata["competing_evidence_visible"] is False
+
+    preserved = rule.evaluate(
+        _context(
+            evidence_set={
+                "hypothesis": "autism",
+                "evidence": (
+                    {"id": "e1", "direction": "supports"},
+                    {"id": "e2", "direction": "weakens"},
+                ),
+                "reported_evidence_ids": ("e1", "e2"),
+            }
+        )
+    )
+    assert preserved.status is ReasoningRuleResultStatus.APPLIED
+    assert preserved.metadata["contradiction_erased"] is False
+    assert preserved.metadata["weakening_evidence_ids"] == ("e2",)
+
+
+# ── Overlap reasoning ────────────────────────────────────────────────────────
+
+
+def test_overlap_reasoning_allows_overlap_without_co_diagnosis():
+    rules = _rules()
+    rule = rules["neurodivergence.overlap_reasoning"]
+
+    result = rule.evaluate(
+        _context(
+            overlap={
+                "hypotheses": ("autism", "adhd"),
+                "overlapping_features": ({"id": "f1"},),
+                "distinguishing_evidence": ({"id": "d1"},),
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["overlap_considered"] is True
+    assert result.metadata["co_diagnosis_created"] is False
+    assert result.metadata["overlap_is_not_co_diagnosis"] is True
+
+
+# ── Global-attribution guard ─────────────────────────────────────────────────
+
+
+def test_global_attribution_guard_blocks_an_unevidenced_global_claim():
+    rules = _rules()
+    rule = rules["neurodivergence.global_attribution_guard"]
+
+    result = rule.evaluate(
+        _context(
+            attribution={
+                "explanation": "every difficulty is caused by neurodivergence",
+                "global_causal_claim": True,
+                "evidence_supplied": False,
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["global_attribution_blocked"] is True
+    assert result.metadata["exploratory_association_suppressed"] is False
+
+
+def test_global_attribution_guard_never_suppresses_exploration():
+    """The guard is anti-over-attribution, not anti-hypothesis."""
+    rules = _rules()
+    rule = rules["neurodivergence.global_attribution_guard"]
+
+    for attribution in (
+        {
+            "explanation": "sensory overload may contribute to this difficulty",
+            "global_causal_claim": False,
+            "evidence_supplied": False,
+        },
+        {
+            "explanation": "attention difficulties",
+            "global_causal_claim": True,
+            "evidence_supplied": True,
+        },
+    ):
+        result = rule.evaluate(_context(attribution=attribution))
+        assert result.status is ReasoningRuleResultStatus.APPLIED
+        assert result.metadata["global_attribution_blocked"] is False
+        assert result.metadata["exploratory_association_suppressed"] is False
+        assert result.metadata["hypothesis_status_preserved"] is True
+
+
+# ── Source authority ─────────────────────────────────────────────────────────
+
+
+def test_imported_facts_keep_their_source_domain_owner():
+    rules = _rules()
+    rule = rules["neurodivergence.source_authority"]
+
+    result = rule.evaluate(
+        _context(
+            source_claims=(
+                {
+                    "id": "c1",
+                    "source_domain": "domain:university",
+                    "fact": "exam accommodation on record",
+                },
+                {
+                    "id": "c2",
+                    "source_domain": "domain:relationships",
+                    "fact": "reports social exhaustion",
+                },
+            )
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["source_authority_preserved"] is True
+    assert result.metadata["rewritten_claims"] == ()
+    assert result.metadata["source_domains"] == (
+        "domain:relationships",
+        "domain:university",
+    )
+
+
+def test_source_authority_blocks_re_emitting_a_foreign_fact_as_owned():
+    rules = _rules()
+    rule = rules["neurodivergence.source_authority"]
+
+    result = rule.evaluate(
+        _context(
+            source_claims=(
+                {
+                    "id": "c1",
+                    "source_domain": "domain:health",
+                    "fact": "documented diagnosis on record",
+                    "re_emitted_as": "domain:neurodivergence",
+                },
+            )
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["source_authority_preserved"] is False
+    assert result.metadata["rewritten_claims"] == ("c1",)
+
+
+def test_source_authority_blocks_an_unknown_source_owner():
+    rules = _rules()
+    rule = rules["neurodivergence.source_authority"]
+
+    result = rule.evaluate(
+        _context(source_claims=({"id": "c1", "source_domain": "unknown", "fact": "x"},))
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["unknown_source_claims"] == ("c1",)
+
+
+# ── Health clinical authority ────────────────────────────────────────────────
+
+
+def test_clinical_status_authority_preserves_health_and_allows_hypothesis():
+    rules = _rules()
+    rule = rules["neurodivergence.clinical_status_authority"]
+
+    result = rule.evaluate(
+        _context(
+            clinical_claim={
+                "documented_diagnosis": True,
+                "diagnosis_status": "confirmed",
+                "competing_hypothesis": "autism",
+                "requested": "confirm_diagnosis",
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["primary_authority"] == "domain:health"
+    assert result.metadata["neurodivergence_may_override"] is False
+    assert result.metadata["health_clinical_status_preserved"] is True
+    assert result.metadata["competing_hypothesis_present"] is True
+    assert result.metadata["competing_hypothesis_discussable"] is True
+    assert result.metadata["competing_hypothesis_promoted"] is False
+    assert result.metadata["medication_change_blocked"] is True
+    assert result.metadata["treatment_change_blocked"] is True
+
+
+def test_medication_and_treatment_mutation_remain_blocked():
+    rules = _rules()
+    rule = rules["neurodivergence.clinical_status_authority"]
+
+    for requested in ("change_medication", "adjust_medication", "change_treatment"):
+        result = rule.evaluate(
+            _context(
+                clinical_claim={
+                    "medication": True,
+                    "treatment_plan": True,
+                    "requested": requested,
+                }
+            )
+        )
+        assert result.status is ReasoningRuleResultStatus.BLOCKED
+        assert result.metadata["neurodivergence_may_override"] is False
+        assert result.metadata["autonomous_medical_action"] is False
+
+
+def test_clinical_status_authority_applies_when_no_override_is_requested():
+    rules = _rules()
+    rule = rules["neurodivergence.clinical_status_authority"]
+
+    result = rule.evaluate(
+        _context(
+            clinical_claim={
+                "documented_diagnosis": True,
+                "competing_hypothesis": "adhd",
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["primary_authority"] == "domain:health"
+    assert result.metadata["competing_hypothesis_discussable"] is True
+
+
+# ── Sensitive-label persistence ──────────────────────────────────────────────
+
+
+def test_a_working_hypothesis_is_never_silently_persisted():
+    rules = _rules()
+    rule = rules["neurodivergence.sensitive_label_persistence"]
+
+    result = rule.evaluate(
+        _context(
+            persistence_request={
+                "content_kind": "working_hypothesis",
+                "certainty_state": "hypothesis",
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["direct_write_performed"] is False
+    assert result.metadata["proposal_required"] is True
+    assert result.metadata["certainty_promoted"] is False
+
+
+def test_an_approved_proposal_preserves_hypothesis_status():
+    rules = _rules()
+    rule = rules["neurodivergence.sensitive_label_persistence"]
+
+    result = rule.evaluate(
+        _context(
+            persistence_request={
+                "content_kind": "working_hypothesis",
+                "certainty_state": "hypothesis",
+                "authorization": {
+                    "approved": True,
+                    "proposal_id": "proposal-1",
+                    "binding_id": "binding-1",
+                },
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["direct_write_performed"] is False
+    assert result.metadata["hypothesis_status_preserved"] is True
+    assert result.metadata["certainty_promoted"] is False
+
+
+def test_a_confirmed_diagnosis_may_never_be_persisted_by_this_pack():
+    rules = _rules()
+    rule = rules["neurodivergence.sensitive_label_persistence"]
+
+    result = rule.evaluate(
+        _context(
+            persistence_request={
+                "content_kind": "confirmed_diagnosis",
+                "certainty_state": "hypothesis",
+                "authorization": {
+                    "approved": True,
+                    "proposal_id": "proposal-1",
+                    "binding_id": "binding-1",
+                },
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["direct_write_performed"] is False
+    assert result.metadata["proposal_required"] is True
+
+
+def test_a_proposal_may_not_upgrade_hypothesis_to_confirmed():
+    rules = _rules()
+    rule = rules["neurodivergence.sensitive_label_persistence"]
+
+    result = rule.evaluate(
+        _context(
+            persistence_request={
+                "content_kind": "working_hypothesis",
+                "certainty_state": "hypothesis",
+                "proposed_state": "confirmed",
+                "authorization": {
+                    "approved": True,
+                    "proposal_id": "proposal-1",
+                    "binding_id": "binding-1",
+                },
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_promoted"] is True
+    assert result.metadata["direct_write_performed"] is False
+
+
+# ── Cross-domain minimization ────────────────────────────────────────────────
+
+
+def _projection(**fields):
+    return {
+        "purpose": "differential_context",
+        "fields": {name: {"relevant": True, "value": True} for name in fields},
+    }
+
+
+def test_cross_domain_minimization_excludes_unbound_fields():
+    rules = _rules()
+    rule = rules["neurodivergence.purpose_minimized_cross_domain"]
+
+    result = rule.evaluate(
+        _context(
+            projection=_projection(
+                emotional_context=True,
+                therapy_notes=True,
+                unrelated_field=True,
+            ),
+            transfers=(_canonical_transfer("emotional_context"),),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["included_fields"] == ("emotional_context",)
+    assert "therapy_notes" in result.metadata["excluded_fields"]
+    # Relevant fields with no transfer of their own stay excluded: one accepted
+    # transfer never authorizes another field.
+    assert set(result.metadata["unbound_fields"]) == {
+        "therapy_notes",
+        "unrelated_field",
+    }
+    assert result.metadata["provenance_preserved"] is True
+    assert result.metadata["provenance_references"] == ("finding:mental-health:7",)
+
+
+def test_an_unrelated_transfer_authorizes_nothing():
+    rules = _rules()
+    rule = rules["neurodivergence.purpose_minimized_cross_domain"]
+
+    result = rule.evaluate(
+        _context(
+            projection=_projection(emotional_context=True),
+            transfers=(_canonical_transfer("documented_medication_change"),),
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["included_fields"] == ()
+    assert result.metadata["provenance_preserved"] is False
+
+
+def test_structural_transfer_alone_is_not_current_authority():
+    """A matching transfer with no current authority admits no field."""
+    rules = _rules()
+    rule = rules["neurodivergence.purpose_minimized_cross_domain"]
+
+    projection = _projection(emotional_context=True)
+    projection["permission_authority"] = False
+
+    result = rule.evaluate(
+        _context(
+            projection=projection,
+            transfers=(_canonical_transfer("emotional_context"),),
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["included_fields"] == ()
+    assert result.metadata["permission_authority"] is False
+    assert result.metadata["provenance_preserved"] is False
+
+
+def test_malformed_relevance_never_includes_a_cross_domain_field():
+    rules = _rules()
+    rule = rules["neurodivergence.purpose_minimized_cross_domain"]
+
+    result = rule.evaluate(
+        _context(
+            projection={
+                "purpose": "differential_context",
+                "fields": {"emotional_context": {"relevant": "yes"}},
+            },
+            transfers=(_canonical_transfer("emotional_context"),),
+        )
+    )
+    assert result.metadata["included_fields"] == ()
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+
+
+def test_cross_domain_import_requires_a_purpose_and_canonical_provenance():
+    rules = _rules()
+    rule = rules["neurodivergence.purpose_minimized_cross_domain"]
+
+    no_purpose = rule.evaluate(
+        _context(
+            projection={"fields": {"emotional_context": {"relevant": True}}},
+            transfers=(_canonical_transfer("emotional_context"),),
+        )
+    )
+    assert no_purpose.status is ReasoningRuleResultStatus.BLOCKED
+    assert no_purpose.metadata["included_fields"] == ()
+
+    untyped = rule.evaluate(
+        _context(
+            projection=_projection(emotional_context=True),
+            transfers=({"identifier": "emotional_context", "provenance": ["x"]},),
+        )
+    )
+    assert untyped.status is ReasoningRuleResultStatus.BLOCKED
+    assert untyped.metadata["included_fields"] == ()
+    assert "malformed_transfer" in untyped.metadata["rejected_transfers"]
