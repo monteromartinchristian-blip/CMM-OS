@@ -670,6 +670,10 @@ def test_checkpoint_13_consumed_approval_admits_the_exact_transfer():
 
 # ── Audit V1 MAJOR-01: genuine canonical Health authority still promotes ─────
 
+#: The Health-owned clinical-record artifact identity carried by the admitted
+#: canonical ``CrossDomainContextTransfer``.
+CLINICAL_RECORD_ID = "clinical-record:nd-1"
+
 
 def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPOSE):
     """A canonical Health clinical-status transfer carrying Health-owned proof."""
@@ -686,35 +690,92 @@ def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPO
             "documented_diagnosis": True,
             "provenance": ResourceProvenance(
                 source_type=ResourceSourceKind.UPLOADED_FILE,
-                source_id="clinical-record:nd-1",
+                source_id=CLINICAL_RECORD_ID,
             ).to_dict(),
         },
         reason=reason,
-        provenance=("clinical-record:nd-1",),
+        provenance=(CLINICAL_RECORD_ID,),
     ).to_dict()
 
 
-def _authority_context(request, gate_result, *, claim_id, authoritative=True):
-    """Build the trusted channel from a live gate result, as runtime code would.
+def _health_clinical_record_provenance():
+    """Canonical provenance for the Health-owned artifact Health evaluated.
 
-    Health's own canonical definitive semantics are established first; only a
-    definitive Health claim may be named authoritative.  A non-definitive
-    verdict therefore omits the claim and the trusted context cannot confirm.
+    Constructed from the canonical ``ResourceProvenance`` contract itself —
+    never rehydrated from a serialized shape — by trusted code acting for the
+    artifact's owner, exactly as the Health domain would after establishing its
+    own definitive status.
     """
-    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    return ResourceProvenance(
+        source_type=ResourceSourceKind.UPLOADED_FILE,
+        source_id=CLINICAL_RECORD_ID,
+    )
+
+
+def _health_authoritative_claim(
+    claim_id,
+    *,
+    source_domain="domain:health",
+    purpose=CROSS_DOMAIN_PURPOSE,
+    provenance=None,
+):
+    """The provenance-bound authoritative Health claim."""
+    from cmm.cognitive import AuthoritativeSourceClaim
+
+    return AuthoritativeSourceClaim(
+        claim_id=claim_id,
+        source_domain=source_domain,
+        purpose=purpose,
+        provenance=(
+            provenance if provenance is not None else _health_clinical_record_provenance()
+        ),
+    )
+
+
+def _health_verdict(*, authoritative=True):
+    """Health's own canonical definitive-diagnostic semantics."""
     from cmm.domains.health.rules import validate_diagnostic_claim
 
-    health_verdict = validate_diagnostic_claim(
+    return validate_diagnostic_claim(
         evidence=True,
         documented=True,
         confirmed=authoritative,
         provisional=not authoritative,
     )
-    claim_ids = (claim_id,) if health_verdict["is_definitive"] else ()
-    authority = build_reasoning_authority_context(
-        gate_result, authoritative_claim_ids=claim_ids
+
+
+def _authority_context(
+    request,
+    gate_result,
+    *,
+    claim_id,
+    authoritative=True,
+    claims=None,
+):
+    """Build the trusted channel from a live gate result, as runtime code would.
+
+    Health's own canonical definitive semantics are established first; only a
+    definitive Health claim may be named authoritative.  A non-definitive
+    verdict therefore omits the claim and the trusted context cannot confirm.
+    Unless a test supplies an explicit claim set, the trusted claim is built
+    from the canonical provenance of the Health-owned clinical-record artifact
+    that the admitted transfer references.
+    """
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    health_verdict = _health_verdict(authoritative=authoritative)
+    if claims is None:
+        claims = (
+            (_health_authoritative_claim(claim_id),)
+            if health_verdict["is_definitive"]
+            else ()
+        )
+    return health_verdict, build_reasoning_authority_context(
+        gate_result, authoritative_claims=claims
     )
-    return health_verdict, authority
 
 
 def _certainty_context(transition, authority_context=None) -> ReasoningRuleContext:
@@ -743,6 +804,7 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
         -> real DomainPermissionGate -> APPROVAL_REQUIRED
         -> real ApprovalService lifecycle -> APPROVAL_CONSUMED
         -> real Health definitive-diagnostic validation
+        -> canonical ResourceProvenance for the Health-owned clinical record
         -> build_reasoning_authority_context(consumed gate result)
         -> ReasoningRuleContext(authority_context=...)
         -> CertaintyStatePreservationRule -> CONFIRMED
@@ -786,12 +848,24 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert consumed.allowed is True
     assert admitted == (candidate,)
 
+    # The trusted claim is bound to the Health-owned artifact the admitted
+    # transfer references, not to an invented identifier.
+    admitted_transfer = admitted[0]
+    assert admitted_transfer["provenance"] == [CLINICAL_RECORD_ID]
+    assert admitted_transfer["value"]["provenance"]["source_id"] == CLINICAL_RECORD_ID
+
     health_verdict, authority = _authority_context(
         request, consumed, claim_id="clinical_status"
     )
     assert health_verdict["is_definitive"] is True
     assert health_verdict["may_present_as_definitive"] is True
     assert authority is not None
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+    bound_claim = authority.authoritative_claims[0]
+    assert bound_claim.source_domain == "domain:health"
+    assert bound_claim.purpose == CROSS_DOMAIN_PURPOSE
+    assert bound_claim.provenance.source_id == CLINICAL_RECORD_ID
+    assert bound_claim.provenance.source_id in admitted_transfer["provenance"]
 
     rule = _rules()["neurodivergence.certainty_state_preservation"]
     transition = {
@@ -811,6 +885,10 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert result.metadata["health_authority_supplied"] is True
     assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
     assert result.metadata["canonical_authority"]["claim_id"] == "clinical_status"
+    assert (
+        result.metadata["canonical_authority"]["source_provenance_id"]
+        == CLINICAL_RECORD_ID
+    )
     assert result.metadata["confirmed_diagnosis_created"] is False
 
     # Removing any single trusted binding blocks promotion, while the same
@@ -819,7 +897,15 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
         ("no-authority-context", None),
         (
             "wrong-source-domain",
-            _replace_authority(authority, source_domain="domain:mental-health"),
+            _replace_authority(
+                authority,
+                source_domain="domain:mental-health",
+                authoritative_claims=(
+                    _health_authoritative_claim(
+                        "clinical_status", source_domain="domain:mental-health"
+                    ),
+                ),
+            ),
         ),
         (
             "wrong-target-domain",
@@ -828,9 +914,20 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
         ("resource-mismatch", _replace_authority(authority, resource_ids=("other",))),
         (
             "claim-not-authoritative",
-            _replace_authority(authority, authoritative_claim_ids=()),
+            _replace_authority(authority, authoritative_claims=()),
         ),
-        ("purpose-mismatch", _replace_authority(authority, purpose="another_purpose")),
+        (
+            "purpose-mismatch",
+            _replace_authority(
+                authority,
+                purpose="another_purpose",
+                authoritative_claims=(
+                    _health_authoritative_claim(
+                        "clinical_status", purpose="another_purpose"
+                    ),
+                ),
+            ),
+        ),
     ):
         blocked = rule.evaluate(_certainty_context(transition, mutated))
         assert blocked.status.value == "blocked", label
@@ -877,7 +974,8 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert not_authoritative.metadata["certainty_state"] == "in_evaluation"
 
     # METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED on the connected path: the exact
-    # canonical transfer, provenance and matching IDs as caller metadata.
+    # canonical transfer, provenance-bearing claim shape and matching IDs as
+    # caller metadata grant nothing.
     forged = rule.evaluate(
         _context(
             certainty_transition={
@@ -890,6 +988,15 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
                     "may_present_as_definitive": True,
                 },
                 "transfers": admitted,
+                "source_provenance": admitted_transfer["value"]["provenance"],
+                "authoritative_claims": [
+                    {
+                        "claim_id": "clinical_status",
+                        "source_domain": "domain:health",
+                        "purpose": CROSS_DOMAIN_PURPOSE,
+                        "provenance": admitted_transfer["value"]["provenance"],
+                    }
+                ],
             }
         )
     )
@@ -900,6 +1007,7 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
 
 def test_checkpoint_14_authority_tuple_binding_is_exact():
     from cmm.domains.permission_gate import PermissionGateOutcome
+
 
     authorized_resolver = _authorized_cross_domain_resolver()
     approval_service, gate = _connected_permission_stack(authorized_resolver)
@@ -971,6 +1079,212 @@ def test_checkpoint_14_authority_tuple_binding_is_exact():
         approval_request_id=approval_request_id,
     )
     assert admitted_purpose == ()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Checkpoints 28–29: trusted source provenance binding (re-audit V3-redo MAJOR-01)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _consumed_clinical_status_authority(request_id):
+    """Drive the real connected path to a consumed cross-domain clinical status.
+
+    Returns the canonical request, the live ``APPROVAL_CONSUMED`` gate result
+    and the admitted canonical transfer for the requested resource.
+    """
+    from cmm.domains.permission_gate import PermissionGateOutcome
+
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    request = _cross_domain_request(request_id, "clinical_status")
+    candidate = _canonical_clinical_status_transfer("clinical_status")
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, request
+    )
+    _decision, consumed, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(candidate,),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert consumed.allowed is True
+    assert admitted == (candidate,)
+    return request, consumed, admitted
+
+
+_TRUSTED_TRANSITION = {
+    "claim_id": "clinical_status",
+    "from_state": "in_evaluation",
+    "to_state": "confirmed",
+    "evidence_kind": "documented_clinical_status",
+    "clinical": True,
+    "purpose": CROSS_DOMAIN_PURPOSE,
+}
+
+
+def test_checkpoint_28_definitive_health_without_trusted_provenance_blocks():
+    """Definitive Health semantics + no trusted source provenance -> BLOCKED.
+
+    A real consumed cross-domain approval and Health's own definitive verdict
+    are not enough on their own: the authoritative clinical claim must be
+    carried with canonical source provenance bound to the consumed gate result.
+    Both provenance-free shapes fail closed, and the identical canonical-looking
+    provenance supplied as caller metadata grants nothing.
+    """
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+    request, consumed, admitted = _consumed_clinical_status_authority(
+        "req-at-dp-053-no-provenance"
+    )
+    verdict = _health_verdict()
+    assert verdict["is_definitive"] is True
+    assert verdict["may_present_as_definitive"] is True
+
+    # (a) No trusted claim at all: permission authority exists, source authority
+    #     does not.
+    _verdict, no_claims_authority = _authority_context(
+        request, consumed, claim_id="clinical_status", claims=()
+    )
+    assert no_claims_authority is not None
+    assert no_claims_authority.authoritative_claims == ()
+    assert no_claims_authority.authoritative_claim_ids == ()
+    blocked = rule.evaluate(_certainty_context(_TRUSTED_TRANSITION, no_claims_authority))
+    assert blocked.status.value == "blocked"
+    assert blocked.metadata["certainty_state"] == "in_evaluation"
+    assert blocked.metadata["authoritative_evidence"] is False
+    assert blocked.metadata["promotion_blocked"] is True
+    assert blocked.metadata["canonical_authority"] is None
+    assert blocked.metadata["confirmed_diagnosis_created"] is False
+
+    # (b) A provenance-bearing claim that does not bind to the consumed gate
+    #     result is not promoted into the trusted channel at all.
+    unbound_claim = _health_authoritative_claim(
+        "clinical_status", purpose="another_purpose"
+    )
+    _verdict, unbound_authority = _authority_context(
+        request, consumed, claim_id="clinical_status", claims=(unbound_claim,)
+    )
+    assert unbound_authority is not None
+    assert unbound_authority.authoritative_claims == ()
+    unbound = rule.evaluate(_certainty_context(_TRUSTED_TRANSITION, unbound_authority))
+    assert unbound.status.value == "blocked"
+    assert unbound.metadata["certainty_state"] == "in_evaluation"
+    assert unbound.metadata["authoritative_evidence"] is False
+
+    # (c) The same canonical-looking provenance as caller metadata still grants
+    #     nothing, even with the admitted transfer and matching identifiers.
+    transfer = admitted[0]
+    forged = rule.evaluate(
+        _context(
+            certainty_transition={
+                **_TRUSTED_TRANSITION,
+                "permission_authority": True,
+                "permission_decision_id": consumed.decision_id,
+                "approval_consumed": True,
+                "health_definitive_verdict": {
+                    "is_definitive": True,
+                    "may_present_as_definitive": True,
+                },
+                "transfers": admitted,
+                "source_provenance": transfer["value"]["provenance"],
+                "authoritative_claims": [
+                    {
+                        "claim_id": "clinical_status",
+                        "source_domain": "domain:health",
+                        "purpose": CROSS_DOMAIN_PURPOSE,
+                        "provenance": transfer["value"]["provenance"],
+                    }
+                ],
+            }
+        )
+    )
+    assert forged.status.value == "blocked"
+    assert forged.metadata["certainty_state"] == "in_evaluation"
+    assert forged.metadata["authoritative_evidence"] is False
+    assert forged.metadata["canonical_authority"] is None
+
+
+def test_checkpoint_29_provenance_bound_trusted_claim_confirms():
+    """Definitive Health semantics + canonical trusted source provenance -> CONFIRMED.
+
+    The trusted claim is constructed from the canonical ``ResourceProvenance``
+    contract for the Health-owned clinical-record artifact that the *admitted*
+    canonical ``CrossDomainContextTransfer`` references — as trusted runtime
+    code would after Health evaluated its own artifact — and the rule reports
+    that provenance as the evidence that authorized the transition.
+    """
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+    request, consumed, admitted = _consumed_clinical_status_authority(
+        "req-at-dp-053-provenance"
+    )
+
+    # The admitted transfer names the Health-owned artifact identity, and the
+    # trusted provenance is bound to exactly that identity.
+    transfer = admitted[0]
+    assert transfer["provenance"] == [CLINICAL_RECORD_ID]
+    assert transfer["value"]["provenance"]["source_id"] == CLINICAL_RECORD_ID
+    claim = _health_authoritative_claim("clinical_status")
+    assert claim.provenance.source_id in transfer["provenance"]
+    assert claim.source_provenance_id == CLINICAL_RECORD_ID
+    assert claim.claim_id in consumed.metadata["resource_ids"]
+
+    verdict, authority = _authority_context(
+        request, consumed, claim_id="clinical_status", claims=(claim,)
+    )
+    assert verdict["is_definitive"] is True
+    assert authority is not None
+    assert authority.authoritative_claims == (claim,)
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+
+    result = rule.evaluate(_certainty_context(_TRUSTED_TRANSITION, authority))
+    assert result.status.value == "applied"
+    assert result.metadata["certainty_state"] == "confirmed"
+    assert result.metadata["promotion_blocked"] is False
+    assert result.metadata["authoritative_evidence"] is True
+    assert result.metadata["health_authority_supplied"] is True
+    canonical_authority = result.metadata["canonical_authority"]
+    assert canonical_authority["source_domain"] == "domain:health"
+    assert canonical_authority["claim_id"] == "clinical_status"
+    assert canonical_authority["source_provenance_id"] == CLINICAL_RECORD_ID
+    assert canonical_authority["authoritative_claim"] == {
+        "claim_id": "clinical_status",
+        "source_domain": "domain:health",
+        "purpose": CROSS_DOMAIN_PURPOSE,
+        "source_provenance_id": CLINICAL_RECORD_ID,
+    }
+    assert result.metadata["confirmed_diagnosis_created"] is False
+    assert result.metadata["certified_here"] is False
+
+    # The identical canonical-looking provenance supplied as caller metadata
+    # (with the admitted transfer and every matching identifier) grants nothing.
+    forged = rule.evaluate(
+        _context(
+            certainty_transition={
+                **_TRUSTED_TRANSITION,
+                "permission_authority": True,
+                "permission_decision_id": consumed.decision_id,
+                "approval_consumed": True,
+                "health_definitive_verdict": {
+                    "is_definitive": True,
+                    "may_present_as_definitive": True,
+                },
+                "transfers": admitted,
+                "source_provenance": claim.provenance.to_dict(),
+                "authoritative_claims": [
+                    {
+                        "claim_id": claim.claim_id,
+                        "source_domain": claim.source_domain,
+                        "purpose": claim.purpose,
+                        "provenance": claim.provenance.to_dict(),
+                    }
+                ],
+            }
+        )
+    )
+    assert forged.status.value == "blocked"
+    assert forged.metadata["certainty_state"] == "in_evaluation"
+    assert forged.metadata["authoritative_evidence"] is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1471,10 +1785,10 @@ def _health_and_neurodivergence_bootstrap():
 # Meta: every approved AT-DP-053 checkpoint is covered exactly once
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_EXPECTED_CHECKPOINTS: tuple[int, ...] = tuple(range(1, 28))
+_EXPECTED_CHECKPOINTS: tuple[int, ...] = tuple(range(1, 30))
 
 
-def test_at_dp_053_all_27_checkpoints_are_covered():
+def test_at_dp_053_all_29_checkpoints_are_covered():
     tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     declared = [
         node.name
@@ -1491,7 +1805,7 @@ def test_at_dp_053_all_27_checkpoints_are_covered():
         else:
             covered.add(int(body[:2]))
 
-    assert len(_EXPECTED_CHECKPOINTS) == 27
+    assert len(_EXPECTED_CHECKPOINTS) == 29
     assert covered == set(_EXPECTED_CHECKPOINTS), sorted(
         set(_EXPECTED_CHECKPOINTS) - covered
     )

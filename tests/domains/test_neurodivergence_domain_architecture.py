@@ -402,11 +402,12 @@ def test_pack_does_not_import_sibling_pack_implementations():
 def test_pack_defines_no_local_authority_owner_or_second_authority_contract():
     """The V3 trusted authority channel stays in canonical Cognitive infrastructure.
 
-    The pack may consume ``ReasoningAuthorityContext`` and must obtain it from
-    ``cmm.cognitive.reasoning_rule_contracts``.  It may not define its own
-    authority registry, resolver, store, engine or a second trusted-context
-    contract, and no parallel authority contract may appear anywhere under
-    ``cmm/domains``.
+    The pack may consume ``ReasoningAuthorityContext`` and the
+    provenance-bearing ``AuthoritativeSourceClaim`` projection and must obtain
+    both from ``cmm.cognitive.reasoning_rule_contracts``.  It may not define its
+    own authority registry, resolver, store, engine or a second trusted-context
+    or source-claim contract, and no parallel authority contract may appear
+    anywhere under ``cmm/domains``.
     """
     forbidden_authority_owners = (
         "NeurodivergenceAuthorityRegistry",
@@ -418,6 +419,7 @@ def test_pack_defines_no_local_authority_owner_or_second_authority_contract():
         "HealthAuthorityRegistry",
         "ReasoningAuthorityStore",
         "ReasoningAuthorityContext",
+        "AuthoritativeSourceClaim",
     )
     consumers: list[Path] = []
     for path in _pack_files():
@@ -433,11 +435,22 @@ def test_pack_defines_no_local_authority_owner_or_second_authority_contract():
         source = path.read_text(encoding="utf-8")
         assert "from cmm.cognitive.reasoning_rule_contracts import" in source
         assert "class ReasoningAuthorityContext" not in source
+        assert "class AuthoritativeSourceClaim" not in source
 
-    duplicate = [
+    for contract in ("ReasoningAuthorityContext", "AuthoritativeSourceClaim"):
+        duplicate = [
+            path
+            for path in sorted((REPO_ROOT / "cmm" / "domains").rglob("*.py"))
+            if path.parent != PACKAGE_DIR
+            and f"class {contract}" in path.read_text(encoding="utf-8")
+        ]
+        assert duplicate == [], contract
+
+    # The canonical source-claim projection is defined exactly once, in shared
+    # Cognitive infrastructure — never inside a Domain Pack.
+    declared = [
         path
-        for path in sorted((REPO_ROOT / "cmm" / "domains").rglob("*.py"))
-        if path.parent != PACKAGE_DIR
-        and "class ReasoningAuthorityContext" in path.read_text(encoding="utf-8")
+        for path in sorted((REPO_ROOT / "cmm").rglob("*.py"))
+        if "class AuthoritativeSourceClaim" in path.read_text(encoding="utf-8")
     ]
-    assert duplicate == []
+    assert declared == [REPO_ROOT / "cmm" / "cognitive" / "reasoning_rule_contracts.py"]

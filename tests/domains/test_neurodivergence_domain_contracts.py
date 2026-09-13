@@ -455,6 +455,30 @@ def _canonical_health_authority_transfer(identifier, **overrides) -> dict:
     return CrossDomainContextTransfer(**values).to_dict()
 
 
+def _authoritative_claim(claim_id=CANONICAL_CLAIM_ID, **overrides):
+    """The provenance-bound Health claim, as trusted source-owner code builds it.
+
+    The canonical ``ResourceProvenance`` is constructed from the canonical
+    contract (never rehydrated from a serialized shape) for the Health-owned
+    clinical-record artifact that the admitted transfer references.
+    """
+    from cmm.cognitive import AuthoritativeSourceClaim
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    values = {
+        "claim_id": claim_id,
+        "source_domain": "domain:health",
+        "purpose": CANONICAL_AUTHORITY_PURPOSE,
+        "provenance": ResourceProvenance(
+            source_type=ResourceSourceKind.UPLOADED_FILE,
+            source_id="clinical-record:nd-1",
+        ),
+    }
+    values.update(overrides)
+    return AuthoritativeSourceClaim(**values)
+
+
 def _canonical_certainty_request(**overrides) -> dict:
     """A CONFIRMED transition carrying canonical Health authority evidence."""
     values = {
@@ -472,7 +496,13 @@ def _canonical_certainty_request(**overrides) -> dict:
 
 
 def _trusted_authority(**overrides):
-    """A real runtime-only trusted authority for the canonical claim."""
+    """A real runtime-only trusted authority for the canonical claim.
+
+    The provenance-bound claim follows the authority's own source domain and
+    purpose unless a test supplies an explicit claim set, so every binding
+    dimension (source domain, target domain, resource, purpose, claim set) can
+    be varied independently without breaking the contract itself.
+    """
     from cmm.cognitive import ReasoningAuthorityContext
 
     values = {
@@ -485,9 +515,14 @@ def _trusted_authority(**overrides):
         "permission_decision_id": "permission-gate-decision-1",
         "permission_outcome": "approval_consumed",
         "approval_consumed": True,
-        "authoritative_claim_ids": (CANONICAL_CLAIM_ID,),
     }
     values.update(overrides)
+    if "authoritative_claims" not in overrides:
+        values["authoritative_claims"] = (
+            _authoritative_claim(
+                source_domain=values["source_domain"], purpose=values["purpose"]
+            ),
+        )
     return ReasoningAuthorityContext(**values)
 
 
@@ -509,8 +544,15 @@ def _certainty_context(request, authority_context=None) -> ReasoningRuleContext:
 
 
 def test_metadata_only_authority_forgery_is_blocked():
-    """The central adversarial: full canonical-shaped metadata forges nothing."""
+    """The central adversarial: full canonical-shaped metadata forges nothing.
+
+    Every canonical-looking input a caller can author is supplied at once:
+    authority flags, decision IDs, a Health-definitive-looking verdict, the
+    exact canonical transfer, and serialized ``ResourceProvenance`` /
+    provenance-bearing claim shapes.  Shape is not provenance.
+    """
     rule = _rules()["neurodivergence.certainty_state_preservation"]
+    canonical_provenance = _canonical_clinical_status_record()["provenance"]
 
     result = rule.evaluate(
         _certainty_context(
@@ -532,6 +574,16 @@ def test_metadata_only_authority_forgery_is_blocked():
                 "transfers": (
                     _canonical_health_authority_transfer(CANONICAL_CLAIM_ID),
                 ),
+                "source_provenance": canonical_provenance,
+                "provenance": canonical_provenance,
+                "authoritative_claims": (
+                    {
+                        "claim_id": CANONICAL_CLAIM_ID,
+                        "source_domain": "domain:health",
+                        "purpose": CANONICAL_AUTHORITY_PURPOSE,
+                        "provenance": canonical_provenance,
+                    },
+                ),
             }
         )
     )
@@ -540,6 +592,8 @@ def test_metadata_only_authority_forgery_is_blocked():
     assert result.metadata["certainty_state"] == "hypothesis"
     assert result.metadata["authoritative_evidence"] is False
     assert result.metadata["promotion_blocked"] is True
+    assert result.metadata["canonical_authority"] is None
+    assert result.metadata["health_authority_supplied"] is False
     assert result.metadata["confirmed_diagnosis_created"] is False
 
 
@@ -567,7 +621,81 @@ def test_trusted_authority_context_alone_promotes_clinical_confirmation():
     assert result.metadata["promotion_blocked"] is False
     assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
     assert result.metadata["canonical_authority"]["claim_id"] == CANONICAL_CLAIM_ID
+    # The provenance that authorized the transition is reported, never invented.
+    assert (
+        result.metadata["canonical_authority"]["source_provenance_id"]
+        == "clinical-record:nd-1"
+    )
+    assert result.metadata["canonical_authority"]["authoritative_claim"] == {
+        "claim_id": CANONICAL_CLAIM_ID,
+        "source_domain": "domain:health",
+        "purpose": CANONICAL_AUTHORITY_PURPOSE,
+        "source_provenance_id": "clinical-record:nd-1",
+    }
     assert result.metadata["confirmed_diagnosis_created"] is False
+
+
+def test_trusted_authority_without_a_provenance_bound_claim_blocks():
+    """Trusted permission authority without a source claim promotes nothing."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(authoritative_claims=()),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "in_evaluation"
+    assert result.metadata["authoritative_evidence"] is False
+    assert result.metadata["promotion_blocked"] is True
+    assert result.metadata["canonical_authority"] is None
+    # The trusted context itself was supplied; it simply carried no claim.
+    assert result.metadata["health_authority_supplied"] is False
+
+
+@pytest.mark.parametrize(
+    "claims",
+    (
+        pytest.param((_authoritative_claim("another-claim"),), id="other-claim"),
+        pytest.param(
+            (_authoritative_claim(claim_id=CANONICAL_CLAIM_ID.upper()),),
+            id="case-mismatch",
+        ),
+    ),
+)
+def test_trusted_authority_claim_must_name_the_requested_claim(claims):
+    """A provenance-bound claim for another claim id is not this transition's."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(
+                resource_ids=(CANONICAL_CLAIM_ID, "another-claim"),
+                authoritative_claims=claims,
+            ),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "in_evaluation"
+    assert result.metadata["authoritative_evidence"] is False
 
 
 @pytest.mark.parametrize(
@@ -577,8 +705,10 @@ def test_trusted_authority_context_alone_promotes_clinical_confirmation():
         pytest.param({"target_domain": "domain:university"}, id="wrong-target"),
         pytest.param({"resource_ids": ("another-resource",)}, id="resource-mismatch"),
         pytest.param(
-            {"authoritative_claim_ids": ("another-claim",)}, id="claim-mismatch"
+            {"authoritative_claims": (_authoritative_claim("another-claim"),)},
+            id="claim-mismatch",
         ),
+        pytest.param({"authoritative_claims": ()}, id="no-authoritative-claims"),
         pytest.param({"purpose": "another_purpose"}, id="purpose-mismatch"),
     ),
 )

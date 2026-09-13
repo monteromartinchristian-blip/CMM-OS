@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
 from cmm.cognitive import (
+    AuthoritativeSourceClaim,
     ContradictionStatus,
     ReasoningAuthorityContext,
     ReasoningEscalation,
@@ -25,6 +26,8 @@ from cmm.cognitive import (
     ReasoningRuleStatus,
     ReasoningRuleTraceEntry,
     ReasoningSeverity,
+    ResourceProvenance,
+    ResourceSourceKind,
 )
 
 NOW = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
@@ -203,6 +206,21 @@ def test_result_duration_and_confidence_are_bounded() -> None:
         )
 
 
+def claim(**overrides: object) -> AuthoritativeSourceClaim:
+    values: dict[str, object] = {
+        "claim_id": "clinical_status",
+        "source_domain": "domain:health",
+        "purpose": "diagnostic-status-review",
+        "provenance": ResourceProvenance(
+            source_type=ResourceSourceKind.UPLOADED_FILE,
+            source_id="clinical-record:1",
+            retrieved_at=NOW,
+        ),
+    }
+    values.update(overrides)
+    return AuthoritativeSourceClaim(**values)  # type: ignore[arg-type]
+
+
 def authority(**overrides: object) -> ReasoningAuthorityContext:
     values: dict[str, object] = {
         "actor_id": "actor-1",
@@ -214,10 +232,68 @@ def authority(**overrides: object) -> ReasoningAuthorityContext:
         "permission_decision_id": "permission-gate-decision-1",
         "permission_outcome": "approval_consumed",
         "approval_consumed": True,
-        "authoritative_claim_ids": ("clinical_status",),
+        "authoritative_claims": (claim(),),
     }
     values.update(overrides)
     return ReasoningAuthorityContext(**values)  # type: ignore[arg-type]
+
+
+def test_authoritative_source_claim_requires_canonical_provenance() -> None:
+    item = claim()
+    assert item.claim_id == "clinical_status"
+    assert item.source_domain == "domain:health"
+    assert item.purpose == "diagnostic-status-review"
+    assert isinstance(item.provenance, ResourceProvenance)
+    assert item.source_provenance_id == "clinical-record:1"
+    with pytest.raises(FrozenInstanceError):
+        item.claim_id = "other"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("claim_id", ""),
+        ("claim_id", "   "),
+        ("claim_id", None),
+        ("claim_id", 7),
+        ("source_domain", "health"),
+        ("source_domain", "domain:Health"),
+        ("source_domain", "domain:"),
+        ("purpose", ""),
+        ("purpose", "  "),
+        ("purpose", None),
+        ("provenance", None),
+        (
+            "provenance",
+            {"source_type": "uploaded_file", "source_id": "clinical-record:1"},
+        ),
+        ("provenance", SimpleNamespace(source_id="clinical-record:1")),
+        ("provenance", "clinical-record:1"),
+        ("provenance", object()),
+    ],
+)
+def test_authoritative_source_claim_rejects_untrusted_values(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ReasoningRuleContractError):
+        claim(**{field: value})
+
+
+def test_authoritative_source_claim_rejects_provenance_substitutes() -> None:
+    """Only the exact canonical provenance contract counts as provenance."""
+
+    class _DuckProvenance:
+        def __init__(self) -> None:
+            self.source_id = "clinical-record:1"
+            self.source_type = ResourceSourceKind.UPLOADED_FILE
+
+    with pytest.raises(ReasoningRuleContractError):
+        claim(provenance=_DuckProvenance())
+
+
+def test_authoritative_source_claim_has_no_rehydration_path() -> None:
+    """Shape is not provenance: there is no from_dict-style rehydration."""
+    assert not hasattr(AuthoritativeSourceClaim, "from_dict")
 
 
 def test_authority_context_accepts_valid_trusted_values() -> None:
@@ -227,9 +303,28 @@ def test_authority_context_accepts_valid_trusted_values() -> None:
     assert context.resource_ids == ("clinical_status",)
     assert context.permission_outcome == "approval_consumed"
     assert context.approval_consumed is True
+    assert context.authoritative_claims == (claim(),)
     assert context.authoritative_claim_ids == ("clinical_status",)
+    assert context.authoritative_claims[0].source_provenance_id == "clinical-record:1"
     with pytest.raises(FrozenInstanceError):
         context.approval_consumed = False  # type: ignore[misc]
+
+
+def test_authority_context_naked_claim_ids_are_no_longer_constructible() -> None:
+    """The core guarantee: authority cannot exist without canonical provenance."""
+    with pytest.raises(TypeError):
+        ReasoningAuthorityContext(
+            actor_id="actor-1",
+            session_id="session-1",
+            source_domain="domain:health",
+            target_domain="domain:neurodivergence",
+            resource_ids=("clinical_status",),
+            purpose="diagnostic-status-review",
+            permission_decision_id="permission-gate-decision-1",
+            permission_outcome="approval_consumed",
+            approval_consumed=True,
+            authoritative_claim_ids=("clinical_status",),
+        )
 
 
 def test_authority_context_allow_outcome_requires_no_approval() -> None:
@@ -253,12 +348,32 @@ def test_authority_context_allow_outcome_requires_no_approval() -> None:
         ("permission_outcome", "deny"),
         ("permission_outcome", "approval_required"),
         ("approval_consumed", 1),
-        ("authoritative_claim_ids", ("a", "a")),
+        ("authoritative_claims", (claim(), claim())),
+        (
+            "authoritative_claims",
+            (
+                {
+                    "claim_id": "clinical_status",
+                    "source_domain": "domain:health",
+                    "purpose": "diagnostic-status-review",
+                    "provenance": {"source_id": "clinical-record:1"},
+                },
+            ),
+        ),
+        ("authoritative_claims", (object(),)),
+        ("authoritative_claims", ("clinical_status",)),
     ],
 )
 def test_authority_context_rejects_invalid_values(field: str, value: object) -> None:
     with pytest.raises(ReasoningRuleContractError):
         authority(**{field: value})
+
+
+def test_authority_context_rejects_claims_not_bound_to_its_domain_and_purpose() -> None:
+    with pytest.raises(ReasoningRuleContractError):
+        authority(authoritative_claims=(claim(source_domain="domain:mental-health"),))
+    with pytest.raises(ReasoningRuleContractError):
+        authority(authoritative_claims=(claim(purpose="another-purpose"),))
 
 
 def test_authority_context_rejects_same_source_and_target_domain() -> None:

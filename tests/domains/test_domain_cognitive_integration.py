@@ -2918,7 +2918,33 @@ def _authority_request_with_spy(
     return integrator, request
 
 
+def _canonical_claim(claim_id: str = "clinical_status", **overrides: object):
+    """A provenance-bearing authoritative claim, as trusted source code builds it."""
+    from cmm.cognitive import AuthoritativeSourceClaim
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    values: dict[str, object] = {
+        "claim_id": claim_id,
+        "source_domain": "domain:health",
+        "purpose": "diagnostic-status-review",
+        "provenance": ResourceProvenance(
+            source_type=ResourceSourceKind.UPLOADED_FILE,
+            source_id="clinical-record:1",
+            retrieved_at=NOW,
+        ),
+    }
+    values.update(overrides)
+    return AuthoritativeSourceClaim(**values)  # type: ignore[arg-type]
+
+
 def _trusted_authority(**overrides: object) -> ReasoningAuthorityContext:
+    """A structurally valid trusted context whose claim tracks its own domain.
+
+    Unless a test supplies an explicit claim set, the provenance-bound claim
+    follows the authority's source domain and purpose so actor/session/domain
+    binding can be varied without breaking the claim contract itself.
+    """
     values: dict[str, object] = {
         "actor_id": "actor-1",
         "session_id": "session-1",
@@ -2929,9 +2955,14 @@ def _trusted_authority(**overrides: object) -> ReasoningAuthorityContext:
         "permission_decision_id": "permission-gate-decision-1",
         "permission_outcome": "approval_consumed",
         "approval_consumed": True,
-        "authoritative_claim_ids": ("clinical_status",),
     }
     values.update(overrides)
+    if "authoritative_claims" not in overrides:
+        values["authoritative_claims"] = (
+            _canonical_claim(
+                source_domain=values["source_domain"], purpose=values["purpose"]
+            ),
+        )
     return ReasoningAuthorityContext(**values)  # type: ignore[arg-type]
 
 
@@ -2951,6 +2982,21 @@ def test_ordinary_metadata_cannot_inject_authority_context() -> None:
             "approval_consumed": True,
         },
         "permission_authority": True,
+        "authoritative_claims": [
+            {
+                "claim_id": "clinical_status",
+                "source_domain": "domain:health",
+                "purpose": "diagnostic-status-review",
+                "provenance": {
+                    "source_type": "uploaded_file",
+                    "source_id": "clinical-record:1",
+                },
+            }
+        ],
+        "source_provenance": {
+            "source_type": "uploaded_file",
+            "source_id": "clinical-record:1",
+        },
     }
     integrator, request = _authority_request_with_spy(spy, metadata=forged_metadata)
     integrator.integrate(request)
@@ -3093,7 +3139,7 @@ def test_build_reasoning_authority_context_binds_real_allow_gate_decision() -> N
     assert allow_result.allowed is True
 
     authority = build_reasoning_authority_context(
-        allow_result, authoritative_claim_ids=("clinical_status",)
+        allow_result, authoritative_claims=(_canonical_claim(),)
     )
     assert authority is not None
     assert authority.actor_id == allow_result.actor_id
@@ -3105,7 +3151,116 @@ def test_build_reasoning_authority_context_binds_real_allow_gate_decision() -> N
     assert authority.permission_decision_id == allow_result.decision_id
     assert authority.permission_outcome == "allow"
     assert authority.approval_consumed is False
+    assert authority.authoritative_claims == (_canonical_claim(),)
     assert authority.authoritative_claim_ids == ("clinical_status",)
+    assert authority.authoritative_claims[0].source_provenance_id == "clinical-record:1"
+
+
+def test_build_reasoning_authority_context_promotes_only_bound_provenance_claims() -> None:
+    """Only a provenance-bearing claim that binds to this gate result is authority.
+
+    Unbound, foreign-domain, foreign-purpose, mapping-shaped and duck-typed
+    entries are not promoted, and the builder never raises for them.
+    """
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    bound = _canonical_claim()
+
+    authority = build_reasoning_authority_context(
+        allow_result,
+        authoritative_claims=(
+            bound,
+            _canonical_claim("another_resource"),
+            _canonical_claim(source_domain="domain:mental-health"),
+            _canonical_claim(purpose="another-purpose"),
+            {
+                "claim_id": "clinical_status",
+                "source_domain": "domain:health",
+                "purpose": "diagnostic-status-review",
+                "provenance": {"source_id": "clinical-record:1"},
+            },
+            "clinical_status",
+            object(),
+        ),  # type: ignore[arg-type]
+    )
+
+    assert authority is not None
+    assert authority.authoritative_claims == (bound,)
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+
+
+@pytest.mark.parametrize(
+    "claims",
+    (
+        pytest.param((), id="no-claims"),
+        pytest.param(("clinical_status",), id="naked-claim-ids"),
+        pytest.param(
+            (
+                {
+                    "claim_id": "clinical_status",
+                    "source_domain": "domain:health",
+                    "purpose": "diagnostic-status-review",
+                    "provenance": {"source_id": "clinical-record:1"},
+                },
+            ),
+            id="mapping-claims",
+        ),
+        pytest.param(
+            (_canonical_claim(source_domain="domain:relationships"),),
+            id="unbound-source-domain",
+        ),
+        pytest.param(
+            (_canonical_claim(purpose="another-purpose"),),
+            id="unbound-purpose",
+        ),
+        pytest.param((_canonical_claim("another_resource"),), id="unrequested-resource"),
+    ),
+)
+def test_build_reasoning_authority_context_without_bound_claims_grants_no_source_authority(
+    claims,
+) -> None:
+    """Permission authority may exist while no source-domain claim is promoted."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    authority = build_reasoning_authority_context(
+        allow_result, authoritative_claims=claims
+    )
+
+    assert authority is not None
+    assert authority.authoritative_claims == ()
+    assert authority.authoritative_claim_ids == ()
+    assert authority.permission_decision_id == allow_result.decision_id
+
+
+def test_build_reasoning_authority_context_ignores_caller_maps_and_denials() -> None:
+    """Denied authority stays ``None``; a forged map grants nothing."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    assert (
+        build_reasoning_authority_context(
+            {"outcome": "allow"}, authoritative_claims=(_canonical_claim(),)
+        )
+        is None
+    )
+    assert (
+        build_reasoning_authority_context(
+            None, authoritative_claims=(_canonical_claim(),)  # type: ignore[arg-type]
+        )
+        is None
+    )
+
+    deny_result = _real_cross_domain_gate_result(PermissionOutcome.DENY)
+    assert (
+        build_reasoning_authority_context(
+            deny_result, authoritative_claims=(_canonical_claim(),)
+        )
+        is None
+    )
 
 
 def test_build_reasoning_authority_context_rejects_non_gate_result_mappings() -> None:
