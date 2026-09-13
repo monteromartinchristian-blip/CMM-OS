@@ -10,7 +10,13 @@ from kernel.llm.experimental_omniroute import (
     OMNIROUTE_PROVIDER_ID,
     register_experimental_omniroute,
 )
+from kernel.llm.first_wave_providers import register_first_wave_manifests
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
+from kernel.llm.model_discovery import (
+    DiscoverableModelClient,
+    ModelDiscoveryResult,
+    discover_models,
+)
 from kernel.llm.model_ranking import ModelRankingPolicy, RankingStrategy
 from kernel.llm.model_router import (
     ModelRouter,
@@ -43,9 +49,17 @@ from kernel.llm.provider_connections import (
     ProviderConnectionRegistry,
 )
 from kernel.llm.provider_factory import ProviderFactory
+from kernel.llm.provider_manifests import (
+    FIRST_WAVE_AUTH_SCHEME,
+    KNOWN_API_STYLES,
+    ProviderManifest,
+    ProviderManifestRegistry,
+)
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 __all__ = [
+    "FIRST_WAVE_AUTH_SCHEME",
+    "KNOWN_API_STYLES",
     "OMNIROUTE_API_KEY_ENV",
     "OMNIROUTE_BASE_URL_ENV",
     "OMNIROUTE_DEEPSEEK_V4_FLASH",
@@ -54,12 +68,14 @@ __all__ = [
     "BillingClass",
     "CapabilityConfidence",
     "ConnectionStatus",
+    "DiscoverableModelClient",
     "LLMError",
     "LLMProvider",
     "LLMRequest",
     "LLMResponse",
     "ModelCapabilities",
     "ModelCatalog",
+    "ModelDiscoveryResult",
     "ModelRankingPolicy",
     "ModelRequirements",
     "ModelRoute",
@@ -76,6 +92,8 @@ __all__ = [
     "ProviderConnectionRegistry",
     "ProviderError",
     "ProviderFactory",
+    "ProviderManifest",
+    "ProviderManifestRegistry",
     "ProviderRegistry",
     "ProviderSpec",
     "RankingStrategy",
@@ -83,8 +101,10 @@ __all__ = [
     "RouteCapabilityState",
     "RoutingCandidate",
     "RoutingDecision",
+    "discover_models",
     "find_matching_models",
     "model_matches_requirements",
     "register_experimental_omniroute",
+    "register_first_wave_manifests",
     "select_model",
 ]
