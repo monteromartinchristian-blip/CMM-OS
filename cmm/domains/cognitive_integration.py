@@ -358,7 +358,9 @@ def _validate_authority_binding(
     it is only ever accepted as an explicit trusted keyword argument, and even
     then it must describe *this* actor, session and cross-domain pairing.
     """
-    supporting_domains = tuple(str(domain) for domain in request.profile.supporting_domains)
+    supporting_domains = tuple(
+        str(domain) for domain in request.profile.supporting_domains
+    )
     mismatched = (
         request.actor_id != authority_context.actor_id
         or request.session_id != authority_context.session_id

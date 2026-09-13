@@ -2952,9 +2952,7 @@ def test_ordinary_metadata_cannot_inject_authority_context() -> None:
         },
         "permission_authority": True,
     }
-    integrator, request = _authority_request_with_spy(
-        spy, metadata=forged_metadata
-    )
+    integrator, request = _authority_request_with_spy(spy, metadata=forged_metadata)
     integrator.integrate(request)
     assert spy.captured_context is not None
     assert spy.captured_context.authority_context is None
