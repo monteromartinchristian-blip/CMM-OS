@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.cognitive import (
     AdaptationContext,
     CognitiveValidationContext,
@@ -24,11 +25,13 @@ from cmm.cognitive import (
     KnowledgePackageBuilder,
     KnowledgePackageRequest,
     KnowledgeStoreProtocol,
+    ReasoningAuthorityContext,
     ReasoningEscalation,
     ReasoningFinding,
     ReasoningGap,
     ReasoningRecommendation,
     ReasoningRuleContext,
+    ReasoningRuleContractError,
     ReasoningRuleRegistry,
     Resource,
     ResourceAdapterRegistry,
@@ -47,6 +50,7 @@ from cmm.domains.errors import (
 from cmm.domains.knowledge_package_validation import (
     validate_domain_knowledge_package,
 )
+from cmm.domains.permission_gate import PermissionGateResult
 from cmm.domains.presentation_contracts import (
     DomainPresentationEpistemicKind,
     DomainPresentationItemRef,
@@ -73,6 +77,8 @@ class DomainCognitiveIntegrator(Protocol):
     def integrate(
         self,
         request: DomainCognitiveIntegrationRequest,
+        *,
+        authority_context: ReasoningAuthorityContext | None = None,
     ) -> DomainCognitiveIntegrationResult: ...
 
 
@@ -175,12 +181,16 @@ class DefaultDomainCognitiveIntegrator:
     def integrate(
         self,
         request: DomainCognitiveIntegrationRequest,
+        *,
+        authority_context: ReasoningAuthorityContext | None = None,
     ) -> DomainCognitiveIntegrationResult:
         if type(request) is not DomainCognitiveIntegrationRequest:
             raise DomainCognitiveIntegrationContractError(
                 "request must be a DomainCognitiveIntegrationRequest",
                 field="request",
             )
+        if authority_context is not None:
+            _validate_authority_binding(request, authority_context)
 
         for resource_input in request.resources:
             missing = tuple(
@@ -228,6 +238,7 @@ class DefaultDomainCognitiveIntegrator:
             extracted_bundles=extracted_bundles,
             adapted_resources=adapted_resources,
             timestamp=timestamp,
+            authority_context=authority_context,
         )
         validation_results = _validate_cognitive_inputs(
             validator=self._cognitive_validator,
@@ -270,6 +281,93 @@ class DefaultDomainCognitiveIntegrator:
             extracted_bundles=extracted_bundles,
             presentation_items=presentation_items,
             trace_references=trace_references,
+        )
+
+
+def build_reasoning_authority_context(
+    gate_result: PermissionGateResult,
+    *,
+    authoritative_claim_ids: tuple[str, ...] = (),
+) -> ReasoningAuthorityContext | None:
+    """Derive trusted reasoning authority from a real permission gate result.
+
+    This is the only approved way to obtain a ``ReasoningAuthorityContext``
+    from cross-domain permission evaluation.  It consumes a live typed
+    ``PermissionGateResult`` produced by ``DomainPermissionGate`` — it must
+    never be called with a ``PermissionGateResult.from_dict()``
+    reconstruction of caller-authored JSON, and it never accepts a free-form
+    mapping.  It returns ``None`` unless the gate result represents
+    *effective* cross-domain authority (``allow`` or ``approval_consumed``)
+    with canonical cross-domain request evidence attached; a ``deny`` or
+    ``approval_required`` result can never produce trusted authority.
+
+    ``authoritative_claim_ids`` is the only extra trusted input: it is
+    supplied by trusted source-owner code (for example, after the Health
+    domain has itself established a definitive diagnostic status) and is
+    never derived from the gate result or from caller request data.
+    """
+    if not isinstance(gate_result, PermissionGateResult):
+        return None
+    if not gate_result.allowed:
+        return None
+    if gate_result.action != PermissionCapability.DOMAIN_CROSS_ACCESS.value:
+        return None
+    if gate_result.outcome not in {"allow", "approval_consumed"}:
+        return None
+
+    metadata = gate_result.metadata
+    if not isinstance(metadata, Mapping):
+        return None
+    cross_domain_request = metadata.get("cross_domain_request")
+    if not isinstance(cross_domain_request, Mapping):
+        return None
+
+    target_domain = metadata.get("target_domain")
+    resource_ids = metadata.get("resource_ids")
+    purpose = cross_domain_request.get("reason")
+
+    try:
+        return ReasoningAuthorityContext(
+            actor_id=gate_result.actor_id,
+            session_id=gate_result.session_id,
+            source_domain=gate_result.domain_id,
+            target_domain=target_domain,
+            resource_ids=tuple(resource_ids)
+            if isinstance(resource_ids, (list, tuple))
+            else (),
+            purpose=purpose,
+            permission_decision_id=gate_result.decision_id,
+            permission_outcome=gate_result.outcome,
+            approval_consumed=(gate_result.outcome == "approval_consumed"),
+            authoritative_claim_ids=authoritative_claim_ids,
+        )
+    except ReasoningRuleContractError:
+        return None
+
+
+def _validate_authority_binding(
+    request: DomainCognitiveIntegrationRequest,
+    authority_context: ReasoningAuthorityContext,
+) -> None:
+    """Reject a trusted authority context that does not bind to this request.
+
+    The integrator must never derive ``authority_context`` from
+    ``request.metadata``, ``request.effective_permissions`` or caller JSON —
+    it is only ever accepted as an explicit trusted keyword argument, and even
+    then it must describe *this* actor, session and cross-domain pairing.
+    """
+    supporting_domains = tuple(str(domain) for domain in request.profile.supporting_domains)
+    mismatched = (
+        request.actor_id != authority_context.actor_id
+        or request.session_id != authority_context.session_id
+        or authority_context.target_domain != str(request.profile.primary_domain)
+        or authority_context.source_domain not in supporting_domains
+    )
+    if mismatched:
+        raise DomainCognitiveIntegrationContractError(
+            "authority_context is not bound to this integration request "
+            "(actor_id/session_id/source_domain/target_domain must match)",
+            field="authority_context",
         )
 
 
@@ -582,6 +680,7 @@ def _build_reasoning_context(
     extracted_bundles: tuple[KnowledgeBundle, ...],
     adapted_resources: tuple[Resource, ...],
     timestamp: datetime,
+    authority_context: ReasoningAuthorityContext | None = None,
 ) -> ReasoningRuleContext:
     ordered_items = (
         *package.facts,
@@ -622,6 +721,7 @@ def _build_reasoning_context(
             "reasoning_depth": request.profile.reasoning_depth.value,
             "maximum_questions": request.profile.maximum_questions,
         },
+        authority_context=authority_context,
     )
 
 

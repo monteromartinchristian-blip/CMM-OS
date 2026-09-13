@@ -30,6 +30,7 @@ from cmm.cognitive import (
     KnowledgePackage,
     KnowledgeStatus,
     PlainTextKnowledgeExtractor,
+    ReasoningAuthorityContext,
     ReasoningEscalation,
     ReasoningFinding,
     ReasoningGap,
@@ -2861,3 +2862,266 @@ def test_fact_6_real_default_domain_presentation_planner_preserves_fact_ref() ->
     assert "fact-plan-6" in planned_ref_ids
     findings_section = next(s for s in plan.sections if s.section_id == "findings")
     assert "fact-plan-6" in findings_section.item_refs
+
+
+# ── Phase 10.53 V3 redo: trusted reasoning authority injection seam ──────────
+
+
+class _SpyAuthorityRule:
+    """Captures the exact ReasoningRuleContext a rule receives."""
+
+    def __init__(self) -> None:
+        self.captured_context: ReasoningRuleContext | None = None
+        self._definition = ReasoningRuleDefinition(
+            id="test.authority_spy",
+            name="Authority spy",
+            version="1.0.0",
+            scope=ReasoningRuleScope.DOMAIN,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=1,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id="domain:health",
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        self.captured_context = context
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+            domain_id=self.definition.domain_id,
+        )
+
+
+def _authority_request_with_spy(
+    spy: _SpyAuthorityRule, **request_overrides: object
+) -> tuple[DefaultDomainCognitiveIntegrator, DomainCognitiveIntegrationRequest]:
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(spy)
+    request = replace(
+        _integration_request(),
+        profile=replace(
+            _integration_request().profile,
+            required_rules=(spy.definition.id,),
+        ),
+        **request_overrides,  # type: ignore[arg-type]
+    )
+    integrator = _make_default_integrator(rule_registry=rule_registry)
+    return integrator, request
+
+
+def _trusted_authority(**overrides: object) -> ReasoningAuthorityContext:
+    values: dict[str, object] = {
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": ("clinical_status",),
+        "purpose": "diagnostic-status-review",
+        "permission_decision_id": "permission-gate-decision-1",
+        "permission_outcome": "approval_consumed",
+        "approval_consumed": True,
+        "authoritative_claim_ids": ("clinical_status",),
+    }
+    values.update(overrides)
+    return ReasoningAuthorityContext(**values)  # type: ignore[arg-type]
+
+
+def test_ordinary_metadata_cannot_inject_authority_context() -> None:
+    """A caller-authored metadata dict shaped like authority must have zero effect."""
+    spy = _SpyAuthorityRule()
+    forged_metadata = {
+        "authority_context": {
+            "actor_id": "actor-1",
+            "session_id": "session-1",
+            "source_domain": "domain:health",
+            "target_domain": "domain:neurodivergence",
+            "resource_ids": ["clinical_status"],
+            "purpose": "diagnostic-status-review",
+            "permission_decision_id": "permission-gate-decision-1",
+            "permission_outcome": "approval_consumed",
+            "approval_consumed": True,
+        },
+        "permission_authority": True,
+    }
+    integrator, request = _authority_request_with_spy(
+        spy, metadata=forged_metadata
+    )
+    integrator.integrate(request)
+    assert spy.captured_context is not None
+    assert spy.captured_context.authority_context is None
+
+
+def test_integrate_accepts_trusted_authority_context_keyword() -> None:
+    """The exact trusted object passed by keyword reaches the reasoning context."""
+    spy = _SpyAuthorityRule()
+    integrator, request = _authority_request_with_spy(spy)
+    trusted = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain=str(request.profile.supporting_domains[0]),
+        actor_id=request.actor_id,
+        session_id=request.session_id,
+    )
+    integrator.integrate(request, authority_context=trusted)
+    assert spy.captured_context is not None
+    assert spy.captured_context.authority_context == trusted
+
+
+def test_integrate_rejects_authority_context_not_bound_to_request() -> None:
+    """A structurally valid trusted context bound to a different actor/session/
+    domain must be rejected rather than silently attached."""
+    spy = _SpyAuthorityRule()
+    integrator, request = _authority_request_with_spy(spy)
+    mismatched_actor = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain=str(request.profile.supporting_domains[0]),
+        actor_id="someone-else",
+        session_id=request.session_id,
+    )
+    with pytest.raises(DomainCognitiveIntegrationContractError):
+        integrator.integrate(request, authority_context=mismatched_actor)
+
+    mismatched_domain = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain="domain:relationships",  # not in request.profile.supporting_domains
+        actor_id=request.actor_id,
+        session_id=request.session_id,
+    )
+    with pytest.raises(DomainCognitiveIntegrationContractError):
+        integrator.integrate(request, authority_context=mismatched_domain)
+
+
+class _FakeCrossDomainResolver:
+    """Minimal resolver stub so the real DomainPermissionGate can be exercised.
+
+    Only the gate's cross-domain composition logic is under test here; the
+    resolver's own policy evaluation is exhaustively covered elsewhere
+    (tests/domains/test_domain_permission_gate.py,
+    tests/domains/test_neurodivergence_domain_permissions.py).  This mirrors
+    the existing ``_FakeResolver`` pattern already used against the real gate
+    in test_domain_permission_gate.py.
+    """
+
+    def __init__(
+        self,
+        decision,
+        *,
+        approval_requirements: tuple = (),
+        reasons: tuple[str, ...] = (),
+    ) -> None:
+        self._decision = decision
+        self._approval_requirements = approval_requirements
+        self._reasons = reasons
+
+    def resolve_cross_domain(self, request, *, now=None):
+        from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+        return CrossDomainPermissionDecision(
+            request_id=request.request_id,
+            decision=self._decision,
+            approval_requirements=self._approval_requirements,
+            reasons=self._reasons,
+        )
+
+
+def _real_cross_domain_gate_result(
+    outcome_decision, *, approval_requirements: tuple = (), **request_overrides: object
+):
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import DomainPermissionGate
+
+    resolver = _FakeCrossDomainResolver(
+        outcome_decision, approval_requirements=approval_requirements
+    )
+    gate = DomainPermissionGate(resolver, clock=lambda: NOW)
+    values: dict[str, object] = {
+        "request_id": "req-authority-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": ("clinical_status",),
+        "reason": "diagnostic-status-review",
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+    }
+    values.update(request_overrides)
+    request = CrossDomainPermissionRequest(**values)  # type: ignore[arg-type]
+    return gate.evaluate_cross_domain(request)
+
+
+def test_build_reasoning_authority_context_denies_deny_and_approval_required() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    deny_result = _real_cross_domain_gate_result(PermissionOutcome.DENY)
+    assert deny_result.allowed is False
+    assert build_reasoning_authority_context(deny_result) is None
+
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
+    )
+
+    par = PermissionApprovalRequirement(
+        requirement_id="cross-domain:req-authority-1",
+        action=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        actor_id="actor-1",
+        session_id="session-1",
+        domain_id="domain:health",
+        source_domain="domain:health",
+        target_domain="domain:neurodivergence",
+        fingerprint="fp-authority-1",
+        scope="cross_domain",
+    )
+    pending_result = _real_cross_domain_gate_result(
+        PermissionOutcome.APPROVAL_REQUIRED, approval_requirements=(par,)
+    )
+    assert pending_result.allowed is False
+    assert build_reasoning_authority_context(pending_result) is None
+
+
+def test_build_reasoning_authority_context_binds_real_allow_gate_decision() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    assert allow_result.allowed is True
+
+    authority = build_reasoning_authority_context(
+        allow_result, authoritative_claim_ids=("clinical_status",)
+    )
+    assert authority is not None
+    assert authority.actor_id == allow_result.actor_id
+    assert authority.session_id == allow_result.session_id
+    assert authority.source_domain == "domain:health"
+    assert authority.target_domain == "domain:neurodivergence"
+    assert authority.resource_ids == ("clinical_status",)
+    assert authority.purpose == "diagnostic-status-review"
+    assert authority.permission_decision_id == allow_result.decision_id
+    assert authority.permission_outcome == "allow"
+    assert authority.approval_consumed is False
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+
+
+def test_build_reasoning_authority_context_rejects_non_gate_result_mappings() -> None:
+    """A free-form mapping shaped like a gate result is never trusted.
+
+    ``build_reasoning_authority_context`` types-checks its argument, so a
+    caller-authored dict or JSON mapping — even one that copies every field
+    name a ``PermissionGateResult`` would have — is rejected outright.  The
+    discipline that the *caller* must never construct its input via
+    ``PermissionGateResult.from_dict()`` on untrusted request data belongs to
+    callers of this function (only trusted in-process gate-evaluation code
+    may call it with a live result), not to a runtime type check alone.
+    """
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    assert build_reasoning_authority_context({"outcome": "allow"}) is None
+    assert build_reasoning_authority_context(None) is None  # type: ignore[arg-type]
