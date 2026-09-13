@@ -397,3 +397,47 @@ def test_pack_does_not_import_sibling_pack_implementations():
             "cmm.domains.relationships",
         ):
             assert sibling not in source, f"{path.name}: {sibling}"
+
+
+def test_pack_defines_no_local_authority_owner_or_second_authority_contract():
+    """The V3 trusted authority channel stays in canonical Cognitive infrastructure.
+
+    The pack may consume ``ReasoningAuthorityContext`` and must obtain it from
+    ``cmm.cognitive.reasoning_rule_contracts``.  It may not define its own
+    authority registry, resolver, store, engine or a second trusted-context
+    contract, and no parallel authority contract may appear anywhere under
+    ``cmm/domains``.
+    """
+    forbidden_authority_owners = (
+        "NeurodivergenceAuthorityRegistry",
+        "NeurodivergenceAuthorityResolver",
+        "NeurodivergenceAuthorityStore",
+        "NeurodivergencePermissionEngine",
+        "NeurodivergenceClinicalAuthority",
+        "NeurodivergenceTrustedContext",
+        "HealthAuthorityRegistry",
+        "ReasoningAuthorityStore",
+        "ReasoningAuthorityContext",
+    )
+    consumers: list[Path] = []
+    for path in _pack_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        defined = set(_class_and_function_names(tree))
+        assert not defined & set(forbidden_authority_owners), (
+            f"{path.name} defines a forbidden authority owner"
+        )
+        if "ReasoningAuthorityContext" in path.read_text(encoding="utf-8"):
+            consumers.append(path)
+
+    for path in consumers:
+        source = path.read_text(encoding="utf-8")
+        assert "from cmm.cognitive.reasoning_rule_contracts import" in source
+        assert "class ReasoningAuthorityContext" not in source
+
+    duplicate = [
+        path
+        for path in sorted((REPO_ROOT / "cmm" / "domains").rglob("*.py"))
+        if path.parent != PACKAGE_DIR
+        and "class ReasoningAuthorityContext" in path.read_text(encoding="utf-8")
+    ]
+    assert duplicate == []

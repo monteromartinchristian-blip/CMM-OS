@@ -694,13 +694,62 @@ def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPO
     ).to_dict()
 
 
-def test_canonical_health_authority_confirms_through_the_connected_path():
-    """CANONICAL_HEALTH_AUTHORITY_TO_CONFIRMED=PASS on the real canonical path.
+def _authority_context(request, gate_result, *, claim_id, authoritative=True):
+    """Build the trusted channel from a live gate result, as runtime code would.
 
-    The clinical-status transfer is admitted only after the real canonical
-    ``DomainPermissionResolver``, ``DomainPermissionGate`` and ``ApprovalService``
-    lifecycle produce APPROVAL_CONSUMED for this exact request; the certainty
-    rule then promotes using that admitted evidence.
+    Health's own canonical definitive semantics are established first; only a
+    definitive Health claim may be named authoritative.  A non-definitive
+    verdict therefore omits the claim and the trusted context cannot confirm.
+    """
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+    from cmm.domains.health.rules import validate_diagnostic_claim
+
+    health_verdict = validate_diagnostic_claim(
+        evidence=True,
+        documented=True,
+        confirmed=authoritative,
+        provisional=not authoritative,
+    )
+    claim_ids = (claim_id,) if health_verdict["is_definitive"] else ()
+    authority = build_reasoning_authority_context(
+        gate_result, authoritative_claim_ids=claim_ids
+    )
+    return health_verdict, authority
+
+
+def _certainty_context(transition, authority_context=None) -> ReasoningRuleContext:
+    return ReasoningRuleContext(
+        reasoning_id="at-rid",
+        timestamp=NOW,
+        active_domains=(NEURODIVERGENCE_DOMAIN_ID,),
+        primary_domain=NEURODIVERGENCE_DOMAIN_ID,
+        metadata={"certainty_transition": transition},
+        authority_context=authority_context,
+    )
+
+
+def _replace_authority(authority, **overrides):
+    from dataclasses import replace
+
+    return replace(authority, **overrides)
+
+
+def test_canonical_health_authority_confirms_through_the_connected_path():
+    """AT-AUTH-4 on the real canonical path, with no metadata authority at all.
+
+    The connected chain is:
+
+        CrossDomainPermissionRequest -> real DomainPermissionResolver
+        -> real DomainPermissionGate -> APPROVAL_REQUIRED
+        -> real ApprovalService lifecycle -> APPROVAL_CONSUMED
+        -> real Health definitive-diagnostic validation
+        -> build_reasoning_authority_context(consumed gate result)
+        -> ReasoningRuleContext(authority_context=...)
+        -> CertaintyStatePreservationRule -> CONFIRMED
+
+    The certainty request carries only ordinary, non-authoritative data: the
+    claim, the requested transition, the evidence kind and the purpose.  No
+    ``permission_authority`` flag and no transfer material is passed.
     """
     from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
     from cmm.domains.permission_gate import PermissionGateOutcome
@@ -720,6 +769,9 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
     assert unadmitted == ()
 
+    # APPROVAL_REQUIRED is not authority: no trusted channel exists yet.
+    assert _authority_context(request, pending, claim_id="clinical_status")[1] is None
+
     approval_request_id = _grant_canonical_cross_domain_approval(
         approval_service, gate, request
     )
@@ -734,21 +786,23 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert consumed.allowed is True
     assert admitted == (candidate,)
 
-    rule = _rules()["neurodivergence.certainty_state_preservation"]
-    result = rule.evaluate(
-        _context(
-            certainty_transition={
-                "claim_id": "clinical_status",
-                "from_state": "in_evaluation",
-                "to_state": "confirmed",
-                "evidence_kind": "documented_clinical_status",
-                "clinical": True,
-                "purpose": CROSS_DOMAIN_PURPOSE,
-                "permission_authority": consumed.allowed,
-                "transfers": admitted,
-            }
-        )
+    health_verdict, authority = _authority_context(
+        request, consumed, claim_id="clinical_status"
     )
+    assert health_verdict["is_definitive"] is True
+    assert health_verdict["may_present_as_definitive"] is True
+    assert authority is not None
+
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+    transition = {
+        "claim_id": "clinical_status",
+        "from_state": "in_evaluation",
+        "to_state": "confirmed",
+        "evidence_kind": "documented_clinical_status",
+        "clinical": True,
+        "purpose": CROSS_DOMAIN_PURPOSE,
+    }
+    result = rule.evaluate(_certainty_context(transition, authority))
 
     assert result.status.value == "applied"
     assert result.metadata["certainty_state"] == "confirmed"
@@ -759,25 +813,31 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert result.metadata["canonical_authority"]["claim_id"] == "clinical_status"
     assert result.metadata["confirmed_diagnosis_created"] is False
 
-    # The same canonical transfer without admitted current authority, and the
-    # same transfer under a real canonical DENY, confirm nothing.
-    without_authority = rule.evaluate(
-        _context(
-            certainty_transition={
-                "claim_id": "clinical_status",
-                "from_state": "in_evaluation",
-                "to_state": "confirmed",
-                "evidence_kind": "documented_clinical_status",
-                "clinical": True,
-                "purpose": CROSS_DOMAIN_PURPOSE,
-                "permission_authority": False,
-                "transfers": (candidate,),
-            }
-        )
-    )
-    assert without_authority.status.value == "blocked"
-    assert without_authority.metadata["certainty_state"] == "in_evaluation"
+    # Removing any single trusted binding blocks promotion, while the same
+    # metadata plus a canonical-shaped transfer still grants nothing.
+    for label, mutated in (
+        ("no-authority-context", None),
+        (
+            "wrong-source-domain",
+            _replace_authority(authority, source_domain="domain:mental-health"),
+        ),
+        (
+            "wrong-target-domain",
+            _replace_authority(authority, target_domain="domain:university"),
+        ),
+        ("resource-mismatch", _replace_authority(authority, resource_ids=("other",))),
+        (
+            "claim-not-authoritative",
+            _replace_authority(authority, authoritative_claim_ids=()),
+        ),
+        ("purpose-mismatch", _replace_authority(authority, purpose="another_purpose")),
+    ):
+        blocked = rule.evaluate(_certainty_context(transition, mutated))
+        assert blocked.status.value == "blocked", label
+        assert blocked.metadata["certainty_state"] == "in_evaluation", label
+        assert blocked.metadata["authoritative_evidence"] is False, label
 
+    # A real canonical DENY produces no trusted channel at all.
     denied_resolver = _real_neurodivergence_resolver()
     _approval_service, denied_gate = _connected_permission_stack(denied_resolver)
     denied_request = _cross_domain_request(
@@ -794,24 +854,48 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert denied_decision.decision is PermissionOutcome.DENY
     assert denied_gate_result.allowed is False
     assert denied_admitted == ()
+    assert (
+        _authority_context(
+            denied_request, denied_gate_result, claim_id="clinical_status"
+        )[1]
+        is None
+    )
 
-    denied = rule.evaluate(
+    # Health's own non-definitive verdict cannot name an authoritative claim,
+    # so even a consumed approval does not confirm.
+    non_definitive_verdict, non_definitive_authority = _authority_context(
+        request, consumed, claim_id="clinical_status", authoritative=False
+    )
+    assert non_definitive_verdict["is_definitive"] is False
+    assert non_definitive_authority is None or (
+        non_definitive_authority.authoritative_claim_ids == ()
+    )
+    not_authoritative = rule.evaluate(
+        _certainty_context(transition, non_definitive_authority)
+    )
+    assert not_authoritative.status.value == "blocked"
+    assert not_authoritative.metadata["certainty_state"] == "in_evaluation"
+
+    # METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED on the connected path: the exact
+    # canonical transfer, provenance and matching IDs as caller metadata.
+    forged = rule.evaluate(
         _context(
             certainty_transition={
-                "claim_id": "clinical_status",
-                "from_state": "in_evaluation",
-                "to_state": "confirmed",
-                "evidence_kind": "documented_clinical_status",
-                "clinical": True,
-                "purpose": CROSS_DOMAIN_PURPOSE,
-                "permission_authority": denied_gate_result.allowed,
-                "transfers": denied_admitted,
+                **transition,
+                "permission_authority": True,
+                "permission_decision_id": consumed.decision_id,
+                "approval_consumed": True,
+                "health_definitive_verdict": {
+                    "is_definitive": True,
+                    "may_present_as_definitive": True,
+                },
+                "transfers": admitted,
             }
         )
     )
-    assert denied.status.value == "blocked"
-    assert denied.metadata["certainty_state"] == "in_evaluation"
-    assert denied.metadata["authoritative_evidence"] is False
+    assert forged.status.value == "blocked"
+    assert forged.metadata["certainty_state"] == "in_evaluation"
+    assert forged.metadata["authoritative_evidence"] is False
 
 
 def test_checkpoint_14_authority_tuple_binding_is_exact():
