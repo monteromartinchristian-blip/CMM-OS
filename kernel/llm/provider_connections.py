@@ -1,6 +1,23 @@
+"""Durable provider-connection identity for the Provider Registry.
+
+Accepted connections carry a reference into native secret storage; this module
+never persists credential material itself.
+"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
+
+# Secure-reference scheme allowlist. Interpolated into the error message so
+# code and message cannot drift (review round 1, finding 4).
+ALLOWED_CREDENTIAL_SCHEMES: tuple[str, ...] = ("keychain://",)
+
+# Substrings that mark a reference as carrying plaintext secret material,
+# checked against the whole lowercased ref (not just its prefix) so a key
+# embedded after a legitimate scheme is still rejected (finding 3).
+_SECRET_MARKERS: tuple[str, ...] = ("sk-", "api-key", "password=", "token=")
 
 
 def _normalize_identifier(value: str, *, label: str) -> str:
@@ -10,21 +27,35 @@ def _normalize_identifier(value: str, *, label: str) -> str:
     return normalized
 
 
+def _normalize_lookup_key(value: str) -> str | None:
+    """Apply the registry's canonical id normalization; None for blank input."""
+    normalized = value.strip().lower()
+    return normalized or None
+
+
 class BillingClass(str, Enum):
+    """How a connection is billed; drives routing and usage enrichment."""
+
     SUBSCRIPTION = "subscription"
     PAYG = "payg"
     API = "api"
     FREE_OR_API = "free_or_api"
 
+
 class ConnectionStatus(str, Enum):
+    """Lifecycle status of an accepted provider connection."""
+
     DETECTED = "detected"
     CONNECTED = "connected"
     AUTH_REQUIRED = "auth_required"
     WARNING = "warning"
     UNAVAILABLE = "unavailable"
 
+
 @dataclass(frozen=True, slots=True)
 class ProviderConnection:
+    """Stable identity for one accepted connection; secrets stay external."""
+
     connection_id: str
     provider_id: str
     display_name: str
@@ -37,10 +68,23 @@ class ProviderConnection:
     last_validated_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        normalized_provider_id = _normalize_identifier(
-            self.provider_id, label="Provider id"
+        object.__setattr__(
+            self,
+            "connection_id",
+            _normalize_identifier(self.connection_id, label="Connection id"),
         )
-        object.__setattr__(self, "provider_id", normalized_provider_id)
+        object.__setattr__(
+            self,
+            "provider_id",
+            _normalize_identifier(self.provider_id, label="Provider id"),
+        )
+        if not self.display_name.strip():
+            raise ValueError("display_name cannot be empty")
+
+        # Coerce enum-typed fields so bare strings cannot enter the inventory
+        # through dataclasses.replace()-based mutation paths (finding 5).
+        object.__setattr__(self, "billing_class", BillingClass(self.billing_class))
+        object.__setattr__(self, "status", ConnectionStatus(self.status))
 
         normalized_endpoint = self.endpoint.strip()
         if not normalized_endpoint:
@@ -50,38 +94,48 @@ class ProviderConnection:
         if self.credential_ref is not None:
             ref = self.credential_ref.strip()
             lowered = ref.lower()
-            if lowered.startswith(("sk-", "api-key", "password=")):
+            if any(marker in lowered for marker in _SECRET_MARKERS):
                 raise ValueError(
                     "credential_ref must not contain plaintext secrets"
                 )
+            if not lowered.startswith(ALLOWED_CREDENTIAL_SCHEMES):
+                raise ValueError(
+                    "credential_ref must use a secure ref scheme: "
+                    + ", ".join(ALLOWED_CREDENTIAL_SCHEMES)
+                )
             object.__setattr__(self, "credential_ref", ref)
 
-        if self.credential_ref is not None and not self.credential_ref.startswith("keychain://"):
-            raise ValueError(
-                "credential_ref must use a secure ref scheme such as keychain://"
-            )
 
 class ProviderConnectionRegistry:
+    """In-memory catalog of accepted connections, keyed by stable id."""
+
     def __init__(self) -> None:
         self._items: dict[str, ProviderConnection] = {}
 
     def register(self, connection: ProviderConnection) -> ProviderConnection:
-        key = connection.connection_id.strip()
-        if not key:
-            raise ValueError("connection_id cannot be empty")
+        """Store ``connection`` under its normalized id; reject duplicates."""
+        key = connection.connection_id
         if key in self._items:
             raise ValueError(f"duplicate connection_id: {key}")
         self._items[key] = connection
         return connection
 
     def get(self, connection_id: str) -> ProviderConnection | None:
-        return self._items.get(connection_id)
+        """Look up by normalized id; unknown or blank ids return ``None``."""
+        key = _normalize_lookup_key(connection_id)
+        if key is None:
+            return None
+        return self._items.get(key)
 
-    def list(self, provider_id: str | None = None) -> tuple[ProviderConnection, ...]:
-        values = tuple(self._items.values())
+    def list(
+        self, provider_id: str | None = None
+    ) -> tuple[ProviderConnection, ...]:
+        """Return connections sorted by id, optionally filtered by provider."""
+        values = tuple(self._items[key] for key in sorted(self._items))
         if provider_id is None:
             return values
-        return tuple(v for v in values if v.provider_id == provider_id)
+        wanted = _normalize_lookup_key(provider_id)
+        return tuple(v for v in values if v.provider_id == wanted)
 
     def update_status(
         self,
@@ -90,11 +144,19 @@ class ProviderConnectionRegistry:
         *,
         validated_at: datetime | None = None,
     ) -> ProviderConnection:
-        current = self._items[connection_id]
+        """Set ``status``; ``validated_at=None`` keeps the previous timestamp.
+
+        Unlike ``get()``, which returns ``None`` for unknown ids, this raises
+        ``ValueError`` for unknown ids and for values outside the status enum.
+        """
+        key = _normalize_lookup_key(connection_id)
+        current = self._items.get(key) if key is not None else None
+        if key is None or current is None:
+            raise ValueError(f"unknown connection_id: {connection_id}")
         updated = replace(
             current,
             status=status,
             last_validated_at=validated_at or current.last_validated_at,
         )
-        self._items[connection_id] = updated
+        self._items[key] = updated
         return updated
