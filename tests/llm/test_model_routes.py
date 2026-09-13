@@ -259,3 +259,205 @@ def test_duplicate_route_id_rejected() -> None:
             provider_model_id="claude-opus",
             canonical_model_id="claude-opus",
         ))
+
+
+# --- Review round 1 (Task 2): store-side normalization, ValueError taxonomy,
+# aware-datetime enforcement, dataclasses.replace, deterministic ordering ---
+
+
+def test_padded_mixed_case_route_id_round_trips_through_get_and_marks() -> None:
+    """Storage normalizes ids; raw lookups normalize too (finding 1)."""
+    catalog = ModelRouteCatalog()
+    registered = catalog.register(ModelRoute(
+        route_id="  OpenAI:GPT-4o  ",
+        connection_id="  OpenAI:Main  ",
+        provider_model_id="gpt-4o",
+        canonical_model_id="gpt-4o",
+    ))
+
+    assert registered.route_id == "openai:gpt-4o"
+    assert registered.connection_id == "openai:main"
+
+    fetched = catalog.get("OPENAI:GPT-4o")
+    assert fetched is not None
+    assert fetched.route_id == "openai:gpt-4o"
+
+    seen = catalog.mark_seen("  OpenAI:GPT-4o ", T1)
+    assert seen.last_seen_at == T1
+    assert seen.route_id == "openai:gpt-4o"
+
+    unavailable = catalog.mark_unavailable("OPENAI:gpt-4o")
+    assert unavailable.available is False
+    assert catalog.get("openai:gpt-4o").available is False
+
+
+def test_provider_model_id_case_is_preserved_by_normalization() -> None:
+    """Only route/connection ids are lowered; model ids stay case-sensitive."""
+    catalog = ModelRouteCatalog()
+    registered = catalog.register(ModelRoute(
+        route_id="openai:gpt-4o",
+        connection_id="openai:main",
+        provider_model_id="GPT-4o-20260801",
+        canonical_model_id="GPT-4o",
+    ))
+
+    assert registered.provider_model_id == "GPT-4o-20260801"
+    assert registered.canonical_model_id == "GPT-4o"
+
+
+@pytest.mark.parametrize(
+    "field,bad_value,label",
+    [
+        ("route_id", "   ", "Route id"),
+        ("connection_id", "", "Connection id"),
+        ("provider_model_id", "  ", "Provider model id"),
+        ("canonical_model_id", "", "Canonical model id"),
+    ],
+)
+def test_blank_identity_fields_rejected_on_construction(
+    field: str, bad_value: str, label: str
+) -> None:
+    values = {
+        "route_id": "openai:gpt-4",
+        "connection_id": "openai:main",
+        "provider_model_id": "gpt-4",
+        "canonical_model_id": "gpt-4",
+    }
+    values[field] = bad_value
+
+    with pytest.raises(ValueError, match=f"{label} cannot be empty"):
+        ModelRoute(**values)
+
+
+def test_mark_seen_unknown_route_id_raises_value_error() -> None:
+    """Mutators raise; get() returns None (findings 1/2 taxonomy)."""
+    catalog = ModelRouteCatalog()
+
+    with pytest.raises(ValueError, match="unknown route_id: ghost:model"):
+        catalog.mark_seen("ghost:model")
+
+
+def test_mark_unavailable_unknown_route_id_raises_value_error() -> None:
+    catalog = ModelRouteCatalog()
+
+    with pytest.raises(ValueError, match="unknown route_id: ghost:model"):
+        catalog.mark_unavailable("ghost:model")
+
+
+def test_mark_seen_blank_route_id_raises_value_error() -> None:
+    catalog = ModelRouteCatalog()
+
+    with pytest.raises(ValueError, match="unknown route_id"):
+        catalog.mark_seen("   ")
+
+
+def test_mark_unavailable_blank_route_id_raises_value_error() -> None:
+    catalog = ModelRouteCatalog()
+
+    with pytest.raises(ValueError, match="unknown route_id"):
+        catalog.mark_unavailable("")
+
+
+def test_case_variant_route_id_rejected_as_duplicate() -> None:
+    """Normalized keys make duplicate detection case-insensitive (finding 3)."""
+    catalog = ModelRouteCatalog()
+    catalog.register(ModelRoute(
+        route_id="A:b",
+        connection_id="a:main",
+        provider_model_id="b",
+        canonical_model_id="b",
+    ))
+
+    with pytest.raises(ValueError, match="duplicate route_id"):
+        catalog.register(ModelRoute(
+            route_id="a:b",
+            connection_id="a:backup",
+            provider_model_id="b",
+            canonical_model_id="b",
+        ))
+
+
+def test_register_rejects_naive_first_seen_at() -> None:
+    """Naive timestamps are a correctness trap (finding 4)."""
+    catalog = ModelRouteCatalog()
+    naive = datetime(2026, 9, 13, 10, 0)  # noqa: DTZ001
+
+    with pytest.raises(ValueError, match="must be timezone-aware"):
+        catalog.register(ModelRoute(
+            route_id="naive:model",
+            connection_id="naive:main",
+            provider_model_id="naive",
+            canonical_model_id="naive",
+            first_seen_at=naive,
+        ))
+
+
+def test_mark_seen_rejects_naive_timestamp() -> None:
+    catalog = ModelRouteCatalog()
+    registered = catalog.register(ModelRoute(
+        route_id="openai:gpt-4",
+        connection_id="openai:main",
+        provider_model_id="gpt-4",
+        canonical_model_id="gpt-4",
+    ))
+
+    naive_at = datetime(2026, 9, 13, 11, 0)  # noqa: DTZ001
+    with pytest.raises(ValueError, match="must be timezone-aware"):
+        catalog.mark_seen(registered.route_id, naive_at)
+
+    assert catalog.get(registered.route_id).last_seen_at == registered.last_seen_at
+
+
+def test_routes_for_canonical_model_sorted_by_route_id() -> None:
+    """Deterministic ordering for consumers (finding 7)."""
+    catalog = ModelRouteCatalog()
+    for route_id in ("zeta:model", "alpha:model", "mid:model"):
+        catalog.register(ModelRoute(
+            route_id=route_id,
+            connection_id=f"{route_id.split(':')[0]}:main",
+            provider_model_id="shared",
+            canonical_model_id="shared",
+        ))
+
+    routes = catalog.routes_for_canonical_model("shared")
+    assert [route.route_id for route in routes] == [
+        "alpha:model",
+        "mid:model",
+        "zeta:model",
+    ]
+
+
+def test_register_pins_available_true_for_seen_now_semantics() -> None:
+    """register() means 'seen now', so availability is forced True (finding 6)."""
+    catalog = ModelRouteCatalog()
+    registered = catalog.register(ModelRoute(
+        route_id="pinned:model",
+        connection_id="pinned:main",
+        provider_model_id="pinned",
+        canonical_model_id="pinned",
+        available=False,
+    ))
+
+    assert registered.available is True
+    assert catalog.get("pinned:model").available is True
+
+
+def test_filter_accepts_discovered_confidence_when_supported() -> None:
+    """Pinned policy: only UNKNOWN confidence fails; DISCOVERED passes."""
+    catalog = ModelRouteCatalog()
+    catalog.register(ModelRoute(
+        route_id="discovered:model",
+        connection_id="discovered:main",
+        provider_model_id="discovered",
+        canonical_model_id="discovered",
+        capabilities=(
+            RouteCapabilityState(
+                name="tools",
+                supported=True,
+                confidence=CapabilityConfidence.DISCOVERED,
+            ),
+        ),
+    ))
+
+    filtered = catalog.filter_required_capabilities(("tools",))
+    assert [route.route_id for route in filtered] == ["discovered:model"]
