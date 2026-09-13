@@ -50,7 +50,9 @@ from kernel.llm.provider_manifests import (
 # Documented public OpenAI-compatible endpoints, keyed by provider id. Values
 # are canonical (lowercase scheme, no trailing slash) so the validator's
 # trailing-slash normalization is a no-op rather than a silent rewrite.
-QWEN_TOKEN_PLAN_BASE_URL: str = "https://portal.qwen.ai/v1"
+QWEN_TOKEN_PLAN_BASE_URL: str = (
+    "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+)
 COMMANDCODE_BASE_URL: str = "https://api.commandcode.ai/v1"
 QWEN_CLOUD_BASE_URL: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
