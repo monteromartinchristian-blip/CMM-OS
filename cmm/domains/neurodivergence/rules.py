@@ -34,6 +34,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.cognitive.enums import (
     ReasoningRiskLevel,
     ReasoningRuleCategory,
@@ -67,6 +68,7 @@ from cmm.domains.neurodivergence.catalog import (
     CANONICAL_NEURODIVERGENCE_RULE_IDS,
     NEURODIVERGENCE_DOMAIN_ID,
 )
+from cmm.domains.permission_gate import PermissionGateOutcome, PermissionGateResult
 from cmm.domains.rule_contracts import DomainReasoningRuleDefinition, DomainRuleResult
 
 NEURODIVERGENCE_RULE_IDS: tuple[str, ...] = CANONICAL_NEURODIVERGENCE_RULE_IDS
@@ -76,6 +78,15 @@ NEURODIVERGENCE_RULE_IDS: tuple[str, ...] = CANONICAL_NEURODIVERGENCE_RULE_IDS
 HEALTH_DOMAIN = DomainId(slug="health")
 
 HEALTH_DOMAIN_ID = str(HEALTH_DOMAIN)
+
+#: The key under which an authorized Health projection carries the diagnostic
+#: verdict that Health's own diagnostic rule produced for the claim.
+HEALTH_DEFINITIVE_VERDICT_KEY = "health_definitive_verdict"
+
+#: The Health epistemic category for a *definitive* documented diagnosis.
+#: Health owns this vocabulary; it is referenced here only so this pack can
+#: bind to Health's verdict.  This pack never recomputes that verdict.
+HEALTH_DEFINITIVE_DIAGNOSIS_CATEGORY = "documented_diagnosis"
 
 # ── Pack-local certainty labels (derived, non-authoritative) ──────────────────
 # The canonical Phase 8 Cognitive Layer remains the source of truth for
@@ -726,6 +737,94 @@ def _canonical_domain_identity(value: Any) -> DomainId | None:
         return None
 
 
+def _health_definitive_verdict(value: Any) -> bool:
+    """True only for a Health-produced definitive diagnostic verdict.
+
+    Neurodivergence never decides for itself whether Health considers a
+    diagnosis definitive.  It consumes the verdict Health's own diagnostic rule
+    produced and requires Health's two definitive assertions together with the
+    definitive Health category.  A missing, malformed, merely documented or
+    provisional verdict fails closed.
+    """
+    if not isinstance(value, Mapping):
+        return False
+    if not _strict_flag(value, "is_definitive"):
+        return False
+    if not _strict_flag(value, "may_present_as_definitive"):
+        return False
+    return value.get("supported_category") == HEALTH_DEFINITIVE_DIAGNOSIS_CATEGORY
+
+
+def _canonical_permission_authority(
+    request: Mapping, claim_id: str, purpose: str
+) -> PermissionGateResult | None:
+    """Return the current canonical permission authority, else ``None``.
+
+    Clinical certainty consumes the canonical gate's own evidence instead of a
+    caller-asserted boolean.  The boundary is the canonical
+    ``PermissionGateResult`` produced by ``DomainPermissionGate``, either as
+    the typed object or as its canonical full serialization rebuilt through the
+    canonical ``PermissionGateResult.from_dict`` constructor.  A
+    canonical-*looking* mapping is not authority: the authority-reference shape
+    a caller could invent (``permission_decision_id`` / ``approvals``) is not
+    the canonical gate result shape and the canonical constructor rejects it.
+
+    Only semantics the canonical gate already owns are verified here, and no
+    permission logic is reimplemented:
+
+    * the permission decision identity (``decision_id``);
+    * the effective outcome, through the canonical ``allowed`` property;
+    * the current cross-domain binding exactly as the gate represents it:
+      the cross-domain action, the source and target domains, the resource the
+      decision was taken for, and the purpose of the bound request;
+    * approval-consumed evidence where the outcome is approval-gated.
+
+    A boolean is not honoured in any form.
+    """
+    authority = request.get("permission_authority")
+    if not isinstance(authority, PermissionGateResult):
+        if not isinstance(authority, Mapping):
+            return None
+        try:
+            authority = PermissionGateResult.from_dict(dict(authority))
+        except (ValueError, TypeError, KeyError):
+            return None
+    if not authority.allowed:
+        return None
+    if not _is_non_empty_id(authority.decision_id):
+        return None
+    if authority.action != PermissionCapability.DOMAIN_CROSS_ACCESS.value:
+        return None
+
+    metadata = authority.metadata if isinstance(authority.metadata, Mapping) else {}
+    if str(metadata.get("source_domain")) != HEALTH_DOMAIN_ID:
+        return None
+    if str(metadata.get("target_domain")) != NEURODIVERGENCE_DOMAIN_ID:
+        return None
+    resource_ids = metadata.get("resource_ids")
+    if not isinstance(resource_ids, (list, tuple)):
+        return None
+    if claim_id not in {str(item).strip() for item in resource_ids}:
+        return None
+    bound_request = metadata.get("cross_domain_request")
+    if isinstance(bound_request, Mapping):
+        bound_purpose = bound_request.get("reason")
+        if not isinstance(bound_purpose, str) or bound_purpose.strip() != purpose:
+            return None
+
+    if authority.outcome == PermissionGateOutcome.APPROVAL_CONSUMED:
+        evidence = authority.approval_evidence
+        if not isinstance(evidence, Mapping):
+            return None
+        if evidence.get("granted") is not True or evidence.get("consumed") is not True:
+            return None
+        if not _is_non_empty_id(evidence.get("requirement_id")):
+            return None
+    elif authority.outcome != PermissionGateOutcome.ALLOW:
+        return None
+    return authority
+
+
 def _canonical_health_authority(request: Mapping) -> dict | None:
     """Return validated canonical Health clinical authority, else ``None``.
 
@@ -739,10 +838,14 @@ def _canonical_health_authority(request: Mapping) -> dict | None:
       carrying contract-enforced non-empty provenance;
     * the clinical status carried by that transfer must be a Health-owned
       documented clinical record identified by canonical ``ResourceProvenance``;
+    * that record must also carry the diagnostic verdict Health itself
+      produced, and that verdict must be definitive under Health's own
+      semantics — being merely documented is never enough;
     * the current canonical permission authority must admit the transfer — a
-      structurally valid transfer is not authority by itself, so the
-      fail-closed ``permission_authority`` decision of the canonical resolver and
-      gate is required as well.
+      structurally valid transfer is not authority by itself, so the typed
+      ``PermissionGateResult`` of the canonical resolver and gate is required,
+      bound to this claim, this purpose and the Health -> Neurodivergence
+      direction, and carrying approval-consumed evidence when approval-gated.
 
     No Neurodivergence-specific authority model, token or registry is
     introduced.  Malformed, incomplete or forged input fails closed to ``None``.
@@ -757,9 +860,10 @@ def _canonical_health_authority(request: Mapping) -> dict | None:
     if not purpose:
         return None
 
-    # The canonical resolver/gate decision, expressed as the same fail-closed
-    # flag the projection boundary uses.  A literal ``True`` is required.
-    if not _strict_flag(request, "permission_authority"):
+    # The current canonical permission authority: the typed gate evidence, not
+    # a caller-asserted flag.
+    authority = _canonical_permission_authority(request, claim_id, purpose)
+    if authority is None:
         return None
 
     for item in _seq(request, "transfers") or ():
@@ -777,6 +881,11 @@ def _canonical_health_authority(request: Mapping) -> dict | None:
         # a malformed flag never acquires authority through truthiness.
         if not _strict_flag(status, "documented_diagnosis"):
             continue
+        # Documented is necessary, never sufficient: the record must also carry
+        # the verdict Health itself produced, and that verdict must be
+        # definitive under Health's own semantics.
+        if not _health_definitive_verdict(status.get(HEALTH_DEFINITIVE_VERDICT_KEY)):
+            continue
         provenance = _canonical_source_provenance(status.get("provenance"))
         if provenance is None:
             continue
@@ -791,6 +900,9 @@ def _canonical_health_authority(request: Mapping) -> dict | None:
             "provenance_source_id": provenance.source_id,
             "provenance_source_type": provenance.source_type.value,
             "purpose": purpose,
+            "permission_decision_id": authority.decision_id,
+            "permission_outcome": authority.outcome,
+            "health_definitive": True,
         }
     return None
 

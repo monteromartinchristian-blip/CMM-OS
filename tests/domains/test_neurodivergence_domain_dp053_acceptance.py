@@ -671,7 +671,28 @@ def test_checkpoint_13_consumed_approval_admits_the_exact_transfer():
 # ── Audit V1 MAJOR-01: genuine canonical Health authority still promotes ─────
 
 
-def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPOSE):
+def _health_diagnostic_verdict(**overrides) -> dict:
+    """Health's *own* canonical diagnostic verdict, never recomputed here.
+
+    The verdict is produced by Health's existing diagnostic rule, so a
+    documented-but-unconfirmed diagnosis carries Health's real non-definitive
+    result instead of a stronger Neurodivergence interpretation of it.
+    """
+    from cmm.domains.health.rules import validate_diagnostic_claim
+
+    values = {
+        "evidence": True,
+        "documented": True,
+        "confirmed": True,
+        "provisional": False,
+    }
+    values.update(overrides)
+    return validate_diagnostic_claim(**values)
+
+
+def _canonical_clinical_status_transfer(
+    identifier, *, reason=CROSS_DOMAIN_PURPOSE, **verdict_overrides
+):
     """A canonical Health clinical-status transfer carrying Health-owned proof."""
     from cmm.cognitive.enums import ResourceSourceKind
     from cmm.cognitive.resources import ResourceProvenance
@@ -684,6 +705,9 @@ def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPO
         identifier=identifier,
         value={
             "documented_diagnosis": True,
+            "health_definitive_verdict": _health_diagnostic_verdict(
+                **verdict_overrides
+            ),
             "provenance": ResourceProvenance(
                 source_type=ResourceSourceKind.UPLOADED_FILE,
                 source_id="clinical-record:nd-1",
@@ -695,12 +719,14 @@ def _canonical_clinical_status_transfer(identifier, *, reason=CROSS_DOMAIN_PURPO
 
 
 def test_canonical_health_authority_confirms_through_the_connected_path():
-    """CANONICAL_HEALTH_AUTHORITY_TO_CONFIRMED=PASS on the real canonical path.
+    """CANONICAL_HEALTH_DEFINITIVE_PLUS_GATE_AUTHORITY_TO_CONFIRMED=PASS.
 
     The clinical-status transfer is admitted only after the real canonical
     ``DomainPermissionResolver``, ``DomainPermissionGate`` and ``ApprovalService``
-    lifecycle produce APPROVAL_CONSUMED for this exact request; the certainty
-    rule then promotes using that admitted evidence.
+    lifecycle produce APPROVAL_CONSUMED for this exact request, and the carried
+    clinical record holds the diagnostic verdict Health itself produced.  The
+    certainty rule then promotes using that admitted, Health-definitive
+    evidence.
     """
     from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
     from cmm.domains.permission_gate import PermissionGateOutcome
@@ -744,7 +770,7 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
                 "evidence_kind": "documented_clinical_status",
                 "clinical": True,
                 "purpose": CROSS_DOMAIN_PURPOSE,
-                "permission_authority": consumed.allowed,
+                "permission_authority": consumed.to_dict(),
                 "transfers": admitted,
             }
         )
@@ -758,6 +784,14 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
     assert result.metadata["canonical_authority"]["claim_id"] == "clinical_status"
     assert result.metadata["confirmed_diagnosis_created"] is False
+    # The promotion is bound to the real gate decision, not to a flag.
+    assert (
+        result.metadata["canonical_authority"]["permission_decision_id"]
+        == consumed.decision_id
+    )
+    assert (
+        result.metadata["canonical_authority"]["permission_outcome"] == consumed.outcome
+    )
 
     # The same canonical transfer without admitted current authority, and the
     # same transfer under a real canonical DENY, confirm nothing.
@@ -804,7 +838,7 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
                 "evidence_kind": "documented_clinical_status",
                 "clinical": True,
                 "purpose": CROSS_DOMAIN_PURPOSE,
-                "permission_authority": denied_gate_result.allowed,
+                "permission_authority": denied_gate_result.to_dict(),
                 "transfers": denied_admitted,
             }
         )
@@ -812,6 +846,91 @@ def test_canonical_health_authority_confirms_through_the_connected_path():
     assert denied.status.value == "blocked"
     assert denied.metadata["certainty_state"] == "in_evaluation"
     assert denied.metadata["authoritative_evidence"] is False
+
+
+def test_connected_path_blocks_unbound_boolean_and_nondefinitive_health_status():
+    """The two Re-audit V2 residuals, adversarially, on the connected path.
+
+    The transfer here is the *real* admitted one produced by the canonical
+    resolver, gate and approval lifecycle, so the only difference is the
+    authority claim (a bare boolean) or Health's own verdict (documented but
+    not definitive).
+    """
+    authorized_resolver = _authorized_cross_domain_resolver()
+    approval_service, gate = _connected_permission_stack(authorized_resolver)
+    request = _cross_domain_request("req-at-dp-053-adversarial", "clinical_status")
+    candidate = _canonical_clinical_status_transfer("clinical_status")
+
+    approval_request_id = _grant_canonical_cross_domain_approval(
+        approval_service, gate, request
+    )
+    _decision, consumed, admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(candidate,),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=approval_request_id,
+    )
+    assert consumed.allowed is True
+    assert admitted == (candidate,)
+
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    # UNBOUND_PERMISSION_BOOLEAN_TO_CONFIRMED=BLOCKED
+    unbound = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "clinical_status",
+                "from_state": "hypothesis",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CROSS_DOMAIN_PURPOSE,
+                "permission_authority": True,
+                "transfers": admitted,
+            }
+        )
+    )
+    assert unbound.status.value == "blocked"
+    assert unbound.metadata["certainty_state"] == "hypothesis"
+    assert unbound.metadata["authoritative_evidence"] is False
+
+    # HEALTH_DOCUMENTED_NONDEFINITIVE_TO_CONFIRMED=BLOCKED
+    verdict = _health_diagnostic_verdict(confirmed=False)
+    assert verdict["is_definitive"] is False
+    assert verdict["may_present_as_definitive"] is False
+
+    nondefinitive = _canonical_clinical_status_transfer(
+        "clinical_status", confirmed=False
+    )
+    _d, _g, nondefinitive_admitted = _admit_cross_domain_transfers(
+        request=request,
+        candidates=(nondefinitive,),
+        resolver=authorized_resolver,
+        gate=gate,
+        approval_request_id=_grant_canonical_cross_domain_approval(
+            approval_service, gate, request
+        ),
+    )
+    assert nondefinitive_admitted == (nondefinitive,)
+
+    documented_only = rule.evaluate(
+        _context(
+            certainty_transition={
+                "claim_id": "clinical_status",
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CROSS_DOMAIN_PURPOSE,
+                "permission_authority": _d.to_dict(),
+                "transfers": nondefinitive_admitted,
+            }
+        )
+    )
+    assert documented_only.status.value == "blocked"
+    assert documented_only.metadata["certainty_state"] == "in_evaluation"
+    assert documented_only.metadata["authoritative_evidence"] is False
 
 
 def test_checkpoint_14_authority_tuple_binding_is_exact():
