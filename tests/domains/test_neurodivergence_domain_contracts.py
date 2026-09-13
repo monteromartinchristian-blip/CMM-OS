@@ -1071,7 +1071,65 @@ def test_clinical_status_authority_applies_when_no_override_is_requested():
     assert result.metadata["competing_hypothesis_discussable"] is True
 
 
-# ── Sensitive-label persistence ──────────────────────────────────────────────
+# ── Health clinical authority boundary (Task 9) ──────────────────────────────
+
+
+def test_health_clinical_status_survives_a_competing_neurodivergence_hypothesis():
+    """A competing hypothesis stays discussable; Health keeps the status.
+
+    The competing Neurodivergence hypothesis is genuinely present, so the
+    boundary is proven against a real competing claim rather than an empty one.
+    """
+    rules = _rules()
+    rule = rules["neurodivergence.clinical_status_authority"]
+
+    result = rule.evaluate(
+        _context(
+            clinical_claim={
+                "documented_diagnosis": True,
+                "diagnosis_status": "confirmed",
+                "medication": True,
+                "treatment_plan": True,
+                "competing_hypothesis": "autism",
+                "requested": "set_diagnosis",
+            }
+        )
+    )
+
+    # The competing hypothesis is present and may still be explored...
+    assert result.metadata["competing_hypothesis_present"] is True
+    assert result.metadata["competing_hypothesis_discussable"] is True
+    # ...but it never replaces, promotes over or rewrites the Health status.
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["primary_authority"] == "domain:health"
+    assert result.metadata["health_clinical_status_preserved"] is True
+    assert result.metadata["neurodivergence_may_override"] is False
+    assert result.metadata["competing_hypothesis_promoted"] is False
+
+    finding = result.findings[0]
+    assert finding.metadata["primary_authority"] == "domain:health"
+    assert finding.metadata["health_clinical_status_preserved"] is True
+
+
+def test_documented_medical_contraindication_is_not_mutable_here():
+    """Medical contraindication authority never moves to Neurodivergence."""
+    rules = _rules()
+    rule = rules["neurodivergence.clinical_status_authority"]
+
+    result = rule.evaluate(
+        _context(
+            clinical_claim={
+                "medical_contraindication": True,
+                "medical_safety": True,
+                "requested": "override_contraindication",
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["primary_authority"] == "domain:health"
+    assert result.metadata["autonomous_medical_action"] is False
+    assert result.metadata["neurodivergence_may_override"] is False
 
 
 def test_a_working_hypothesis_is_never_silently_persisted():

@@ -11,6 +11,11 @@ performs a direct memory write.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+import pytest
+
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.enums import DomainOperationType
 from cmm.workflows.enums import WorkflowNodeType
 
@@ -352,3 +357,164 @@ def test_workflows_declare_no_supporting_domain_implementation_dependency():
     for workflow in _workflows():
         assert workflow.supporting_domain_ids == ()
         assert workflow.metadata["cross_domain_support_required"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Source-domain authority boundaries (Task 9)
+#
+# An imported fact keeps its owner: Health stays Health-authoritative, Mental
+# Health stays authoritative for emotional/therapy context, University for
+# academic facts and Relationships for relationship facts.  Neurodivergence may
+# reason over purpose-minimized projections but never re-emits them as its own.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SOURCE_DOMAIN_PURPOSE = "functional_context"
+_NOW = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+
+def _projection_rule():
+    from cmm.domains.neurodivergence.rules import build_neurodivergence_rules
+
+    rules = {rule.definition.id: rule for rule in build_neurodivergence_rules()}
+    return rules["neurodivergence.purpose_minimized_cross_domain"]
+
+
+def _source_transfer(identifier, source_domain, *, provenance):
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    return CrossDomainContextTransfer(
+        source_domain=source_domain,
+        target_domain="domain:neurodivergence",
+        kind="finding",
+        identifier=identifier,
+        value=True,
+        reason=SOURCE_DOMAIN_PURPOSE,
+        provenance=provenance,
+    ).to_dict()
+
+
+def _evaluate_projection(field_names, transfers):
+    context = ReasoningRuleContext(
+        reasoning_id="rid",
+        timestamp=_NOW,
+        active_domains=("domain:neurodivergence",),
+        primary_domain="domain:neurodivergence",
+        metadata={
+            "projection": {
+                "purpose": SOURCE_DOMAIN_PURPOSE,
+                "fields": {name: {"relevant": True} for name in field_names},
+            },
+            "transfers": transfers,
+        },
+    )
+    return _projection_rule().evaluate(context)
+
+
+@pytest.mark.parametrize(
+    ("source_domain", "field"),
+    (
+        ("domain:health", "documented_clinical_status"),
+        ("domain:mental-health", "emotional_context"),
+        ("domain:university", "academic_accommodation"),
+        ("domain:relationships", "social_interaction_context"),
+    ),
+)
+def test_imported_context_keeps_its_source_domain_owner(source_domain, field):
+    """A purpose-authorized projection never becomes Neurodivergence-owned."""
+    transfer = _source_transfer(
+        field, source_domain, provenance=(f"finding:{source_domain}:1",)
+    )
+    result = _evaluate_projection((field,), (transfer,))
+
+    assert result.status.value == "applied"
+    assert result.metadata["included_fields"] == (field,)
+    # Ownership is preserved exactly: the source domain remains the owner and
+    # Neurodivergence never appears as the provenance owner of imported facts.
+    assert result.metadata["source_domains"] == (source_domain,)
+    assert "domain:neurodivergence" not in result.metadata["source_domains"]
+    assert result.metadata["provenance_references"] == (f"finding:{source_domain}:1",)
+    assert result.metadata["provenance_preserved"] is True
+
+
+def test_a_traversal_through_neurodivergence_does_not_retitle_the_source():
+    """Reasoning about an imported fact does not transfer its ownership."""
+    health_transfer = _source_transfer(
+        "documented_clinical_status",
+        "domain:health",
+        provenance=("finding:health:9",),
+    )
+    university_transfer = _source_transfer(
+        "academic_accommodation",
+        "domain:university",
+        provenance=("finding:university:4",),
+    )
+    result = _evaluate_projection(
+        ("documented_clinical_status", "academic_accommodation"),
+        (health_transfer, university_transfer),
+    )
+
+    assert result.status.value == "applied"
+    assert result.metadata["source_domains"] == (
+        "domain:health",
+        "domain:university",
+    )
+    # Each field is backed by its own transfer; neither inherited the other's.
+    assert set(result.metadata["included_fields"]) == {
+        "documented_clinical_status",
+        "academic_accommodation",
+    }
+    assert result.metadata["provenance_references"] == (
+        "finding:health:9",
+        "finding:university:4",
+    )
+
+
+def test_a_private_source_fact_is_never_imported():
+    """Sibling context only enters through a transferable, non-private path."""
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+
+    private_transfer = CrossDomainContextTransfer(
+        source_domain="domain:mental-health",
+        target_domain="domain:neurodivergence",
+        kind="finding",
+        identifier="therapy_context",
+        value=True,
+        reason=SOURCE_DOMAIN_PURPOSE,
+        provenance=("finding:mental-health:2",),
+        private=True,
+    ).to_dict()
+    result = _evaluate_projection(("therapy_context",), (private_transfer,))
+
+    assert result.status.value == "blocked"
+    assert result.metadata["included_fields"] == ()
+    assert result.metadata["provenance_preserved"] is False
+    assert "private_context_not_transferable" in result.metadata["rejected_transfers"]
+
+
+def test_a_sibling_fact_re_emitted_as_owned_is_blocked_by_source_authority():
+    """Re-emitting an imported fact as Neurodivergence-owned is blocked."""
+    from cmm.domains.neurodivergence.rules import build_neurodivergence_rules
+
+    rules = {rule.definition.id: rule for rule in build_neurodivergence_rules()}
+    context = ReasoningRuleContext(
+        reasoning_id="rid",
+        timestamp=_NOW,
+        active_domains=("domain:neurodivergence",),
+        primary_domain="domain:neurodivergence",
+        metadata={
+            "source_claims": (
+                {
+                    "id": "claim-1",
+                    "source_domain": "domain:university",
+                    "fact": "documented exam accommodation",
+                    "re_emitted_as": "domain:neurodivergence",
+                },
+            )
+        },
+    )
+
+    result = rules["neurodivergence.source_authority"].evaluate(context)
+
+    assert result.status.value == "blocked"
+    assert result.metadata["source_authority_preserved"] is False
+    assert result.metadata["rewritten_claims"] == ("claim-1",)
