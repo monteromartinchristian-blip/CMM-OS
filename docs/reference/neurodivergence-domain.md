@@ -82,10 +82,21 @@ OBSERVATION_AS_CONTEMPORANEOUS=BLOCKED
 A confirmed clinical status is only ever carried by the shared runtime-only
 `ReasoningAuthorityContext`, populated by trusted canonical integration after the
 current permission gate has produced `ALLOW`/`APPROVAL_CONSUMED` and the Health
-source owner has established definitive semantics. `ReasoningRuleContext.metadata`
-remains JSON-safe and non-authoritative: canonical-looking transfers,
-provenance, decision IDs, booleans and Health verdict mappings in caller data
-have zero authority effect. `neurodivergence.certainty_state_preservation`
+source owner has established definitive semantics. The authoritative clinical
+claim is carried as a provenance-bound `AuthoritativeSourceClaim` built from the
+canonical `ResourceProvenance` of the Health-owned artifact that established it,
+so authority cannot exist in the trusted channel without source provenance
+(`TRUSTED_SOURCE_PROVENANCE_BINDING=IMPLEMENTED`;
+`AUTHORITATIVE_CLAIM_WITHOUT_CANONICAL_PROVENANCE=BLOCKED`).
+`ReasoningRuleContext.metadata` remains JSON-safe and non-authoritative:
+canonical-looking transfers, provenance shapes, authoritative-claim shapes,
+decision IDs, booleans and Health verdict mappings in caller data have zero
+authority effect, and serialized authority cannot be rehydrated into authority
+(`AUTHORITY_SERIALIZATION=STRIPPED`; `CALLER_REHYDRATION_OF_AUTHORITY=BLOCKED`;
+`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`). See the re-audit V3-redo report
+`docs/audits/phase-10.53-independent-reaudit-v3-redo.md` (MAJOR-01/MINOR-01) and
+the remediation record
+`docs/superpowers/plans/2026-09-13-phase-10.53-reaudit-v3-redo-remediation-v1-implementation-plan.md`. `neurodivergence.certainty_state_preservation`
 blocks any upward transition (and any exclusion claim) without an applicable
 trusted context, and reports `certified_here=False`,
 `confirmed_diagnosis_created=False` and `exclusion_created=False`.
@@ -511,7 +522,7 @@ never becomes blanket hypothesis suppression.
 ## 17. AT-DP-053 checkpoints
 
 `AT-DP-053` is a connected acceptance over real canonical components, not a set
-of isolated mocks. All 27 checkpoints are implemented in
+of isolated mocks. All 29 checkpoints are implemented in
 `tests/domains/test_neurodivergence_domain_dp053_acceptance.py`:
 
 ```text

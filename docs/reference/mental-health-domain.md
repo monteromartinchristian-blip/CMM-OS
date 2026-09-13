@@ -578,6 +578,6 @@ Independent Re-audit V4 (`docs/audits/phase-10.52-independent-reaudit-v4.md`) re
 `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`;
 Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; audit-report commit
 `78842087e7a52795c217ed7ca4b4a7f3a2112969`. Phase 10.52 is closed by the subsequent dedicated docs-only
-closure commit; Phase 10.53 is implemented and pending independent audit
-(`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`), which leaves the Phase
+closure commit; Phase 10.53 is implemented and pending independent re-audit
+(`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`), which leaves the Phase
 10.52 closure evidence above unchanged.

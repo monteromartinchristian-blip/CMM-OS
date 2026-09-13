@@ -8768,14 +8768,25 @@ promotion path was remediated in the approved V3 redo: clinical authority is now
 carried only by the shared runtime-only `ReasoningAuthorityContext` built from a
 real `DomainPermissionGate` result, so no combination of caller-authored
 metadata can manufacture authority
-(`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`). Implementation-reported state (not
+(`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`; `AUTHORITY_SERIALIZATION=STRIPPED`;
+`CALLER_REHYDRATION_OF_AUTHORITY=BLOCKED`). The V3-redo independent re-audit
+(`docs/audits/phase-10.53-independent-reaudit-v3-redo.md`) kept `MAJOR-01` open
+because the trusted channel did not carry source provenance; that remediation is
+now implemented: the authoritative clinical claim travels as a provenance-bound
+`AuthoritativeSourceClaim` built from the canonical `ResourceProvenance` of the
+Health-owned artifact, a provenance-free authoritative claim is not
+constructible, and the connected acceptance proves both
+`definitive Health + no trusted provenance -> BLOCKED` and
+`definitive Health + canonical trusted provenance -> CONFIRMED`
+(`TRUSTED_SOURCE_PROVENANCE_BINDING=IMPLEMENTED`;
+`AUTHORITATIVE_CLAIM_WITHOUT_CANONICAL_PROVENANCE=BLOCKED`). Implementation-reported state (not
 an audit conclusion):
 
 ```text
 PHASE10_53 = IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-053 = PASS_REPORTED
 AT-DP-053 = PASS_REPORTED
-CLOSURE_ELIGIBLE = UNKNOWN_PENDING_INDEPENDENT_AUDIT
+CLOSURE_ELIGIBLE = UNKNOWN_PENDING_INDEPENDENT_REAUDIT
 FIRST_PARTY_DOMAIN_PACKS = 14
 CURRENT_DEFERRED_DOMAIN_PACKS = 0
 ```
@@ -8784,7 +8795,7 @@ CURRENT_DEFERRED_DOMAIN_PACKS = 0
 `PHASE10_53 = CLOSED` remain independent-audit conclusions and have not been
 claimed. The implemented contract is documented in
 `docs/reference/neurodivergence-domain.md`; the connected acceptance is
-`tests/domains/test_neurodivergence_domain_dp053_acceptance.py` (27
+`tests/domains/test_neurodivergence_domain_dp053_acceptance.py` (29
 checkpoints).
 
 <!-- PHASE10_49_FINAL_AUDIT_PROVENANCE -->

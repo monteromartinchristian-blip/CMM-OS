@@ -169,7 +169,7 @@ and rerun unchanged (its acceptance plus
 are both implemented as first-party production packages with their own
 bootstraps. The current inventory is `FIRST_PARTY_DOMAIN_PACKS=14` with
 `CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_52=CLOSED` and
-`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`.
+`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`.
 
 The closed DP-051 baseline is **not** rewritten: its two deferred packs and
 `DEFERRED_DOMAIN_PACKS=2` remain preserved verbatim as historical closure
