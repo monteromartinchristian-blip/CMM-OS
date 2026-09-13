@@ -372,8 +372,10 @@ derivations.
 | life_plan | `knowledge-package-schema:life_plan` | `SENSITIVE` | `SENSITIVE` | Matched |
 | project | `knowledge-package-schema:project` | `INTERNAL` | `INTERNAL` | Matched |
 
-`domain:mental-health` and `domain:neurodivergence` knowledge package schemas
-remain out of scope until Phases 10.52/10.53.
+| neurodivergence | `knowledge-package-schema:neurodivergence` | `SENSITIVE` | `SENSITIVE` | Matched |
+
+`domain:mental-health` (Phase 10.52) and `domain:neurodivergence` (Phase 10.53)
+now declare their schemas; the current first-party schema inventory is 14.
 
 ## 11. Determinism
 
@@ -392,11 +394,12 @@ provides declaration, composition and validation only; it does not add the
 Phase 10.50 capability itself, and nothing in Phase 10.49 may be treated as
 pre-authorizing Phase 10.50 behaviour.
 
-## 13. Phase 10.52 / 10.53 deferral
+## 13. Phase 10.52 / 10.53 schemas
 
-The `mental_health` and `neurodivergence` Domain schemas are explicitly
-**not** implemented. Tests assert their absence so the deferral cannot regress
-silently.
+The `mental_health` and `neurodivergence` Domain schemas are implemented as
+clarified in section 10. The live first-party schema inventory is now 14, and
+the current-inventory tests assert that each implemented pack exposes its own
+loadable schema so the inventory cannot drift silently.
 
 ## 14. Anti-fragmentation rules
 

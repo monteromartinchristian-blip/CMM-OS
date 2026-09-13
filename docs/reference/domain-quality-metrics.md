@@ -336,9 +336,23 @@ languages, parenthood, sport, life-plan, project
 | project | tool-calling-quality | 0.20 | 0.85 | yes |
 | project | structured-output | 0.15 | 0.80 | no |
 
+| neurodivergence | certainty-fidelity | 0.15 | 1.00 | yes |
+| neurodivergence | source-authority-fidelity | 0.15 | 1.00 | yes |
+| neurodivergence | developmental-temporality | 0.10 | 0.95 | yes |
+| neurodivergence | differential-reasoning-quality | 0.10 | 0.85 | no |
+| neurodivergence | exploratory-usefulness | 0.10 | 0.90 | yes |
+| neurodivergence | functional-relevance | 0.05 | 0.80 | no |
+| neurodivergence | cross-domain-minimization | 0.10 | 1.00 | yes |
+| neurodivergence | privacy-adherence | 0.15 | 1.00 | yes |
+| neurodivergence | sensitive-memory-discipline | 0.05 | 1.00 | yes |
+| neurodivergence | assessment-summary-fidelity | 0.05 | 0.80 | no |
+
 Every catalog has at least one blocking metric and total weight exactly
-`Decimal("1")`. `domain:mental-health` and `domain:neurodivergence` quality
-catalogs remain out of scope until Phases 10.52/10.53.
+`Decimal("1")`. `domain:mental-health` (Phase 10.52) and
+`domain:neurodivergence` (Phase 10.53) now declare their quality catalogs; the
+current first-party catalog inventory is 14. For `domain:neurodivergence`,
+`exploratory-usefulness` is blocking and counts a refusal-only or
+disclaimer-only response as a failure.
 
 Wiring follows `DomainDefinition.quality_metrics` list order as the canonical
 declared order.

@@ -327,7 +327,7 @@ therapy preparation              -> primary domain:mental-health
 documented medication change     -> primary domain:health, supporting domain:mental-health
 generic request                  -> domain:general fallback
 Mental Health unavailable/unauthorized -> BLOCKED, never silently absorbed by General
-Phase 10.53 absent               -> Mental Health boots and works
+Phase 10.53 absent or present   -> Mental Health boots and works
 ```
 
 No resolver threshold is weakened and no Mental Health-specific resolver
@@ -439,7 +439,9 @@ introduced.
   bootstrap; it is composed only through its own
   `build_standard_mental_health_domain_bootstrap()` (plus the existing Health
   bootstrap when a connected Health case is needed).
-- Phase 10.53 Neurodivergence is absent and intentionally not required.
+- Mental Health has no implementation dependency on `domain:neurodivergence`
+  (Phase 10.53): it never imports the sibling package and never auto-registers
+  it, so the pack works whether or not the sibling exists.
 
 ## 24. Test evidence
 
@@ -476,7 +478,7 @@ sensitive inference, Health clinical authority, restrictive cross-domain
 permission intersection, canonical `SENSITIVE` privacy, purpose-minimized
 supporting context, revalidated authority downgrade that fails closed,
 operations unavailable without injection, absence of parallel infrastructure,
-Phase 10.53 absence and preserved pre-10.52 first-party domains.
+Phase 10.53 independence and preserved pre-10.52 first-party domains.
 
 Checkpoint 13 additionally connects purpose-minimized projection to current
 canonical permission authority: transfer admission runs through the real
@@ -498,7 +500,8 @@ Phase 10.39 fragmentation analyzer and asserts the pack introduces none of:
 `MentalHealthTraceStore`, `MentalHealthValidationEngine`,
 `MentalHealthSafetyEngine`, `MentalHealthCrisisEngine`, `TherapyHistoryStore`,
 a second `KnowledgePackageBuilder`, a benchmark/quality runtime or a Phase 11
-surface. It also asserts `cmm/domains/neurodivergence/` is absent, production
+surface. It also asserts Mental Health has no implementation dependency on
+`cmm.domains.neurodivergence` (no import, no auto-registration), production
 does not import tests, no Mental Health-owned persistent store exists, and a
 fresh import is side-effect free.
 
@@ -506,10 +509,12 @@ fresh import is side-effect free.
 
 `domain:mental-health` is the thirteenth first-party Domain Pack. The closed
 DP-051 historical baseline (28 blocks, 12 pre-10.52 packs, 2 deferred packs)
-is preserved verbatim as historical evidence; the current inventory is
-extended to 13 packs and 1 deferred pack (Neurodivergence) through the existing
-extensibility seam. No Phase 10.51 validation was weakened to admit Mental
-Health.
+is preserved verbatim as historical evidence. At Phase 10.52 closure the
+current inventory was 13 packs and 1 deferred pack (Neurodivergence); Phase
+10.53 then implemented `domain:neurodivergence`, so the current inventory is
+`FIRST_PARTY_DOMAIN_PACKS=14` with `CURRENT_DEFERRED_DOMAIN_PACKS=0`. In both
+cases only the current inventory moved — the historical baseline is unchanged.
+No Phase 10.51 validation was weakened to admit Mental Health.
 
 ## 28. Remediation status
 
@@ -573,4 +578,6 @@ Independent Re-audit V4 (`docs/audits/phase-10.52-independent-reaudit-v4.md`) re
 `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`;
 Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; audit-report commit
 `78842087e7a52795c217ed7ca4b4a7f3a2112969`. Phase 10.52 is closed by the subsequent dedicated docs-only
-closure commit; Phase 10.53 remains `NOT_STARTED`.
+closure commit; Phase 10.53 is implemented and pending independent audit
+(`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`), which leaves the Phase
+10.52 closure evidence above unchanged.

@@ -163,12 +163,18 @@ reuse still passes the Phase 10.39 `domain.fragmentation` guard, which is reused
 and rerun unchanged (its acceptance plus
 `tests/domains/test_domain_validation_fragmentation.py`).
 
-## 10.52/10.53 deferral
+## 10.52/10.53 implementation
 
-`domain:mental-health` and `domain:neurodivergence` remain absent from
-production packages and unregistered in the official bootstrap
-(`DEFERRED_DOMAIN_PACKS=2`; `PHASE10_52=NOT_STARTED`;
-`PHASE10_53=NOT_STARTED`).
+`domain:mental-health` (Phase 10.52) and `domain:neurodivergence` (Phase 10.53)
+are both implemented as first-party production packages with their own
+bootstraps. The current inventory is `FIRST_PARTY_DOMAIN_PACKS=14` with
+`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_52=CLOSED` and
+`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`.
+
+The closed DP-051 baseline is **not** rewritten: its two deferred packs and
+`DEFERRED_DOMAIN_PACKS=2` remain preserved verbatim as historical closure
+evidence (see the DP-051 acceptance above), and neither pack is registered by
+the project bootstrap or by the other's bootstrap.
 
 ## Phase 11 boundary
 
