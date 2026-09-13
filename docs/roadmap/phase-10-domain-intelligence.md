@@ -8724,7 +8724,7 @@ Blocking quality failures include:
 
 AT-DP-053 acceptance contract
 
-`AT-DP-053` is a future connected acceptance gate and must remain unpassed until the pack is implemented and independently verified.
+`AT-DP-053` is implemented and `PASS_REPORTED`; independent verification remains pending.
 
 At minimum it must test:
 
