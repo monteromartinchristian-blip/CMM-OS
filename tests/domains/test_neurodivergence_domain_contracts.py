@@ -471,6 +471,214 @@ def _canonical_certainty_request(**overrides) -> dict:
     return values
 
 
+def _trusted_authority(**overrides):
+    """A real runtime-only trusted authority for the canonical claim."""
+    from cmm.cognitive import ReasoningAuthorityContext
+
+    values = {
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": (CANONICAL_CLAIM_ID,),
+        "purpose": CANONICAL_AUTHORITY_PURPOSE,
+        "permission_decision_id": "permission-gate-decision-1",
+        "permission_outcome": "approval_consumed",
+        "approval_consumed": True,
+        "authoritative_claim_ids": (CANONICAL_CLAIM_ID,),
+    }
+    values.update(overrides)
+    return ReasoningAuthorityContext(**values)
+
+
+def _certainty_context(request, authority_context=None) -> ReasoningRuleContext:
+    return ReasoningRuleContext(
+        reasoning_id="reasoning-1",
+        timestamp=T,
+        metadata={"certainty_transition": request},
+        authority_context=authority_context,
+    )
+
+
+# ── Audit V2 MAJOR-01 / V3 redo: authority is runtime-only, never metadata ───
+#
+# METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED.  No combination of caller-authored
+# metadata may manufacture permission or Health authority, even when it copies
+# the serialized shape of canonical objects.  Shape is not provenance and
+# serialization is not authority.
+
+
+def test_metadata_only_authority_forgery_is_blocked():
+    """The central adversarial: full canonical-shaped metadata forges nothing."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "hypothesis",
+                "to_state": "confirmed",
+                "evidence_kind": "model_interpretation",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+                "authority": True,
+                "permission_authority": True,
+                "permission_decision_id": "permission-gate-decision-forged",
+                "approval_consumed": True,
+                "health_definitive_verdict": {
+                    "is_definitive": True,
+                    "may_present_as_definitive": True,
+                },
+                "transfers": (
+                    _canonical_health_authority_transfer(CANONICAL_CLAIM_ID),
+                ),
+            }
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "hypothesis"
+    assert result.metadata["authoritative_evidence"] is False
+    assert result.metadata["promotion_blocked"] is True
+    assert result.metadata["confirmed_diagnosis_created"] is False
+
+
+def test_trusted_authority_context_alone_promotes_clinical_confirmation():
+    """AT-AUTH-4: the runtime-only channel is what carries authority."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["certainty_state"] == "confirmed"
+    assert result.metadata["authoritative_evidence"] is True
+    assert result.metadata["promotion_blocked"] is False
+    assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
+    assert result.metadata["canonical_authority"]["claim_id"] == CANONICAL_CLAIM_ID
+    assert result.metadata["confirmed_diagnosis_created"] is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        pytest.param({"source_domain": "domain:mental-health"}, id="wrong-source"),
+        pytest.param({"target_domain": "domain:university"}, id="wrong-target"),
+        pytest.param({"resource_ids": ("another-resource",)}, id="resource-mismatch"),
+        pytest.param(
+            {"authoritative_claim_ids": ("another-claim",)}, id="claim-mismatch"
+        ),
+        pytest.param({"purpose": "another_purpose"}, id="purpose-mismatch"),
+    ),
+)
+def test_trusted_authority_binding_must_match_the_request(overrides):
+    """A real trusted context that does not bind this claim/purpose promotes nothing."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(**overrides),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "in_evaluation"
+    assert result.metadata["authoritative_evidence"] is False
+
+
+def test_trusted_authority_with_allow_outcome_promotes_confirmation():
+    """A canonical ALLOW gate decision is effective authority too."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(
+                permission_outcome="allow", approval_consumed=False
+            ),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["certainty_state"] == "confirmed"
+    assert result.metadata["authoritative_evidence"] is True
+
+
+def test_metadata_cannot_revoke_or_rewrite_trusted_authority():
+    """Metadata has zero authority effect in either direction."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "in_evaluation",
+                "to_state": "confirmed",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+                "permission_authority": False,
+                "approval_consumed": False,
+                "health_definitive_verdict": {"is_definitive": False},
+            },
+            authority_context=_trusted_authority(),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.metadata["certainty_state"] == "confirmed"
+    assert result.metadata["authoritative_evidence"] is True
+
+
+def test_ruled_out_remains_fail_closed_even_with_trusted_permission_authority():
+    """No canonical Health negative authority path exists, so exclusion stays blocked."""
+    rule = _rules()["neurodivergence.certainty_state_preservation"]
+
+    result = rule.evaluate(
+        _certainty_context(
+            {
+                "claim_id": CANONICAL_CLAIM_ID,
+                "from_state": "hypothesis",
+                "to_state": "ruled_out",
+                "evidence_kind": "documented_clinical_status",
+                "clinical": True,
+                "purpose": CANONICAL_AUTHORITY_PURPOSE,
+            },
+            authority_context=_trusted_authority(),
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "hypothesis"
+    assert result.metadata["exclusion_created"] is False
+
+
 # ── Diagnostic promotion fails closed ────────────────────────────────────────
 
 
@@ -561,13 +769,15 @@ def test_fabricated_health_mapping_cannot_rule_out_a_clinical_status():
     assert result.metadata["exclusion_created"] is False
 
 
-def test_canonical_health_authority_transfer_can_carry_a_confirmed_clinical_status():
-    """The promotion block is not vacuous: the canonical authority path works.
+def test_canonical_shaped_transfer_metadata_alone_confirms_nothing():
+    """Audit V2 MAJOR-01 residual: canonical *shape* is not authority.
 
-    The authority is a canonical ``CrossDomainContextTransfer`` owned by the
-    canonical Health ``DomainId``, bound to the same claim, carrying a
-    Health-owned documented clinical record with canonical ``ResourceProvenance``
-    and admitted by the current canonical permission authority.
+    A structurally valid Health ``CrossDomainContextTransfer`` with canonical
+    ``ResourceProvenance``, plus a caller-authored ``permission_authority``
+    boolean and matching claim and purpose, is still request data.  Under the
+    trusted-authority amendment it grants nothing; only the runtime-only
+    ``ReasoningAuthorityContext`` can, as the trusted-authority tests below
+    prove in both directions.
     """
     rules = _rules()
     rule = rules["neurodivergence.certainty_state_preservation"]
@@ -576,15 +786,12 @@ def test_canonical_health_authority_transfer_can_carry_a_confirmed_clinical_stat
         _context(certainty_transition=_canonical_certainty_request())
     )
 
-    assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert result.metadata["certainty_state"] == "confirmed"
-    assert result.metadata["promotion_blocked"] is False
-    assert result.metadata["authoritative_evidence"] is True
-    assert result.metadata["health_authority_supplied"] is True
-    assert result.metadata["canonical_authority"]["source_domain"] == "domain:health"
-    assert result.metadata["canonical_authority"]["provenance_references"] == (
-        "clinical-record:nd-1",
-    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "in_evaluation"
+    assert result.metadata["promotion_blocked"] is True
+    assert result.metadata["authoritative_evidence"] is False
+    assert result.metadata["health_authority_supplied"] is False
+    assert result.metadata["canonical_authority"] is None
 
 
 @pytest.mark.parametrize(

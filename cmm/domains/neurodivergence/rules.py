@@ -20,8 +20,8 @@ Semantic invariants preserved here (frozen design §6, §7, §11, §28):
     overlap != co-diagnosis; imported fact keeps its source owner;
     Health clinical status is never overwritten;
     a working hypothesis never silently becomes persistent memory;
-    clinical certainty is bound to canonical Health authority, never to a
-    caller-authored mapping (Audit V1 MAJOR-01).
+    clinical certainty is bound to the runtime-only trusted authority channel,
+    never to caller-authored metadata (Audit V1/V2 MAJOR-01).
 
 Certainty labels below are **pack-local derived labels**.  They are
 non-authoritative, never persisted as a second truth, and can never upgrade
@@ -45,6 +45,7 @@ from cmm.cognitive.enums import (
 )
 from cmm.cognitive.errors import InvalidResourceProvenanceError
 from cmm.cognitive.reasoning_rule_contracts import (
+    ReasoningAuthorityContext,
     ReasoningFinding,
     ReasoningGap,
     ReasoningRuleContext,
@@ -382,16 +383,24 @@ def describe_certainty_state(label: Any) -> dict:
     }
 
 
-def evaluate_certainty_transition(request: Mapping) -> dict:
+def evaluate_certainty_transition(
+    request: Mapping,
+    *,
+    authority_context: ReasoningAuthorityContext | None = None,
+) -> dict:
     """Deterministically evaluate a proposed certainty-state transition.
 
-    Clinical certainty promotion is gated on **canonical Health authority**, not
-    on a caller-authored mapping.  A transition to ``CONFIRMED`` requires a
-    canonical cross-domain carriage of a Health-owned documented clinical
-    record, and a transition to ``RULED OUT`` is never established here at all:
-    no existing canonical contract encodes an authoritative *negative* clinical
-    status, so an exclusion claim stays blocked rather than inventing one (the
-    spec does not require a new clinical-status subsystem).  Every other
+    The requested transition, claim identifier, evidence kind, purpose and
+    provenance references continue to come from ordinary request data.  What
+    request data can never supply is **authority**: a clinical ``CONFIRMED``
+    transition requires an applicable runtime-only
+    :class:`~cmm.cognitive.ReasoningAuthorityContext` placed on the reasoning
+    context by trusted canonical integration code after the real permission
+    gate and the Health owner have both resolved their own semantics.
+
+    A transition to ``RULED OUT`` is never established here at all: no existing
+    canonical contract encodes an authoritative *negative* clinical status, so
+    an exclusion claim stays blocked rather than inventing one.  Every other
     transition is informational and is reported without being blocked.
     """
     from_state = _certainty_label(request.get("from_state"))
@@ -399,13 +408,13 @@ def evaluate_certainty_transition(request: Mapping) -> dict:
     evidence_kind = _normalized(request.get("evidence_kind"))
     clinical = _strict_flag(request, "clinical")
 
-    authority = _canonical_health_authority(request)
+    authority = _trusted_health_authority(request, authority_context)
 
     promotes = to_state == CERTAINTY_CONFIRMED
     excludes = to_state == CERTAINTY_RULED_OUT
     requires_authority = promotes or excludes
-    # The canonical Health record establishes a *positive* documented
-    # diagnosis only, so it can never carry an exclusion.
+    # The trusted channel carries a *positive* Health-owned clinical claim only,
+    # so it can never carry an exclusion.
     authority_ok = promotes and authority is not None
     blocked = requires_authority and not authority_ok
 
@@ -726,27 +735,28 @@ def _canonical_domain_identity(value: Any) -> DomainId | None:
         return None
 
 
-def _canonical_health_authority(request: Mapping) -> dict | None:
-    """Return validated canonical Health clinical authority, else ``None``.
+def _trusted_health_authority(
+    request: Mapping,
+    authority_context: ReasoningAuthorityContext | None,
+) -> dict | None:
+    """Return the applicable trusted Health authority, else ``None``.
 
-    Positive clinical certainty is bound to the existing canonical
-    Health projection/transfer/provenance path rather than to a caller-authored
-    mapping.  Every component is an existing canonical contract:
+    Authority comes only from the runtime-only ``ReasoningAuthorityContext``
+    that trusted canonical integration code attached to the reasoning context.
+    Caller-authored request data is never consulted for authority: no
+    ``permission_authority`` boolean, decision ID, approval flag, serialized
+    gate result, canonical-shaped transfer or Health-definitive-looking mapping
+    can reach this check.  Shape is not provenance and serialization is not
+    authority.
 
-    * the carriage is a canonical ``CrossDomainContextTransfer`` whose source
-      domain is the canonical Health ``DomainId``, bound to the *same* claim
-      identifier and to the requested purpose, non-private, transferable and
-      carrying contract-enforced non-empty provenance;
-    * the clinical status carried by that transfer must be a Health-owned
-      documented clinical record identified by canonical ``ResourceProvenance``;
-    * the current canonical permission authority must admit the transfer — a
-      structurally valid transfer is not authority by itself, so the
-      fail-closed ``permission_authority`` decision of the canonical resolver and
-      gate is required as well.
-
-    No Neurodivergence-specific authority model, token or registry is
-    introduced.  Malformed, incomplete or forged input fails closed to ``None``.
+    A clinical ``CONFIRMED`` transition requires the trusted authority to bind
+    to the canonical Health source domain, this Neurodivergence target domain,
+    the exact claim as both a permissioned resource and a Health-owned
+    authoritative claim, and the requested purpose.
     """
+    if authority_context is None:
+        return None
+
     claim_id = request.get("claim_id")
     if not _is_non_empty_id(claim_id):
         return None
@@ -757,42 +767,26 @@ def _canonical_health_authority(request: Mapping) -> dict | None:
     if not purpose:
         return None
 
-    # The canonical resolver/gate decision, expressed as the same fail-closed
-    # flag the projection boundary uses.  A literal ``True`` is required.
-    if not _strict_flag(request, "permission_authority"):
+    if authority_context.source_domain != HEALTH_DOMAIN_ID:
+        return None
+    if authority_context.target_domain != NEURODIVERGENCE_DOMAIN_ID:
+        return None
+    if claim_id not in authority_context.resource_ids:
+        return None
+    if claim_id not in authority_context.authoritative_claim_ids:
+        return None
+    if authority_context.purpose != purpose:
         return None
 
-    for item in _seq(request, "transfers") or ():
-        transfer = _canonical_transfer(item)
-        if transfer is None or transfer.identifier != claim_id:
-            continue
-        if transfer.source_domain != HEALTH_DOMAIN:
-            continue
-        if _transfer_rejection(transfer, purpose) is not None:
-            continue
-        status = transfer.value
-        if not isinstance(status, Mapping):
-            continue
-        # Only a Health-owned documented clinical record carries clinical truth;
-        # a malformed flag never acquires authority through truthiness.
-        if not _strict_flag(status, "documented_diagnosis"):
-            continue
-        provenance = _canonical_source_provenance(status.get("provenance"))
-        if provenance is None:
-            continue
-        return {
-            "claim_id": claim_id,
-            "source_domain": str(transfer.source_domain),
-            "target_domain": str(transfer.target_domain),
-            "transfer_identifier": transfer.identifier,
-            "transfer_kind": transfer.kind,
-            "transfer_reason": transfer.reason,
-            "provenance_references": tuple(transfer.provenance),
-            "provenance_source_id": provenance.source_id,
-            "provenance_source_type": provenance.source_type.value,
-            "purpose": purpose,
-        }
-    return None
+    return {
+        "claim_id": claim_id,
+        "source_domain": authority_context.source_domain,
+        "target_domain": authority_context.target_domain,
+        "permission_decision_id": authority_context.permission_decision_id,
+        "permission_outcome": authority_context.permission_outcome,
+        "approval_consumed": authority_context.approval_consumed,
+        "purpose": purpose,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -830,7 +824,10 @@ class CertaintyStatePreservationRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No certainty target state supplied.",
             )
-        record = evaluate_certainty_transition(request)
+        record = evaluate_certainty_transition(
+            request,
+            authority_context=context.authority_context,
+        )
         metadata = dict(record)
         if record["promotion_blocked"] or record["exclusion_blocked"]:
             blocked_state = (
