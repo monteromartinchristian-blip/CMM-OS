@@ -11,12 +11,28 @@ unless the host is a local development target — ``localhost``, ``127.0.0.1`` o
 registered. No other host, scheme or "development mode" flag relaxes the rule,
 so a public endpoint can never be downgraded to cleartext by mistake.
 
+The URL is parsed once with :func:`urllib.parse.urlsplit` and validated
+structurally before it is stored: the scheme must be ``http`` or ``https``
+(case-insensitively — the stored value carries the lowercase scheme), the
+authority must be present, and it must not carry userinfo, since
+``https://localhost@evil.example/v1`` resolves to a different host than the
+string suggests and ``user:password@host`` would smuggle credential-shaped
+material into a field that must never hold secrets. Trailing slashes are
+stripped so two manifests declaring the same endpoint hold identical strings.
+
 Auth rule: this module serves first-wave providers only, so ``auth_scheme`` is
 pinned to :data:`FIRST_WAVE_AUTH_SCHEME` (``"bearer"``) at construction. A
 permissive rule would let a manifest declare an auth scheme no client code can
 honour and fail later at request time; rejecting it here keeps failures at the
 boundary. Widening the allowlist is a deliberate future change, not a silent
 default.
+
+Tuple rules: ``api_styles`` entries are stripped and lowercased and must be
+non-empty and drawn from :data:`KNOWN_API_STYLES` — an unknown style is a
+configuration error better caught at the boundary than at request time.
+``activation_allowlist`` entries are stripped but **not** lowercased: provider
+model ids are case-sensitive (spec §4), so folding case would silently break
+activation matching. ``api_styles`` must contain at least one entry.
 """
 
 from __future__ import annotations
@@ -30,6 +46,10 @@ from kernel.llm.provider_connections import BillingClass
 # construction so transport code never sees an unimplementable scheme.
 FIRST_WAVE_AUTH_SCHEME: str = "bearer"
 
+# Styles this module's client code can honour; validating against them keeps
+# unsupported styles from reaching request time.
+KNOWN_API_STYLES: tuple[str, ...] = ("chat_completions",)
+
 # Hosts allowed to use plain http for local development. Compared against the
 # lowercase URL host exactly, so lookalikes such as "localhost.evil.example"
 # stay subject to the HTTPS rule.
@@ -37,6 +57,7 @@ _ALLOWED_HTTP_DEV_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 
 
 def _normalize_identifier(value: str, *, label: str) -> str:
+    """Strip and lowercase an identifier; reject blank input."""
     normalized = value.strip().lower()
     if not normalized:
         raise ValueError(f"{label} cannot be empty")
@@ -50,12 +71,13 @@ def _normalize_lookup_key(value: str) -> str | None:
 
 
 def _normalize_tuple(value: tuple[str, ...], *, label: str) -> tuple[str, ...]:
+    """Coerce to a tuple of stripped entries; reject blanks (bare str = one item)."""
     # A bare string is a sequence of characters, so coerce it into a
     # single-element tuple rather than iterating its characters.
     normalized = (value,) if isinstance(value, str) else tuple(value)
     if any(not item.strip() for item in normalized):
         raise ValueError(f"{label} cannot contain empty values")
-    return normalized
+    return tuple(item.strip() for item in normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +94,7 @@ class ProviderManifest:
     activation_allowlist: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        """Normalize every field and reject invalid manifests at construction."""
         object.__setattr__(
             self,
             "provider_id",
@@ -106,11 +129,21 @@ class ProviderManifest:
             raise ValueError("models_path must be absolute")
         object.__setattr__(self, "models_path", models_path)
 
-        object.__setattr__(
-            self,
-            "api_styles",
-            _normalize_tuple(self.api_styles, label="api_styles"),
+        api_styles = tuple(
+            style.strip().lower()
+            for style in _normalize_tuple(self.api_styles, label="api_styles")
         )
+        if not api_styles:
+            raise ValueError("api_styles cannot be empty")
+        unsupported = [style for style in api_styles if style not in KNOWN_API_STYLES]
+        if unsupported:
+            raise ValueError(
+                f"unsupported api_styles entry: {unsupported[0]!r} "
+                f"(known: {', '.join(KNOWN_API_STYLES)})"
+            )
+        object.__setattr__(self, "api_styles", api_styles)
+
+        # Deliberately not lowercased: provider model ids are case-sensitive.
         object.__setattr__(
             self,
             "activation_allowlist",
@@ -119,21 +152,36 @@ class ProviderManifest:
 
     @staticmethod
     def _validated_base_url(value: str) -> str:
-        """Return the stripped URL, enforcing the documented HTTPS rule."""
+        """Return the normalized URL, enforcing the documented HTTPS rule."""
         normalized = value.strip()
         if not normalized:
             raise ValueError("default_base_url cannot be empty")
-        if normalized.startswith("https://"):
-            return normalized
-        if (
-            normalized.startswith("http://")
-            and (urlsplit(normalized).hostname or "") in _ALLOWED_HTTP_DEV_HOSTS
-        ):
-            return normalized
-        raise ValueError(
-            "default_base_url must use https (http is allowed only for "
-            "localhost, 127.0.0.1 or ::1)"
-        )
+
+        parts = urlsplit(normalized)
+        scheme = parts.scheme.lower()
+        # A URL with no authority at all ("http:localhost/v1", "http:/localhost/v1")
+        # is malformed, not a localhost target: reject it under the same
+        # documented HTTPS rule rather than reporting a separate host error.
+        if not parts.netloc or scheme not in ("http", "https"):
+            raise ValueError(
+                "default_base_url must use https (http is allowed only for "
+                "localhost, 127.0.0.1 or ::1)"
+            )
+        if parts.username is not None or parts.password is not None:
+            raise ValueError(
+                "default_base_url cannot contain userinfo (user:password@host)"
+            )
+        hostname = parts.hostname or ""
+        if scheme == "http" and hostname not in _ALLOWED_HTTP_DEV_HOSTS:
+            raise ValueError(
+                "default_base_url must use https (http is allowed only for "
+                "localhost, 127.0.0.1 or ::1)"
+            )
+
+        # Store the lowercase scheme so manifests declaring the same endpoint
+        # hold identical strings regardless of the case they were declared in.
+        prefix = normalized[: len(parts.scheme)]
+        return (scheme + normalized[len(prefix) :]).rstrip("/")
 
 
 class ProviderManifestRegistry:

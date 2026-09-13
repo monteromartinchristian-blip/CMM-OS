@@ -140,6 +140,103 @@ def test_manifest_allows_http_localhost_development_targets() -> None:
     assert loopback.default_base_url == "http://127.0.0.1:8000/v1"
 
 
+def test_manifest_allows_http_ipv6_loopback_development_target() -> None:
+    # Pins the third and last entry of the documented allowlist: '::1' is
+    # named in the module docstring, the error message and the allowlist
+    # constant, so dropping it must fail a test rather than silently pass.
+    manifest = _manifest(
+        provider_id="custom-ipv6-loopback",
+        default_base_url="http://[::1]/v1",
+    )
+
+    assert manifest.default_base_url == "http://[::1]/v1"
+
+
+def test_manifest_rejects_http_ipv6_non_loopback_development_target() -> None:
+    # The allowlist is exact-hostname, not "any IPv6 literal": a non-loopback
+    # address stays subject to the HTTPS rule.
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(provider_id="custom-ipv6", default_base_url="http://[2001:db8::1]/v1")
+
+
+def test_manifest_rejects_malformed_and_relative_http_base_urls() -> None:
+    # 'http:localhost/v1' and 'http:/localhost/v1' have no netloc/hostname at
+    # all, so they must be rejected rather than treated as a localhost target.
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(default_base_url="http:localhost/v1")
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(default_base_url="http:/localhost/v1")
+
+
+def test_manifest_rejects_authority_with_userinfo() -> None:
+    # Every real HTTP client resolves these to a different authority than the
+    # string suggests: 'localhost@evil.example' is host evil.example with user
+    # 'localhost', and 'user:pw@localhost' smuggles credential-shaped material
+    # into a field that must never carry secrets.
+    with pytest.raises(ValueError, match="default_base_url cannot contain userinfo"):
+        _manifest(default_base_url="https://localhost@evil.example/v1")
+    with pytest.raises(ValueError, match="default_base_url cannot contain userinfo"):
+        _manifest(default_base_url="https://user:pw@localhost/v1")
+    with pytest.raises(ValueError, match="default_base_url cannot contain userinfo"):
+        _manifest(default_base_url="http://user@localhost/v1")
+
+
+def test_manifest_rejects_base_url_without_authority() -> None:
+    # A URL with no authority at all is malformed, not a valid endpoint, and
+    # is rejected under the same documented HTTPS rule.
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(default_base_url="https:///v1")
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(default_base_url="https://")
+    with pytest.raises(ValueError, match="default_base_url must use https"):
+        _manifest(default_base_url="http:///v1")
+
+
+def test_manifest_normalizes_uppercase_scheme() -> None:
+    # Documented policy: the scheme is compared case-insensitively after
+    # lowercasing, and the stored value carries the lowercase scheme.
+    manifest = _manifest(default_base_url="HTTPS://api.deepseek.com/v1")
+    local = _manifest(
+        provider_id="custom-local",
+        default_base_url="HTTP://localhost:11434/v1",
+    )
+
+    assert manifest.default_base_url == "https://api.deepseek.com/v1"
+    assert local.default_base_url == "http://localhost:11434/v1"
+
+
+def test_manifest_strips_trailing_slash_from_base_url() -> None:
+    # Trailing-slash normalization: two manifests declaring the same endpoint
+    # hold identical strings, so equality and dedupe behave predictably.
+    manifest = _manifest(default_base_url="https://api.deepseek.com/v1/")
+
+    assert manifest.default_base_url == "https://api.deepseek.com/v1"
+
+
+def test_manifest_rejects_blank_api_styles() -> None:
+    with pytest.raises(ValueError, match="api_styles cannot be empty"):
+        _manifest(api_styles=())
+
+
+def test_manifest_rejects_unknown_api_style() -> None:
+    with pytest.raises(ValueError, match="unsupported api_styles entry"):
+        _manifest(api_styles=("responses",))
+
+
+def test_manifest_normalizes_api_styles_case_and_whitespace() -> None:
+    manifest = _manifest(api_styles=("Chat_Completions",))
+
+    assert manifest.api_styles == ("chat_completions",)
+
+
+def test_manifest_activations_allowlist_is_stripped_preserving_case() -> None:
+    # Provider model IDs are case-sensitive, so the allowlist is stripped but
+    # never lowercased — otherwise an id would stop matching at activation time.
+    manifest = _manifest(activation_allowlist=("  kimi-k3  ", "Kimi-K3-Preview"))
+
+    assert manifest.activation_allowlist == ("kimi-k3", "Kimi-K3-Preview")
+
+
 def test_manifest_requires_https_for_localhost_without_the_allowance() -> None:
     # Pins the narrowness of the rule: the allowance is the documented
     # localhost/loopback exception, not a blanket "dev mode" escape hatch.
