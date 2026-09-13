@@ -3,7 +3,8 @@
 The real ``DefaultDomainResolver`` selects Mental Health for eligible emotional
 and therapy requests, keeps General as fallback for generic requests, and never
 silently absorbs a Mental Health signal when Mental Health is unavailable or
-unauthorized.  Phase 10.53 absence does not break the pack.
+unauthorized.  Mental Health stays independent of the Phase 10.53
+Neurodivergence pack: it neither imports nor auto-registers it.
 """
 
 from __future__ import annotations
@@ -122,11 +123,13 @@ def test_bootstrap_operations_are_unavailable_by_default():
         assert operation.enabled is False
 
 
-def test_bootstrap_without_phase_10_53_succeeds():
-    # Neurodivergence is absent; the Mental Health pack must still boot.
+def test_bootstrap_does_not_require_or_auto_register_sibling_packs():
+    # Phase 10.53 implemented domain:neurodivergence, but Mental Health keeps no
+    # dependency on it: the pack boots on its own and never auto-registers a
+    # sibling, so Mental Health remains independent of that implementation.
     bootstrap = build_standard_mental_health_domain_bootstrap()
-    assert not bootstrap.domain_registry.contains("domain:neurodivergence")
     assert bootstrap.domain_registry.contains(MENTAL_HEALTH_DOMAIN_ID)
+    assert not bootstrap.domain_registry.contains("domain:neurodivergence")
 
 
 def test_bootstrap_does_not_register_globally():

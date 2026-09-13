@@ -1452,17 +1452,29 @@ def test_checkpoint_16_no_parallel_infrastructure_is_introduced():
     assert offenders == []
 
 
-# ── Checkpoint 17: Phase 10.53 remains absent ────────────────────────────────
+# ── Checkpoint 17: Phase 10.53 independence (sibling is not a dependency) ────
 
 
-def test_checkpoint_17_phase_10_53_remains_absent():
+def test_checkpoint_17_mental_health_is_independent_of_phase_10_53():
+    """Durable invariant: Mental Health never depends on Neurodivergence.
+
+    Phase 10.53 implemented ``domain:neurodivergence``.  The invariant that
+    matters for AT-DP-052 is independence, not the sibling's absence: Mental
+    Health boots on its own, never imports the sibling pack, and never
+    auto-registers it.
+    """
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[2]
-    assert not (repo_root / "cmm/domains/neurodivergence").exists()
-    # The pack still boots correctly with Phase 10.53 absent.
+    assert (repo_root / "cmm/domains/neurodivergence").is_dir()
+    for path in sorted((repo_root / "cmm/domains/mental_health").glob("*.py")):
+        assert "cmm.domains.neurodivergence" not in path.read_text(encoding="utf-8"), (
+            path.name
+        )
+
     bootstrap = _mental_health_bootstrap()
     assert bootstrap.domain_registry.contains(MENTAL_HEALTH_DOMAIN_ID)
+    assert not bootstrap.domain_registry.contains("domain:neurodivergence")
 
 
 # ── Checkpoint 18: pre-10.52 first-party domains still work ──────────────────

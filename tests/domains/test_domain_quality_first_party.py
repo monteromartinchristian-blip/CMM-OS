@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import pathlib
 from decimal import Decimal
 
@@ -23,6 +22,12 @@ from cmm.domains.mental_health.definition import (
 )
 from cmm.domains.mental_health.quality_metrics import (
     build_mental_health_quality_metrics,
+)
+from cmm.domains.neurodivergence.definition import (
+    build_neurodivergence_domain_definition,
+)
+from cmm.domains.neurodivergence.quality_metrics import (
+    build_neurodivergence_quality_metrics,
 )
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.oppositions.quality_metrics import build_oppositions_quality_metrics
@@ -143,6 +148,19 @@ EXPECTED: dict[str, tuple[tuple[str, str, str, bool], ...]] = {
         ("cross-domain-minimization", "0.05", "0.90", True),
         ("therapy-context-fidelity", "0.05", "0.80", False),
     ),
+    # Phase 10.53 domain:neurodivergence.
+    "neurodivergence": (
+        ("certainty-fidelity", "0.15", "1.00", True),
+        ("source-authority-fidelity", "0.15", "1.00", True),
+        ("developmental-temporality", "0.10", "0.95", True),
+        ("differential-reasoning-quality", "0.10", "0.85", False),
+        ("exploratory-usefulness", "0.10", "0.90", True),
+        ("functional-relevance", "0.05", "0.80", False),
+        ("cross-domain-minimization", "0.10", "1.00", True),
+        ("privacy-adherence", "0.15", "1.00", True),
+        ("sensitive-memory-discipline", "0.05", "1.00", True),
+        ("assessment-summary-fidelity", "0.05", "0.80", False),
+    ),
 }
 
 IMPLEMENTED_QUALITY_DOMAINS = {
@@ -159,6 +177,7 @@ IMPLEMENTED_QUALITY_DOMAINS = {
     "life-plan",
     "project",
     "mental-health",
+    "neurodivergence",
 }
 
 DEFINITION_BUILDERS = {
@@ -175,6 +194,7 @@ DEFINITION_BUILDERS = {
     "life-plan": build_life_plan_domain_definition,
     "project": build_project_domain_definition,
     "mental-health": build_mental_health_domain_definition,
+    "neurodivergence": build_neurodivergence_domain_definition,
 }
 
 FACTORY_BUILDERS = {
@@ -191,6 +211,7 @@ FACTORY_BUILDERS = {
     "life-plan": build_life_plan_quality_metrics,
     "project": build_project_quality_metrics,
     "mental-health": build_mental_health_quality_metrics,
+    "neurodivergence": build_neurodivergence_quality_metrics,
 }
 
 
@@ -239,19 +260,18 @@ def test_domain_definition_attaches_catalog(slug: str) -> None:
     assert definition.benchmark_suites
 
 
-def test_implemented_catalog_inventory_is_thirteen_after_phase_10_52() -> None:
+def test_implemented_catalog_inventory_is_fourteen_after_phase_10_53() -> None:
     assert set(EXPECTED) == IMPLEMENTED_QUALITY_DOMAINS
     assert set(FACTORY_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
     assert set(DEFINITION_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
-    assert len(IMPLEMENTED_QUALITY_DOMAINS) == 13
+    assert len(IMPLEMENTED_QUALITY_DOMAINS) == 14
 
 
-@pytest.mark.parametrize("slug", ("neurodivergence",))
-def test_future_domain_quality_catalogs_are_absent(slug: str) -> None:
-    package_dir = pathlib.Path("cmm/domains") / slug
-    assert not (package_dir / "quality_metrics.py").exists()
-    try:
-        spec = importlib.util.find_spec(f"cmm.domains.{slug}.quality_metrics")
-    except ModuleNotFoundError:
-        spec = None
-    assert spec is None
+def test_every_implemented_domain_exposes_a_loadable_quality_catalog() -> None:
+    """No implemented Domain Pack may be missing its declared catalog."""
+    files = sorted(pathlib.Path("cmm/domains").glob("*/quality_metrics.py"))
+    found = {path.parent.name.replace("_", "-") for path in files}
+
+    assert found == IMPLEMENTED_QUALITY_DOMAINS
+    assert "neurodivergence" in IMPLEMENTED_QUALITY_DOMAINS
+    assert pathlib.Path("cmm/domains/neurodivergence/quality_metrics.py").exists()

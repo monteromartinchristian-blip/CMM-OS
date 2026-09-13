@@ -104,9 +104,12 @@ def test_domain_specific_sections_are_encoded_as_section_semantics():
     from cmm.domains.knowledge_package_contracts import (
         CANONICAL_KNOWLEDGE_PACKAGE_FIELDS,
     )
+    from cmm.domains.neurodivergence.knowledge_package import (
+        NEURODIVERGENCE_KNOWLEDGE_PACKAGE_SECTIONS,
+    )
 
     schema = build_neurodivergence_knowledge_package_schema()
-    mapping = schema.metadata["domain_sections"]
+    mapping = NEURODIVERGENCE_KNOWLEDGE_PACKAGE_SECTIONS
 
     for section in (
         "active_exploratory_objective",
@@ -131,6 +134,9 @@ def test_domain_specific_sections_are_encoded_as_section_semantics():
     for section in reachable:
         assert section in CANONICAL_KNOWLEDGE_PACKAGE_FIELDS, section
     assert schema.required_sections == ("objective",)
+    # A canonical first-party schema stays declarative and metadata-free.
+    assert schema.validator_refs == ()
+    assert schema.metadata == {}
 
 
 def test_schema_declares_no_unbuildable_hard_requirement():

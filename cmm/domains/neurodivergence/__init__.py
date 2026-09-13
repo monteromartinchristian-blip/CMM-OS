@@ -22,6 +22,11 @@ from cmm.domains.neurodivergence.benchmarks import (
     NEURODIVERGENCE_BENCHMARK_AREAS,
     build_neurodivergence_benchmark_suites,
 )
+from cmm.domains.neurodivergence.bootstrap import (
+    NEURODIVERGENCE_BOOTSTRAP_NAME,
+    NeurodivergenceDomainBootstrap,
+    build_standard_neurodivergence_domain_bootstrap,
+)
 from cmm.domains.neurodivergence.catalog import (
     CANONICAL_NEURODIVERGENCE_ENTITY_TYPES,
     CANONICAL_NEURODIVERGENCE_OPERATION_IDS,
@@ -158,6 +163,7 @@ __all__ = [
     "NEURODIVERGENCE_ALLOWED_INFERENCES",
     "NEURODIVERGENCE_BENCHMARK_AREAS",
     "NEURODIVERGENCE_BLOCKING_QUALITY_FAILURES",
+    "NEURODIVERGENCE_BOOTSTRAP_NAME",
     "NEURODIVERGENCE_CAPABILITY_SEPARATION",
     "NEURODIVERGENCE_DOMAIN_ID",
     "NEURODIVERGENCE_DOMAIN_VERSION",
@@ -182,6 +188,7 @@ __all__ = [
     "DifferentialExplanationsRule",
     "GlobalAttributionGuardRule",
     "LongitudinalCorroborationRule",
+    "NeurodivergenceDomainBootstrap",
     "NeurodivergenceDomainIntegrationResult",
     "NeurodivergenceMemoryPolicyError",
     "ObservationReportSeparationRule",
@@ -211,6 +218,7 @@ __all__ = [
     "build_neurodivergence_trace_contribution",
     "build_neurodivergence_trace_reference",
     "build_neurodivergence_workflow_definitions",
+    "build_standard_neurodivergence_domain_bootstrap",
     "build_supporting_trace_contribution",
     "classify_development_period",
     "classify_evidence_source",

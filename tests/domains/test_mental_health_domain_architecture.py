@@ -158,10 +158,24 @@ def test_no_phase_11_surface_is_introduced():
     assert offenders == []
 
 
-def test_no_phase_10_53_neurodivergence_package_exists():
-    assert not (REPO_ROOT / "cmm" / "domains" / "neurodivergence").exists()
+def test_mental_health_has_no_implementation_dependency_on_neurodivergence():
+    """The durable invariant is independence, not the sibling's non-existence.
+
+    Phase 10.53 implemented ``domain:neurodivergence``.  Mental Health must
+    keep working without it: no Mental Health module may import it, and the
+    Mental Health bootstrap must not depend on it being registered.
+    """
     for path, source in _pack_sources().items():
         assert "cmm.domains.neurodivergence" not in source, path.name
+
+    from cmm.domains.mental_health import (
+        build_standard_mental_health_domain_bootstrap,
+    )
+
+    bootstrap = build_standard_mental_health_domain_bootstrap()
+    assert bootstrap.domain_registry.contains("domain:mental-health")
+    # The sibling is an independent pack, never an auto-registered requirement.
+    assert not bootstrap.domain_registry.contains("domain:neurodivergence")
 
 
 def test_production_does_not_import_tests():

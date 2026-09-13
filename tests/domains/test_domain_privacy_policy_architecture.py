@@ -265,15 +265,16 @@ def test_first_party_privacy_modules_are_domain_local_declarations() -> None:
         "oppositions",
         "languages",
         "project",
-        # Phase 10.52 adds the mental-health Domain privacy declaration.
+        # Phase 10.52 adds the mental-health Domain privacy declaration, and
+        # Phase 10.53 the neurodivergence Domain privacy declaration.
         "mental_health",
+        "neurodivergence",
     }
     found = {path.parent.name for path in FIRST_PARTY_PRIVACY_MODULES}
 
     assert found == expected
+    assert (_DOMAINS_DIR / "neurodivergence" / "privacy.py").exists()
     assert not (_DOMAINS_DIR / "general" / "privacy.py").exists()
-    # Phase 10.53 remains deferred.
-    assert not (_DOMAINS_DIR / "neurodivergence").exists()
 
 
 @pytest.mark.parametrize("path", _PHASE_10_50_SURFACE, ids=lambda p: _relative(p))

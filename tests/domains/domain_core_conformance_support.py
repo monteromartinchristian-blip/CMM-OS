@@ -601,9 +601,11 @@ HISTORICAL_FIRST_PARTY_DOMAIN_IDS: frozenset[str] = frozenset(
 )
 
 #: Current first-party inventory: the twelve pre-10.52 packs plus the Phase
-#: 10.52 ``domain:mental-health`` pack (FIRST_PARTY_DOMAIN_PACKS=13).
+#: 10.52 ``domain:mental-health`` pack and the Phase 10.53
+#: ``domain:neurodivergence`` pack (FIRST_PARTY_DOMAIN_PACKS=14).
 FIRST_PARTY_DOMAIN_IDS: frozenset[str] = HISTORICAL_FIRST_PARTY_DOMAIN_IDS | {
     "domain:mental-health",
+    "domain:neurodivergence",
 }
 
 #: Domain Packs deferred by the closed DP-051 baseline (Phase 10.52 + 10.53).
@@ -614,8 +616,11 @@ HISTORICAL_DEFERRED_DOMAIN_IDS: frozenset[str] = frozenset(
     }
 )
 
-#: Domain Packs still deferred after Phase 10.52: only Phase 10.53 remains.
-DEFERRED_DOMAIN_IDS: frozenset[str] = frozenset({"domain:neurodivergence"})
+#: Domain Packs still deferred after Phase 10.53: none.  Both DP-051 deferrals
+#: were implemented by their own phases (10.52 Mental Health, 10.53
+#: Neurodivergence), so the current deferred set is empty while the historical
+#: two-pack baseline above remains preserved as closed evidence.
+DEFERRED_DOMAIN_IDS: frozenset[str] = frozenset()
 
 #: Required AT-DP-051 aggregate closure evidence (historical, immutable).
 HISTORICAL_AGGREGATE_BASELINE: dict[str, object] = {
@@ -627,9 +632,13 @@ HISTORICAL_AGGREGATE_BASELINE: dict[str, object] = {
     "PHASE11_PLATFORM_DEFERRED": True,
 }
 
-#: Phase 10.52 post-implementation first-party aggregate.
+#: Phase 10.52 post-implementation first-party aggregate (historical).
 PHASE10_52_FIRST_PARTY_DOMAIN_PACKS = 13
 PHASE10_52_DEFERRED_DOMAIN_PACKS = 1
+
+#: Phase 10.53 post-implementation first-party aggregate (current).
+PHASE10_53_FIRST_PARTY_DOMAIN_PACKS = 14
+PHASE10_53_DEFERRED_DOMAIN_PACKS = 0
 
 #: Historical block numbers that the pre-10.52 core must satisfy now.
 REQUIRED_BLOCKS: tuple[int, ...] = tuple(range(1, 29))
@@ -669,12 +678,14 @@ HISTORICAL_DEFERRED_DOMAIN_PACKAGE_PATHS: tuple[str, ...] = (
     "cmm/domains/neurodivergence",
 )
 
-#: Production packages that must still be absent after Phase 10.52: only the
-#: Phase 10.53 Neurodivergence pack remains deferred.
-DEFERRED_DOMAIN_PACKAGE_PATHS: tuple[str, ...] = ("cmm/domains/neurodivergence",)
+#: Production packages that must still be absent after Phase 10.53: none.  Both
+#: DP-051 deferrals are implemented; the historical two-path baseline above
+#: remains preserved as closed evidence.
+DEFERRED_DOMAIN_PACKAGE_PATHS: tuple[str, ...] = ()
 
 #: Definition builders for the official first-party Domain Packs (12 pre-10.52
-#: packs plus the Phase 10.52 ``domain:mental-health`` pack).
+#: packs plus the Phase 10.52 ``domain:mental-health`` and Phase 10.53
+#: ``domain:neurodivergence`` packs).
 _FIRST_PARTY_DEFINITION_BUILDERS: tuple[tuple[str, str, str], ...] = (
     (
         "domain:general",
@@ -740,6 +751,11 @@ _FIRST_PARTY_DEFINITION_BUILDERS: tuple[tuple[str, str, str], ...] = (
         "domain:mental-health",
         "cmm.domains.mental_health.definition",
         "build_mental_health_domain_definition",
+    ),
+    (
+        "domain:neurodivergence",
+        "cmm.domains.neurodivergence.definition",
+        "build_neurodivergence_domain_definition",
     ),
 )
 
@@ -1037,6 +1053,8 @@ __all__ = [
     "LATE_ADDITIVE_DEFINITION_FIELDS",
     "PHASE10_52_DEFERRED_DOMAIN_PACKS",
     "PHASE10_52_FIRST_PARTY_DOMAIN_PACKS",
+    "PHASE10_53_DEFERRED_DOMAIN_PACKS",
+    "PHASE10_53_FIRST_PARTY_DOMAIN_PACKS",
     "PROJECT_DOMAIN_ID",
     "REQUIRED_BLOCKS",
     "CoreConformanceClassification",

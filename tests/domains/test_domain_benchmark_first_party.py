@@ -22,6 +22,9 @@ from cmm.domains.life_plan.definition import build_life_plan_domain_definition
 from cmm.domains.mental_health.definition import (
     build_mental_health_domain_definition,
 )
+from cmm.domains.neurodivergence.definition import (
+    build_neurodivergence_domain_definition,
+)
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.parenthood.definition import build_parenthood_domain_definition
 from cmm.domains.project.definition import build_project_domain_definition
@@ -46,6 +49,7 @@ FIRST_PARTY_BUILDERS: tuple[Builder, ...] = (
     build_life_plan_domain_definition,
     build_project_domain_definition,
     build_mental_health_domain_definition,
+    build_neurodivergence_domain_definition,
 )
 
 EXPECTED_SUITE_IDS: dict[str, str] = {
@@ -62,6 +66,7 @@ EXPECTED_SUITE_IDS: dict[str, str] = {
     "life-plan": "benchmark-suite:life-plan:core",
     "project": "benchmark-suite:project:core",
     "mental-health": "benchmark-suite:mental-health:core",
+    "neurodivergence": "benchmark-suite:neurodivergence:core",
 }
 
 _CONCERNS_ROADMAP_AREAS = frozenset(
@@ -230,11 +235,13 @@ def _iter_mapping_keys(value: object) -> Iterator[str]:
             yield from _iter_mapping_keys(nested)
 
 
-def test_first_party_domain_count_is_thirteen_after_phase_10_52() -> None:
-    assert len(FIRST_PARTY_BUILDERS) == 13
+def test_first_party_domain_count_is_fourteen_after_phase_10_53() -> None:
+    assert len(FIRST_PARTY_BUILDERS) == 14
     slugs = {builder().id.slug for builder in FIRST_PARTY_BUILDERS}
-    assert len(slugs) == 13
+    assert len(slugs) == 14
     assert "mental-health" in slugs
+    assert "neurodivergence" in slugs
+    assert set(slugs) == set(EXPECTED_SUITE_IDS)
 
 
 def test_first_party_contracts_expose_no_authority_or_quality_fields() -> None:

@@ -21,8 +21,9 @@ from tests.domains.domain_core_conformance_support import (
     HISTORICAL_DEFERRED_DOMAIN_IDS,
     HISTORICAL_FIRST_PARTY_DOMAIN_IDS,
     LATE_ADDITIVE_DEFINITION_FIELDS,
-    PHASE10_52_DEFERRED_DOMAIN_PACKS,
     PHASE10_52_FIRST_PARTY_DOMAIN_PACKS,
+    PHASE10_53_DEFERRED_DOMAIN_PACKS,
+    PHASE10_53_FIRST_PARTY_DOMAIN_PACKS,
     CoreConformanceClassification,
     first_party_definition_builders,
     load_first_party_definitions,
@@ -96,15 +97,27 @@ def test_pre_10_52_first_party_domain_inventory_is_exact() -> None:
 
 
 def test_post_10_52_first_party_inventory_adds_mental_health() -> None:
-    """Phase 10.52 extends the inventory to thirteen without rewriting DP-051."""
-    assert FIRST_PARTY_DOMAIN_IDS == HISTORICAL_FIRST_PARTY_DOMAIN_IDS | {
+    """Phase 10.52's step (12 baseline + mental-health = 13) stays historical."""
+    phase_10_52_inventory = HISTORICAL_FIRST_PARTY_DOMAIN_IDS | {"domain:mental-health"}
+    assert phase_10_52_inventory - HISTORICAL_FIRST_PARTY_DOMAIN_IDS == {
         "domain:mental-health"
     }
-    assert len(FIRST_PARTY_DOMAIN_IDS) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(phase_10_52_inventory) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    # The current inventory is that historical step plus Phase 10.53.
+    assert FIRST_PARTY_DOMAIN_IDS == phase_10_52_inventory | {"domain:neurodivergence"}
+
+
+def test_post_10_53_first_party_inventory_adds_neurodivergence() -> None:
+    """Phase 10.53 extends the inventory to fourteen without rewriting DP-051."""
+    assert FIRST_PARTY_DOMAIN_IDS == HISTORICAL_FIRST_PARTY_DOMAIN_IDS | {
+        "domain:mental-health",
+        "domain:neurodivergence",
+    }
+    assert len(FIRST_PARTY_DOMAIN_IDS) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
 
 
 def test_only_later_domain_packs_are_deferred() -> None:
-    """Historically two packs were deferred; after 10.52 only 10.53 remains."""
+    """Historically two packs were deferred; both are implemented after 10.53."""
     assert HISTORICAL_DEFERRED_DOMAIN_IDS == frozenset(
         {
             "domain:mental-health",
@@ -112,8 +125,8 @@ def test_only_later_domain_packs_are_deferred() -> None:
         }
     )
     assert len(HISTORICAL_DEFERRED_DOMAIN_IDS) == 2
-    assert DEFERRED_DOMAIN_IDS == frozenset({"domain:neurodivergence"})
-    assert len(DEFERRED_DOMAIN_IDS) == PHASE10_52_DEFERRED_DOMAIN_PACKS == 1
+    assert DEFERRED_DOMAIN_IDS == frozenset()
+    assert len(DEFERRED_DOMAIN_IDS) == PHASE10_53_DEFERRED_DOMAIN_PACKS == 0
 
 
 def test_deferred_ids_do_not_overlap_first_party_ids() -> None:
@@ -161,16 +174,16 @@ def test_unmapped_required_blocks_is_zero() -> None:
 def test_first_party_definition_builders_cover_all_current_ids() -> None:
     builders = first_party_definition_builders()
     assert set(builders) == set(FIRST_PARTY_DOMAIN_IDS)
-    assert len(builders) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(builders) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
     # The closed DP-051 baseline is a strict subset of the current inventory.
     assert HISTORICAL_FIRST_PARTY_DOMAIN_IDS < FIRST_PARTY_DOMAIN_IDS
 
 
 def test_all_first_party_definitions_are_unique() -> None:
     definitions = load_first_party_definitions()
-    assert len(definitions) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(definitions) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
     assert {str(item.id) for item in definitions} == set(FIRST_PARTY_DOMAIN_IDS)
-    assert len({str(item.id) for item in definitions}) == 13
+    assert len({str(item.id) for item in definitions}) == 14
 
 
 def test_canonical_definition_exposes_late_additive_fields() -> None:
@@ -188,7 +201,7 @@ def test_canonical_definition_exposes_late_additive_fields() -> None:
 
 def test_every_first_party_definition_uses_the_same_canonical_contract() -> None:
     definitions = load_first_party_definitions()
-    assert len(definitions) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(definitions) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
     for definition in definitions:
         assert isinstance(definition, DomainDefinition)
 
@@ -232,8 +245,9 @@ def test_general_keeps_its_approved_no_privacy_default_case() -> None:
         for definition in definitions.values()
         if definition.privacy_policy is not None
     ]
-    # Eleven pre-10.52 declarers plus Phase 10.52 domain:mental-health.
-    assert len(declaring) == 12
+    # Eleven pre-10.52 declarers plus Phase 10.52 domain:mental-health and
+    # Phase 10.53 domain:neurodivergence.
+    assert len(declaring) == 13
     for definition in declaring:
         assert isinstance(definition.privacy_policy, DomainPrivacyPolicy)
         assert definition.privacy_policy.domain_id == definition.id
@@ -254,5 +268,6 @@ def test_first_party_definitions_register_through_the_canonical_registry() -> No
 def test_no_deferred_domain_id_is_present_among_first_party_definitions() -> None:
     loaded_ids = {str(definition.id) for definition in load_first_party_definitions()}
     assert loaded_ids.isdisjoint(DEFERRED_DOMAIN_IDS)
+    # Both DP-051 deferrals are implemented by their own phases.
     assert "domain:mental-health" in loaded_ids
-    assert "domain:neurodivergence" not in loaded_ids
+    assert "domain:neurodivergence" in loaded_ids

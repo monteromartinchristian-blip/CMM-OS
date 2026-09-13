@@ -30,7 +30,30 @@ from cmm.domains.knowledge_package_contracts import (
     DomainKnowledgePackageSchema,
 )
 
-__all__ = ["build_neurodivergence_knowledge_package_schema"]
+__all__ = [
+    "NEURODIVERGENCE_KNOWLEDGE_PACKAGE_SECTIONS",
+    "build_neurodivergence_knowledge_package_schema",
+]
+
+#: Approved Neurodivergence section -> the canonical package section that makes
+#: it reachable.  Declared here as explicit policy data (a canonical
+#: first-party schema carries empty ``metadata``/``validator_refs``) so every
+#: approved section has exactly one reachable owner and no invented field name.
+NEURODIVERGENCE_KNOWLEDGE_PACKAGE_SECTIONS: dict[str, str] = {
+    "active_exploratory_objective": "objective",
+    "developmental_timeline": "timeline",
+    "evidence_by_source_and_period": "observations",
+    "confirmed_information": "facts",
+    "in_evaluation_information": "current_state",
+    "working_hypotheses": "hypotheses",
+    "inferences": "inferences",
+    "contradictory_or_insufficient_evidence": "contradictions",
+    "unsupported_or_thin_evidence": "unknowns",
+    "evidence_that_would_clarify": "missing_information",
+    "functional_observations": "other_knowledge",
+    "supporting_domain_projections": "resources",
+    "privacy_and_permission_evidence": "privacy",
+}
 
 
 def build_neurodivergence_knowledge_package_schema() -> DomainKnowledgePackageSchema:
@@ -65,28 +88,8 @@ def build_neurodivergence_knowledge_package_schema() -> DomainKnowledgePackageSc
             "resources",
             "privacy",
         ),
-        #: Approved Neurodivergence section -> the canonical package section
-        #: that makes it reachable.  This is a documented mapping, not a new
-        #: set of field names.
-        metadata={
-            "phase": "10.53",
-            "domain_sections": {
-                "active_exploratory_objective": "objective",
-                "developmental_timeline": "timeline",
-                "evidence_by_source_and_period": "observations",
-                "confirmed_information": "facts",
-                "in_evaluation_information": "current_state",
-                "working_hypotheses": "hypotheses",
-                "model_interpretation": "inferences",
-                "contradictory_or_insufficient_evidence": "contradictions",
-                "unsupported_or_thin_evidence": "unknowns",
-                "evidence_that_would_clarify": "missing_information",
-                "functional_observations": "other_knowledge",
-                "supporting_domain_projections": "resources",
-                "privacy_and_permission_evidence": "privacy",
-            },
-            "second_medical_record": False,
-        },
+        # Every approved Neurodivergence section is mapped to one of these
+        # canonical sections by NEURODIVERGENCE_KNOWLEDGE_PACKAGE_SECTIONS.
         field_policies=(
             # Confirmed information stays factual and provenance-bound.
             DomainKnowledgePackageFieldPolicy(

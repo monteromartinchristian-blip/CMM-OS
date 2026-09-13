@@ -4,30 +4,40 @@ Declarative Phase 10.48 quality policy only.  No evaluator resolves, no model
 runs and no runtime is introduced: the pack declares what would make an output
 unacceptable, and every unacceptable outcome required by the approved spec is
 blocking.
+
+The canonical ``DomainQualityMetric`` carries empty metadata, so the blocking
+failure catalogue is asserted at the module-policy level and every failure must
+be owned by a blocking metric with a maximum threshold.
 """
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from cmm.domains.neurodivergence.quality_metrics import (
     NEURODIVERGENCE_BLOCKING_QUALITY_FAILURES,
+    NEURODIVERGENCE_METRIC_BLOCKING_FAILURES,
+    NEURODIVERGENCE_QUALITY_FAILURE_CRITERIA,
+    NEURODIVERGENCE_QUALITY_METRIC_NAMES,
     build_neurodivergence_quality_metrics,
 )
 
-#: The frozen metric topics required by the approved plan (Task 6, Step 5).
+#: The frozen metric topics required by the approved plan (Task 6, Step 5),
+#: expressed in the canonical slug form (spec topic ``x_y`` -> slug ``x-y``).
 EXPECTED_TOPICS = (
-    "certainty_fidelity",
-    "source_authority_fidelity",
-    "developmental_temporality",
-    "differential_reasoning_quality",
-    "exploratory_usefulness",
-    "functional_relevance",
-    "cross_domain_minimization",
-    "privacy_adherence",
-    "sensitive_memory_discipline",
-    "assessment_summary_fidelity",
+    "certainty-fidelity",
+    "source-authority-fidelity",
+    "developmental-temporality",
+    "differential-reasoning-quality",
+    "exploratory-usefulness",
+    "functional-relevance",
+    "cross-domain-minimization",
+    "privacy-adherence",
+    "sensitive-memory-discipline",
+    "assessment-summary-fidelity",
 )
 
-#: The frozen blocking failures required by the approved plan.
+#: The frozen blocking failures required by the approved plan/spec.
 EXPECTED_BLOCKING_FAILURES = frozenset(
     {
         "hypothesis_to_diagnosis",
@@ -53,70 +63,92 @@ def test_every_frozen_metric_topic_is_declared():
     metrics = _metrics()
 
     assert tuple(metric.name for metric in metrics) == EXPECTED_TOPICS
+    assert NEURODIVERGENCE_QUALITY_METRIC_NAMES == EXPECTED_TOPICS
     assert len(metrics) == 10
 
 
-def test_metric_identity_is_canonical_and_slug_valid():
+def test_metric_identity_is_canonical():
     for metric in _metrics():
-        assert metric.id.startswith("quality-metric:neurodivergence:")
+        assert metric.id == f"quality-metric:neurodivergence:{metric.name}"
         assert str(metric.domain_id) == "domain:neurodivergence"
         assert metric.schema_version == "1"
         assert metric.version == "1"
-        assert metric.evaluator_id.startswith("evaluator:")
+        assert metric.evaluator_id == f"evaluator:{metric.name}"
         assert metric.weight > 0
         assert 0 < metric.minimum_score <= 1
+        # A canonical first-party metric carries no local metadata: the policy
+        # is the declaration itself, never a hidden side table.
+        assert metric.metadata == {}
 
 
-def test_every_frozen_blocking_failure_is_bound_to_a_blocking_metric():
-    declared = tuple(NEURODIVERGENCE_BLOCKING_QUALITY_FAILURES)
+def test_weights_sum_to_exactly_one():
+    total = sum((metric.weight for metric in _metrics()), Decimal(0))
 
-    assert set(declared) == EXPECTED_BLOCKING_FAILURES
+    assert total == Decimal(1)
 
-    by_failure: dict[str, list] = {}
-    for metric in _metrics():
-        for failure in metric.metadata.get("blocking_failures", ()):
-            by_failure.setdefault(failure, []).append(metric)
 
-    for failure in EXPECTED_BLOCKING_FAILURES:
-        assert failure in by_failure, failure
+def test_every_frozen_blocking_failure_is_owned_by_a_blocking_metric():
+    assert set(NEURODIVERGENCE_BLOCKING_QUALITY_FAILURES) == (
+        EXPECTED_BLOCKING_FAILURES
+    )
+
+    by_name = {metric.name: metric for metric in _metrics()}
+    owned: set[str] = set()
+    for metric_name, failures in NEURODIVERGENCE_METRIC_BLOCKING_FAILURES.items():
+        assert metric_name in by_name, metric_name
+        metric = by_name[metric_name]
         # A failure that must never be merely deducted belongs to a blocking
         # metric with a maximum threshold.
-        for metric in by_failure[failure]:
-            assert metric.blocking is True, (failure, metric.name)
-            assert metric.minimum_score == 1, (failure, metric.name)
+        assert metric.blocking is True, metric_name
+        assert metric.minimum_score == 1, metric_name
+        owned.update(failures)
+
+    assert owned == EXPECTED_BLOCKING_FAILURES
 
 
-def test_blocking_failures_are_a_subset_of_the_frozen_catalogue():
-    for metric in _metrics():
-        for failure in metric.metadata.get("blocking_failures", ()):
+def test_no_blocking_failure_is_left_unassigned():
+    for failure in NEURODIVERGENCE_BLOCKING_QUALITY_FAILURES:
+        owners = [
+            metric_name
+            for metric_name, failures in (
+                NEURODIVERGENCE_METRIC_BLOCKING_FAILURES.items()
+            )
+            if failure in failures
+        ]
+        assert owners, failure
+
+
+def test_owned_failures_are_a_subset_of_the_frozen_catalogue():
+    for failures in NEURODIVERGENCE_METRIC_BLOCKING_FAILURES.values():
+        for failure in failures:
             assert failure in EXPECTED_BLOCKING_FAILURES, failure
+    for criteria in NEURODIVERGENCE_QUALITY_FAILURE_CRITERIA.values():
+        assert criteria
 
 
 def test_exploratory_usefulness_is_declared_and_not_adversarial():
     by_name = {metric.name: metric for metric in _metrics()}
-    metric = by_name["exploratory_usefulness"]
+    metric = by_name["exploratory-usefulness"]
 
     assert metric.blocking is True
     # The declaration must state that a refusal-only or adverse-by-default
     # response is a failure, not a safe default.
-    criteria = metric.metadata["failure_criteria"]
+    criteria = NEURODIVERGENCE_QUALITY_FAILURE_CRITERIA["exploratory-usefulness"]
     assert "refusal_only_response" in criteria
-    assert "adversarial_default_reasoning" in criteria
     assert "disclaimer_only_response" in criteria
+    assert "no_hypothesis_offered_for_an_exploratory_request" in criteria
 
 
-def test_weights_are_positive_and_the_policy_is_deterministic():
-    first = [
-        (metric.id, str(metric.weight), str(metric.minimum_score), metric.blocking)
-        for metric in _metrics()
-    ]
-    second = [
-        (metric.id, str(metric.weight), str(metric.minimum_score), metric.blocking)
-        for metric in _metrics()
-    ]
+def test_developmental_temporality_names_its_failure_modes():
+    criteria = NEURODIVERGENCE_QUALITY_FAILURE_CRITERIA["developmental-temporality"]
 
-    assert first == second
-    assert sum(metric.weight for metric in _metrics()) > 0
+    assert "historical_observation_generalized_to_current_impairment" in criteria
+    assert "current_difficulty_generalized_to_lifelong_pattern" in criteria
+    assert "retrospective_report_presented_as_contemporaneous" in criteria
+
+
+def test_factory_is_deterministic():
+    assert _metrics() == _metrics()
 
 
 def test_no_quality_runtime_or_evaluator_is_introduced():

@@ -92,6 +92,8 @@ from tests.domains.domain_core_conformance_support import (
     HISTORICAL_DEFERRED_DOMAIN_IDS,
     PHASE10_52_DEFERRED_DOMAIN_PACKS,
     PHASE10_52_FIRST_PARTY_DOMAIN_PACKS,
+    PHASE10_53_DEFERRED_DOMAIN_PACKS,
+    PHASE10_53_FIRST_PARTY_DOMAIN_PACKS,
     CoreConformanceClassification,
     canonical_cognitive_resource_input,
     canonical_project_privacy_evidence,
@@ -144,12 +146,12 @@ def test_scenario_b_canonical_ownership_is_singular() -> None:
 
 def test_scenario_c_first_party_core_is_reachable_through_canonical_owners() -> None:
     definitions = load_first_party_definitions()
-    assert len(definitions) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(definitions) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
     assert {str(definition.id) for definition in definitions} == set(
         FIRST_PARTY_DOMAIN_IDS
     )
     builders = first_party_definition_builders()
-    assert len(builders) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert len(builders) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
 
     bootstrap = connected_bootstrap()
     for definition in definitions:
@@ -483,20 +485,21 @@ def test_scenario_j_security_observability_fragmentation_guards_are_active() -> 
     }
 
 
-# ── K — 10.52/10.53 and Phase 11 boundaries remain deferred ──────────────────
+# ── K — 10.53 and Phase 11 boundaries ────────────────────────────────────────
 
 
 def test_scenario_k_deferred_boundaries_remain_deferred() -> None:
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[2]
-    # Phase 10.52 implemented the mental-health pack; DP-051's historical
-    # deferred set (2 packs) is preserved as closed evidence.
+    # Phases 10.52 and 10.53 each implemented one of DP-051's two deferred
+    # packs; the historical deferred set is preserved as closed evidence and no
+    # deferral remains current.
     assert (repo_root / "cmm/domains/mental_health").is_dir()
-    assert not (repo_root / "cmm/domains/neurodivergence").exists()
+    assert (repo_root / "cmm/domains/neurodivergence").is_dir()
     assert len(HISTORICAL_DEFERRED_DOMAIN_IDS) == 2
-    assert deferred_classification_count() == PHASE10_52_DEFERRED_DOMAIN_PACKS == 1
-    assert DEFERRED_DOMAIN_IDS == frozenset({"domain:neurodivergence"})
+    assert deferred_classification_count() == PHASE10_53_DEFERRED_DOMAIN_PACKS == 0
+    assert DEFERRED_DOMAIN_IDS == frozenset()
 
     bootstrap = connected_bootstrap()
     registered = {str(definition.id) for definition in bootstrap.domain_registry.list()}
@@ -560,7 +563,11 @@ def test_at_dp_051_aggregate_invariants() -> None:
 
 
 def test_post_10_52_aggregate_is_extended_without_rewriting_dp_051() -> None:
-    assert len(FIRST_PARTY_DOMAIN_IDS) == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
-    assert len(DEFERRED_DOMAIN_IDS) == PHASE10_52_DEFERRED_DOMAIN_PACKS == 1
+    """Phase 10.52's aggregate step stays historical; 10.53 extends it."""
+    phase_10_52_inventory = 12 + 1  # DP-051 baseline + mental-health
+    assert phase_10_52_inventory == PHASE10_52_FIRST_PARTY_DOMAIN_PACKS == 13
+    assert 2 - 1 == PHASE10_52_DEFERRED_DOMAIN_PACKS == 1
+    assert len(FIRST_PARTY_DOMAIN_IDS) == PHASE10_53_FIRST_PARTY_DOMAIN_PACKS == 14
+    assert len(DEFERRED_DOMAIN_IDS) == PHASE10_53_DEFERRED_DOMAIN_PACKS == 0
     assert HISTORICAL_AGGREGATE_BASELINE["FIRST_PARTY_PRE_10_52_DOMAINS"] == 12
     assert HISTORICAL_AGGREGATE_BASELINE["DEFERRED_DOMAIN_PACKS"] == 2

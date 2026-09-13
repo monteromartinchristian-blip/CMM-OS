@@ -212,19 +212,25 @@ def test_no_prohibited_production_module_names() -> None:
     assert offenders == []
 
 
-# ── Phase 10.53 / Phase 11 boundaries remain deferred ────────────────────────
+# ── Phase 10.53 / Phase 11 boundaries ────────────────────────────────────────
 
 
-def test_phase_10_53_domain_remains_unimplemented() -> None:
-    for relative in DEFERRED_DOMAIN_PACKAGE_PATHS:
-        assert not (_REPO_ROOT / relative).exists(), relative
+def test_phase_10_53_domain_is_implemented() -> None:
+    """Phase 10.53 adds the neurodivergence pack; DP-051 history is not rewritten."""
+    assert (_REPO_ROOT / "cmm/domains/neurodivergence").is_dir()
+    assert "cmm/domains/neurodivergence" in HISTORICAL_DEFERRED_DOMAIN_PACKAGE_PATHS
+    assert "cmm/domains/neurodivergence" not in DEFERRED_DOMAIN_PACKAGE_PATHS
+    # No DP-051 deferral remains unimplemented.
+    assert DEFERRED_DOMAIN_PACKAGE_PATHS == ()
 
 
 def test_phase_10_52_mental_health_pack_is_implemented() -> None:
     """Phase 10.52 adds the mental-health pack; DP-051 history is not rewritten."""
     assert (_REPO_ROOT / "cmm/domains/mental_health").is_dir()
     assert "cmm/domains/mental_health" in HISTORICAL_DEFERRED_DOMAIN_PACKAGE_PATHS
-    assert "cmm/domains/neurodivergence" in DEFERRED_DOMAIN_PACKAGE_PATHS
+    # Both DP-051 deferrals are now implemented, so the current deferred set is
+    # empty while the historical two-path baseline above is preserved.
+    assert DEFERRED_DOMAIN_PACKAGE_PATHS == ()
 
 
 def test_deferred_domain_ids_are_not_registered_by_first_party_bootstrap() -> None:

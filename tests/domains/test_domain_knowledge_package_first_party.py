@@ -49,6 +49,12 @@ from cmm.domains.mental_health.definition import (
 from cmm.domains.mental_health.knowledge_package import (
     build_mental_health_knowledge_package_schema,
 )
+from cmm.domains.neurodivergence.definition import (
+    build_neurodivergence_domain_definition,
+)
+from cmm.domains.neurodivergence.knowledge_package import (
+    build_neurodivergence_knowledge_package_schema,
+)
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.oppositions.knowledge_package import (
     build_oppositions_knowledge_package_schema,
@@ -95,6 +101,7 @@ EXPECTED: dict[str, str] = {
     "life_plan": "domain:life-plan",
     "project": "domain:project",
     "mental_health": "domain:mental-health",
+    "neurodivergence": "domain:neurodivergence",
 }
 
 # Approved minimum sensitivity floors. General, Sport and Life Plan are derived
@@ -113,6 +120,7 @@ EXPECTED_SENSITIVITY: dict[str, SensitivityLevel] = {
     "life_plan": SensitivityLevel.SENSITIVE,
     "project": SensitivityLevel.INTERNAL,
     "mental_health": SensitivityLevel.SENSITIVE,
+    "neurodivergence": SensitivityLevel.SENSITIVE,
 }
 
 IMPLEMENTED_SCHEMA_DOMAINS = set(EXPECTED)
@@ -131,6 +139,7 @@ SCHEMA_BUILDERS = {
     "life_plan": build_life_plan_knowledge_package_schema,
     "project": build_project_knowledge_package_schema,
     "mental_health": build_mental_health_knowledge_package_schema,
+    "neurodivergence": build_neurodivergence_knowledge_package_schema,
 }
 
 DEFINITION_BUILDERS = {
@@ -147,6 +156,7 @@ DEFINITION_BUILDERS = {
     "life_plan": build_life_plan_domain_definition,
     "project": build_project_domain_definition,
     "mental_health": build_mental_health_domain_definition,
+    "neurodivergence": build_neurodivergence_domain_definition,
 }
 
 
@@ -430,26 +440,23 @@ def test_no_provider_or_executable_content_in_serialization(slug: str) -> None:
     assert payload["metadata"] == {}
 
 
-def test_implemented_schema_inventory_is_exactly_twelve() -> None:
+def test_implemented_schema_inventory_is_exactly_fourteen() -> None:
     assert set(EXPECTED) == IMPLEMENTED_SCHEMA_DOMAINS
     assert set(SCHEMA_BUILDERS) == IMPLEMENTED_SCHEMA_DOMAINS
     assert set(DEFINITION_BUILDERS) == IMPLEMENTED_SCHEMA_DOMAINS
-    assert len(IMPLEMENTED_SCHEMA_DOMAINS) == 13
+    assert len(IMPLEMENTED_SCHEMA_DOMAINS) == 14
 
 
-def test_production_inventory_matches_exactly_thirteen() -> None:
+def test_production_inventory_matches_exactly_fourteen() -> None:
     files = sorted(pathlib.Path("cmm/domains").glob("*/knowledge_package.py"))
 
     assert {path.parent.name for path in files} == IMPLEMENTED_SCHEMA_DOMAINS
 
 
-@pytest.mark.parametrize("slug", ("neurodivergence",))
-def test_future_domain_schemas_are_absent(slug: str) -> None:
-    package_dir = pathlib.Path("cmm/domains") / slug
-    assert not package_dir.exists()
-    assert not (package_dir / "knowledge_package.py").exists()
-    try:
+def test_every_implemented_domain_exposes_a_loadable_schema() -> None:
+    """No implemented Domain Pack may be missing its declared schema."""
+    for slug in sorted(IMPLEMENTED_SCHEMA_DOMAINS):
         spec = importlib.util.find_spec(f"cmm.domains.{slug}.knowledge_package")
-    except ModuleNotFoundError:
-        spec = None
-    assert spec is None
+        assert spec is not None, slug
+    assert "neurodivergence" in IMPLEMENTED_SCHEMA_DOMAINS
+    assert pathlib.Path("cmm/domains/neurodivergence/knowledge_package.py").exists()
