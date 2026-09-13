@@ -58,7 +58,14 @@ class ModelRouteCatalog:
     def get(self, route_id: str) -> ModelRoute | None:
         return self._routes.get(route_id)
 
-    def mark_seen(self, route_id: str, *, at: datetime | None = None) -> ModelRoute:
+    def mark_seen(self, route_id: str, at: datetime | None = None) -> ModelRoute:
+        """Refresh last_seen_at and restore availability for a known route.
+
+        ``at`` is accepted positionally or as a keyword to match the plan's
+        ``mark_seen(route_id, at)`` interface (Task 2,
+        2026-09-13-cmm-provider-registry-core); the previous keyword-only
+        spelling was a spec deviation. Keyword callers remain unaffected.
+        """
         current = self._routes[route_id]
         now = at or datetime.now(timezone.utc)
         updated = _replace_route(
