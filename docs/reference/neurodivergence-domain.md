@@ -1,7 +1,7 @@
 # Neurodivergence Domain (`domain:neurodivergence`)
 
 **Phase:** 10.53 — Neurodivergence Domain
-**Status:** implemented; pending independent re-audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`)
+**Status:** complete, independently re-audited and closed after final Re-audit V4 `PASS` (`PHASE10_53=CLOSED`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`)
 **Design point:** `DP-053`
 **Connected acceptance:** `AT-DP-053`
 **Canonical domain ID:** `domain:neurodivergence`
@@ -553,6 +553,8 @@ of isolated mocks. All 29 checkpoints are implemented in
 25 anti-fragmentation
 26 first-party inventory 14 / deferred 0
 27 prior-domain regressions/authority preserved
+28 definitive Health semantics without trusted source provenance blocked
+29 definitive Health semantics with canonical trusted source provenance confirmed
 ```
 
 For the permission checkpoints the matching transfer is always physically
@@ -584,5 +586,9 @@ persistence of a model-generated label, or any Phase 11 UI/platform behavior.
 | Global suite | `.venv/bin/python -m pytest -ra` |
 | Static | `.venv/bin/python -m ruff check .`; `.venv/bin/python -m ruff format --check .`; `.venv/bin/python -m compileall -q cmm cmm_agent kernel tests` |
 
-The phase remains `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` until an independent
-re-audit passes. Implementation self-review does not certify it.
+Phase 10.53 is complete, independently re-audited and closed after final Re-audit
+V4 `PASS`: `PHASE10_53=CLOSED`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`;
+`DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`.
+The audited implementation HEAD is `54a46da5770ed9da05a6369995683919d70a08bf` and the exact-HEAD V4
+bundle SHA-256 is `2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f`. Final independent report: `docs/audits/phase-10.53-independent-reaudit-v4.md`;
+audit-report commit `c59251b929c0ebe314f12d100169ea952d510d74`.

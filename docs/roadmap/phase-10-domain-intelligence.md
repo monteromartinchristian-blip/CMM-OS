@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain is implemented and pending independent re-audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; `DP-053=PASS_REPORTED`; `AT-DP-053=PASS_REPORTED`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`).
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS` (`PHASE10_53=CLOSED`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`).
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -7924,7 +7924,7 @@ independently re-audited and closed after final Re-audit V4 `PASS`
 pre-10.52 packs and two deferred packs remains preserved verbatim as historical
 evidence. After Phase 10.53 the current first-party inventory is
 `FIRST_PARTY_DOMAIN_PACKS=14` with `CURRENT_DEFERRED_DOMAIN_PACKS=0`;
-`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`. Phase 11 remains out of
+`PHASE10_53=CLOSED` after independent Re-audit V4 `PASS`. Phase 11 remains out of
 scope.
 
 ⸻
@@ -8357,8 +8357,9 @@ are revalidated and fail closed.
 
 Phase 10.53 adds `domain:neurodivergence` as the fourteenth first-party Domain
 Pack. The current inventory is `FIRST_PARTY_DOMAIN_PACKS=14` with
-`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
-with `DP-053=PASS_REPORTED` and `AT-DP-053=PASS_REPORTED`. Exploration is
+`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_53=CLOSED` after final independent
+Re-audit V4 `PASS`, with `DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS`,
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0` and `CLOSURE_ELIGIBLE=YES`. Exploration is
 permitted (`EXPLORATORY_MODEL_INFERENCE=ALLOWED`,
 `DIFFERENTIAL_REASONING=BALANCED_NOT_ADVERSARIAL`) while promotion fails closed
 (`MODEL_INFERENCE_TO_CONFIRMED_DIAGNOSIS=BLOCKED`,
@@ -8724,7 +8725,7 @@ Blocking quality failures include:
 
 AT-DP-053 acceptance contract
 
-`AT-DP-053` is implemented and `PASS_REPORTED`; independent verification remains pending.
+`AT-DP-053` is independently verified `PASS` in final Re-audit V4.
 
 At minimum it must test:
 
@@ -8763,37 +8764,40 @@ Phase 10.53 is complete only when:
 * global regression suite passes;
 * independent closure audit passes.
 
-The pack is implemented and awaiting independent re-audit. Its certainty
-promotion path was remediated in the approved V3 redo: clinical authority is now
-carried only by the shared runtime-only `ReasoningAuthorityContext` built from a
-real `DomainPermissionGate` result, so no combination of caller-authored
-metadata can manufacture authority
-(`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`; `AUTHORITY_SERIALIZATION=STRIPPED`;
-`CALLER_REHYDRATION_OF_AUTHORITY=BLOCKED`). The V3-redo independent re-audit
-(`docs/audits/phase-10.53-independent-reaudit-v3-redo.md`) kept `MAJOR-01` open
-because the trusted channel did not carry source provenance; that remediation is
-now implemented: the authoritative clinical claim travels as a provenance-bound
-`AuthoritativeSourceClaim` built from the canonical `ResourceProvenance` of the
-Health-owned artifact, a provenance-free authoritative claim is not
-constructible, and the connected acceptance proves both
-`definitive Health + no trusted provenance -> BLOCKED` and
-`definitive Health + canonical trusted provenance -> CONFIRMED`
-(`TRUSTED_SOURCE_PROVENANCE_BINDING=IMPLEMENTED`;
-`AUTHORITATIVE_CLAIM_WITHOUT_CANONICAL_PROVENANCE=BLOCKED`). Implementation-reported state (not
-an audit conclusion):
+The pack is complete, independently re-audited and closed after final Re-audit
+V4 `PASS`. Audit history remains preserved: Independent Audit V1 `FAIL`,
+Independent Re-audit V2 `FAIL`, and Independent Re-audit V3 redo `FAIL`;
+the final Independent Re-audit V4 independently verified the trusted-authority
+and provenance remediation with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS` and `CLOSURE_ELIGIBLE=YES`.
+
+The final authority boundary preserves the shared runtime-only
+`ReasoningAuthorityContext`; caller-authored metadata cannot manufacture
+authority (`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`;
+`AUTHORITY_SERIALIZATION=STRIPPED`; `CALLER_REHYDRATION_OF_AUTHORITY=BLOCKED`).
+Clinical source authority travels as a provenance-bound
+`AuthoritativeSourceClaim` built from canonical `ResourceProvenance`, so
+definitive Health semantics without trusted source provenance remain blocked
+while the canonical provenance-bound path can confirm
+(`TRUSTED_SOURCE_PROVENANCE_BINDING=PASS`).
 
 ```text
-PHASE10_53 = IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP-053 = PASS_REPORTED
-AT-DP-053 = PASS_REPORTED
-CLOSURE_ELIGIBLE = UNKNOWN_PENDING_INDEPENDENT_REAUDIT
+PHASE10_53 = CLOSED
+INDEPENDENT_REAUDIT_V4 = PASS
+BLOCKERS = 0
+MAJORS = 0
+MINORS = 0
+DP-053 = VERIFIED_EXISTING
+AT-DP-053 = PASS
+CLOSURE_ELIGIBLE = YES
 FIRST_PARTY_DOMAIN_PACKS = 14
 CURRENT_DEFERRED_DOMAIN_PACKS = 0
+AUDITED_IMPLEMENTATION_HEAD = 54a46da5770ed9da05a6369995683919d70a08bf
+REAUDIT_V4_BUNDLE_SHA256 = 2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f
 ```
 
-`DP-053 = VERIFIED_EXISTING`, `AT-DP-053 = PASS`, `CLOSURE_ELIGIBLE = YES` and
-`PHASE10_53 = CLOSED` remain independent-audit conclusions and have not been
-claimed. The implemented contract is documented in
+Final report: `docs/audits/phase-10.53-independent-reaudit-v4.md`. Audit-report commit:
+`c59251b929c0ebe314f12d100169ea952d510d74`. The implemented contract is documented in
 `docs/reference/neurodivergence-domain.md`; the connected acceptance is
 `tests/domains/test_neurodivergence_domain_dp053_acceptance.py` (29
 checkpoints).
