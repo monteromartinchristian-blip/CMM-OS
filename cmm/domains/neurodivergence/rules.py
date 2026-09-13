@@ -20,8 +20,10 @@ Semantic invariants preserved here (frozen design §6, §7, §11, §28):
     overlap != co-diagnosis; imported fact keeps its source owner;
     Health clinical status is never overwritten;
     a working hypothesis never silently becomes persistent memory;
-    clinical certainty is bound to the runtime-only trusted authority channel,
-    never to caller-authored metadata (Audit V1/V2 MAJOR-01).
+    clinical certainty is bound to the runtime-only trusted authority channel
+    and to a provenance-bound Health-owned claim, never to caller-authored
+    metadata, provenance shapes or serialized authority (Audit V1/V2 MAJOR-01;
+    Re-audit V3-redo MAJOR-01).
 
 Certainty labels below are **pack-local derived labels**.  They are
 non-authoritative, never persisted as a second truth, and can never upgrade
@@ -396,7 +398,10 @@ def evaluate_certainty_transition(
     transition requires an applicable runtime-only
     :class:`~cmm.cognitive.ReasoningAuthorityContext` placed on the reasoning
     context by trusted canonical integration code after the real permission
-    gate and the Health owner have both resolved their own semantics.
+    gate and the Health owner have both resolved their own semantics — and the
+    claim must be carried there as a provenance-bound
+    :class:`~cmm.cognitive.AuthoritativeSourceClaim` built from canonical
+    ``ResourceProvenance``, not merely named.
 
     A transition to ``RULED OUT`` is never established here at all: no existing
     canonical contract encodes an authoritative *negative* clinical status, so
@@ -745,14 +750,15 @@ def _trusted_health_authority(
     that trusted canonical integration code attached to the reasoning context.
     Caller-authored request data is never consulted for authority: no
     ``permission_authority`` boolean, decision ID, approval flag, serialized
-    gate result, canonical-shaped transfer or Health-definitive-looking mapping
-    can reach this check.  Shape is not provenance and serialization is not
-    authority.
+    gate result, canonical-shaped transfer, provenance or
+    Health-definitive-looking mapping can reach this check.  Shape is not
+    provenance and serialization is not authority.
 
     A clinical ``CONFIRMED`` transition requires the trusted authority to bind
     to the canonical Health source domain, this Neurodivergence target domain,
-    the exact claim as both a permissioned resource and a Health-owned
-    authoritative claim, and the requested purpose.
+    the exact claim as both a permissioned resource and a *provenance-bound*
+    Health-owned authoritative claim, and the requested purpose.  A claim id
+    without canonical source provenance is not authority and blocks.
     """
     if authority_context is None:
         return None
@@ -773,9 +779,27 @@ def _trusted_health_authority(
         return None
     if claim_id not in authority_context.resource_ids:
         return None
-    if claim_id not in authority_context.authoritative_claim_ids:
-        return None
     if authority_context.purpose != purpose:
+        return None
+
+    # The claim must be carried as a provenance-bound projection: authority
+    # cannot exist in the trusted channel without canonical source provenance.
+    bound_claim = next(
+        (
+            claim
+            for claim in authority_context.authoritative_claims
+            if getattr(claim, "claim_id", None) == claim_id
+        ),
+        None,
+    )
+    if bound_claim is None:
+        return None
+    if getattr(bound_claim, "source_domain", None) != HEALTH_DOMAIN_ID:
+        return None
+    if getattr(bound_claim, "purpose", None) != purpose:
+        return None
+    source_provenance_id = getattr(bound_claim, "source_provenance_id", None)
+    if not _is_non_empty_id(source_provenance_id):
         return None
 
     return {
@@ -786,6 +810,13 @@ def _trusted_health_authority(
         "permission_outcome": authority_context.permission_outcome,
         "approval_consumed": authority_context.approval_consumed,
         "purpose": purpose,
+        "source_provenance_id": source_provenance_id,
+        "authoritative_claim": {
+            "claim_id": bound_claim.claim_id,
+            "source_domain": bound_claim.source_domain,
+            "purpose": bound_claim.purpose,
+            "source_provenance_id": source_provenance_id,
+        },
     }
 
 

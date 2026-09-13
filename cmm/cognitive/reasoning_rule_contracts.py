@@ -25,6 +25,7 @@ from cmm.cognitive.errors import (
     ReasoningRuleSerializationError,
 )
 from cmm.cognitive.knowledge import Contradiction, KnowledgeItem
+from cmm.cognitive.resources import ResourceProvenance
 
 REASONING_RULE_CONTRACT_VERSION = "1.0.0"
 MIN_RULE_PRIORITY = -10_000
@@ -425,6 +426,82 @@ def _nested_tuple(value: Any, cls: type, field_name: str) -> tuple[Any, ...]:
 _VALID_AUTHORITY_PERMISSION_OUTCOMES = frozenset({"allow", "approval_consumed"})
 
 
+def _authoritative_claims(value: Any) -> tuple[AuthoritativeSourceClaim, ...]:
+    """Validate a trusted authoritative source-claim sequence, fail-closed.
+
+    Only exact :class:`AuthoritativeSourceClaim` instances are accepted: a
+    mapping, a serialized/duck-typed shape or a naked claim id is never
+    provenance and is rejected outright.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise _contract(
+            "authoritative_claims must be a sequence", "authoritative_claims"
+        )
+    claims: list[AuthoritativeSourceClaim] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if type(item) is not AuthoritativeSourceClaim:
+            raise _contract(
+                f"authoritative_claims[{index}] must be an "
+                "AuthoritativeSourceClaim carrying canonical provenance",
+                f"authoritative_claims[{index}]",
+            )
+        if item.claim_id in seen:
+            raise _contract(
+                "authoritative_claims must not contain duplicate claim ids",
+                "authoritative_claims",
+            )
+        seen.add(item.claim_id)
+        claims.append(item)
+    return tuple(claims)
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoritativeSourceClaim:
+    """A provenance-bound authoritative claim owned by a source domain.
+
+    This is a neutral, runtime-only projection of a source-domain fact that the
+    canonical owner has itself established and evaluated — for example a
+    definitive clinical status resolved by the Health domain.  It is not a
+    registry, store, resolver, loader or a second provenance model: it reuses
+    the canonical :class:`~cmm.cognitive.resources.ResourceProvenance` contract
+    directly, and it must be constructed by trusted canonical
+    integration/runtime code only after source-owner evaluation — never
+    reconstructed from caller-authored JSON or metadata.
+
+    ``provenance`` must be a real canonical ``ResourceProvenance`` instance
+    produced by that trusted code.  Shape is not provenance: serialized
+    provenance, mappings and duck-typed lookalikes are rejected, and this
+    contract deliberately exposes no ``from_dict()`` rehydration path, so no
+    caller-supplied payload can become source authority.
+    """
+
+    claim_id: str
+    source_domain: str
+    purpose: str
+    provenance: ResourceProvenance
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "claim_id", _non_empty(self.claim_id, "claim_id"))
+        object.__setattr__(
+            self, "source_domain", _domain_id(self.source_domain, "source_domain")
+        )
+        object.__setattr__(self, "purpose", _non_empty(self.purpose, "purpose"))
+        if type(self.provenance) is not ResourceProvenance:
+            raise _contract(
+                "provenance must be a canonical ResourceProvenance instance "
+                "constructed by trusted runtime code",
+                "provenance",
+            )
+
+    @property
+    def source_provenance_id(self) -> str:
+        """Derived read-only identity of the canonical source artifact."""
+        return self.provenance.source_id
+
+
 @dataclass(frozen=True, slots=True)
 class ReasoningAuthorityContext:
     """Runtime-only trusted authority carried alongside a reasoning context.
@@ -437,6 +514,11 @@ class ReasoningAuthorityContext:
     current reasoning execution.  It must be constructed only by trusted
     in-process integration/runtime code after real authority evaluation —
     never reconstructed from caller-authored JSON.
+
+    Source-domain authority is carried as
+    :class:`AuthoritativeSourceClaim` projections, so every authoritative claim
+    keeps the canonical provenance of the artifact that established it:
+    authority can no longer exist without provenance.
     """
 
     actor_id: str
@@ -448,7 +530,7 @@ class ReasoningAuthorityContext:
     permission_decision_id: str
     permission_outcome: str
     approval_consumed: bool = False
-    authoritative_claim_ids: tuple[str, ...] = ()
+    authoritative_claims: tuple[AuthoritativeSourceClaim, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "actor_id", _non_empty(self.actor_id, "actor_id"))
@@ -493,11 +575,24 @@ class ReasoningAuthorityContext:
                 "approval_consumed must be False when permission_outcome is 'allow'",
                 "approval_consumed",
             )
-        object.__setattr__(
-            self,
-            "authoritative_claim_ids",
-            _str_tuple(self.authoritative_claim_ids, "authoritative_claim_ids"),
-        )
+        claims = _authoritative_claims(self.authoritative_claims)
+        for claim in claims:
+            if claim.source_domain != self.source_domain:
+                raise _contract(
+                    "authoritative claim source_domain must match source_domain",
+                    "authoritative_claims",
+                )
+            if claim.purpose != self.purpose:
+                raise _contract(
+                    "authoritative claim purpose must match purpose",
+                    "authoritative_claims",
+                )
+        object.__setattr__(self, "authoritative_claims", claims)
+
+    @property
+    def authoritative_claim_ids(self) -> tuple[str, ...]:
+        """Derived read-only claim ids of the provenance-bound claims."""
+        return tuple(claim.claim_id for claim in self.authoritative_claims)
 
 
 @dataclass(frozen=True, slots=True)
@@ -714,7 +809,8 @@ class ReasoningRule(Protocol):
 
 __all__ = [
     "MAX_CONFIDENCE_DELTA", "MAX_RULE_PRIORITY", "MIN_CONFIDENCE_DELTA",
-    "MIN_RULE_PRIORITY", "REASONING_RULE_CONTRACT_VERSION", "ReasoningAuthorityContext",
+    "MIN_RULE_PRIORITY", "REASONING_RULE_CONTRACT_VERSION", "AuthoritativeSourceClaim",
+    "ReasoningAuthorityContext",
     "ReasoningEscalation",
     "ReasoningFinding", "ReasoningGap", "ReasoningRecommendation", "ReasoningRule",
     "ReasoningRuleContext", "ReasoningRuleDefinition", "ReasoningRuleResult",

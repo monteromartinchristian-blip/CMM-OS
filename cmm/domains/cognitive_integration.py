@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cmm.cognitive import (
     AdaptationContext,
+    AuthoritativeSourceClaim,
     CognitiveValidationContext,
     CognitiveValidationDecision,
     CognitiveValidationResult,
@@ -289,7 +290,7 @@ class DefaultDomainCognitiveIntegrator:
 def build_reasoning_authority_context(
     gate_result: PermissionGateResult,
     *,
-    authoritative_claim_ids: tuple[str, ...] = (),
+    authoritative_claims: tuple[AuthoritativeSourceClaim, ...] = (),
 ) -> ReasoningAuthorityContext | None:
     """Derive trusted reasoning authority from a real permission gate result.
 
@@ -303,10 +304,15 @@ def build_reasoning_authority_context(
     with canonical cross-domain request evidence attached; a ``deny`` or
     ``approval_required`` result can never produce trusted authority.
 
-    ``authoritative_claim_ids`` is the only extra trusted input: it is
-    supplied by trusted source-owner code (for example, after the Health
-    domain has itself established a definitive diagnostic status) and is
-    never derived from the gate result or from caller request data.
+    ``authoritative_claims`` is the only extra trusted input: provenance-bound
+    :class:`~cmm.cognitive.AuthoritativeSourceClaim` projections supplied by
+    trusted source-owner code (for example, after the Health domain has itself
+    established a definitive diagnostic status for its own artifact) and never
+    derived from the gate result or from caller request data.  Only a claim
+    that binds to *this* gate result is promoted — matching source domain,
+    canonical cross-domain purpose and a requested resource id.  Anything else
+    (a mapping, a naked id, an unbound claim) is simply not promoted into the
+    trusted channel, and this function never raises for it.
     """
     if not isinstance(gate_result, PermissionGateResult):
         return None
@@ -341,10 +347,50 @@ def build_reasoning_authority_context(
             permission_decision_id=gate_result.decision_id,
             permission_outcome=gate_result.outcome,
             approval_consumed=(gate_result.outcome == "approval_consumed"),
-            authoritative_claim_ids=authoritative_claim_ids,
+            authoritative_claims=_bound_authoritative_claims(
+                authoritative_claims,
+                source_domain=gate_result.domain_id,
+                purpose=purpose,
+                resource_ids=resource_ids,
+            ),
         )
     except ReasoningRuleContractError:
         return None
+
+
+def _bound_authoritative_claims(
+    claims: Any,
+    *,
+    source_domain: str,
+    purpose: Any,
+    resource_ids: Any,
+) -> tuple[AuthoritativeSourceClaim, ...]:
+    """Return only the trusted claims that bind to this gate result, fail-closed.
+
+    Binding means the claim is an exact ``AuthoritativeSourceClaim`` carrying
+    canonical provenance, it is owned by the same source domain as the gate
+    result, it was established for the canonical cross-domain purpose, and it
+    names one of the requested resources.  Unbound or untrusted entries are
+    dropped rather than promoted, and nothing here raises: authority is simply
+    never granted from a shape.
+    """
+    allowed_resource_ids = (
+        tuple(resource_ids) if isinstance(resource_ids, (list, tuple)) else ()
+    )
+    if not isinstance(purpose, str) or not purpose.strip():
+        return ()
+    bound: list[AuthoritativeSourceClaim] = []
+    for claim in claims or ():
+        if not isinstance(claim, AuthoritativeSourceClaim):
+            continue
+        if claim.source_domain != source_domain:
+            continue
+        if claim.purpose != purpose:
+            continue
+        if claim.claim_id not in allowed_resource_ids:
+            continue
+        bound.append(claim)
+    return tuple(bound)
 
 
 def _validate_authority_binding(
