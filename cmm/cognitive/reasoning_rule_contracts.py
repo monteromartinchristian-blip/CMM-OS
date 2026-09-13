@@ -422,6 +422,84 @@ def _nested_tuple(value: Any, cls: type, field_name: str) -> tuple[Any, ...]:
     return tuple(result)
 
 
+_VALID_AUTHORITY_PERMISSION_OUTCOMES = frozenset({"allow", "approval_consumed"})
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningAuthorityContext:
+    """Runtime-only trusted authority carried alongside a reasoning context.
+
+    This is not a general-purpose registry, persistent store, resolver or new
+    permission engine.  It is a bounded set of authority facts already
+    resolved by canonical owners (``DomainPermissionResolver`` /
+    ``DomainPermissionGate`` / ``ApprovalService`` for permission authority,
+    and the relevant source-domain owner for source-domain authority) for the
+    current reasoning execution.  It must be constructed only by trusted
+    in-process integration/runtime code after real authority evaluation —
+    never reconstructed from caller-authored JSON.
+    """
+
+    actor_id: str
+    session_id: str
+    source_domain: str
+    target_domain: str
+    resource_ids: tuple[str, ...]
+    purpose: str
+    permission_decision_id: str
+    permission_outcome: str
+    approval_consumed: bool = False
+    authoritative_claim_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "actor_id", _non_empty(self.actor_id, "actor_id"))
+        object.__setattr__(self, "session_id", _non_empty(self.session_id, "session_id"))
+        object.__setattr__(
+            self, "source_domain", _domain_id(self.source_domain, "source_domain")
+        )
+        object.__setattr__(
+            self, "target_domain", _domain_id(self.target_domain, "target_domain")
+        )
+        if self.source_domain == self.target_domain:
+            raise _contract(
+                "source_domain must differ from target_domain", "target_domain"
+            )
+        resource_ids = _str_tuple(self.resource_ids, "resource_ids")
+        if not resource_ids:
+            raise _contract("resource_ids must not be empty", "resource_ids")
+        object.__setattr__(self, "resource_ids", resource_ids)
+        object.__setattr__(self, "purpose", _non_empty(self.purpose, "purpose"))
+        object.__setattr__(
+            self,
+            "permission_decision_id",
+            _non_empty(self.permission_decision_id, "permission_decision_id"),
+        )
+        permission_outcome = _non_empty(self.permission_outcome, "permission_outcome")
+        if permission_outcome not in _VALID_AUTHORITY_PERMISSION_OUTCOMES:
+            raise _contract(
+                "permission_outcome must be 'allow' or 'approval_consumed'",
+                "permission_outcome",
+            )
+        object.__setattr__(self, "permission_outcome", permission_outcome)
+        if not isinstance(self.approval_consumed, bool):
+            raise _contract("approval_consumed must be a strict boolean", "approval_consumed")
+        if permission_outcome == "approval_consumed" and not self.approval_consumed:
+            raise _contract(
+                "approval_consumed must be True when permission_outcome is "
+                "'approval_consumed'",
+                "approval_consumed",
+            )
+        if permission_outcome == "allow" and self.approval_consumed:
+            raise _contract(
+                "approval_consumed must be False when permission_outcome is 'allow'",
+                "approval_consumed",
+            )
+        object.__setattr__(
+            self,
+            "authoritative_claim_ids",
+            _str_tuple(self.authoritative_claim_ids, "authoritative_claim_ids"),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ReasoningRuleContext:
     reasoning_id: str
@@ -437,6 +515,7 @@ class ReasoningRuleContext:
     effective_risk: ReasoningRiskLevel = ReasoningRiskLevel.LOW
     effective_sensitivity: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    authority_context: ReasoningAuthorityContext | None = None
     contract_version: str = REASONING_RULE_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -472,9 +551,19 @@ class ReasoningRuleContext:
             object.__setattr__(self, "effective_sensitivity", _non_empty(self.effective_sensitivity, "effective_sensitivity"))
         object.__setattr__(self, "timestamp", _aware(self.timestamp, "timestamp"))
         object.__setattr__(self, "metadata", _json_freeze(self.metadata))
+        if self.authority_context is not None and not isinstance(
+            self.authority_context, ReasoningAuthorityContext
+        ):
+            raise _contract(
+                "authority_context must be a ReasoningAuthorityContext or None",
+                "authority_context",
+            )
         object.__setattr__(self, "contract_version", _semver(self.contract_version, "contract_version"))
 
     def to_dict(self) -> dict[str, Any]:
+        # authority_context is runtime-only trusted state.  It is deliberately
+        # never included in generic/caller-facing serialization: shape is not
+        # provenance, and a caller must never be able to rehydrate authority.
         return {
             "reasoning_id": self.reasoning_id, "session_id": self.session_id,
             "knowledge_items": [item.to_dict() for item in self.knowledge_items],
@@ -493,6 +582,13 @@ class ReasoningRuleContext:
     def from_dict(cls, data: Mapping[str, Any]) -> ReasoningRuleContext:
         if not isinstance(data, Mapping):
             raise ReasoningRuleSerializationError("ReasoningRuleContext.from_dict requires a mapping", field="data")
+        if "authority_context" in data:
+            raise ReasoningRuleSerializationError(
+                "ReasoningRuleContext.from_dict does not accept a caller-supplied "
+                "authority_context; trusted authority is runtime-only and must "
+                "be attached by trusted in-process integration code",
+                field="authority_context",
+            )
         _reject_unknown(data, set(cls.__dataclass_fields__), cls.__name__)
         _require(data, {"reasoning_id", "timestamp"}, cls.__name__)
         values = dict(data)
@@ -618,7 +714,8 @@ class ReasoningRule(Protocol):
 
 __all__ = [
     "MAX_CONFIDENCE_DELTA", "MAX_RULE_PRIORITY", "MIN_CONFIDENCE_DELTA",
-    "MIN_RULE_PRIORITY", "REASONING_RULE_CONTRACT_VERSION", "ReasoningEscalation",
+    "MIN_RULE_PRIORITY", "REASONING_RULE_CONTRACT_VERSION", "ReasoningAuthorityContext",
+    "ReasoningEscalation",
     "ReasoningFinding", "ReasoningGap", "ReasoningRecommendation", "ReasoningRule",
     "ReasoningRuleContext", "ReasoningRuleDefinition", "ReasoningRuleResult",
     "ReasoningRuleTraceEntry",

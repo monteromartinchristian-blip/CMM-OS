@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from cmm.cognitive import (
+    ReasoningAuthorityContext,
     ReasoningFinding,
     ReasoningRuleContext,
     ReasoningRuleDefinition,
@@ -68,6 +69,57 @@ def test_context_and_result_round_trip_nested_contracts() -> None:
     )
     assert ReasoningRuleContext.from_dict(context.to_dict()) == context
     assert ReasoningRuleResult.from_dict(result.to_dict()) == result
+
+
+def _trusted_authority() -> ReasoningAuthorityContext:
+    return ReasoningAuthorityContext(
+        actor_id="actor-1",
+        session_id="session-1",
+        source_domain="domain:health",
+        target_domain="domain:neurodivergence",
+        resource_ids=("clinical_status",),
+        purpose="diagnostic-status-review",
+        permission_decision_id="permission-gate-decision-1",
+        permission_outcome="approval_consumed",
+        approval_consumed=True,
+        authoritative_claim_ids=("clinical_status",),
+    )
+
+
+def test_authority_context_is_runtime_only_and_stripped_by_serialization() -> None:
+    trusted = ReasoningRuleContext(
+        reasoning_id="r-1",
+        timestamp=NOW,
+        authority_context=_trusted_authority(),
+    )
+    payload = trusted.to_dict()
+    assert "authority_context" not in payload
+    assert json.loads(json.dumps(payload)) == payload
+
+    rehydrated = ReasoningRuleContext.from_dict(payload)
+    assert rehydrated.authority_context is None
+    assert rehydrated == ReasoningRuleContext(reasoning_id="r-1", timestamp=NOW)
+
+
+def test_from_dict_rejects_caller_supplied_authority_context() -> None:
+    with pytest.raises(ReasoningRuleSerializationError):
+        ReasoningRuleContext.from_dict(
+            {
+                "reasoning_id": "r-1",
+                "timestamp": NOW.isoformat(),
+                "authority_context": {
+                    "actor_id": "actor-1",
+                    "session_id": "session-1",
+                    "source_domain": "domain:health",
+                    "target_domain": "domain:neurodivergence",
+                    "resource_ids": ["clinical_status"],
+                    "purpose": "diagnostic-status-review",
+                    "permission_decision_id": "permission-gate-decision-1",
+                    "permission_outcome": "approval_consumed",
+                    "approval_consumed": True,
+                },
+            }
+        )
 
 
 @pytest.mark.parametrize(

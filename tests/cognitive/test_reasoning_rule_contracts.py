@@ -8,6 +8,7 @@ import pytest
 
 from cmm.cognitive import (
     ContradictionStatus,
+    ReasoningAuthorityContext,
     ReasoningEscalation,
     ReasoningFinding,
     ReasoningGap,
@@ -199,6 +200,93 @@ def test_result_duration_and_confidence_are_bounded() -> None:
             status="applied",
             started_at=NOW,
             completed_at=datetime(2026, 8, 1, 11, tzinfo=timezone.utc),
+        )
+
+
+def authority(**overrides: object) -> ReasoningAuthorityContext:
+    values: dict[str, object] = {
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": ("clinical_status",),
+        "purpose": "diagnostic-status-review",
+        "permission_decision_id": "permission-gate-decision-1",
+        "permission_outcome": "approval_consumed",
+        "approval_consumed": True,
+        "authoritative_claim_ids": ("clinical_status",),
+    }
+    values.update(overrides)
+    return ReasoningAuthorityContext(**values)  # type: ignore[arg-type]
+
+
+def test_authority_context_accepts_valid_trusted_values() -> None:
+    context = authority()
+    assert context.source_domain == "domain:health"
+    assert context.target_domain == "domain:neurodivergence"
+    assert context.resource_ids == ("clinical_status",)
+    assert context.permission_outcome == "approval_consumed"
+    assert context.approval_consumed is True
+    assert context.authoritative_claim_ids == ("clinical_status",)
+    with pytest.raises(FrozenInstanceError):
+        context.approval_consumed = False  # type: ignore[misc]
+
+
+def test_authority_context_allow_outcome_requires_no_approval() -> None:
+    context = authority(permission_outcome="allow", approval_consumed=False)
+    assert context.permission_outcome == "allow"
+    assert context.approval_consumed is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actor_id", ""),
+        ("actor_id", "   "),
+        ("session_id", ""),
+        ("source_domain", "not-a-domain"),
+        ("target_domain", "not-a-domain"),
+        ("resource_ids", ()),
+        ("resource_ids", ("a", "a")),
+        ("purpose", ""),
+        ("permission_decision_id", ""),
+        ("permission_outcome", "deny"),
+        ("permission_outcome", "approval_required"),
+        ("approval_consumed", 1),
+        ("authoritative_claim_ids", ("a", "a")),
+    ],
+)
+def test_authority_context_rejects_invalid_values(field: str, value: object) -> None:
+    with pytest.raises(ReasoningRuleContractError):
+        authority(**{field: value})
+
+
+def test_authority_context_rejects_same_source_and_target_domain() -> None:
+    with pytest.raises(ReasoningRuleContractError):
+        authority(source_domain="domain:health", target_domain="domain:health")
+
+
+def test_authority_context_enforces_approval_consumed_outcome_consistency() -> None:
+    with pytest.raises(ReasoningRuleContractError):
+        authority(permission_outcome="approval_consumed", approval_consumed=False)
+    with pytest.raises(ReasoningRuleContractError):
+        authority(permission_outcome="allow", approval_consumed=True)
+
+
+def test_context_accepts_optional_trusted_authority_and_defaults_to_none() -> None:
+    plain = ReasoningRuleContext(reasoning_id="r", timestamp=NOW)
+    assert plain.authority_context is None
+    trusted = ReasoningRuleContext(
+        reasoning_id="r",
+        timestamp=NOW,
+        authority_context=authority(),
+    )
+    assert trusted.authority_context == authority()
+    with pytest.raises(ReasoningRuleContractError):
+        ReasoningRuleContext(
+            reasoning_id="r",
+            timestamp=NOW,
+            authority_context={"actor_id": "actor-1"},  # type: ignore[arg-type]
         )
 
 
