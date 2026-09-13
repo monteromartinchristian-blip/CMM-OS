@@ -31,11 +31,14 @@ may be exposed by both, but they must remain distinct providers so quota and
 account state can never be shared implicitly (spec §13).
 
 Error taxonomy: this module raises :class:`ValueError` for every configuration
-error it detects directly — a blank registry, a blank or duplicate provider id,
-and a failed cross-manifest invariant — mirroring
-:mod:`kernel.llm.provider_manifests`, whose validator raises ``ValueError`` for
-malformed field values. Invalid field values never reach this module's code
-paths: the :class:`ProviderManifest` constructor rejects them at the boundary.
+error it detects directly — an empty manifest table, a missing
+Qwen subscription/PAYG pair, an absent registry argument — and forwards the
+``ValueError`` the registry raises for an already-registered provider id,
+mirroring :mod:`kernel.llm.provider_manifests`, whose validator raises
+``ValueError`` for malformed field values. Blank and duplicate provider ids are
+*not* re-checked here: :class:`ProviderManifest` rejects a blank id and
+:meth:`ProviderManifestRegistry.register` rejects a duplicate, both at the
+boundary, so re-checking them would be unreachable code.
 """
 
 from __future__ import annotations
@@ -50,13 +53,33 @@ from kernel.llm.provider_manifests import (
 # Documented public OpenAI-compatible endpoints, keyed by provider id. Values
 # are canonical (lowercase scheme, no trailing slash) so the validator's
 # trailing-slash normalization is a no-op rather than a silent rewrite.
+#
+# Provenance per constant, so it stays visible which values were *researched*
+# and could drift versus which were handed down by the spec (a URL that moves
+# upstream is a data change here, never a silent code change):
+#
+#   spec-pinned (plan global constraint, spec §2 — not renegotiable here)
+#     KIRA_BASE_URL
+#   provider-documented (each vendor's published OpenAI-compatible root)
+#     QWEN_TOKEN_PLAN_BASE_URL, QWEN_CLOUD_BASE_URL, OPENCODE_ZEN_BASE_URL,
+#     DEEPSEEK_BASE_URL, OPENROUTER_BASE_URL, NVIDIA_NIM_BASE_URL
+#   externally-verified-via-probe (documented *and* confirmed by a live call)
+#     COMMANDCODE_BASE_URL
 QWEN_TOKEN_PLAN_BASE_URL: str = (
     "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
 )
-COMMANDCODE_BASE_URL: str = "https://api.commandcode.ai/v1"
+# Provider-documented **and** externally verified by live probe before pinning.
+# The documented OpenAI-compatible root is .../provider/v1, not .../v1:
+# https://commandcode.ai/docs/provider lists
+# https://api.commandcode.ai/provider/v1/chat/completions, /messages and /models.
+# Verified 2026-09-14: GET https://api.commandcode.ai/provider/v1/models -> 200
+# with a model list, whereas GET https://api.commandcode.ai/v1/models -> 404
+# ("... is not a registered API route"). The /v1 spelling would have failed
+# every discovery call, so the probe is the load-bearing evidence here.
+COMMANDCODE_BASE_URL: str = "https://api.commandcode.ai/provider/v1"
 QWEN_CLOUD_BASE_URL: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
-# Pinned by the plan's global constraints and spec §2; bearer auth.
+# Spec-pinned by the plan's global constraints and spec §2; bearer auth.
 KIRA_BASE_URL: str = "https://kiraai.vn/api/v1"
 OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 OPENCODE_ZEN_BASE_URL: str = "https://opencode.ai/zen/v1"
@@ -126,15 +149,23 @@ _FIRST_WAVE_MANIFESTS: tuple[ProviderManifest, ...] = (
 
 
 def _validated_manifests() -> tuple[ProviderManifest, ...]:
-    """Return the declared manifests after checkable invariants hold."""
+    """Return the declared manifests after checkable invariants hold.
+
+    Only invariants that this module can actually observe are checked here:
+
+    * the table is non-empty (a mutant that blanks the declaration is caught);
+    * the Qwen subscription/PAYG pair is both present — the cross-manifest
+      invariant the table itself can violate (spec §13).
+
+    Blank and duplicate ``provider_id`` are deliberately *not* re-checked:
+    :class:`ProviderManifest` already rejects a blank id and
+    :meth:`ProviderManifestRegistry.register` already rejects a duplicate, so a
+    local check could never fire and would be untestable dead code.
+    """
     if not _FIRST_WAVE_MANIFESTS:
         raise ValueError("first-wave manifests cannot be empty")
 
     provider_ids = tuple(manifest.provider_id for manifest in _FIRST_WAVE_MANIFESTS)
-    if any(not provider_id for provider_id in provider_ids):
-        raise ValueError("provider_id cannot be empty")
-    if len(set(provider_ids)) != len(provider_ids):
-        raise ValueError("duplicate provider_id in first-wave manifests")
 
     # Subscription and PAYG surfaces of the same vendor must never collapse into
     # one provider: shared quota/account state would follow implicitly (spec §13).
@@ -153,11 +184,15 @@ def register_first_wave_manifests(
     """Register every approved first-wave manifest into ``registry``.
 
     Returns the manifests in declaration order (plan Task 3, spec §2), so callers
-    can render them deterministically without re-sorting. Raises ``ValueError``
-    for a blank or duplicate provider id, for a missing Qwen subscription/PAYG
-    pair, and for whatever the registry itself rejects (an already-registered
-    provider id).
+    can render them deterministically without re-sorting.
+
+    Raises ``ValueError`` for an absent registry (``None``), for an empty
+    manifest table, for a missing Qwen subscription/PAYG pair, and for whatever
+    the registry itself rejects (an already-registered provider id).
     """
+    if registry is None:
+        raise ValueError("registry cannot be None")
+
     manifests = _validated_manifests()
     for manifest in manifests:
         registry.register(manifest)

@@ -18,7 +18,10 @@ here rather than left to implementation taste:
 """
 
 import dataclasses
+from collections.abc import Mapping
 from pathlib import Path
+
+import pytest
 
 from kernel.llm import first_wave_providers
 from kernel.llm.first_wave_providers import register_first_wave_manifests
@@ -78,8 +81,6 @@ _SECRET_MARKERS = (
     "token:",
 )
 
-_CREDENTIAL_FIELD_NAMES = frozenset({"api_key", "token", "secret", "password"})
-
 # Kira's manifest is pinned empty on purpose (plan Task 3 Step 3) and is the
 # negative control for the secret scan: it has no model-id-shaped field, so
 # deleting the scan call must still fail it. NVIDIA is excluded because its
@@ -99,9 +100,158 @@ _SECRET_SHAPED_FOLDING = "pa\u00dfword"
 _FILLER = "kimi-k3-approved"
 
 
+# Test-only stand-in carrying a credential field name. The real
+# ``ProviderManifest`` has no field named ``api_key`` (that is the point of the
+# assertion below), so the only way to prove ``_leaked_fields`` reports a
+# credential *field name* — rather than merely matching secret-shaped values —
+# is to hand it a dataclass that does. Declared at module scope so the positive
+# control in ``test_credential_and_keychain_reference_guard_has_no_vacuous_pass``
+# exercises the same field-name branch the live manifests must never trigger.
+@dataclasses.dataclass(frozen=True)
+class _CredentialFieldProbe:
+    """Dataclass with an ``api_key`` field, used only as a positive control."""
+
+    provider_id: str = "probe"
+    # Deliberately mundane: no marker in _SECRET_MARKERS appears here, so this
+    # value can only be reported by the field-*name* branch of _leaked_fields.
+    api_key: str = "opaque-value-with-no-marker"
+
+
 def _manifests() -> tuple[_ProviderManifest, ...]:
     """Return the first-wave manifests exactly as the registration returns them."""
     return register_first_wave_manifests(ProviderManifestRegistry())
+
+
+def _replacement_manifest(**overrides: object) -> _ProviderManifest:
+    """Build a valid manifest for guard tests, keyed by ``provider_id``.
+
+    Returned manifests satisfy the validator by construction, so a guard test
+    can isolate the table-level invariant it is pinning instead of accidentally
+    tripping ``ProviderManifest.__post_init__``.
+    """
+    fields: dict[str, object] = {
+        "provider_id": "probe",
+        "display_name": "Probe",
+        "billing_class": BillingClass.API,
+        "default_base_url": "https://probe.example/v1",
+        "auth_scheme": FIRST_WAVE_AUTH_SCHEME,
+    }
+    fields.update(overrides)
+    return _ProviderManifest(**fields)  # type: ignore[arg-type]
+
+
+def test_guard_rejects_an_empty_first_wave_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the emptiness guard: an emptied table must raise, not silently pass."""
+    monkeypatch.setattr(first_wave_providers, "_FIRST_WAVE_MANIFESTS", ())
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        first_wave_providers._validated_manifests()
+
+    # And the guard is on the registration path, not merely private helper code.
+    with pytest.raises(ValueError, match="cannot be empty"):
+        register_first_wave_manifests(ProviderManifestRegistry())
+
+
+def test_guard_rejects_a_missing_qwen_token_plan_separation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the separation guard for the qwen-token-plan half (spec §13)."""
+    table = tuple(
+        manifest
+        for manifest in first_wave_providers._FIRST_WAVE_MANIFESTS
+        if manifest.provider_id != "qwen-token-plan"
+    )
+    assert len(table) == 7
+    monkeypatch.setattr(first_wave_providers, "_FIRST_WAVE_MANIFESTS", table)
+
+    with pytest.raises(ValueError) as excinfo:
+        first_wave_providers._validated_manifests()
+
+    message = str(excinfo.value)
+    assert "qwen-token-plan" in message
+    assert "qwen-cloud" in message
+    assert "separate providers" in message
+
+
+def test_guard_rejects_a_missing_qwen_cloud_separation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the same guard for the qwen-cloud half — one branch, both directions."""
+    table = tuple(
+        manifest
+        for manifest in first_wave_providers._FIRST_WAVE_MANIFESTS
+        if manifest.provider_id != "qwen-cloud"
+    )
+    assert len(table) == 7
+    monkeypatch.setattr(first_wave_providers, "_FIRST_WAVE_MANIFESTS", table)
+
+    with pytest.raises(ValueError, match="separate providers"):
+        first_wave_providers._validated_manifests()
+
+
+def test_guard_rejects_a_collapsed_qwen_subscription_and_payg_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the separation guard against the collapse it exists to prevent.
+
+    Replacing qwen-cloud with a second qwen-token-plan manifest keeps the table
+    8-long and well-formed, so only the separation guard can reject it: the two
+    Qwen surfaces must not collapse into one provider id (spec §13).
+    """
+    collapsed = tuple(
+        _replacement_manifest(
+            provider_id="qwen-token-plan",
+            display_name="Qwen Token Plan (collapsed)",
+        )
+        if manifest.provider_id == "qwen-cloud"
+        else manifest
+        for manifest in first_wave_providers._FIRST_WAVE_MANIFESTS
+    )
+    monkeypatch.setattr(first_wave_providers, "_FIRST_WAVE_MANIFESTS", collapsed)
+
+    with pytest.raises(ValueError, match="separate providers"):
+        register_first_wave_manifests(ProviderManifestRegistry())
+
+
+def test_registration_rejects_a_none_registry() -> None:
+    """Pin the None-registry guard the docstring promises (not AttributeError)."""
+    with pytest.raises(ValueError, match="registry cannot be None"):
+        register_first_wave_manifests(None)  # type: ignore[arg-type]
+
+
+def test_registration_forwards_the_registry_duplicate_rejection() -> None:
+    """A duplicate provider id is rejected by the registry, not re-checked here."""
+    registry = ProviderManifestRegistry()
+    register_first_wave_manifests(registry)
+
+    with pytest.raises(ValueError, match="duplicate provider_id"):
+        register_first_wave_manifests(registry)
+
+
+def test_blank_provider_id_is_rejected_by_the_manifest_boundary() -> None:
+    """Document *where* a blank id is caught: the manifest, not the table guard.
+
+    The module deliberately carries no blank-id branch because this boundary
+    check makes it unreachable; this test pins that the boundary is what fires.
+    """
+    with pytest.raises(ValueError, match="cannot be empty"):
+        _replacement_manifest(provider_id="   ")
+
+
+def test_guard_module_has_no_unreachable_provider_id_branches() -> None:
+    """Pin the deletion of the unreachable blank/duplicate branches.
+
+    Both conditions are already impossible past ``ProviderManifest`` and
+    ``ProviderManifestRegistry.register``, so a re-check in the module would be
+    dead code. This asserts the module source carries neither message; if a
+    future edit re-adds a branch, it must come back with a test that can reach it.
+    """
+    source = Path(str(first_wave_providers.__file__)).read_text(encoding="utf-8")
+
+    assert "duplicate provider_id in first-wave manifests" not in source
+    assert "cannot be empty" in source  # the emptiness guard is still there
 
 
 def _by_id() -> dict[str, _ProviderManifest]:
@@ -182,6 +332,83 @@ def test_kira_base_url_is_the_pinned_endpoint() -> None:
     # Source-level pin: the declared constant must also be canonical, so the
     # normalization is never load-bearing for the Kira endpoint.
     assert first_wave_providers.KIRA_BASE_URL == _KIRA_BASE_URL
+
+
+def test_commandcode_base_url_is_the_documented_provider_root() -> None:
+    """Pin CommandCode's researched endpoint (docs + live probe, not guesswork).
+
+    The provider's documented OpenAI-compatible root is ``/provider/v1``: the
+    docs page lists ``.../provider/v1/chat/completions``, ``/messages`` and
+    ``/models``, and a live probe returned HTTP 200 with a model list for
+    ``.../provider/v1/models`` while ``.../v1/models`` returned HTTP 404 ("not a
+    registered API route"). The shorter ``/v1`` spelling would have 404'd every
+    discovery call, so this value is asserted literally rather than derived.
+    """
+    expected = "https://api.commandcode.ai/provider/v1"
+    commandcode = _by_id()["commandcode"]
+
+    assert commandcode.default_base_url == expected
+    assert first_wave_providers.COMMANDCODE_BASE_URL == expected
+
+    # Regression pin: the previously declared /v1 root is a dead route.
+    assert first_wave_providers.COMMANDCODE_BASE_URL != "https://api.commandcode.ai/v1"
+
+
+def test_every_declared_base_url_is_pinned_and_provenance_documented() -> None:
+    """Every base-URL constant is asserted literally and carries its provenance.
+
+    A URL that moves upstream is a data change, so each constant is pinned by
+    value here and the module documents which values were researched
+    (provider-documented / probe-verified) versus spec-pinned (Kira). This keeps
+    a silent endpoint edit from passing review.
+    """
+    expected_urls = {
+        "QWEN_TOKEN_PLAN_BASE_URL": (
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        ),
+        "COMMANDCODE_BASE_URL": "https://api.commandcode.ai/provider/v1",
+        "QWEN_CLOUD_BASE_URL": (
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        ),
+        "DEEPSEEK_BASE_URL": "https://api.deepseek.com/v1",
+        "KIRA_BASE_URL": "https://kiraai.vn/api/v1",
+        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
+        "OPENCODE_ZEN_BASE_URL": "https://opencode.ai/zen/v1",
+        "NVIDIA_NIM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+    }
+
+    assert set(expected_urls) == {
+        name for name in vars(first_wave_providers) if name.endswith("_BASE_URL")
+    }
+    for name, expected in expected_urls.items():
+        actual = getattr(first_wave_providers, name)
+        assert actual == expected, name
+        # Canonical: lowercase scheme, no trailing slash, so the validator's
+        # normalization is never load-bearing for a declared constant.
+        assert actual == actual.lower(), name
+        assert not actual.endswith("/"), name
+
+    # Each manifest wires the constant it is supposed to.
+    for provider_id, name in {
+        "qwen-token-plan": "QWEN_TOKEN_PLAN_BASE_URL",
+        "commandcode": "COMMANDCODE_BASE_URL",
+        "qwen-cloud": "QWEN_CLOUD_BASE_URL",
+        "deepseek": "DEEPSEEK_BASE_URL",
+        "kira": "KIRA_BASE_URL",
+        "openrouter": "OPENROUTER_BASE_URL",
+        "opencode-zen": "OPENCODE_ZEN_BASE_URL",
+        "nvidia-nim": "NVIDIA_NIM_BASE_URL",
+    }.items():
+        assert _by_id()[provider_id].default_base_url == getattr(
+            first_wave_providers, name
+        ), provider_id
+
+    # Provenance is recorded in the module, per the review finding: the three
+    # classes must be named so a reader can tell researched values from pinned.
+    source = Path(str(first_wave_providers.__file__)).read_text(encoding="utf-8")
+    assert "spec-pinned" in source
+    assert "provider-documented" in source
+    assert "externally-verified-via-probe" in source
 
 
 def test_kira_manifest_hardcodes_no_model_ids() -> None:
@@ -283,6 +510,23 @@ def test_credential_and_keychain_reference_guard_has_no_vacuous_pass() -> None:
             == ()
         ), provider_id
     assert _secret_shaped("keychain://cmm/providers/deepseek/" + _FILLER) is False
+
+    # Control 5: the field-name branch is real. The intersection assertion in
+    # the sibling test is vacuous over a fixed 8-field constructor — it can only
+    # ever be empty — so the branch is proved here on a synthetic dataclass whose
+    # value is deliberately NOT secret-shaped: the only reason it is reported is
+    # its field name. Deleting the ``_CREDENTIAL_FIELD_NAMES`` branch makes this
+    # control return () and fail.
+    probe = _CredentialFieldProbe()
+    assert _secret_shaped(probe.api_key) is False
+    assert _leaked_fields(probe) == (("api_key", probe.api_key),)
+    assert _leaked_provider_ids({"probe": probe}) == ("probe",)
+    # And the live manifests must not look like the probe.
+    assert not _CREDENTIAL_FIELD_NAMES.intersection(
+        field.name
+        for manifest in manifests.values()
+        for field in dataclasses.fields(manifest)
+    )
 
 
 def test_manifests_carry_only_plain_declarative_field_values() -> None:
@@ -399,10 +643,14 @@ def _secret_shaped(value: object) -> bool:
     return any(marker in text or marker in folded for marker in _SECRET_MARKERS)
 
 
-def _leaked_fields(manifest: _ProviderManifest) -> tuple[tuple[str, str], ...]:
-    """Return (field name, field value) pairs whose values are secret-shaped."""
+def _leaked_fields(manifest: object) -> tuple[tuple[str, str], ...]:
+    """Return (field name, field value) pairs whose values are secret-shaped.
+
+    Takes ``object`` rather than ``ProviderManifest`` so the positive control
+    can pass a synthetic dataclass that carries a credential *field name*.
+    """
     leaked: list[tuple[str, str]] = []
-    for field in dataclasses.fields(manifest):
+    for field in dataclasses.fields(manifest):  # type: ignore[arg-type]
         value = getattr(manifest, field.name)
         if field.name in _CREDENTIAL_FIELD_NAMES:
             leaked.append((field.name, str(value)))
@@ -414,9 +662,13 @@ def _leaked_fields(manifest: _ProviderManifest) -> tuple[tuple[str, str], ...]:
 
 
 def _leaked_provider_ids(
-    manifests: dict[str, _ProviderManifest],
+    manifests: Mapping[str, object],
 ) -> tuple[str, ...]:
-    """Return the provider ids whose manifests carry credential-shaped data."""
+    """Return the provider ids whose manifests carry credential-shaped data.
+
+    Typed for any dataclass-bearing mapping so the positive control can pass a
+    synthetic credential-field probe alongside the real manifests.
+    """
     return tuple(
         sorted(
             provider_id
