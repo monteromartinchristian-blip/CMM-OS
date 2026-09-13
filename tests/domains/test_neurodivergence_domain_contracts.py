@@ -645,6 +645,40 @@ def test_malformed_canonical_clinical_status_never_confirms(malformed_record):
 
 
 @pytest.mark.parametrize(
+    "provenance",
+    (
+        None,
+        {},
+        {"source_type": "not-a-source-kind", "source_id": "clinical-record:nd-1"},
+        {"source_type": "uploaded_file", "source_id": ""},
+    ),
+)
+def test_clinical_authority_requires_canonical_provenance(provenance):
+    """Canonical provenance identity is required, not decorative."""
+    rules = _rules()
+    rule = rules["neurodivergence.certainty_state_preservation"]
+
+    record = _canonical_clinical_status_record()
+    record["provenance"] = provenance
+
+    result = rule.evaluate(
+        _context(
+            certainty_transition=_canonical_certainty_request(
+                transfers=(
+                    _canonical_health_authority_transfer(
+                        CANONICAL_CLAIM_ID, value=record
+                    ),
+                )
+            )
+        )
+    )
+
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.metadata["certainty_state"] == "in_evaluation"
+    assert result.metadata["authoritative_evidence"] is False
+
+
+@pytest.mark.parametrize(
     "malformed",
     ("false", "0", 1, 0, [], {}, "yes"),
 )
