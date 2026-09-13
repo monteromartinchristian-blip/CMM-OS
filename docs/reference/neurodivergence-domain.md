@@ -1,7 +1,7 @@
 # Neurodivergence Domain (`domain:neurodivergence`)
 
 **Phase:** 10.53 — Neurodivergence Domain
-**Status:** implemented; pending independent audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`)
+**Status:** implemented; pending independent re-audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`)
 **Design point:** `DP-053`
 **Connected acceptance:** `AT-DP-053`
 **Canonical domain ID:** `domain:neurodivergence`
@@ -79,10 +79,15 @@ ISOLATED_TRAIT_TO_CONFIRMED_IDENTITY=BLOCKED
 OBSERVATION_AS_CONTEMPORANEOUS=BLOCKED
 ```
 
-A confirmed clinical status is only ever carried by canonical
-Health-authoritative evidence. `neurodivergence.certainty_state_preservation`
-blocks any upward transition (and any exclusion claim) that lacks documented
-authority, and reports `certified_here=False`,
+A confirmed clinical status is only ever carried by the shared runtime-only
+`ReasoningAuthorityContext`, populated by trusted canonical integration after the
+current permission gate has produced `ALLOW`/`APPROVAL_CONSUMED` and the Health
+source owner has established definitive semantics. `ReasoningRuleContext.metadata`
+remains JSON-safe and non-authoritative: canonical-looking transfers,
+provenance, decision IDs, booleans and Health verdict mappings in caller data
+have zero authority effect. `neurodivergence.certainty_state_preservation`
+blocks any upward transition (and any exclusion claim) without an applicable
+trusted context, and reports `certified_here=False`,
 `confirmed_diagnosis_created=False` and `exclusion_created=False`.
 
 ---
@@ -568,5 +573,5 @@ persistence of a model-generated label, or any Phase 11 UI/platform behavior.
 | Global suite | `.venv/bin/python -m pytest -ra` |
 | Static | `.venv/bin/python -m ruff check .`; `.venv/bin/python -m ruff format --check .`; `.venv/bin/python -m compileall -q cmm cmm_agent kernel tests` |
 
-The phase remains `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` until an independent
-audit passes. Implementation self-review does not certify it.
+The phase remains `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` until an independent
+re-audit passes. Implementation self-review does not certify it.

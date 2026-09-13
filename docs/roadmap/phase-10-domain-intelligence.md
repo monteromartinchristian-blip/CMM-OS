@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain is implemented and pending independent audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; `DP-053=PASS_REPORTED`; `AT-DP-053=PASS_REPORTED`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`).
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain is implemented and pending independent re-audit (`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; `DP-053=PASS_REPORTED`; `AT-DP-053=PASS_REPORTED`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`).
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -7924,7 +7924,7 @@ independently re-audited and closed after final Re-audit V4 `PASS`
 pre-10.52 packs and two deferred packs remains preserved verbatim as historical
 evidence. After Phase 10.53 the current first-party inventory is
 `FIRST_PARTY_DOMAIN_PACKS=14` with `CURRENT_DEFERRED_DOMAIN_PACKS=0`;
-`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`. Phase 11 remains out of
+`PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`. Phase 11 remains out of
 scope.
 
 ⸻
@@ -8357,7 +8357,7 @@ are revalidated and fail closed.
 
 Phase 10.53 adds `domain:neurodivergence` as the fourteenth first-party Domain
 Pack. The current inventory is `FIRST_PARTY_DOMAIN_PACKS=14` with
-`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_53=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
 with `DP-053=PASS_REPORTED` and `AT-DP-053=PASS_REPORTED`. Exploration is
 permitted (`EXPLORATORY_MODEL_INFERENCE=ALLOWED`,
 `DIFFERENTIAL_REASONING=BALANCED_NOT_ADVERSARIAL`) while promotion fails closed
@@ -8763,11 +8763,16 @@ Phase 10.53 is complete only when:
 * global regression suite passes;
 * independent closure audit passes.
 
-The pack is implemented and awaiting independent audit. Implementation-reported
-state (not an audit conclusion):
+The pack is implemented and awaiting independent re-audit. Its certainty
+promotion path was remediated in the approved V3 redo: clinical authority is now
+carried only by the shared runtime-only `ReasoningAuthorityContext` built from a
+real `DomainPermissionGate` result, so no combination of caller-authored
+metadata can manufacture authority
+(`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`). Implementation-reported state (not
+an audit conclusion):
 
 ```text
-PHASE10_53 = IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_53 = IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-053 = PASS_REPORTED
 AT-DP-053 = PASS_REPORTED
 CLOSURE_ELIGIBLE = UNKNOWN_PENDING_INDEPENDENT_AUDIT
