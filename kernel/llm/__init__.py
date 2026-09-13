@@ -18,6 +18,12 @@ from kernel.llm.model_router import (
     RoutingCandidate,
     RoutingDecision,
 )
+from kernel.llm.model_routes import (
+    CapabilityConfidence,
+    ModelRoute,
+    ModelRouteCatalog,
+    RouteCapabilityState,
+)
 from kernel.llm.model_selection import (
     ModelRequirements,
     PrivacyPolicy,
@@ -30,6 +36,12 @@ from kernel.llm.openai_compatible_provider import OpenAICompatibleProvider
 from kernel.llm.parser import OperationPlanParser
 from kernel.llm.prompt import PromptBuilder
 from kernel.llm.provider import LLMProvider
+from kernel.llm.provider_connections import (
+    BillingClass,
+    ConnectionStatus,
+    ProviderConnection,
+    ProviderConnectionRegistry,
+)
 from kernel.llm.provider_factory import ProviderFactory
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
@@ -39,6 +51,9 @@ __all__ = [
     "OMNIROUTE_DEEPSEEK_V4_FLASH",
     "OMNIROUTE_DEFAULT_BASE_URL",
     "OMNIROUTE_PROVIDER_ID",
+    "BillingClass",
+    "CapabilityConfidence",
+    "ConnectionStatus",
     "LLMError",
     "LLMProvider",
     "LLMRequest",
@@ -47,6 +62,8 @@ __all__ = [
     "ModelCatalog",
     "ModelRankingPolicy",
     "ModelRequirements",
+    "ModelRoute",
+    "ModelRouteCatalog",
     "ModelRouter",
     "ModelSpec",
     "OpenAICompatibleProvider",
@@ -55,12 +72,15 @@ __all__ = [
     "PrivacyPolicy",
     "PromptBuilder",
     "ProviderCapabilities",
+    "ProviderConnection",
+    "ProviderConnectionRegistry",
     "ProviderError",
     "ProviderFactory",
     "ProviderRegistry",
     "ProviderSpec",
     "RankingStrategy",
     "RejectedModel",
+    "RouteCapabilityState",
     "RoutingCandidate",
     "RoutingDecision",
     "find_matching_models",
