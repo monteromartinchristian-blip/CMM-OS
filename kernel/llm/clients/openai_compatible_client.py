@@ -50,7 +50,7 @@ class OpenAICompatibleClient:
 
         try:
             response = client.chat.completions.create(**parameters)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._raise_provider_error(error)
 
         choices = getattr(response, "choices", None)
@@ -139,7 +139,7 @@ class OpenAICompatibleClient:
 
         try:
             return openai.OpenAI(**parameters)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._raise_provider_error(error)
 
     @staticmethod
