@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from kernel.llm.credential_store import (
+    SERVICE_NAME,
     CredentialStore,
     InMemoryCredentialStore,
     MacOSKeychainCredentialStore,
@@ -157,6 +158,27 @@ def test_keychain_has_missing_ref_is_false() -> None:
     runner = MagicMock(return_value=_completed(returncode=44))
     store = MacOSKeychainCredentialStore(runner=runner)
     assert store.has(credential_ref("deepseek", "absent")) is False
+
+
+def test_keychain_service_namespace_is_pinned() -> None:
+    assert SERVICE_NAME == "CMM Provider Registry"
+
+
+def test_keychain_put_uses_pinned_service_namespace() -> None:
+    runner = MagicMock(return_value=_completed(0))
+    store = MacOSKeychainCredentialStore(runner=runner)
+    store.put("deepseek", "main", _SECRET)
+    argv = runner.call_args[0][0]
+    assert "-s" in argv
+    assert argv[argv.index("-s") + 1] == SERVICE_NAME == "CMM Provider Registry"
+
+
+def test_keychain_has_unexpected_returncode_raises_without_secret() -> None:
+    runner = MagicMock(return_value=_completed(returncode=36))
+    store = MacOSKeychainCredentialStore(runner=runner)
+    with pytest.raises(RuntimeError) as excinfo:
+        store.has(credential_ref("deepseek", "main"))
+    assert _SECRET not in str(excinfo.value)
 
 
 def test_keychain_has_malformed_ref_is_false() -> None:

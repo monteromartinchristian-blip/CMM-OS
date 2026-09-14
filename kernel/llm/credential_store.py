@@ -124,7 +124,7 @@ def _require_secret(secret: str) -> str:
     return secret
 
 
-Runner = Callable[..., subprocess.CompletedProcess[str]]
+Runner = Callable[..., subprocess.CompletedProcess[bytes]]
 
 
 class MacOSKeychainCredentialStore:
@@ -179,7 +179,11 @@ class MacOSKeychainCredentialStore:
         ]
         logger.debug("keychain has %s", argv)
         completed = self._runner(argv, capture_output=True)
-        return completed.returncode == 0
+        if completed.returncode == 0:
+            return True
+        if completed.returncode == _NOT_FOUND_RETURNCODE:
+            return False
+        raise RuntimeError(f"keychain probe failed for {provider}/{name}")
 
     def delete(self, ref: str) -> None:
         """Delete from the Keychain; not-found (44) is a no-op."""
