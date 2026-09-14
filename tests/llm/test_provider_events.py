@@ -98,7 +98,10 @@ def _candidate() -> ProviderCandidate:
         external_config_present=True,
         external_endpoint_override_present=True,
         risks=(),
-        metadata=(("codex_home", "/Users/someone/.codex"),),
+        metadata=(
+            ("source_home", "/Users/someone/.codex"),
+            ("source_home_kind", "codex_home"),
+        ),
     )
 
 
@@ -232,15 +235,37 @@ def test_event_name_constants_match_contract() -> None:
     )
 
 
-def test_snapshots_are_frozen_and_json_round_trippable() -> None:
+@pytest.mark.parametrize(
+    ("snapshot", "field", "value"),
+    [
+        (connection_snapshot_from_connection(_connection()), "provider_id", "mutated"),
+        (
+            route_snapshot_from_route(_route(), provider_id="qwen-token-plan"),
+            "provider_id",
+            "mutated",
+        ),
+        (
+            build_inventory_snapshot((_connection(),), (_route(),)),
+            "generated_at",
+            "mutated",
+        ),
+    ],
+)
+def test_snapshots_are_frozen(snapshot: object, field: str, value: object) -> None:
+    """Every snapshot type rejects assignment to one of its real fields.
+
+    The mutation targets are fields that actually exist on each snapshot type,
+    so the assertion never depends on the exception behaviour for assigning to
+    a nonexistent slotted attribute (MINOR-01: on some supported interpreters
+    that raises ``TypeError`` instead of ``FrozenInstanceError``).
+    """
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(snapshot, field, value)
+
+
+def test_inventory_snapshot_json_round_trip() -> None:
+    """JSON round-trip is a serialization contract, not an immutability one."""
     inventory = build_inventory_snapshot((_connection(),), (_route(),))
-    for snapshot in (
-        *inventory.connections,
-        *inventory.routes,
-        inventory,
-    ):
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            snapshot.provider_id = "mutated"  # type: ignore[misc]
     restored = ProviderInventorySnapshot.from_dict(
         json.loads(json.dumps(inventory.to_dict()))
     )
