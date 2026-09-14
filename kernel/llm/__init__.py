@@ -1,6 +1,13 @@
 """Public LLM contracts for provider-independent multimodel execution."""
 
 from kernel.llm.capabilities import ModelCapabilities, ProviderCapabilities
+from kernel.llm.credential_store import (
+    SERVICE_NAME,
+    CredentialStore,
+    InMemoryCredentialStore,
+    MacOSKeychainCredentialStore,
+    credential_ref,
+)
 from kernel.llm.exceptions import LLMError, ParserError, ProviderError
 from kernel.llm.experimental_omniroute import (
     OMNIROUTE_API_KEY_ENV,
@@ -42,11 +49,24 @@ from kernel.llm.openai_compatible_provider import OpenAICompatibleProvider
 from kernel.llm.parser import OperationPlanParser
 from kernel.llm.prompt import PromptBuilder
 from kernel.llm.provider import LLMProvider
+from kernel.llm.provider_candidates import CandidateRisk, ProviderCandidate
 from kernel.llm.provider_connections import (
     BillingClass,
     ConnectionStatus,
     ProviderConnection,
     ProviderConnectionRegistry,
+)
+from kernel.llm.provider_detectors import (
+    AntigravityDetector,
+    ClaudeCodeDetector,
+    CodexDetector,
+    DetectorFailure,
+    EnvironmentApiCredentialDetector,
+    ProviderDetector,
+    QwenTokenPlanDetector,
+    default_approved_detectors,
+    default_environment_detectors,
+    detect_all,
 )
 from kernel.llm.provider_factory import ProviderFactory
 from kernel.llm.provider_manifests import (
@@ -55,9 +75,24 @@ from kernel.llm.provider_manifests import (
     ProviderManifest,
     ProviderManifestRegistry,
 )
+from kernel.llm.provider_onboarding import (
+    ConnectionProposal,
+    ProviderOnboardingService,
+)
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+from kernel.llm.subscription_profiles import (
+    ANTIGRAVITY_PAYG_STRIP_ENV,
+    CLAUDE_PAYG_STRIP_ENV,
+    CodexAuthRequiredError,
+    CodexProfileOutcome,
+    SubscriptionProfileDescriptor,
+    SubscriptionProfileManager,
+    create_codex_profile,
+)
 
 __all__ = [
+    "ANTIGRAVITY_PAYG_STRIP_ENV",
+    "CLAUDE_PAYG_STRIP_ENV",
     "FIRST_WAVE_AUTH_SCHEME",
     "KNOWN_API_STYLES",
     "OMNIROUTE_API_KEY_ENV",
@@ -65,14 +100,27 @@ __all__ = [
     "OMNIROUTE_DEEPSEEK_V4_FLASH",
     "OMNIROUTE_DEFAULT_BASE_URL",
     "OMNIROUTE_PROVIDER_ID",
+    "SERVICE_NAME",
+    "AntigravityDetector",
     "BillingClass",
+    "CandidateRisk",
     "CapabilityConfidence",
+    "ClaudeCodeDetector",
+    "CodexAuthRequiredError",
+    "CodexDetector",
+    "CodexProfileOutcome",
+    "ConnectionProposal",
     "ConnectionStatus",
+    "CredentialStore",
+    "DetectorFailure",
     "DiscoverableModelClient",
+    "EnvironmentApiCredentialDetector",
+    "InMemoryCredentialStore",
     "LLMError",
     "LLMProvider",
     "LLMRequest",
     "LLMResponse",
+    "MacOSKeychainCredentialStore",
     "ModelCapabilities",
     "ModelCatalog",
     "ModelDiscoveryResult",
@@ -87,20 +135,31 @@ __all__ = [
     "ParserError",
     "PrivacyPolicy",
     "PromptBuilder",
+    "ProviderCandidate",
     "ProviderCapabilities",
     "ProviderConnection",
     "ProviderConnectionRegistry",
+    "ProviderDetector",
     "ProviderError",
     "ProviderFactory",
     "ProviderManifest",
     "ProviderManifestRegistry",
+    "ProviderOnboardingService",
     "ProviderRegistry",
     "ProviderSpec",
+    "QwenTokenPlanDetector",
     "RankingStrategy",
     "RejectedModel",
     "RouteCapabilityState",
     "RoutingCandidate",
     "RoutingDecision",
+    "SubscriptionProfileDescriptor",
+    "SubscriptionProfileManager",
+    "create_codex_profile",
+    "credential_ref",
+    "default_approved_detectors",
+    "default_environment_detectors",
+    "detect_all",
     "discover_models",
     "find_matching_models",
     "model_matches_requirements",
