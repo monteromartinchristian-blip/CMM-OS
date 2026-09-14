@@ -10,15 +10,37 @@ import dataclasses
 
 import pytest
 
+from kernel.llm.exceptions import ProviderError
 from kernel.llm.provider_connections import BillingClass
 from kernel.llm.provider_manifests import (
     FIRST_WAVE_AUTH_SCHEME,
     ProviderManifest,
     ProviderManifestRegistry,
 )
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 # Field names that would mean a manifest persists credential material.
 _FORBIDDEN_FIELD_NAMES = ("api_key", "token", "secret")
+
+
+def _spec(provider_id: str) -> ProviderSpec:
+    """Build a canonical provider definition for a manifest-authority test."""
+    return ProviderSpec(
+        id=provider_id,
+        provider_type="remote",
+        api_style="chat_completions",
+        base_url="https://example.invalid/v1",
+    )
+
+
+def _bound_registry(
+    *provider_ids: str,
+) -> tuple[ProviderRegistry, ProviderManifestRegistry]:
+    """Bind a manifest registry to a canonical registry holding these ids."""
+    providers = ProviderRegistry()
+    for provider_id in provider_ids:
+        providers.register(_spec(provider_id))
+    return providers, ProviderManifestRegistry(providers)
 
 
 def _manifest(
@@ -299,7 +321,7 @@ def test_manifest_has_no_credential_field() -> None:
 
 
 def test_registry_rejects_duplicate_provider_id() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry("deepseek")
     registry.register(_manifest())
     duplicate = _manifest(display_name="DeepSeek Duplicate")
 
@@ -308,7 +330,7 @@ def test_registry_rejects_duplicate_provider_id() -> None:
 
 
 def test_registry_rejects_duplicate_across_normalization() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry("deepseek")
     registry.register(_manifest(provider_id="DeepSeek"))
 
     with pytest.raises(ValueError, match="duplicate provider_id: deepseek"):
@@ -316,7 +338,7 @@ def test_registry_rejects_duplicate_across_normalization() -> None:
 
 
 def test_registry_get_normalizes_and_returns_none_for_misses() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry("deepseek")
     registered = registry.register(_manifest(provider_id="  DeepSeek  "))
 
     assert registry.get("deepseek") is registered
@@ -327,7 +349,7 @@ def test_registry_get_normalizes_and_returns_none_for_misses() -> None:
 
 
 def test_registry_list_is_sorted_by_provider_id() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry("openrouter", "commandcode", "deepseek")
     for provider_id in ["openrouter", "commandcode", "deepseek"]:
         registry.register(_manifest(provider_id=provider_id, display_name=provider_id))
 
@@ -338,8 +360,48 @@ def test_registry_list_is_sorted_by_provider_id() -> None:
     ]
 
 
+def test_manifest_registry_requires_canonical_provider() -> None:
+    """A manifest alone cannot create provider authority (MAJOR-01)."""
+    providers = ProviderRegistry()
+    manifests = ProviderManifestRegistry(providers)
+    manifest = _manifest()
+
+    with pytest.raises(ProviderError, match="Unknown registered provider"):
+        manifests.register(manifest)
+
+    assert providers.list() == ()
+    assert manifests.list() == ()
+
+
+def test_manifest_registry_accepts_a_canonical_provider() -> None:
+    """With canonical identity present, the manifest stores bound to it."""
+    providers, manifests = _bound_registry("deepseek")
+
+    registered = manifests.register(_manifest())
+
+    assert registered == _manifest()
+    assert manifests.get("deepseek") == registered
+    assert [spec.id for spec in providers.list()] == ["deepseek"]
+
+
+def test_manifest_registry_binds_and_exposes_its_canonical_registry() -> None:
+    """The bound authority is inspectable so no second inventory can appear."""
+    providers = ProviderRegistry()
+
+    manifests = ProviderManifestRegistry(providers)
+
+    assert manifests.provider_registry is providers
+
+
+@pytest.mark.parametrize("value", [None, object(), "providers"])
+def test_manifest_registry_rejects_a_non_canonical_registry(value: object) -> None:
+    """Only a real ``ProviderRegistry`` may back the metadata catalog."""
+    with pytest.raises(TypeError, match="ProviderRegistry"):
+        ProviderManifestRegistry(value)  # type: ignore[arg-type]
+
+
 def test_registry_list_filters_by_normalized_provider_id() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry("deepseek", "openrouter")
     deepseek = registry.register(_manifest(provider_id="deepseek"))
     other = registry.register(
         _manifest(

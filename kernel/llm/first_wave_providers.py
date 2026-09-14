@@ -49,6 +49,7 @@ from kernel.llm.provider_manifests import (
     ProviderManifest,
     ProviderManifestRegistry,
 )
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 # Documented public OpenAI-compatible endpoints, keyed by provider id. Values
 # are canonical (lowercase scheme, no trailing slash) so the validator's
@@ -178,22 +179,66 @@ def _validated_manifests() -> tuple[ProviderManifest, ...]:
     return _FIRST_WAVE_MANIFESTS
 
 
-def register_first_wave_manifests(
-    registry: ProviderManifestRegistry,
+def provider_spec_from_manifest(manifest: ProviderManifest) -> ProviderSpec:
+    """Project one declarative manifest into a canonical provider definition.
+
+    The projection is deterministic and lossless for the fields the canonical
+    authority owns: identity, provider type, API style and base URL. Manifests
+    stay the source of billing/auth defaults; ``ProviderSpec`` is the source of
+    provider existence, so the bootstrap below registers this spec *first* and
+    only then its bound metadata.
+    """
+    if not isinstance(manifest, ProviderManifest):
+        raise TypeError("manifest must be a ProviderManifest")
+    return ProviderSpec(
+        id=manifest.provider_id,
+        provider_type="remote",
+        api_style=manifest.api_styles[0],
+        base_url=manifest.default_base_url,
+    )
+
+
+def register_first_wave_providers(
+    provider_registry: ProviderRegistry,
+    manifests: ProviderManifestRegistry,
 ) -> tuple[ProviderManifest, ...]:
-    """Register every approved first-wave manifest into ``registry``.
+    """Bootstrap canonical provider identity, then bind its manifest metadata.
+
+    Registration order is the authority order: each declared manifest becomes a
+    ``ProviderSpec`` in ``provider_registry`` and only then a manifest in the
+    provider-bound ``manifests`` catalog, so a first-wave provider can never
+    exist as metadata while being absent from the canonical registry (spec §4.3,
+    MAJOR-01).
 
     Returns the manifests in declaration order (plan Task 3, spec §2), so callers
     can render them deterministically without re-sorting.
 
-    Raises ``ValueError`` for an absent registry (``None``), for an empty
-    manifest table, for a missing Qwen subscription/PAYG pair, and for whatever
-    the registry itself rejects (an already-registered provider id).
+    Raises ``ValueError`` for an absent argument (``None``), for an empty
+    manifest table, and for a missing Qwen subscription/PAYG pair; raises
+    ``ProviderError`` when the canonical registry already holds a provider id.
+    """
+    if provider_registry is None:
+        raise ValueError("provider_registry cannot be None")
+    if manifests is None:
+        raise ValueError("manifests cannot be None")
+
+    declared = _validated_manifests()
+    for manifest in declared:
+        provider_registry.register(provider_spec_from_manifest(manifest))
+        manifests.register(manifest)
+    return declared
+
+
+def register_first_wave_manifests(
+    registry: ProviderManifestRegistry,
+) -> tuple[ProviderManifest, ...]:
+    """Register the first-wave providers through a bound manifest registry.
+
+    Compatibility wrapper that delegates to :func:`register_first_wave_providers`
+    using the canonical registry ``registry`` is bound to, so it cannot create
+    provider identity outside that authority. Returns the manifests in
+    declaration order.
     """
     if registry is None:
         raise ValueError("registry cannot be None")
-
-    manifests = _validated_manifests()
-    for manifest in manifests:
-        registry.register(manifest)
-    return manifests
+    return register_first_wave_providers(registry.provider_registry, registry)

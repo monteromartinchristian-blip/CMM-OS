@@ -17,7 +17,11 @@ from kernel.llm.experimental_omniroute import (
     OMNIROUTE_PROVIDER_ID,
     register_experimental_omniroute,
 )
-from kernel.llm.first_wave_providers import register_first_wave_manifests
+from kernel.llm.first_wave_providers import (
+    provider_spec_from_manifest,
+    register_first_wave_manifests,
+    register_first_wave_providers,
+)
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_discovery import (
     DiscoverableModelClient,
@@ -198,8 +202,10 @@ __all__ = [
     "discover_models",
     "find_matching_models",
     "model_matches_requirements",
+    "provider_spec_from_manifest",
     "register_experimental_omniroute",
     "register_first_wave_manifests",
+    "register_first_wave_providers",
     "route_snapshot_from_route",
     "select_model",
 ]

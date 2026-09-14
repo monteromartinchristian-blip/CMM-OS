@@ -49,7 +49,9 @@ from kernel.llm import (
     default_environment_detectors,
     detect_all,
     discover_models,
+    provider_spec_from_manifest,
     register_first_wave_manifests,
+    register_first_wave_providers,
 )
 from kernel.llm.credential_store import InMemoryCredentialStore as _MemStore
 from kernel.llm.first_wave_providers import (
@@ -65,6 +67,7 @@ from kernel.llm.provider_detectors import (
 from kernel.llm.provider_detectors import detect_all as _detect_all
 from kernel.llm.provider_manifests import ProviderManifestRegistry as _Manifests
 from kernel.llm.provider_onboarding import ProviderOnboardingService as _Onboarding
+from kernel.llm.provider_registry import ProviderRegistry as _Providers
 from kernel.llm.subscription_profiles import SubscriptionProfileManager as _Profiles
 
 REGISTRY_CONTRACTS = {
@@ -84,6 +87,8 @@ DISCOVERY_CONTRACTS = {
     "ProviderManifest": ProviderManifest,
     "ProviderManifestRegistry": ProviderManifestRegistry,
     "register_first_wave_manifests": register_first_wave_manifests,
+    "register_first_wave_providers": register_first_wave_providers,
+    "provider_spec_from_manifest": provider_spec_from_manifest,
     "DiscoverableModelClient": DiscoverableModelClient,
     "ModelDiscoveryResult": ModelDiscoveryResult,
     "discover_models": discover_models,
@@ -241,10 +246,12 @@ def test_detection_and_onboarding_invoke_zero_inference(tmp_path: Path) -> None:
     def _boom(*args: object, **kwargs: object) -> object:
         raise AssertionError("inference path invoked during admin flow")
 
+    providers = _Providers()
     connections = _Connections()
-    manifests = _Manifests()
+    manifests = _Manifests(providers)
     _register_first_wave(manifests)
     service = _Onboarding(
+        providers=providers,
         connections=connections,
         manifests=manifests,
         credentials=_MemStore(),

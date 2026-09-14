@@ -33,6 +33,16 @@ configuration error better caught at the boundary than at request time.
 ``activation_allowlist`` entries are stripped but **not** lowercased: provider
 model ids are case-sensitive (spec §4), so folding case would silently break
 activation matching. ``api_styles`` must contain at least one entry.
+
+Authority rule: a manifest is *metadata*, never provider identity.
+:class:`ProviderManifestRegistry` is bound to the canonical
+:class:`~kernel.llm.provider_registry.ProviderRegistry` at construction and
+every registration first resolves ``manifest.provider_id`` through it, so a
+manifest can never introduce a provider the canonical registry does not hold.
+This registry does not register providers itself: bootstrapping canonical
+identity is the first-wave bootstrap's job
+(:func:`kernel.llm.first_wave_providers.register_first_wave_providers`), which
+registers the ``ProviderSpec`` *before* its bound manifest.
 """
 
 from __future__ import annotations
@@ -41,6 +51,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from kernel.llm.provider_connections import BillingClass
+from kernel.llm.provider_registry import ProviderRegistry
 
 # The only auth scheme first-wave OpenAI-compatible providers use; pinned at
 # construction so transport code never sees an unimplementable scheme.
@@ -185,13 +196,37 @@ class ProviderManifest:
 
 
 class ProviderManifestRegistry:
-    """In-memory catalog of provider manifests, keyed by normalized id."""
+    """Provider-bound metadata catalog; never a second provider inventory.
 
-    def __init__(self) -> None:
+    The catalog is keyed by normalized provider id, but its authority is the
+    canonical :class:`ProviderRegistry` it was constructed with: a manifest
+    whose provider is absent there is rejected with the canonical registry's
+    ``ProviderError``. That makes divergence structurally impossible rather
+    than merely discouraged — there is no API here that can create provider
+    identity, and no synchronization path against a second authority.
+    """
+
+    def __init__(self, provider_registry: ProviderRegistry) -> None:
+        """Bind the catalog to the canonical provider authority."""
+        if not isinstance(provider_registry, ProviderRegistry):
+            raise TypeError("provider_registry must be a ProviderRegistry")
+        self._provider_registry = provider_registry
         self._items: dict[str, ProviderManifest] = {}
 
+    @property
+    def provider_registry(self) -> ProviderRegistry:
+        """Return the canonical authority this metadata catalog is bound to."""
+        return self._provider_registry
+
     def register(self, manifest: ProviderManifest) -> ProviderManifest:
-        """Store ``manifest`` under its normalized id; reject duplicates."""
+        """Store ``manifest`` under its normalized id; reject duplicates.
+
+        The provider must already exist in the bound canonical registry:
+        metadata never creates provider identity (MAJOR-01). Raises the
+        canonical ``ProviderError`` for an unregistered provider and
+        ``ValueError`` for a duplicate manifest.
+        """
+        self._provider_registry.get(manifest.provider_id)
         key = manifest.provider_id
         if key in self._items:
             raise ValueError(f"duplicate provider_id: {key}")

@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from kernel.llm.credential_store import InMemoryCredentialStore
+from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
     DEEPSEEK_BASE_URL,
     register_first_wave_manifests,
@@ -33,6 +35,7 @@ from kernel.llm.provider_onboarding import (
     ConnectionProposal,
     ProviderOnboardingService,
 )
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 _DECOY_URL = "http://127.0.0.1:9999/v1"
@@ -41,14 +44,33 @@ _CODEX_MANIFEST_URL = "https://api.openai.com/v1"
 _SECRET = "sk-deepseek-test-secret-value"
 
 
-def _service(
+@dataclass(frozen=True, slots=True)
+class _Wiring:
+    """Test-only bundle of the canonical components one service is wired to."""
+
+    service: ProviderOnboardingService
+    providers: ProviderRegistry
+    manifests: ProviderManifestRegistry
+    connections: ProviderConnectionRegistry
+    credentials: InMemoryCredentialStore
+
+
+def _wiring(
     tmp_path: Path,
     validator: Callable[[ConnectionProposal], bool] | None = None,
-) -> tuple[ProviderOnboardingService, ProviderConnectionRegistry]:
+) -> _Wiring:
     """Build a service wired to fresh registries and an in-memory store."""
-    connections = ProviderConnectionRegistry()
-    manifests = ProviderManifestRegistry()
+    providers = ProviderRegistry()
+    manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
+    providers.register(
+        ProviderSpec(
+            id="codex",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=_CODEX_MANIFEST_URL,
+        )
+    )
     manifests.register(
         ProviderManifest(
             provider_id="codex",
@@ -58,15 +80,33 @@ def _service(
             auth_scheme=FIRST_WAVE_AUTH_SCHEME,
         )
     )
+    connections = ProviderConnectionRegistry()
+    credentials = InMemoryCredentialStore()
     service = ProviderOnboardingService(
+        providers=providers,
         connections=connections,
         manifests=manifests,
-        credentials=InMemoryCredentialStore(),
+        credentials=credentials,
         profiles=SubscriptionProfileManager(),
         profiles_root=tmp_path / "cmm-profiles",
         validator=validator,
     )
-    return service, connections
+    return _Wiring(
+        service=service,
+        providers=providers,
+        manifests=manifests,
+        connections=connections,
+        credentials=credentials,
+    )
+
+
+def _service(
+    tmp_path: Path,
+    validator: Callable[[ConnectionProposal], bool] | None = None,
+) -> tuple[ProviderOnboardingService, ProviderConnectionRegistry]:
+    """Return the service and its connection registry for legacy assertions."""
+    wired = _wiring(tmp_path, validator)
+    return wired.service, wired.connections
 
 
 def _deepseek_candidate() -> ProviderCandidate:
@@ -230,3 +270,42 @@ def test_failed_validation_is_never_connected(tmp_path: Path) -> None:
         service.propose(_deepseek_candidate()), credential=_SECRET
     )
     assert connection.status != ConnectionStatus.CONNECTED
+
+
+def test_propose_requires_canonical_provider_authority(tmp_path: Path) -> None:
+    """Stale manifest metadata cannot authorize a de-registered provider."""
+    wired = _wiring(tmp_path)
+    wired.providers.remove("deepseek")
+
+    with pytest.raises(ProviderError, match="Unknown registered provider"):
+        wired.service.propose(_deepseek_candidate())
+
+    # The metadata is genuinely still present: only authority was withdrawn.
+    assert wired.manifests.get("deepseek") is not None
+    assert wired.connections.list() == ()
+
+
+def test_propose_rejects_a_candidate_without_metadata(tmp_path: Path) -> None:
+    """Canonical identity without manifest metadata is not onboardable."""
+    wired = _wiring(tmp_path)
+    wired.providers.register(
+        ProviderSpec(
+            id="not-declared",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://not-declared.example/v1",
+        )
+    )
+    candidate = ProviderCandidate(
+        provider_id="not-declared",
+        source="env-credential",
+        detected=True,
+        auth_available=True,
+        external_config_present=False,
+        external_endpoint_override_present=False,
+        risks=(),
+        metadata=(("env_key", "NOT_DECLARED_API_KEY"),),
+    )
+
+    with pytest.raises(ValueError, match="unknown provider: not-declared"):
+        wired.service.propose(candidate)

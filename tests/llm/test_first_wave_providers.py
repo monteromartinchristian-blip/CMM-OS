@@ -24,13 +24,19 @@ from pathlib import Path
 import pytest
 
 from kernel.llm import first_wave_providers
-from kernel.llm.first_wave_providers import register_first_wave_manifests
+from kernel.llm.exceptions import ProviderError
+from kernel.llm.first_wave_providers import (
+    provider_spec_from_manifest,
+    register_first_wave_manifests,
+    register_first_wave_providers,
+)
 from kernel.llm.provider_connections import BillingClass
 from kernel.llm.provider_manifests import (
     FIRST_WAVE_AUTH_SCHEME,
     ProviderManifestRegistry,
 )
 from kernel.llm.provider_manifests import ProviderManifest as _ProviderManifest
+from kernel.llm.provider_registry import ProviderRegistry
 
 # The exact approved first-wave set (plan Task 3 Step 1, spec §2). Declared
 # uppercase-safe because provider ids are normalized to lowercase.
@@ -117,9 +123,16 @@ class _CredentialFieldProbe:
     api_key: str = "opaque-value-with-no-marker"
 
 
+def _bound_registry() -> tuple[ProviderRegistry, ProviderManifestRegistry]:
+    """Return a canonical registry and a manifest catalog bound to it."""
+    providers = ProviderRegistry()
+    return providers, ProviderManifestRegistry(providers)
+
+
 def _manifests() -> tuple[_ProviderManifest, ...]:
     """Return the first-wave manifests exactly as the registration returns them."""
-    return register_first_wave_manifests(ProviderManifestRegistry())
+    _, manifests = _bound_registry()
+    return register_first_wave_manifests(manifests)
 
 
 def _replacement_manifest(**overrides: object) -> _ProviderManifest:
@@ -150,8 +163,9 @@ def test_guard_rejects_an_empty_first_wave_table(
         first_wave_providers._validated_manifests()
 
     # And the guard is on the registration path, not merely private helper code.
+    _, manifests = _bound_registry()
     with pytest.raises(ValueError, match="cannot be empty"):
-        register_first_wave_manifests(ProviderManifestRegistry())
+        register_first_wave_manifests(manifests)
 
 
 def test_guard_rejects_a_missing_qwen_token_plan_separation(
@@ -211,8 +225,9 @@ def test_guard_rejects_a_collapsed_qwen_subscription_and_payg_table(
     )
     monkeypatch.setattr(first_wave_providers, "_FIRST_WAVE_MANIFESTS", collapsed)
 
+    _, manifests = _bound_registry()
     with pytest.raises(ValueError, match="separate providers"):
-        register_first_wave_manifests(ProviderManifestRegistry())
+        register_first_wave_manifests(manifests)
 
 
 def test_registration_rejects_a_none_registry() -> None:
@@ -221,13 +236,72 @@ def test_registration_rejects_a_none_registry() -> None:
         register_first_wave_manifests(None)  # type: ignore[arg-type]
 
 
-def test_registration_forwards_the_registry_duplicate_rejection() -> None:
-    """A duplicate provider id is rejected by the registry, not re-checked here."""
-    registry = ProviderManifestRegistry()
+def test_registration_rejects_a_repeat_bootstrap_without_duplicating() -> None:
+    """A second bootstrap is rejected by the canonical authority, not re-checked.
+
+    Registering the canonical ``ProviderSpec`` first means a repeat bootstrap
+    fails on existing provider identity (``ProviderError``) before any metadata
+    is touched. The intent of the previous assertion is preserved and widened:
+    the second call is rejected *and* neither inventory grows.
+    """
+    providers, registry = _bound_registry()
     register_first_wave_manifests(registry)
 
-    with pytest.raises(ValueError, match="duplicate provider_id"):
+    with pytest.raises(ProviderError, match="already registered"):
         register_first_wave_manifests(registry)
+
+    assert len(providers.list()) == len(REQUIRED_PROVIDER_IDS)
+    assert len(registry.list()) == len(REQUIRED_PROVIDER_IDS)
+
+
+def test_first_wave_bootstrap_registers_provider_identity_canonically() -> None:
+    """First-wave providers exist as canonical ``ProviderSpec`` entries first."""
+    providers, manifests = _bound_registry()
+
+    registered = register_first_wave_providers(providers, manifests)
+
+    assert tuple(spec.id for spec in providers.list()) == tuple(
+        sorted(manifest.provider_id for manifest in registered)
+    )
+    assert {m.provider_id for m in manifests.list()} == {
+        spec.id for spec in providers.list()
+    }
+    assert providers.has("qwen-token-plan")
+    assert providers.has("qwen-cloud")
+    # The two Qwen surfaces are distinct identities, pinned on the registered
+    # data (a literal-to-literal comparison would be constant-folded).
+    qwen_billing = {
+        manifest.provider_id: manifest.billing_class
+        for manifest in registered
+        if manifest.provider_id.startswith("qwen-")
+    }
+    assert set(qwen_billing) == {"qwen-token-plan", "qwen-cloud"}
+    assert qwen_billing["qwen-token-plan"] is BillingClass.SUBSCRIPTION
+    assert qwen_billing["qwen-cloud"] is BillingClass.PAYG
+
+
+def test_register_first_wave_manifests_creates_identity_only_canonically() -> None:
+    """The compatibility entry point cannot create identity off-authority."""
+    providers, manifests = _bound_registry()
+
+    register_first_wave_manifests(manifests)
+
+    assert {spec.id for spec in providers.list()} == set(REQUIRED_PROVIDER_IDS)
+    assert {manifest.provider_id for manifest in manifests.list()} == set(
+        REQUIRED_PROVIDER_IDS
+    )
+
+
+def test_provider_spec_from_manifest_projects_canonical_transport() -> None:
+    """The manifest-to-``ProviderSpec`` projection is deterministic."""
+    manifest = first_wave_providers._FIRST_WAVE_MANIFESTS[0]
+
+    spec = provider_spec_from_manifest(manifest)
+
+    assert spec.id == manifest.provider_id
+    assert spec.provider_type == "remote"
+    assert spec.api_style == manifest.api_styles[0]
+    assert spec.base_url == manifest.default_base_url
 
 
 def test_blank_provider_id_is_rejected_by_the_manifest_boundary() -> None:
@@ -270,7 +344,7 @@ def test_returns_exactly_the_eight_required_provider_ids() -> None:
 
 
 def test_no_extra_provider_appears_in_the_registry() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry()
     register_first_wave_manifests(registry)
 
     assert [manifest.provider_id for manifest in registry.list()] == sorted(
@@ -280,7 +354,7 @@ def test_no_extra_provider_appears_in_the_registry() -> None:
 
 
 def test_registration_registers_every_manifest_and_returns_them_in_order() -> None:
-    registry = ProviderManifestRegistry()
+    _, registry = _bound_registry()
 
     returned = register_first_wave_manifests(registry)
 

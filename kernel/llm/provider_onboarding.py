@@ -8,6 +8,12 @@ persists a secret via the credential store (keeping only the returned ref),
 builds a CMM-owned isolation profile for externally configured providers, and
 registers the resulting :class:`ProviderConnection`.
 
+Authority rule: onboarding resolves the provider through the canonical
+:class:`~kernel.llm.provider_registry.ProviderRegistry` before anything else,
+so neither a candidate nor a leftover manifest can authorize a provider the
+authority does not hold. The manifest (provider-bound metadata) supplies only
+transport/auth/billing defaults.
+
 Endpoint rule: the connection endpoint always comes from the canonical
 manifest, never from candidate metadata, so decoy URLs observed during
 detection can never become the connection target.
@@ -34,6 +40,7 @@ from kernel.llm.provider_connections import (
     ProviderConnectionRegistry,
 )
 from kernel.llm.provider_manifests import ProviderManifestRegistry
+from kernel.llm.provider_registry import ProviderRegistry
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 Validator = Callable[["ConnectionProposal"], bool]
@@ -102,6 +109,7 @@ class ProviderOnboardingService:
     def __init__(
         self,
         *,
+        providers: ProviderRegistry,
         connections: ProviderConnectionRegistry,
         manifests: ProviderManifestRegistry,
         credentials: CredentialStore,
@@ -110,6 +118,8 @@ class ProviderOnboardingService:
         validator: Validator | None = None,
     ) -> None:
         """Wire the service to registries, storage, and an optional validator."""
+        if not isinstance(providers, ProviderRegistry):
+            raise TypeError("providers must be a ProviderRegistry")
         if not isinstance(connections, ProviderConnectionRegistry):
             raise TypeError("connections must be a ProviderConnectionRegistry")
         if not isinstance(manifests, ProviderManifestRegistry):
@@ -118,6 +128,7 @@ class ProviderOnboardingService:
             raise TypeError("profiles must be a SubscriptionProfileManager")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable or None")
+        self._providers = providers
         self._connections = connections
         self._manifests = manifests
         self._credentials = credentials
@@ -128,10 +139,13 @@ class ProviderOnboardingService:
     def propose(self, candidate: ProviderCandidate) -> ConnectionProposal:
         """Resolve the canonical endpoint; register nothing.
 
-        Raises :class:`ValueError` for a provider with no manifest.
+        Raises ``ProviderError`` for a provider absent from the canonical
+        registry (metadata alone never authorizes onboarding) and
+        :class:`ValueError` for a registered provider with no manifest.
         """
         if not isinstance(candidate, ProviderCandidate):
             raise TypeError("candidate must be a ProviderCandidate")
+        self._providers.get(candidate.provider_id)
         manifest = self._manifests.get(candidate.provider_id)
         if manifest is None:
             raise ValueError(f"unknown provider: {candidate.provider_id}")
