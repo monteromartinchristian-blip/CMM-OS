@@ -239,9 +239,7 @@ def test_construction_coerces_string_enum_values() -> None:
 def test_rejects_secret_marker_embedded_in_keychain_ref() -> None:
     with pytest.raises(ValueError, match="plaintext secrets"):
         _connection(
-            credential_ref=(
-                "keychain://cmm/providers/x/main?token=«redacted:sk-…»"
-            )
+            credential_ref=("keychain://cmm/providers/x/main?token=«redacted:sk-…»")
         )
 
 

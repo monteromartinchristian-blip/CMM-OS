@@ -146,12 +146,8 @@ def test_catalog_rejects_alias_collision(catalog: ModelCatalog) -> None:
 def test_catalog_lists_filters_and_removes_models(
     catalog: ModelCatalog,
 ) -> None:
-    catalog.register(
-        ModelSpec(id="zeta", provider_id="test-provider")
-    )
-    catalog.register(
-        ModelSpec(id="alpha", provider_id="test-provider")
-    )
+    catalog.register(ModelSpec(id="zeta", provider_id="test-provider"))
+    catalog.register(ModelSpec(id="alpha", provider_id="test-provider"))
 
     assert [spec.id for spec in catalog.list()] == ["alpha", "zeta"]
     assert catalog.remove("alpha", provider_id="test-provider").id == "alpha"
@@ -161,9 +157,7 @@ def test_catalog_lists_filters_and_removes_models(
 def test_registering_model_route_does_not_mutate_model_catalog(
     catalog: ModelCatalog,
 ) -> None:
-    catalog.register(
-        ModelSpec(id="model-a", provider_id="test-provider")
-    )
+    catalog.register(ModelSpec(id="model-a", provider_id="test-provider"))
     route_catalog = ModelRouteCatalog()
     route_catalog.register(
         ModelRoute(
@@ -194,13 +188,9 @@ def test_model_spec_provider_id_ownership_unchanged_with_route_inventory(
         )
     )
 
-    catalog.register(
-        ModelSpec(id="model-a", provider_id="test-provider")
-    )
+    catalog.register(ModelSpec(id="model-a", provider_id="test-provider"))
     with pytest.raises(ProviderError, match="Unknown registered provider"):
-        catalog.register(
-            ModelSpec(id="model-b", provider_id="missing")
-        )
+        catalog.register(ModelSpec(id="model-b", provider_id="missing"))
 
 
 def test_model_spec_fields_untouched_by_route_types() -> None:

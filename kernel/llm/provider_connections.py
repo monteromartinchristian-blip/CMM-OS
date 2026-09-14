@@ -95,9 +95,7 @@ class ProviderConnection:
             ref = self.credential_ref.strip()
             lowered = ref.lower()
             if any(marker in lowered for marker in _SECRET_MARKERS):
-                raise ValueError(
-                    "credential_ref must not contain plaintext secrets"
-                )
+                raise ValueError("credential_ref must not contain plaintext secrets")
             if not lowered.startswith(ALLOWED_CREDENTIAL_SCHEMES):
                 raise ValueError(
                     "credential_ref must use a secure ref scheme: "
@@ -127,9 +125,7 @@ class ProviderConnectionRegistry:
             return None
         return self._items.get(key)
 
-    def list(
-        self, provider_id: str | None = None
-    ) -> tuple[ProviderConnection, ...]:
+    def list(self, provider_id: str | None = None) -> tuple[ProviderConnection, ...]:
         """Return connections sorted by id, optionally filtered by provider."""
         values = tuple(self._items[key] for key in sorted(self._items))
         if provider_id is None:

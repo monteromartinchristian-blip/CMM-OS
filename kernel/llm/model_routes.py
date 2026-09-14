@@ -91,16 +91,12 @@ class ModelRoute:
         object.__setattr__(
             self,
             "provider_model_id",
-            _normalize_model_id(
-                self.provider_model_id, label="Provider model id"
-            ),
+            _normalize_model_id(self.provider_model_id, label="Provider model id"),
         )
         object.__setattr__(
             self,
             "canonical_model_id",
-            _normalize_model_id(
-                self.canonical_model_id, label="Canonical model id"
-            ),
+            _normalize_model_id(self.canonical_model_id, label="Canonical model id"),
         )
 
 
