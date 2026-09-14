@@ -89,7 +89,7 @@ class OpenAICompatibleClient:
 
         try:
             response = client.models.list()
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._raise_provider_error(error)
 
         data = getattr(response, "data", None)
