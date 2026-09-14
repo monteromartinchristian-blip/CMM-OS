@@ -8,6 +8,12 @@ methods — and their ``metadata`` carries only non-secret evidence pairs
 (paths, source names), never secret values. Only explicit user acceptance
 may promote a candidate into a durable ``ProviderConnection`` (see
 ``kernel.llm.provider_connections``).
+
+Secret guard: the ``_SECRET_MARKERS`` denylist below is best-effort — it
+catches known marker and token shapes but cannot catch every unmarked
+secret. Detectors must therefore never place raw credential material in
+``metadata`` by contract (presence-only: record that auth exists and where
+its evidence lives, never the credential itself).
 """
 
 from __future__ import annotations
@@ -25,8 +31,11 @@ class CandidateRisk(str, Enum):
     UNVERIFIED_COMPATIBILITY = "unverified-compatibility"
 
 
-# Substrings marking a metadata value as secret-shaped; checked against the
-# lowercased value so a secret embedded in a longer string is still caught.
+# Substrings marking a metadata key or value as secret-shaped; checked
+# against the lowercased text so a secret embedded in a longer string is
+# still caught. Covers generic markers plus well-known real token shapes
+# (GitHub, Slack, JWT header prefix); deliberately no entropy heuristics so
+# benign evidence paths (e.g. "~/.codex/auth.json") keep passing.
 _SECRET_MARKERS: tuple[str, ...] = (
     "sk-",
     "sk_",
@@ -36,6 +45,11 @@ _SECRET_MARKERS: tuple[str, ...] = (
     "token=",
     "bearer ",
     "secret",
+    "ghp_",
+    "gho_",
+    "github_pat_",
+    "xox",
+    "eyj",
 )
 
 
@@ -72,7 +86,7 @@ def _normalize_risks(value: tuple[CandidateRisk, ...]) -> tuple[CandidateRisk, .
 def _normalize_metadata(
     value: tuple[tuple[str, str], ...],
 ) -> tuple[tuple[str, str], ...]:
-    """Coerce metadata pairs; reject blanks and secret-shaped values."""
+    """Coerce metadata pairs; reject blanks and secret-shaped keys/values."""
     pairs = [value] if isinstance(value, str) else list(value)
     normalized: list[tuple[str, str]] = []
     for pair in pairs:
@@ -84,7 +98,9 @@ def _normalize_metadata(
             raise TypeError("metadata entries must be (key, value) pairs")
         if not key.strip() or not item.strip():
             raise ValueError("metadata cannot contain empty keys or values")
-        if any(marker in item.lower() for marker in _SECRET_MARKERS):
+        if any(marker in key.lower() for marker in _SECRET_MARKERS) or any(
+            marker in item.lower() for marker in _SECRET_MARKERS
+        ):
             raise ValueError("metadata must not carry secrets")
         normalized.append((key.strip(), item.strip()))
     return tuple(normalized)

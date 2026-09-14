@@ -104,3 +104,27 @@ def test_detect_all_skips_undetected_candidates() -> None:
     candidates = detect_all([_Undetected(), _ValidDetector()])
 
     assert [c.provider_id for c in candidates] == ["deepseek"]
+
+
+def test_detect_all_throwing_hook_does_not_abort_pass() -> None:
+    def _throwing_hook(_failure: DetectorFailure) -> None:
+        raise RuntimeError("hook blew up")
+
+    candidates = detect_all(
+        [_RaisingDetector(), _ValidDetector()], on_error=_throwing_hook
+    )
+
+    assert [c.provider_id for c in candidates] == ["deepseek"]
+
+
+def test_detector_failure_preserves_error_verbatim() -> None:
+    failures: list[DetectorFailure] = []
+
+    candidates = detect_all(
+        [_RaisingDetector(), _ValidDetector()], on_error=failures.append
+    )
+
+    assert [c.provider_id for c in candidates] == ["deepseek"]
+    assert len(failures) == 1
+    assert type(failures[0].error) is RuntimeError
+    assert str(failures[0].error) == "broken source"

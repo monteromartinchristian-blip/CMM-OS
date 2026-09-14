@@ -111,6 +111,34 @@ def test_candidate_metadata_rejects_secret_shaped_values() -> None:
         _candidate(metadata=(("path", "   "),))
 
 
+def test_candidate_metadata_rejects_secret_shaped_keys() -> None:
+    with pytest.raises(ValueError, match="metadata must not carry secrets"):
+        _candidate(metadata=(("api-key-hint", "config present"),))
+    with pytest.raises(ValueError, match="metadata must not carry secrets"):
+        _candidate(metadata=(("ghp_token_ref", "clean value"),))
+
+
+@pytest.mark.parametrize(
+    "token_value",
+    [
+        "ghp_abc123XYZ",
+        "gho_abc123XYZ",
+        "github_pat_abc123XYZ",
+        "xoxb-12345-token",
+        "eyJhbGciOiJIUzI1NiJ9.payload",
+    ],
+)
+def test_candidate_metadata_rejects_known_token_shapes(token_value: str) -> None:
+    with pytest.raises(ValueError, match="metadata must not carry secrets"):
+        _candidate(metadata=(("path", token_value),))
+
+
+def test_candidate_metadata_accepts_benign_evidence_path() -> None:
+    candidate = _candidate(metadata=(("path", "~/.codex/auth.json"),))
+
+    assert candidate.metadata == (("path", "~/.codex/auth.json"),)
+
+
 def test_candidate_risk_includes_external_endpoint_override() -> None:
     assert CandidateRisk.EXTERNAL_ENDPOINT_OVERRIDE.value == (
         "external-endpoint-override"
