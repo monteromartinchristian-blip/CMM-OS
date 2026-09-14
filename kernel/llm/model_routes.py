@@ -151,6 +151,38 @@ class ModelRouteCatalog:
         self._routes[key] = stored
         return stored
 
+    def restore(self, route: ModelRoute) -> ModelRoute:
+        """Insert a persisted route verbatim, keeping its recorded history.
+
+        ``register()`` means "seen now" (it pins ``available=True`` and stamps
+        ``last_seen_at``), so rebuilding a catalog from persistence must not go
+        through it: a restart would rewrite availability and timestamps. This
+        seam stores the route exactly as persisted while enforcing the same
+        referential rule — the connection must already be accepted — and the
+        same aware-timestamp rule. Raises ``ValueError`` for an unknown
+        connection, a duplicate route id or a naive timestamp.
+        """
+        if route.first_seen_at is not None:
+            _ensure_aware(route.first_seen_at, "first_seen_at")
+        if route.last_seen_at is not None:
+            _ensure_aware(route.last_seen_at, "last_seen_at")
+        if self._connections.get(route.connection_id) is None:
+            raise ValueError(f"unknown connection_id: {route.connection_id}")
+        key = route.route_id
+        if key in self._routes:
+            raise ValueError(f"duplicate route_id: {key}")
+        self._routes[key] = route
+        return route
+
+    def list(self) -> tuple[ModelRoute, ...]:
+        """Return every stored route sorted by route id.
+
+        Unavailable routes are included: disappearance is not deletion, so a
+        persistence or inventory consumer must still see the route's identity
+        and history (``MODEL_DISAPPEARANCE_HISTORY_PRESERVED``).
+        """
+        return tuple(self._routes[key] for key in sorted(self._routes))
+
     def get(self, route_id: str) -> ModelRoute | None:
         """Look up by normalized id; unknown or blank ids return ``None``."""
         key = _normalize_lookup_key(route_id)

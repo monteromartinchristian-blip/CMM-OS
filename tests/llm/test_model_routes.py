@@ -577,3 +577,96 @@ def test_filter_accepts_discovered_confidence_when_supported() -> None:
 
     filtered = catalog.filter_required_capabilities(("tools",))
     assert [route.route_id for route in filtered] == ["discovered:model"]
+
+
+# --- persistence seam: full enumeration and verbatim restore ----------------
+
+
+def test_list_returns_every_route_including_unavailable_ones() -> None:
+    """History is enumerable: an unavailable route is still part of the catalog."""
+    catalog = _route_catalog("openai:main")
+    catalog.register(
+        ModelRoute(
+            route_id="openai:b",
+            connection_id="openai:main",
+            provider_model_id="b",
+            canonical_model_id="b",
+        )
+    )
+    catalog.register(
+        ModelRoute(
+            route_id="openai:a",
+            connection_id="openai:main",
+            provider_model_id="a",
+            canonical_model_id="a",
+        )
+    )
+    catalog.mark_unavailable("openai:b")
+
+    assert [route.route_id for route in catalog.list()] == ["openai:a", "openai:b"]
+    assert [route.available for route in catalog.list()] == [True, False]
+
+
+def test_restore_stores_a_route_verbatim_with_its_history() -> None:
+    """Restore keeps availability and timestamps; register() would rewrite them."""
+    catalog = _route_catalog("openai:main")
+    route = ModelRoute(
+        route_id="openai:gpt",
+        connection_id="openai:main",
+        provider_model_id="gpt",
+        canonical_model_id="gpt",
+        available=False,
+        first_seen_at=T0,
+        last_seen_at=T1,
+    )
+
+    restored = catalog.restore(route)
+
+    assert restored == route
+    assert catalog.get("openai:gpt").available is False
+    assert catalog.get("openai:gpt").first_seen_at == T0
+    assert catalog.get("openai:gpt").last_seen_at == T1
+    with pytest.raises(ValueError, match="duplicate route_id"):
+        catalog.restore(route)
+
+
+def test_restore_rejects_an_unknown_connection() -> None:
+    catalog = _route_catalog()
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        catalog.restore(
+            ModelRoute(
+                route_id="ghost:model",
+                connection_id="ghost:main",
+                provider_model_id="model",
+                canonical_model_id="model",
+            )
+        )
+
+    assert catalog.get("ghost:model") is None
+
+
+def test_restore_rejects_naive_timestamps() -> None:
+    catalog = _route_catalog("openai:main")
+    naive = datetime(2026, 9, 13, 10, 0)  # noqa: DTZ001
+
+    with pytest.raises(ValueError, match="first_seen_at must be timezone-aware"):
+        catalog.restore(
+            ModelRoute(
+                route_id="openai:gpt",
+                connection_id="openai:main",
+                provider_model_id="gpt",
+                canonical_model_id="gpt",
+                first_seen_at=naive,
+            )
+        )
+    with pytest.raises(ValueError, match="last_seen_at must be timezone-aware"):
+        catalog.restore(
+            ModelRoute(
+                route_id="openai:gpt",
+                connection_id="openai:main",
+                provider_model_id="gpt",
+                canonical_model_id="gpt",
+                last_seen_at=naive,
+            )
+        )

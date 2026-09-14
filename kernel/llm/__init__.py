@@ -113,6 +113,14 @@ from kernel.llm.provider_state import (
     ProviderStateSchemaError,
     ProviderStateSerializationError,
 )
+from kernel.llm.provider_state_repository import (
+    FileProviderRegistryStateRepository,
+    InMemoryProviderRegistryStateRepository,
+    ProviderRegistryStateRepository,
+    RestoredProviderRegistryState,
+    capture_provider_registry_state,
+    restore_provider_registry_state,
+)
 from kernel.llm.subscription_profiles import (
     ANTIGRAVITY_PAYG_STRIP_ENV,
     CLAUDE_PAYG_STRIP_ENV,
@@ -158,7 +166,9 @@ __all__ = [
     "DetectorFailure",
     "DiscoverableModelClient",
     "EnvironmentApiCredentialDetector",
+    "FileProviderRegistryStateRepository",
     "InMemoryCredentialStore",
+    "InMemoryProviderRegistryStateRepository",
     "LLMError",
     "LLMProvider",
     "LLMRequest",
@@ -194,6 +204,7 @@ __all__ = [
     "ProviderRegistry",
     "ProviderRegistryAuditRecord",
     "ProviderRegistryState",
+    "ProviderRegistryStateRepository",
     "ProviderSpec",
     "ProviderStateError",
     "ProviderStateSchemaError",
@@ -201,6 +212,7 @@ __all__ = [
     "QwenTokenPlanDetector",
     "RankingStrategy",
     "RejectedModel",
+    "RestoredProviderRegistryState",
     "RouteCapabilitySnapshot",
     "RouteCapabilityState",
     "RoutingCandidate",
@@ -208,6 +220,7 @@ __all__ = [
     "SubscriptionProfileDescriptor",
     "SubscriptionProfileManager",
     "build_inventory_snapshot",
+    "capture_provider_registry_state",
     "connection_snapshot_from_connection",
     "connection_snapshot_from_proposal",
     "create_codex_profile",
@@ -222,6 +235,7 @@ __all__ = [
     "register_experimental_omniroute",
     "register_first_wave_manifests",
     "register_first_wave_providers",
+    "restore_provider_registry_state",
     "route_snapshot_from_route",
     "select_model",
 ]

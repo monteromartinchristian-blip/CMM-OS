@@ -28,7 +28,9 @@ from kernel.llm import (
     DetectorFailure,
     DiscoverableModelClient,
     EnvironmentApiCredentialDetector,
+    FileProviderRegistryStateRepository,
     InMemoryCredentialStore,
+    InMemoryProviderRegistryStateRepository,
     MacOSKeychainCredentialStore,
     ModelDiscoveryResult,
     ModelRoute,
@@ -42,13 +44,16 @@ from kernel.llm import (
     ProviderOnboardingService,
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderRegistryStateRepository,
     ProviderStateError,
     ProviderStateSchemaError,
     ProviderStateSerializationError,
     QwenTokenPlanDetector,
+    RestoredProviderRegistryState,
     RouteCapabilityState,
     SubscriptionProfileDescriptor,
     SubscriptionProfileManager,
+    capture_provider_registry_state,
     create_codex_profile,
     credential_ref,
     default_approved_detectors,
@@ -58,6 +63,7 @@ from kernel.llm import (
     provider_spec_from_manifest,
     register_first_wave_manifests,
     register_first_wave_providers,
+    restore_provider_registry_state,
 )
 from kernel.llm.credential_store import InMemoryCredentialStore as _MemStore
 from kernel.llm.first_wave_providers import (
@@ -161,6 +167,14 @@ STATE_CONTRACTS = {
     "ProviderStateError": ProviderStateError,
     "ProviderStateSchemaError": ProviderStateSchemaError,
     "ProviderStateSerializationError": ProviderStateSerializationError,
+    "FileProviderRegistryStateRepository": FileProviderRegistryStateRepository,
+    "InMemoryProviderRegistryStateRepository": (
+        InMemoryProviderRegistryStateRepository
+    ),
+    "ProviderRegistryStateRepository": ProviderRegistryStateRepository,
+    "RestoredProviderRegistryState": RestoredProviderRegistryState,
+    "capture_provider_registry_state": capture_provider_registry_state,
+    "restore_provider_registry_state": restore_provider_registry_state,
 }
 
 
