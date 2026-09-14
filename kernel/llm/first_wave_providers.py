@@ -32,11 +32,15 @@ account state can never be shared implicitly (spec §13).
 
 Error taxonomy: this module raises :class:`ValueError` for every configuration
 error it detects directly — an empty manifest table, a missing
-Qwen subscription/PAYG pair, an absent registry argument — and forwards the
-``ValueError`` the registry raises for an already-registered provider id,
-mirroring :mod:`kernel.llm.provider_manifests`, whose validator raises
-``ValueError`` for malformed field values. Blank and duplicate provider ids are
-*not* re-checked here: :class:`ProviderManifest` rejects a blank id and
+Qwen subscription/PAYG pair, an absent registry argument — and forwards
+whatever the registries raise: the canonical
+:class:`~kernel.llm.provider_registry.ProviderRegistry` answers a
+repeat bootstrap with :class:`~kernel.llm.exceptions.ProviderError`
+(``"Provider is already registered"``) because identity is registered first,
+and :class:`ProviderManifest`/``ProviderManifestRegistry`` raise
+``ValueError`` for malformed field values and for duplicate manifest
+metadata. Blank and duplicate provider ids are *not* re-checked here:
+:class:`ProviderManifest` rejects a blank id and
 :meth:`ProviderManifestRegistry.register` rejects a duplicate, both at the
 boundary, so re-checking them would be unreachable code.
 """

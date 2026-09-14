@@ -268,6 +268,12 @@ def test_first_wave_bootstrap_registers_provider_identity_canonically() -> None:
     }
     assert providers.has("qwen-token-plan")
     assert providers.has("qwen-cloud")
+    # Transport fidelity: the canonical specs must carry each manifest's own
+    # transport, not merely its id (a wrong base_url would still route traffic).
+    assert [(spec.id, spec.api_style, spec.base_url) for spec in providers.list()] == [
+        (manifest.provider_id, manifest.api_styles[0], manifest.default_base_url)
+        for manifest in sorted(registered, key=lambda item: item.provider_id)
+    ]
     # The two Qwen surfaces are distinct identities, pinned on the registered
     # data (a literal-to-literal comparison would be constant-folded).
     qwen_billing = {
