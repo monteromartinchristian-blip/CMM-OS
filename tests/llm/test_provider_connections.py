@@ -4,12 +4,29 @@ from datetime import datetime, timezone
 
 import pytest
 
+from kernel.llm.exceptions import ProviderError
 from kernel.llm.provider_connections import (
     BillingClass,
     ConnectionStatus,
     ProviderConnection,
     ProviderConnectionRegistry,
 )
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+
+
+def _registry(*provider_ids: str) -> ProviderConnectionRegistry:
+    """Build a connection registry whose providers exist canonically."""
+    providers = ProviderRegistry()
+    for provider_id in provider_ids:
+        providers.register(
+            ProviderSpec(
+                id=provider_id,
+                provider_type="remote",
+                api_style="chat_completions",
+                base_url="https://example.invalid/v1",
+            )
+        )
+    return ProviderConnectionRegistry(providers)
 
 
 def _connection(
@@ -51,8 +68,43 @@ def test_connection_keeps_credential_reference_not_secret() -> None:
     assert not hasattr(connection, "secret")
 
 
+def test_connection_registry_rejects_unknown_provider() -> None:
+    """An accepted connection can never reference an unregistered provider."""
+    providers = ProviderRegistry()
+    connections = ProviderConnectionRegistry(providers)
+    connection = _connection(
+        connection_id="deepseek:main",
+        provider_id="deepseek",
+        display_name="DeepSeek API",
+        billing_class=BillingClass.PAYG,
+    )
+
+    with pytest.raises(ProviderError, match="Unknown registered provider"):
+        connections.register(connection)
+
+    assert connections.list() == ()
+
+
+@pytest.mark.parametrize("value", [None, object(), "providers"])
+def test_connection_registry_rejects_a_non_canonical_registry(
+    value: object,
+) -> None:
+    """Only a real ``ProviderRegistry`` may back the connection catalog."""
+    with pytest.raises(TypeError, match="ProviderRegistry"):
+        ProviderConnectionRegistry(value)  # type: ignore[arg-type]
+
+
+def test_connection_registry_exposes_its_canonical_registry() -> None:
+    """The bound authority is inspectable so no parallel inventory can appear."""
+    providers = ProviderRegistry()
+
+    connections = ProviderConnectionRegistry(providers)
+
+    assert connections.provider_registry is providers
+
+
 def test_registry_rejects_duplicate_connection_id() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("deepseek")
     connection = ProviderConnection(
         connection_id="deepseek:main",
         provider_id="deepseek",
@@ -113,7 +165,7 @@ def test_connection_allows_null_credential_ref_for_subscription_bridges() -> Non
 
 
 def test_registry_round_trips_whitespace_padded_connection_id() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("x")
     registered = registry.register(_connection(connection_id="  Acme:Main  "))
 
     assert registered.connection_id == "acme:main"
@@ -122,7 +174,7 @@ def test_registry_round_trips_whitespace_padded_connection_id() -> None:
 
 
 def test_registry_get_returns_none_for_unknown_or_blank_id() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry()
     assert registry.get("missing:id") is None
     assert registry.get("   ") is None
     assert registry.get("") is None
@@ -134,7 +186,7 @@ def test_construction_rejects_blank_connection_id() -> None:
 
 
 def test_list_is_sorted_and_filters_by_normalized_provider_id() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("beta", "alpha")
     for connection_id, provider_id in [
         ("beta:main", "beta"),
         ("alpha:main", "Alpha"),
@@ -161,7 +213,7 @@ def test_list_is_sorted_and_filters_by_normalized_provider_id() -> None:
 
 
 def test_update_status_applies_status_and_validated_at() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("deepseek")
     registry.register(
         _connection(
             connection_id="  DeepSeek:Main ",
@@ -184,7 +236,7 @@ def test_update_status_applies_status_and_validated_at() -> None:
 
 
 def test_update_status_keeps_previous_validated_at_when_omitted() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("kira")
     first_validated = datetime(2026, 1, 2, tzinfo=timezone.utc)
     registry.register(
         _connection(
@@ -205,7 +257,7 @@ def test_update_status_keeps_previous_validated_at_when_omitted() -> None:
 
 
 def test_update_status_unknown_id_raises_value_error() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry()
     with pytest.raises(ValueError, match="unknown connection_id"):
         registry.update_status("nope:missing", ConnectionStatus.WARNING)
     with pytest.raises(ValueError, match="unknown connection_id"):
@@ -213,7 +265,7 @@ def test_update_status_unknown_id_raises_value_error() -> None:
 
 
 def test_update_status_rejects_non_enum_status() -> None:
-    registry = ProviderConnectionRegistry()
+    registry = _registry("x")
     registry.register(_connection())
     with pytest.raises(ValueError):
         registry.update_status(

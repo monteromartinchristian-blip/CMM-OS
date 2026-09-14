@@ -10,6 +10,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
+from kernel.llm.provider_registry import ProviderRegistry
+
 # Secure-reference scheme allowlist. Interpolated into the error message so
 # code and message cannot drift (review round 1, finding 4).
 ALLOWED_CREDENTIAL_SCHEMES: tuple[str, ...] = ("keychain://",)
@@ -105,13 +107,34 @@ class ProviderConnection:
 
 
 class ProviderConnectionRegistry:
-    """In-memory catalog of accepted connections, keyed by stable id."""
+    """Catalog of accepted connections, referentially bound to providers.
 
-    def __init__(self) -> None:
+    Every connection is validated against the canonical
+    :class:`ProviderRegistry` it was constructed with, *before* any mutation,
+    so a connection can never reference a provider the authority does not
+    hold (spec §4.4). The binding is explicit — there is no default or hidden
+    registry a caller could accidentally create a second inventory with.
+    """
+
+    def __init__(self, provider_registry: ProviderRegistry) -> None:
+        """Bind the connection catalog to the canonical provider authority."""
+        if not isinstance(provider_registry, ProviderRegistry):
+            raise TypeError("provider_registry must be a ProviderRegistry")
+        self._provider_registry = provider_registry
         self._items: dict[str, ProviderConnection] = {}
 
+    @property
+    def provider_registry(self) -> ProviderRegistry:
+        """Return the canonical authority this catalog resolves providers in."""
+        return self._provider_registry
+
     def register(self, connection: ProviderConnection) -> ProviderConnection:
-        """Store ``connection`` under its normalized id; reject duplicates."""
+        """Store ``connection`` under its normalized id; reject duplicates.
+
+        Raises the canonical ``ProviderError`` for an unregistered provider
+        (before any mutation) and ``ValueError`` for a duplicate id.
+        """
+        self._provider_registry.get(connection.provider_id)
         key = connection.connection_id
         if key in self._items:
             raise ValueError(f"duplicate connection_id: {key}")

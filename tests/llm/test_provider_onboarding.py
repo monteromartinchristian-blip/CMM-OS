@@ -80,7 +80,7 @@ def _wiring(
             auth_scheme=FIRST_WAVE_AUTH_SCHEME,
         )
     )
-    connections = ProviderConnectionRegistry()
+    connections = ProviderConnectionRegistry(providers)
     credentials = InMemoryCredentialStore()
     service = ProviderOnboardingService(
         providers=providers,

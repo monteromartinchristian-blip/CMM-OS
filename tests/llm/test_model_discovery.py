@@ -45,8 +45,13 @@ import pytest
 
 from kernel.llm.model_discovery import discover_models
 from kernel.llm.model_routes import ModelRouteCatalog
-from kernel.llm.provider_connections import BillingClass, ProviderConnection
+from kernel.llm.provider_connections import (
+    BillingClass,
+    ProviderConnection,
+    ProviderConnectionRegistry,
+)
 from kernel.llm.provider_manifests import ProviderManifest
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 T0 = datetime(2026, 9, 13, 10, 0, tzinfo=timezone.utc)
 T1 = datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc)
@@ -108,6 +113,24 @@ def _other_connection() -> ProviderConnection:
     )
 
 
+def _catalog(*connections: ProviderConnection) -> ModelRouteCatalog:
+    """Build a route catalog whose connections exist in the canonical chain."""
+    providers = ProviderRegistry()
+    registry = ProviderConnectionRegistry(providers)
+    for connection in connections:
+        if not providers.has(connection.provider_id):
+            providers.register(
+                ProviderSpec(
+                    id=connection.provider_id,
+                    provider_type="remote",
+                    api_style="chat_completions",
+                    base_url=connection.endpoint,
+                )
+            )
+        registry.register(connection)
+    return ModelRouteCatalog(registry)
+
+
 def _manifest(**overrides: object) -> ProviderManifest:
     fields: dict[str, object] = {
         "provider_id": "deepseek",
@@ -121,7 +144,7 @@ def _manifest(**overrides: object) -> ProviderManifest:
 
 
 def test_first_discovery_creates_available_routes_with_exact_ids() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     client = StubClient(("model-a", "model-b"))
 
     result = discover_models(_connection(), _manifest(), client, catalog, seen_at=T0)
@@ -147,7 +170,7 @@ def test_first_discovery_creates_available_routes_with_exact_ids() -> None:
 
 
 def test_second_discovery_keeps_creates_and_marks_unavailable() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     discover_models(
         _connection(),
         _manifest(),
@@ -204,7 +227,7 @@ def test_vanished_route_keeps_prior_pass_timestamp_not_a_later_one() -> None:
     its ``last_seen_at`` must still be T0 — the last pass that advertised it —
     and never T1 or T2.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     discover_models(
         _connection(),
         _manifest(),
@@ -246,7 +269,7 @@ def test_vanished_route_keeps_prior_pass_timestamp_not_a_later_one() -> None:
 
 
 def test_reappearing_model_is_restored_with_original_first_seen_at() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     discover_models(
         _connection(),
         _manifest(),
@@ -295,7 +318,7 @@ def test_empty_discovery_result_marks_nothing_unavailable() -> None:
     disappeared". Reconciliation returns early with empty sets and leaves every
     previously-available route available.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     discover_models(
         _connection(),
         _manifest(),
@@ -323,7 +346,7 @@ def test_empty_discovery_result_marks_nothing_unavailable() -> None:
 
 
 def test_empty_discovery_on_empty_catalog_is_a_no_op() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
 
     result = discover_models(
         _connection(), _manifest(), StubClient(()), catalog, seen_at=T0
@@ -337,7 +360,7 @@ def test_empty_discovery_on_empty_catalog_is_a_no_op() -> None:
 
 
 def test_activation_allowlist_defers_models_outside_the_allowlist() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     manifest = _manifest(activation_allowlist=("model-a",))
 
     result = discover_models(
@@ -377,7 +400,7 @@ def test_activation_allowlist_defers_models_outside_the_allowlist() -> None:
 
 
 def test_allowlisted_model_present_in_allowlist_is_activated() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     manifest = _manifest(activation_allowlist=("model-b", "model-a"))
 
     result = discover_models(
@@ -390,7 +413,7 @@ def test_allowlisted_model_present_in_allowlist_is_activated() -> None:
 
 
 def test_route_id_preserves_slashes_and_punctuation_verbatim() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     provider_model_id = "qwen/qwen3.8-max"
     expected_route_id = f"{CONNECTION_ID}:qwen/qwen3.8-max"
 
@@ -417,7 +440,7 @@ def test_route_id_preserves_slashes_and_punctuation_verbatim() -> None:
 
 
 def test_idempotent_discovery_produces_no_churn() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     models = ("model-a", "model-b")
     discover_models(_connection(), _manifest(), StubClient(models), catalog, seen_at=T0)
 
@@ -468,7 +491,7 @@ def test_restore_of_allowlisted_out_model_is_not_restored() -> None:
     single cause in this module's behaviour: the allowlist. ``first_seen_at``
     still pins the original T0 identity, so no history was lost while deferred.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     manifest = _manifest(activation_allowlist=("model-a",))
 
     discover_models(
@@ -510,7 +533,7 @@ def test_reconcile_of_one_connection_leaves_another_connections_routes_alone() -
     ``unavailable_route_ids``. Without that scoping, one connection's reconcile
     would flip another connection's routing off.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_other_connection(), _connection())
     other_route_id = f"{OTHER_CONNECTION_ID}:model-z"
 
     # Seed the OTHER connection's route through reconciliation itself.
@@ -565,7 +588,7 @@ def test_cross_connection_vanish_scan_ignores_absent_foreign_model_ids() -> None
     discovery entirely, so a prefix-less scan would deactivate it. With the
     prefix rule it stays available.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_other_connection(), _connection())
     other_route_id = f"{OTHER_CONNECTION_ID}:model-z"
     discover_models(
         _other_connection(),
@@ -606,7 +629,7 @@ def test_deferred_first_sight_model_overlaps_new_and_unavailable() -> None:
     directly (set intersection), so the prose can never silently drift from the
     behaviour.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     manifest = _manifest(activation_allowlist=("model-a",))
 
     result = discover_models(
@@ -661,7 +684,7 @@ def test_reappearing_model_is_never_reported_new_or_unavailable() -> None:
     counted in ``restored_route_ids`` and in neither ``new_route_ids`` nor
     ``unavailable_route_ids``.
     """
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     discover_models(
         _connection(),
         _manifest(),
@@ -696,7 +719,7 @@ def test_reappearing_model_is_never_reported_new_or_unavailable() -> None:
 
 
 def test_reconciliation_never_calls_inference_transport() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _catalog(_connection())
     client = ForbiddenStubClient(("model-a",))
 
     with pytest.raises(InferenceForbidden):

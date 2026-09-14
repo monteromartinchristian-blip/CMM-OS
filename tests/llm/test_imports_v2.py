@@ -247,7 +247,7 @@ def test_detection_and_onboarding_invoke_zero_inference(tmp_path: Path) -> None:
         raise AssertionError("inference path invoked during admin flow")
 
     providers = _Providers()
-    connections = _Connections()
+    connections = _Connections(providers)
     manifests = _Manifests(providers)
     _register_first_wave(manifests)
     service = _Onboarding(

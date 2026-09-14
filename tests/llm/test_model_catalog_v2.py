@@ -9,7 +9,41 @@ from kernel.llm.capabilities import ModelCapabilities
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_routes import ModelRoute, ModelRouteCatalog
+from kernel.llm.provider_connections import (
+    BillingClass,
+    ConnectionStatus,
+    ProviderConnection,
+    ProviderConnectionRegistry,
+)
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+
+
+def _route_catalog_for(*provider_ids: str) -> ModelRouteCatalog:
+    """Build a route catalog whose providers/connections exist canonically."""
+    providers = ProviderRegistry()
+    connections = ProviderConnectionRegistry(providers)
+    for provider_id in provider_ids:
+        providers.register(
+            ProviderSpec(
+                id=provider_id,
+                provider_type="remote",
+                api_style="chat_completions",
+                base_url="https://example.test/v1",
+            )
+        )
+        connections.register(
+            ProviderConnection(
+                connection_id=f"{provider_id}:main",
+                provider_id=provider_id,
+                display_name=provider_id,
+                billing_class=BillingClass.API,
+                credential_ref=None,
+                endpoint="https://example.test/v1",
+                isolation_profile_ref=None,
+                status=ConnectionStatus.CONNECTED,
+            )
+        )
+    return ModelRouteCatalog(connections)
 
 
 @pytest.fixture
@@ -158,7 +192,7 @@ def test_registering_model_route_does_not_mutate_model_catalog(
     catalog: ModelCatalog,
 ) -> None:
     catalog.register(ModelSpec(id="model-a", provider_id="test-provider"))
-    route_catalog = ModelRouteCatalog()
+    route_catalog = _route_catalog_for("test-provider")
     route_catalog.register(
         ModelRoute(
             route_id="test-provider:main:model-a",
@@ -178,7 +212,7 @@ def test_registering_model_route_does_not_mutate_model_catalog(
 def test_model_spec_provider_id_ownership_unchanged_with_route_inventory(
     catalog: ModelCatalog,
 ) -> None:
-    route_catalog = ModelRouteCatalog()
+    route_catalog = _route_catalog_for("test-provider", "missing")
     route_catalog.register(
         ModelRoute(
             route_id="missing:model-a",

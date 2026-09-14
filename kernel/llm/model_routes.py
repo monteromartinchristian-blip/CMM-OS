@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 
+from kernel.llm.provider_connections import ProviderConnectionRegistry
+
 
 def _normalize_identity(value: str, *, label: str) -> str:
     """Strip and lowercase a case-insensitive id; reject blank values."""
@@ -101,10 +103,27 @@ class ModelRoute:
 
 
 class ModelRouteCatalog:
-    """In-memory route catalog keyed by normalized route id."""
+    """Route catalog keyed by normalized route id, bound to connections.
 
-    def __init__(self) -> None:
+    A route is the durable pairing of one connection with one provider model
+    id, so it must resolve that connection through the bound
+    :class:`~kernel.llm.provider_connections.ProviderConnectionRegistry`
+    before any mutation (spec §4.4). Provider identity is never inferred from
+    the route id: the connection is the only authority on which provider a
+    route belongs to.
+    """
+
+    def __init__(self, connections: ProviderConnectionRegistry) -> None:
+        """Bind the route catalog to the accepted-connection catalog."""
+        if not isinstance(connections, ProviderConnectionRegistry):
+            raise TypeError("connections must be a ProviderConnectionRegistry")
+        self._connections = connections
         self._routes: dict[str, ModelRoute] = {}
+
+    @property
+    def connections(self) -> ProviderConnectionRegistry:
+        """Return the connection catalog routes resolve against."""
+        return self._connections
 
     def register(self, route: ModelRoute) -> ModelRoute:
         """Record ``route`` as seen now, rejecting an existing route id.
@@ -112,10 +131,13 @@ class ModelRouteCatalog:
         ``register()`` means "seen now", so it pins ``available=True`` even
         when the caller passes ``available=False``, stamps ``last_seen_at``,
         and keeps a caller-provided ``first_seen_at`` (defaulting it to now).
-        Raises ``ValueError`` for a duplicate id or a naive ``first_seen_at``.
+        Raises ``ValueError`` for a duplicate id, a naive ``first_seen_at``,
+        or a route whose ``connection_id`` was never accepted.
         """
         if route.first_seen_at is not None:
             _ensure_aware(route.first_seen_at, "first_seen_at")
+        if self._connections.get(route.connection_id) is None:
+            raise ValueError(f"unknown connection_id: {route.connection_id}")
         now = datetime.now(timezone.utc)
         stored = replace(
             route,

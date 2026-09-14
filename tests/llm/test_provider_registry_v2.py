@@ -119,8 +119,8 @@ def test_registry_lists_and_removes_providers() -> None:
 
 def test_provider_spec_duplicate_rules_unchanged_with_new_inventory() -> None:
     registry = ProviderRegistry()
-    connection_registry = ProviderConnectionRegistry()
-    route_catalog = ModelRouteCatalog()
+    connection_registry = ProviderConnectionRegistry(registry)
+    route_catalog = ModelRouteCatalog(connection_registry)
 
     registry.register(make_remote_provider())
     connection_registry.register(make_connection("test:main", "test"))
@@ -141,7 +141,7 @@ def test_provider_spec_duplicate_rules_unchanged_with_new_inventory() -> None:
 
 def test_registering_provider_connection_does_not_mutate_provider_registry() -> None:
     registry = ProviderRegistry()
-    connection_registry = ProviderConnectionRegistry()
+    connection_registry = ProviderConnectionRegistry(registry)
 
     registered = registry.register(make_remote_provider("qwen-token-plan"))
     connection_registry.register(

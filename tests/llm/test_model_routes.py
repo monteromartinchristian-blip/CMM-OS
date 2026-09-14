@@ -8,13 +8,77 @@ from kernel.llm.model_routes import (
     ModelRouteCatalog,
     RouteCapabilityState,
 )
+from kernel.llm.provider_connections import (
+    BillingClass,
+    ConnectionStatus,
+    ProviderConnection,
+    ProviderConnectionRegistry,
+)
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 T0 = datetime(2026, 9, 13, 10, 0, tzinfo=timezone.utc)
 T1 = datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc)
 
 
+def _route_catalog(*connection_ids: str) -> ModelRouteCatalog:
+    """Build a route catalog whose connections exist in the canonical chain."""
+    providers = ProviderRegistry()
+    connections = ProviderConnectionRegistry(providers)
+    for connection_id in connection_ids:
+        provider_id = connection_id.split(":", 1)[0]
+        if not providers.has(provider_id):
+            providers.register(
+                ProviderSpec(
+                    id=provider_id,
+                    provider_type="remote",
+                    api_style="chat_completions",
+                    base_url="https://example.invalid/v1",
+                )
+            )
+        connections.register(
+            ProviderConnection(
+                connection_id=connection_id,
+                provider_id=provider_id,
+                display_name=connection_id.strip(),
+                billing_class=BillingClass.API,
+                credential_ref=None,
+                endpoint="https://example.invalid/v1",
+                isolation_profile_ref=None,
+                status=ConnectionStatus.CONNECTED,
+            )
+        )
+    return ModelRouteCatalog(connections)
+
+
+def test_route_catalog_rejects_unknown_connection() -> None:
+    """A route cannot reference a connection that was never accepted."""
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://api.deepseek.com/v1",
+        )
+    )
+    connections = ProviderConnectionRegistry(providers)
+    routes = ModelRouteCatalog(connections)
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        routes.register(
+            ModelRoute(
+                route_id="deepseek:deepseek-chat",
+                connection_id="deepseek:main",
+                provider_model_id="deepseek-chat",
+                canonical_model_id="deepseek-chat",
+            )
+        )
+
+    assert routes.get("deepseek:deepseek-chat") is None
+
+
 def test_capability_filter_accepts_verified_support() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("openai:main")
     catalog.register(
         ModelRoute(
             route_id="openai:gpt-4",
@@ -41,7 +105,7 @@ def test_capability_filter_accepts_verified_support() -> None:
 
 
 def test_capability_filter_rejects_missing_capability() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("basic:main")
     catalog.register(
         ModelRoute(
             route_id="basic:model",
@@ -62,7 +126,7 @@ def test_capability_filter_rejects_missing_capability() -> None:
 
 
 def test_capability_filter_rejects_unsupported_capability() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("weak:main")
     catalog.register(
         ModelRoute(
             route_id="weak:model",
@@ -83,7 +147,7 @@ def test_capability_filter_rejects_unsupported_capability() -> None:
 
 
 def test_capability_filter_rejects_unknown_confidence() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("unknown:main")
     catalog.register(
         ModelRoute(
             route_id="unknown:model",
@@ -104,7 +168,7 @@ def test_capability_filter_rejects_unknown_confidence() -> None:
 
 
 def test_capability_filter_accepts_declared_support_for_automation() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("declared:main")
     catalog.register(
         ModelRoute(
             route_id="declared:model",
@@ -129,7 +193,7 @@ def test_capability_filter_accepts_declared_support_for_automation() -> None:
 
 
 def test_same_model_can_have_multiple_provider_routes() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("qwen-token-plan:main", "qwen-cloud:main")
     catalog.register(
         ModelRoute(
             route_id="qwen-token-plan:qwen3.8-max",
@@ -155,7 +219,7 @@ def test_same_model_can_have_multiple_provider_routes() -> None:
 
 
 def test_missing_route_becomes_unavailable_not_deleted() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("kira:main")
     route = catalog.register(
         ModelRoute(
             route_id="kira:glm-5.3-free",
@@ -175,7 +239,7 @@ def test_missing_route_becomes_unavailable_not_deleted() -> None:
 
 
 def test_register_sets_seen_timestamps_when_none() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("deepseek:main")
     registered = catalog.register(
         ModelRoute(
             route_id="deepseek:deepseek-chat",
@@ -192,7 +256,7 @@ def test_register_sets_seen_timestamps_when_none() -> None:
 
 
 def test_register_preserves_explicit_first_seen_at() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("moonshot:main")
     registered = catalog.register(
         ModelRoute(
             route_id="moonshot:kimi-k2",
@@ -208,7 +272,7 @@ def test_register_preserves_explicit_first_seen_at() -> None:
 
 
 def test_mark_seen_refreshes_last_seen_and_restores_availability() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("zhipu:main")
     registered = catalog.register(
         ModelRoute(
             route_id="zhipu:glm-5.3",
@@ -232,7 +296,7 @@ def test_mark_seen_refreshes_last_seen_and_restores_availability() -> None:
 
 def test_mark_seen_positional_at_matches_plan_interface() -> None:
     """Plan interface is mark_seen(route_id, at) — 'at' must be positional."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("openrouter:main")
     registered = catalog.register(
         ModelRoute(
             route_id="openrouter:meta-llama",
@@ -249,7 +313,7 @@ def test_mark_seen_positional_at_matches_plan_interface() -> None:
 
 
 def test_mark_unavailable_retains_identity_and_blocks_re_register() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("groq:main")
     registered = catalog.register(
         ModelRoute(
             route_id="groq:llama-guard",
@@ -275,7 +339,7 @@ def test_mark_unavailable_retains_identity_and_blocks_re_register() -> None:
 
 
 def test_duplicate_route_id_rejected() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("anthropic:main", "anthropic:backup")
     route = ModelRoute(
         route_id="anthropic:claude-opus",
         connection_id="anthropic:main",
@@ -301,7 +365,7 @@ def test_duplicate_route_id_rejected() -> None:
 
 def test_padded_mixed_case_route_id_round_trips_through_get_and_marks() -> None:
     """Storage normalizes ids; raw lookups normalize too (finding 1)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("  OpenAI:Main  ")
     registered = catalog.register(
         ModelRoute(
             route_id="  OpenAI:GPT-4o  ",
@@ -329,7 +393,7 @@ def test_padded_mixed_case_route_id_round_trips_through_get_and_marks() -> None:
 
 def test_provider_model_id_case_is_preserved_by_normalization() -> None:
     """Only route/connection ids are lowered; model ids stay case-sensitive."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("openai:main")
     registered = catalog.register(
         ModelRoute(
             route_id="openai:gpt-4o",
@@ -369,28 +433,28 @@ def test_blank_identity_fields_rejected_on_construction(
 
 def test_mark_seen_unknown_route_id_raises_value_error() -> None:
     """Mutators raise; get() returns None (findings 1/2 taxonomy)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog()
 
     with pytest.raises(ValueError, match="unknown route_id: ghost:model"):
         catalog.mark_seen("ghost:model")
 
 
 def test_mark_unavailable_unknown_route_id_raises_value_error() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog()
 
     with pytest.raises(ValueError, match="unknown route_id: ghost:model"):
         catalog.mark_unavailable("ghost:model")
 
 
 def test_mark_seen_blank_route_id_raises_value_error() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog()
 
     with pytest.raises(ValueError, match="unknown route_id"):
         catalog.mark_seen("   ")
 
 
 def test_mark_unavailable_blank_route_id_raises_value_error() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog()
 
     with pytest.raises(ValueError, match="unknown route_id"):
         catalog.mark_unavailable("")
@@ -398,7 +462,7 @@ def test_mark_unavailable_blank_route_id_raises_value_error() -> None:
 
 def test_case_variant_route_id_rejected_as_duplicate() -> None:
     """Normalized keys make duplicate detection case-insensitive (finding 3)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("a:main", "a:backup")
     catalog.register(
         ModelRoute(
             route_id="A:b",
@@ -421,7 +485,7 @@ def test_case_variant_route_id_rejected_as_duplicate() -> None:
 
 def test_register_rejects_naive_first_seen_at() -> None:
     """Naive timestamps are a correctness trap (finding 4)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("naive:main")
     naive = datetime(2026, 9, 13, 10, 0)  # noqa: DTZ001
 
     with pytest.raises(ValueError, match="must be timezone-aware"):
@@ -437,7 +501,7 @@ def test_register_rejects_naive_first_seen_at() -> None:
 
 
 def test_mark_seen_rejects_naive_timestamp() -> None:
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("openai:main")
     registered = catalog.register(
         ModelRoute(
             route_id="openai:gpt-4",
@@ -456,7 +520,7 @@ def test_mark_seen_rejects_naive_timestamp() -> None:
 
 def test_routes_for_canonical_model_sorted_by_route_id() -> None:
     """Deterministic ordering for consumers (finding 7)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("zeta:main", "alpha:main", "mid:main")
     for route_id in ("zeta:model", "alpha:model", "mid:model"):
         catalog.register(
             ModelRoute(
@@ -477,7 +541,7 @@ def test_routes_for_canonical_model_sorted_by_route_id() -> None:
 
 def test_register_pins_available_true_for_seen_now_semantics() -> None:
     """register() means 'seen now', so availability is forced True (finding 6)."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("pinned:main")
     registered = catalog.register(
         ModelRoute(
             route_id="pinned:model",
@@ -494,7 +558,7 @@ def test_register_pins_available_true_for_seen_now_semantics() -> None:
 
 def test_filter_accepts_discovered_confidence_when_supported() -> None:
     """Pinned policy: only UNKNOWN confidence fails; DISCOVERED passes."""
-    catalog = ModelRouteCatalog()
+    catalog = _route_catalog("discovered:main")
     catalog.register(
         ModelRoute(
             route_id="discovered:model",
