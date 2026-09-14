@@ -274,6 +274,27 @@ def test_update_status_rejects_non_enum_status() -> None:
         )
 
 
+def test_remove_returns_and_deletes_one_connection() -> None:
+    """The rollback seam removes exactly the connection it was given."""
+    registry = _registry("x")
+    registered = registry.register(_connection(connection_id="x:main"))
+
+    removed = registry.remove(" X:MAIN ")
+
+    assert removed is registered
+    assert registry.get("x:main") is None
+    assert registry.list() == ()
+
+
+def test_remove_unknown_or_blank_id_raises() -> None:
+    registry = _registry()
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        registry.remove("missing:main")
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        registry.remove("   ")
+
+
 def test_construction_rejects_empty_display_name() -> None:
     with pytest.raises(ValueError, match="display_name cannot be empty"):
         _connection(display_name="   ")

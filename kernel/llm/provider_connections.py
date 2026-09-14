@@ -179,3 +179,14 @@ class ProviderConnectionRegistry:
         )
         self._items[key] = updated
         return updated
+
+    def remove(self, connection_id: str) -> ProviderConnection:
+        """Remove and return one accepted connection (rollback/teardown seam).
+
+        Raises ``ValueError`` for an unknown or blank id, mirroring the other
+        mutators; ``get()`` keeps its ``None``-for-unknown contract.
+        """
+        key = _normalize_lookup_key(connection_id)
+        if key is None or key not in self._items:
+            raise ValueError(f"unknown connection_id: {connection_id}")
+        return self._items.pop(key)

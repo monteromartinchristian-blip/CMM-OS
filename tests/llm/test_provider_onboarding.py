@@ -20,6 +20,8 @@ from kernel.llm.first_wave_providers import (
     DEEPSEEK_BASE_URL,
     register_first_wave_manifests,
 )
+from kernel.llm.model_catalog import ModelCatalog
+from kernel.llm.model_routes import ModelRouteCatalog
 from kernel.llm.provider_candidates import CandidateRisk, ProviderCandidate
 from kernel.llm.provider_connections import (
     BillingClass,
@@ -37,6 +39,11 @@ from kernel.llm.provider_onboarding import (
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+from kernel.llm.provider_state import ProviderRegistryState
+from kernel.llm.provider_state_repository import (
+    FileProviderRegistryStateRepository,
+    ProviderRegistryStateRepository,
+)
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 _DECOY_URL = "http://127.0.0.1:9999/v1"
@@ -65,11 +72,16 @@ class _Wiring:
     manifests: ProviderManifestRegistry
     connections: ProviderConnectionRegistry
     credentials: InMemoryCredentialStore
+    models: ModelCatalog
+    routes: ModelRouteCatalog
 
 
 def _wiring(
     tmp_path: Path,
     validator: Callable[[ConnectionProposal], bool] | None = None,
+    *,
+    state_repository: ProviderRegistryStateRepository | None = None,
+    revision: int = 0,
 ) -> _Wiring:
     """Build a service wired to fresh registries and an in-memory store."""
     providers = ProviderRegistry()
@@ -95,6 +107,8 @@ def _wiring(
         )
     connections = ProviderConnectionRegistry(providers)
     credentials = InMemoryCredentialStore()
+    models = ModelCatalog(providers)
+    routes = ModelRouteCatalog(connections)
     service = ProviderOnboardingService(
         providers=providers,
         connections=connections,
@@ -103,6 +117,10 @@ def _wiring(
         profiles=SubscriptionProfileManager(),
         profiles_root=tmp_path / "cmm-profiles",
         validator=validator,
+        state_repository=state_repository,
+        models=models,
+        routes=routes,
+        revision=revision,
     )
     return _Wiring(
         service=service,
@@ -110,6 +128,8 @@ def _wiring(
         manifests=manifests,
         connections=connections,
         credentials=credentials,
+        models=models,
+        routes=routes,
     )
 
 
@@ -466,3 +486,156 @@ def test_propose_rejects_a_candidate_without_metadata(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unknown provider: not-declared"):
         wired.service.propose(candidate)
+
+
+# --- atomic acceptance (MAJOR-04) -------------------------------------------
+
+
+class _ExplodingStateRepository:
+    """Repository whose save always fails without mutating stored state."""
+
+    def __init__(self, state: ProviderRegistryState | None = None) -> None:
+        self._state = state
+
+    def load(self) -> ProviderRegistryState | None:
+        return self._state
+
+    def save(self, state: ProviderRegistryState) -> None:
+        raise RuntimeError("persistence failed")
+
+
+def test_duplicate_accept_does_not_overwrite_existing_secret(
+    tmp_path: Path,
+) -> None:
+    """The exact Audit V1 reproduction: a failed duplicate mutates nothing."""
+    wired = _wiring(tmp_path)
+
+    first = wired.service.accept(
+        wired.service.propose(_deepseek_candidate()),
+        credential="secret-one",
+    )
+    before = dict(wired.credentials._secrets)
+
+    with pytest.raises(ValueError, match="duplicate connection_id"):
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()),
+            credential="secret-two",
+        )
+
+    assert wired.connections.list() == (first,)
+    assert wired.credentials._secrets == before
+
+
+def test_accept_persists_the_aggregate_and_advances_revision(
+    tmp_path: Path,
+) -> None:
+    """A successful acceptance advances the durable revision by exactly one."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    wired = _wiring(tmp_path, state_repository=repository)
+
+    connection = wired.service.accept(
+        wired.service.propose(_deepseek_candidate()), credential=_SECRET
+    )
+
+    persisted = repository.load()
+    assert persisted is not None
+    assert persisted.revision == 1
+    assert wired.service.revision == 1
+    assert tuple(item.connection_id for item in persisted.connections) == (
+        connection.connection_id,
+    )
+    assert persisted.audit_log[-1].entity_id == connection.connection_id
+    assert _SECRET not in (tmp_path / "state.json").read_text(encoding="utf-8")
+
+
+def test_failed_duplicate_accept_does_not_advance_persisted_revision(
+    tmp_path: Path,
+) -> None:
+    """Revision 5 stays revision 5 — bytes included — after a failed accept."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    wired = _wiring(tmp_path, state_repository=repository)
+    wired.service.accept(
+        wired.service.propose(_deepseek_candidate()), credential="secret-one"
+    )
+    assert wired.service.revision == 1
+    before = (tmp_path / "state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="duplicate connection_id"):
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()), credential="secret-two"
+        )
+
+    assert wired.service.revision == 1
+    assert (tmp_path / "state.json").read_bytes() == before
+    assert repository.load().revision == 1
+
+
+def test_persistence_failure_compensates_credential_and_connection(
+    tmp_path: Path,
+) -> None:
+    """A failed save rolls back this call's credential and connection."""
+    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()), credential=_SECRET
+        )
+
+    assert wired.connections.list() == ()
+    assert wired.credentials._secrets == {}
+    assert wired.service.revision == 0
+
+
+def test_persistence_failure_compensates_the_new_isolation_profile(
+    tmp_path: Path,
+) -> None:
+    """Only the profile this call created is removed; the source is untouched."""
+    source = _write_subscription_source("codex", tmp_path)
+    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+    profile_target = tmp_path / "cmm-profiles" / "codex"
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        wired.service.accept(
+            wired.service.propose(_subscription_candidate("codex", source))
+        )
+
+    assert not profile_target.exists()
+    assert wired.connections.list() == ()
+    assert (source / "auth.json").is_file()
+
+
+def test_persistence_failure_keeps_a_preexisting_profile_directory(
+    tmp_path: Path,
+) -> None:
+    """Compensation must never delete a directory this call did not create."""
+    source = _write_subscription_source("codex", tmp_path)
+    profile_target = tmp_path / "cmm-profiles" / "codex"
+    profile_target.mkdir(parents=True)
+    marker = profile_target / "keep-me.txt"
+    marker.write_text("preexisting", encoding="utf-8")
+    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        wired.service.accept(
+            wired.service.propose(_subscription_candidate("codex", source))
+        )
+
+    assert marker.read_text(encoding="utf-8") == "preexisting"
+
+
+def test_state_repository_requires_models_and_routes(tmp_path: Path) -> None:
+    """Persistence wiring without catalogs is a construction error."""
+    providers = ProviderRegistry()
+    manifests = ProviderManifestRegistry(providers)
+    register_first_wave_manifests(manifests)
+    connections = ProviderConnectionRegistry(providers)
+    with pytest.raises(TypeError, match="models and routes"):
+        ProviderOnboardingService(
+            providers=providers,
+            connections=connections,
+            manifests=manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_repository=_ExplodingStateRepository(),
+        )

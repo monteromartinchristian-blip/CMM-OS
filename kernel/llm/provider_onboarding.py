@@ -33,12 +33,16 @@ passing validator can never promote an unisolated connection to ``CONNECTED``.
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from kernel.llm.credential_store import CredentialStore
 from kernel.llm.exceptions import ProviderError
+from kernel.llm.model_catalog import ModelCatalog
+from kernel.llm.model_routes import ModelRouteCatalog
 from kernel.llm.provider_candidates import ProviderCandidate
 from kernel.llm.provider_connections import (
     BillingClass,
@@ -48,6 +52,11 @@ from kernel.llm.provider_connections import (
 )
 from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.provider_state import ProviderRegistryAuditRecord
+from kernel.llm.provider_state_repository import (
+    ProviderRegistryStateRepository,
+    capture_provider_registry_state,
+)
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 Validator = Callable[["ConnectionProposal"], bool]
@@ -131,8 +140,19 @@ class ProviderOnboardingService:
         profiles: SubscriptionProfileManager,
         profiles_root: str | os.PathLike[str],
         validator: Validator | None = None,
+        state_repository: ProviderRegistryStateRepository | None = None,
+        models: ModelCatalog | None = None,
+        routes: ModelRouteCatalog | None = None,
+        revision: int = 0,
+        audit_log: tuple[ProviderRegistryAuditRecord, ...] = (),
     ) -> None:
-        """Wire the service to registries, storage, and an optional validator."""
+        """Wire the service to registries, storage, and an optional validator.
+
+        ``state_repository`` makes acceptance durable: after a successful
+        registration the coherent aggregate is captured and saved with
+        ``revision + 1``. Wiring a repository requires ``models`` and
+        ``routes`` so the captured aggregate is complete.
+        """
         if not isinstance(providers, ProviderRegistry):
             raise TypeError("providers must be a ProviderRegistry")
         if not isinstance(connections, ProviderConnectionRegistry):
@@ -143,6 +163,15 @@ class ProviderOnboardingService:
             raise TypeError("profiles must be a SubscriptionProfileManager")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable or None")
+        if state_repository is not None:
+            if models is None or routes is None:
+                raise TypeError(
+                    "models and routes are required when a state repository is wired"
+                )
+            if isinstance(revision, bool) or not isinstance(revision, int):
+                raise TypeError("revision must be an int")
+            if revision < 0:
+                raise ValueError("revision cannot be negative")
         self._providers = providers
         self._connections = connections
         self._manifests = manifests
@@ -150,6 +179,16 @@ class ProviderOnboardingService:
         self._profiles = profiles
         self._profiles_root = _coerce_dir(profiles_root, label="Profiles root")
         self._validator = validator
+        self._state_repository = state_repository
+        self._models = models
+        self._routes = routes
+        self._revision = revision
+        self._audit_log = tuple(audit_log)
+
+    @property
+    def revision(self) -> int:
+        """Return the current persisted aggregate revision."""
+        return self._revision
 
     def propose(self, candidate: ProviderCandidate) -> ConnectionProposal:
         """Resolve the canonical endpoint; register nothing.
@@ -189,37 +228,107 @@ class ProviderOnboardingService:
     ) -> ProviderConnection:
         """Prepare isolation, store secrets, and register one connection.
 
-        Isolation is prepared before the credential write and before
-        registration, so a failed isolation prerequisite leaves no side effect
-        and can never be overridden by a passing validator.
+        Atomic from the caller's perspective (MAJOR-04, spec §7): the
+        connection identity is preflighted *before* any side effect, so a
+        duplicate never overwrites an existing credential. If any step after
+        the first side effect fails, only the side effects this call created
+        are compensated — a newly written credential is deleted, a newly
+        created CMM-owned profile is removed, and a newly registered
+        connection is removed — while pre-existing state stays untouched. The
+        persisted aggregate advances its revision only after every step
+        succeeds.
         """
         if not isinstance(proposal, ConnectionProposal):
             raise TypeError("proposal must be a ConnectionProposal")
+        connection_id = f"{proposal.provider_id}:{proposal.account}"
+        # Preflight before any side effect: an existing identity is rejected
+        # here, never after a credential or profile has been mutated.
+        if self._connections.get(connection_id) is not None:
+            raise ValueError(f"duplicate connection_id: {connection_id}")
+
+        isolation_target: Path | None = None
         isolation_profile_ref: str | None = None
-        if proposal.requires_isolation:
-            isolation_profile_ref = self._isolate(proposal)
         credential_ref: str | None = None
-        if credential is not None:
-            credential_ref = self._credentials.put(
-                proposal.provider_id, proposal.account, credential
+        registered: ProviderConnection | None = None
+        try:
+            if proposal.requires_isolation:
+                target = self._profiles_root / proposal.provider_id
+                existed_before = target.exists()
+                isolation_profile_ref = self._isolate(proposal)
+                if not existed_before:
+                    isolation_target = target
+            if credential is not None:
+                credential_ref = self._credentials.put(
+                    proposal.provider_id, proposal.account, credential
+                )
+            if proposal.requires_isolation:
+                status = ConnectionStatus.WARNING
+            else:
+                status = ConnectionStatus.AUTH_REQUIRED
+            if self._validator is not None and self._validator(proposal):
+                status = ConnectionStatus.CONNECTED
+            connection = ProviderConnection(
+                connection_id=connection_id,
+                provider_id=proposal.provider_id,
+                display_name=proposal.display_name,
+                billing_class=proposal.billing_class,
+                credential_ref=credential_ref,
+                endpoint=proposal.endpoint,
+                isolation_profile_ref=isolation_profile_ref,
+                status=status,
             )
-        if proposal.requires_isolation:
-            status = ConnectionStatus.WARNING
-        else:
-            status = ConnectionStatus.AUTH_REQUIRED
-        if self._validator is not None and self._validator(proposal):
-            status = ConnectionStatus.CONNECTED
-        connection = ProviderConnection(
-            connection_id=f"{proposal.provider_id}:{proposal.account}",
-            provider_id=proposal.provider_id,
-            display_name=proposal.display_name,
-            billing_class=proposal.billing_class,
-            credential_ref=credential_ref,
-            endpoint=proposal.endpoint,
-            isolation_profile_ref=isolation_profile_ref,
-            status=status,
+            registered = self._connections.register(connection)
+            self._persist_after_acceptance(registered)
+            return registered
+        except Exception:
+            # Compensation path: undo only what this call created, then let the
+            # original error propagate unchanged.
+            if registered is not None:
+                self._connections.remove(registered.connection_id)
+            if credential_ref is not None:
+                self._credentials.delete(credential_ref)
+            if isolation_target is not None:
+                shutil.rmtree(isolation_target, ignore_errors=True)
+            raise
+
+    def _persist_after_acceptance(self, connection: ProviderConnection) -> None:
+        """Persist the coherent aggregate; advance the revision only on success.
+
+        The saved state includes the registered connection and a sanitized
+        audit record, but never secret material. If the repository save fails,
+        the exception propagates to ``accept`` and the runtime side effects are
+        compensated; the stored revision stays where it was.
+        """
+        repository = self._state_repository
+        if repository is None:
+            return
+        next_revision = self._revision + 1
+        event_type = (
+            "provider.connected"
+            if connection.status is ConnectionStatus.CONNECTED
+            else "connection.accepted"
         )
-        return self._connections.register(connection)
+        record = ProviderRegistryAuditRecord(
+            revision=next_revision,
+            event_type=event_type,
+            entity_kind="connection",
+            entity_id=connection.connection_id,
+            occurred_at=datetime.now(timezone.utc),
+            detail=(("status", connection.status.value),),
+        )
+        assert self._models is not None and self._routes is not None
+        state = capture_provider_registry_state(
+            self._providers,
+            self._manifests,
+            self._models,
+            self._connections,
+            self._routes,
+            revision=next_revision,
+            audit_log=self._audit_log + (record,),
+        )
+        repository.save(state)
+        self._revision = next_revision
+        self._audit_log = state.audit_log
 
     def _isolate(self, proposal: ConnectionProposal) -> str:
         """Produce the CMM-owned isolation reference, or raise.
