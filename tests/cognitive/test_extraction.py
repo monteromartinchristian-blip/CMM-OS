@@ -90,7 +90,7 @@ class TestExtractionContext:
 
     def test_rejects_naive_timestamp(self) -> None:
         with pytest.raises(InvalidExtractionError, match="timezone-aware"):
-            ExtractionContext(timestamp=datetime(2026, 1, 1))
+            ExtractionContext(timestamp=datetime(2026, 1, 1))  # noqa: DTZ001
 
     def test_rejects_non_positive_max_candidates(self) -> None:
         with pytest.raises(InvalidExtractionError, match="max_candidates"):
@@ -173,14 +173,14 @@ class TestExtractionEvidence:
 class TestExtractionCandidate:
     def _make_candidate(self, **kwargs) -> ExtractionCandidate:
         ev = ExtractionEvidence(resource_id="r1", fragment="some text")
-        defaults = dict(
-            kind=CandidateKind.STATEMENT,
-            value="some statement",
-            confidence=Confidence(0.75),
-            resource_id="r1",
-            extractor_name="test",
-            evidence=ev,
-        )
+        defaults = {
+            "kind": CandidateKind.STATEMENT,
+            "value": "some statement",
+            "confidence": Confidence(0.75),
+            "resource_id": "r1",
+            "extractor_name": "test",
+            "evidence": ev,
+        }
         defaults.update(kwargs)
         return ExtractionCandidate(**defaults)
 
@@ -215,7 +215,7 @@ class TestExtractionCandidate:
 
     def test_is_frozen(self) -> None:
         c = self._make_candidate()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             c.kind = CandidateKind.KEYWORD  # type: ignore[misc]
 
     def test_labels_are_tuple(self) -> None:
@@ -235,12 +235,12 @@ class TestExtractionCandidate:
 
 class TestKnowledgeExtractionResultContract:
     def _make_result(self, **kwargs) -> KnowledgeExtractionResult:
-        defaults = dict(
-            resource_id="r1",
-            extractor_name="test",
-            extractor_version="1.0.0",
-            status=ExtractionStatus.COMPLETED,
-        )
+        defaults = {
+            "resource_id": "r1",
+            "extractor_name": "test",
+            "extractor_version": "1.0.0",
+            "status": ExtractionStatus.COMPLETED,
+        }
         defaults.update(kwargs)
         return KnowledgeExtractionResult(**defaults)
 
@@ -250,7 +250,7 @@ class TestKnowledgeExtractionResultContract:
 
     def test_rejects_naive_created_at(self) -> None:
         with pytest.raises(InvalidExtractionError, match="timezone-aware"):
-            self._make_result(created_at=datetime(2026, 1, 1))
+            self._make_result(created_at=datetime(2026, 1, 1))  # noqa: DTZ001
 
     def test_rejects_negative_duration(self) -> None:
         with pytest.raises(InvalidExtractionError, match="duration_ms"):

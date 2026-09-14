@@ -43,6 +43,9 @@ from cmm.agent_runtime.checkpoint_repository import (
     InMemoryCheckpointRepository,
 )
 from cmm.agent_runtime.checkpoint_restoration import CheckpointRestorationManager
+from cmm.agent_runtime.checkpoint_rollback_executor import (
+    CheckpointRestorationRollbackExecutor,
+)
 from cmm.agent_runtime.cognitive_adapter import (
     AgentCognitiveService,
     CognitiveRuntimeAdapter,
@@ -153,6 +156,7 @@ from cmm.agent_runtime.enums import (
 )
 from cmm.agent_runtime.errors import (
     AgentRuntimeError,
+    ApprovalAtomicityUnavailableError,
     BackupRequiredError,
     CheckpointAlreadyExistsError,
     CheckpointConcurrencyError,
@@ -955,11 +959,13 @@ from cmm.agent_runtime.errors import (
     DuplicateApprovalRequestError,
     InvalidApprovalContractError,
     InvalidApprovalTransitionError,
+    InvalidPermissionRestrictionError,
 )
 
 __all__ += [
     "ApprovalActorNotAuthorizedError",
     "ApprovalAlreadyResolvedError",
+    "ApprovalAtomicityUnavailableError",
     "ApprovalAutonomyIntegrationError",
     "ApprovalDecision",
     "ApprovalDecisionNotFoundError",
@@ -981,6 +987,7 @@ __all__ += [
     "InMemoryApprovalRepository",
     "InvalidApprovalContractError",
     "InvalidApprovalTransitionError",
+    "InvalidPermissionRestrictionError",
     "create_requirement_from_autonomy",
     "create_requirement_from_policy",
     "create_requirement_from_workflow_plan",
@@ -1233,6 +1240,7 @@ from cmm.agent_runtime.errors import (
     AgentOperationValidationError,
     AgentOperationVersionNotRegisteredError,
     AgentValidationError,
+    ControlledOperationExecutionError,
     DuplicateAgentOperationError,
     DuplicateAgentOperationRequestError,
     DuplicateAgentOperationResultError,
@@ -1275,6 +1283,11 @@ from cmm.agent_runtime.operation_execution_repository import (
 from cmm.agent_runtime.operation_registry import (
     AgentOperationRegistry,
     InMemoryAgentOperationRegistry,
+)
+from cmm.agent_runtime.operation_schema import (
+    OperationSchemaIssue,
+    OperationSchemaValidationError,
+    validate_operation_schema,
 )
 from cmm.agent_runtime.validation_execution_adapter import (
     AgentValidationAdapter,
@@ -1370,6 +1383,7 @@ __all__ += [
     "CheckpointRestorationManager",
     "CheckpointRestorationRequest",
     "CheckpointRestorationResult",
+    "CheckpointRestorationRollbackExecutor",
     "CheckpointRestorationValidationError",
     "CheckpointStatus",
     "CommitGateEvaluation",
@@ -1377,6 +1391,7 @@ __all__ += [
     "CompensationAction",
     "CompensationError",
     "CompletePartiallyStrategyExecutor",
+    "ControlledOperationExecutionError",
     "DefaultRestorationValidator",
     "DuplicateAgentOperationError",
     "DuplicateAgentOperationRequestError",
@@ -1414,6 +1429,8 @@ __all__ += [
     "OperationExecutionGateResult",
     "OperationRecoveryKind",
     "OperationReversibility",
+    "OperationSchemaIssue",
+    "OperationSchemaValidationError",
     "RecoveryApprovalRequiredError",
     "RecoveryAttempt",
     "RecoveryBackoffCalculator",
@@ -1522,6 +1539,7 @@ __all__ += [
     "compute_checkpoint_fingerprint",
     "compute_recovery_context_fingerprint",
     "compute_recovery_decision_fingerprint",
+    "validate_operation_schema",
 ]
 
 # ── Phase 9.17 – Outcome Evaluation Exports ────────────────────────────────
@@ -2694,4 +2712,68 @@ __all__ += [
     "PrivacyClassification",
     "QualityEvaluation",
     "is_valid_acceptance_transition",
+]
+
+from cmm.agent_runtime.domain_permission_contracts import (
+    MANDATORY_APPROVAL_CAPABILITIES,
+    EffectivePermissionResult,
+    PermissionApprovalGrant,
+    PermissionApprovalRequirement,
+    PermissionCapability,
+    PermissionLayer,
+    PermissionLayerEvaluation,
+    PermissionOutcome,
+    intersect_permission_layers,
+)
+from cmm.agent_runtime.permission_restriction_contracts import (
+    ExportContentKind,
+    ExportPolicy,
+    ExportRequest,
+    ExternalProviderEgressPolicy,
+    ExternalProviderEgressRequest,
+    ExternalSourceClass,
+    ExternalSourceRequirement,
+    ExternalSourceUse,
+    PostVerificationKind,
+    PostVerificationRequirement,
+    ProviderLocation,
+)
+
+__all__ += [
+    "MANDATORY_APPROVAL_CAPABILITIES",
+    "EffectivePermissionResult",
+    "ExportContentKind",
+    "ExportPolicy",
+    "ExportRequest",
+    "ExternalProviderEgressPolicy",
+    "ExternalProviderEgressRequest",
+    "ExternalSourceClass",
+    "ExternalSourceRequirement",
+    "ExternalSourceUse",
+    "PermissionApprovalGrant",
+    "PermissionApprovalRequirement",
+    "PermissionCapability",
+    "PermissionLayer",
+    "PermissionLayerEvaluation",
+    "PermissionOutcome",
+    "PostVerificationKind",
+    "PostVerificationRequirement",
+    "ProviderLocation",
+    "intersect_permission_layers",
+]
+
+# ── Phase 10.46 – Domain Model Policy Adapter Exports ────────────────────────
+
+from cmm.agent_runtime.domain_model_policy_adapter import (
+    DOMAIN_MODEL_POLICY_PHASE,
+    domain_model_fallback_policy,
+    domain_model_requirement_source,
+    domain_model_validation_requirements,
+)
+
+__all__ += [
+    "DOMAIN_MODEL_POLICY_PHASE",
+    "domain_model_fallback_policy",
+    "domain_model_requirement_source",
+    "domain_model_validation_requirements",
 ]

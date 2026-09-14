@@ -1621,6 +1621,54 @@ def test_agent_execution_adapter_failsafe_missing_validation_adapter():
     with pytest.raises(ValidationAdapterError):
         exec_adapter.execute(op_req)
 
+def test_requires_validation_with_empty_requirements_fails_closed() -> None:
+    reg = InMemoryAgentOperationRegistry()
+    desc = OperationDescriptor(
+        name="op_requires_empty", description="Requires validation", version="1"
+    )
+    reg.register(desc)
+
+    exec_adapter = AgentExecutionAdapter(
+        registry=reg,
+        execution_delegate=lambda req: {"success": True},
+        validation_adapter=AgentValidationAdapter(),
+    )
+    op_req = AgentOperationRequest(
+        id="op-req-requires-empty",
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="t-1",
+        operation_name="op_requires_empty",
+        idempotency_key="key-requires-empty",
+        metadata={"requires_validation": True},
+        validation_requirements=(),
+    )
+    with pytest.raises(ValidationAdapterError):
+        exec_adapter.execute(op_req)
+
+
+def test_no_requires_validation_with_empty_requirements_backward_compatible() -> None:
+    reg = InMemoryAgentOperationRegistry()
+    desc = OperationDescriptor(
+        name="op_optional_empty", description="Optional", version="1"
+    )
+    reg.register(desc)
+
+    exec_adapter = AgentExecutionAdapter(
+        registry=reg,
+        execution_delegate=lambda req: {"success": True},
+        validation_adapter=AgentValidationAdapter(),
+    )
+    op_req = AgentOperationRequest(
+        id="op-req-optional-empty",
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="t-1",
+        operation_name="op_optional_empty",
+        idempotency_key="key-optional-empty",
+    )
+    result = exec_adapter.execute(op_req)
+    assert result.success is True
 
 def test_agent_execution_adapter_optional_validation_no_adapter_required():
     reg = InMemoryAgentOperationRegistry()

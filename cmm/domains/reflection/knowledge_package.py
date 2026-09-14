@@ -1,0 +1,63 @@
+"""Phase 10.49 – ``domain:reflection`` knowledge package schema.
+
+A local, pure declaration narrowing the canonical Phase 8
+:class:`cmm.cognitive.knowledge_packages.KnowledgePackage`.  No I/O, no
+model/provider calls, no registry mutation, no knowledge storage.
+"""
+
+from __future__ import annotations
+
+from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel
+from cmm.domains.identifiers import DomainId
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageFieldPolicy,
+    DomainKnowledgePackageSchema,
+)
+
+__all__ = ["build_reflection_knowledge_package_schema"]
+
+
+def build_reflection_knowledge_package_schema() -> DomainKnowledgePackageSchema:
+    """Declare the approved ``domain:reflection`` knowledge package schema."""
+    return DomainKnowledgePackageSchema(
+        id="knowledge-package-schema:reflection",
+        domain_id=DomainId(slug="reflection"),
+        version="1",
+        required_sections=("objective",),
+        # Reflection discipline. Canonical Reflection semantics keep beliefs and
+        # open questions at their own epistemic level (`open_question`,
+        # `no_forced_conclusion`) and never adopt a decision. Non-categorised
+        # knowledge is therefore restricted to opinions and open questions —
+        # decisions are not a Reflection output — and no factual section is
+        # required, because reflection must not manufacture certainty.
+        field_policies=(
+            DomainKnowledgePackageFieldPolicy(
+                field_name="facts",
+                allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="observations",
+                allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="inferences",
+                preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="hypotheses",
+                preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="other_knowledge",
+                allowed_knowledge_kinds=(
+                    KnowledgeKind.OPINION,
+                    KnowledgeKind.QUESTION,
+                ),
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="contradictions",
+                preserve_contradictions=True,
+            ),
+        ),
+        minimum_sensitivity=SensitivityLevel.SENSITIVE,
+    )

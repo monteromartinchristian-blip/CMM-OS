@@ -1,0 +1,1240 @@
+"""Phase 10.1 – Domain Errors.
+
+Error hierarchy for the Domain Intelligence subsystem.
+"""
+
+from __future__ import annotations
+
+from types import MappingProxyType
+from typing import Any
+
+
+def _deep_freeze_details(d: dict[str, Any] | None) -> MappingProxyType[str, Any]:
+    """Recursively freeze a dictionary into an immutable MappingProxyType."""
+    if d is None:
+        return MappingProxyType({})
+    frozen: dict[str, Any] = {}
+    for k, v in d.items():
+        if not isinstance(k, str):
+            raise TypeError("Details keys must be strings")
+        frozen[k] = _freeze_value(v)
+    return MappingProxyType(frozen)
+
+
+def _freeze_value(v: Any) -> Any:
+    """Recursively freeze a value: mappings → MappingProxyType, lists/tuples → tuple, sets → frozenset."""
+    if isinstance(v, dict):
+        return MappingProxyType({kk: _freeze_value(vv) for kk, vv in v.items()})
+    if isinstance(v, (list, tuple)):
+        return tuple(_freeze_value(vv) for vv in v)
+    if isinstance(v, (set, frozenset)):
+        return frozenset(_freeze_value(vv) for vv in v)
+    return v
+
+
+class DomainError(Exception):
+    """Base error for all Domain operations."""
+
+    code: str = "DOMAIN_ERROR"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field: str | None = field
+        self._details: MappingProxyType[str, Any] = _deep_freeze_details(details)
+
+    @property
+    def details(self) -> MappingProxyType[str, Any]:
+        """Immutable details dictionary (deeply frozen)."""
+        return self._details
+
+
+class DomainContractError(DomainError, ValueError):
+    """Base error for Domain contract violations."""
+
+    code = "DOMAIN_CONTRACT_ERROR"
+
+
+class DomainContractValidationError(DomainContractError):
+    """Raised when a Domain contract fails validation."""
+
+    code = "DOMAIN_CONTRACT_VALIDATION_ERROR"
+
+
+# Phase 10.16 – Domain Presentation
+class DomainPresentationError(DomainError):
+    """Base error for reference-only Domain Presentation operations."""
+
+    code = "DOMAIN_PRESENTATION_ERROR"
+
+
+class DomainPresentationContractError(DomainPresentationError, ValueError):
+    """Raised when a Domain Presentation contract is invalid."""
+
+    code = "DOMAIN_PRESENTATION_CONTRACT_ERROR"
+
+
+class DomainPresentationSerializationError(DomainPresentationError):
+    """Raised when a Domain Presentation payload is invalid."""
+
+    code = "DOMAIN_PRESENTATION_SERIALIZATION_ERROR"
+
+
+class DomainPresentationPolicyError(DomainPresentationError):
+    """Raised when the effective presentation policy is incompatible."""
+
+    code = "DOMAIN_PRESENTATION_POLICY_INCOMPATIBLE"
+
+
+class DomainPresentationRequiredSectionError(DomainPresentationError):
+    """Raised when a mandatory presentation section is suppressed."""
+
+    code = "DOMAIN_PRESENTATION_MANDATORY_SUPPRESSED"
+
+
+class DomainPresentationTerminologyError(DomainPresentationError):
+    """Raised when protected terminology cannot be preserved."""
+
+    code = "DOMAIN_PRESENTATION_TERMINOLOGY_INCOMPATIBLE"
+
+
+class DomainPresentationOutputIntentError(DomainPresentationError):
+    """Raised when a logical output intent is not allowed by policy."""
+
+    code = "DOMAIN_PRESENTATION_OUTPUT_INTENT_NOT_ALLOWED"
+
+
+class DomainPresentationUnknownReferenceError(DomainPresentationError):
+    """Raised when a plan contains a reference absent from its request."""
+
+    code = "DOMAIN_PRESENTATION_UNKNOWN_REFERENCE"
+
+
+class DomainPresentationPreservationError(DomainPresentationError):
+    """Raised when presentation would change protected upstream semantics."""
+
+    code = "DOMAIN_PRESENTATION_PRESERVATION_BREACH"
+
+
+class DomainPresentationWarningPriorityError(DomainPresentationError):
+    """Raised when resolved warning priority is not preserved."""
+
+    code = "DOMAIN_PRESENTATION_INVALID_WARNING_PRIORITY"
+
+
+# Phase 10.17 – Domain Trace
+class DomainTraceError(DomainError):
+    """Base error for reference-only Domain Trace operations."""
+
+    code = "DOMAIN_TRACE_ERROR"
+
+
+class DomainTraceContractError(DomainTraceError, ValueError):
+    """Raised when a Domain Trace contract is invalid."""
+
+    code = "DOMAIN_TRACE_CONTRACT_ERROR"
+
+
+class DomainTraceSerializationError(DomainTraceError):
+    """Raised when a Domain Trace payload is invalid."""
+
+    code = "DOMAIN_TRACE_SERIALIZATION_ERROR"
+
+
+class DomainTraceValidationError(DomainTraceError):
+    """Raised when a Domain Trace fails reference-only validation."""
+
+    code = "DOMAIN_TRACE_VALIDATION_ERROR"
+
+
+# Phase 10.18 – Domain Memory Integration
+class DomainMemoryError(DomainError):
+    """Base error for reference-only Domain Memory Integration operations."""
+
+    code = "DOMAIN_MEMORY_ERROR"
+
+
+class DomainMemoryContractError(DomainMemoryError, ValueError):
+    """Raised when a Domain Memory contract is invalid."""
+
+    code = "DOMAIN_MEMORY_CONTRACT_ERROR"
+
+
+class DomainMemorySerializationError(DomainMemoryError):
+    """Raised when a Domain Memory payload is invalid."""
+
+    code = "DOMAIN_MEMORY_SERIALIZATION_ERROR"
+
+
+class DomainMemoryResolutionError(DomainMemoryError):
+    """Raised when Domain Memory resolution encounters a controlled error."""
+
+    code = "DOMAIN_MEMORY_RESOLUTION_ERROR"
+
+
+class DomainMemoryValidationError(DomainMemoryError):
+    """Raised when Domain Memory validation fails."""
+
+    code = "DOMAIN_MEMORY_VALIDATION_ERROR"
+
+
+class DomainMemoryPermissionError(DomainMemoryError):
+    """Raised when Domain Memory permission checks fail."""
+
+    code = "DOMAIN_MEMORY_PERMISSION_ERROR"
+
+
+class DomainMemoryProposalBindingError(DomainMemoryError):
+    """Raised when Domain Memory proposal binding invariants are violated."""
+
+    code = "DOMAIN_MEMORY_PROPOSAL_BINDING_ERROR"
+
+
+class DomainMemoryPrivacyError(DomainMemoryError):
+    """Raised when Domain Memory metadata or payload contains forbidden private keys/content."""
+
+    code = "DOMAIN_MEMORY_PRIVACY_ERROR"
+
+
+class DomainPresentationConflictError(DomainPresentationError):
+    """Raised when multi-domain presentation constraints remain unresolved."""
+
+    code = "DOMAIN_PRESENTATION_UNRESOLVED_MULTIDOMAIN_CONFLICT"
+
+
+class DomainSerializationError(DomainError):
+    """Raised when serialization or deserialization fails."""
+
+    code = "DOMAIN_SERIALIZATION_ERROR"
+
+
+class DomainRegistryError(DomainError):
+    """Base error for Domain Registry operations."""
+
+    code = "DOMAIN_REGISTRY_ERROR"
+
+
+class DomainRegistryValidationError(DomainRegistryError):
+    """Raised when registry validation fails."""
+
+    code = "DOMAIN_REGISTRY_VALIDATION_ERROR"
+
+
+class DomainRegistryConflict(DomainRegistryError):
+    """Raised when a registry conflict is detected (duplicate, incompatible states)."""
+
+    code = "DOMAIN_REGISTRY_CONFLICT"
+
+
+class DomainRegistryNotFound(DomainRegistryError):
+    """Raised when a domain entry is not found in the registry."""
+
+    code = "DOMAIN_REGISTRY_NOT_FOUND"
+
+
+class DomainRegistryVersionError(DomainRegistryError):
+    """Raised when version constraints or semantics are violated."""
+
+    code = "DOMAIN_REGISTRY_VERSION_ERROR"
+
+
+class DomainRegistryStateError(DomainRegistryError):
+    """Raised when a state transition is invalid."""
+
+    code = "DOMAIN_REGISTRY_STATE_ERROR"
+
+
+class DomainDependencyMissing(DomainRegistryError):
+    """Raised when a required dependency is absent."""
+
+    code = "DOMAIN_DEPENDENCY_MISSING"
+
+
+class DomainCapabilityConflict(DomainRegistryError):
+    """Raised when capabilities conflict across domains."""
+
+    code = "DOMAIN_CAPABILITY_CONFLICT"
+
+
+class DomainDiscoveryError(DomainError):
+    """Base error for Domain Discovery operations."""
+
+    code = "DOMAIN_DISCOVERY_ERROR"
+
+
+class DomainDiscoverySourceError(DomainDiscoveryError):
+    """Raised when a discovery source cannot be scanned."""
+
+    code = "DOMAIN_DISCOVERY_SOURCE_ERROR"
+
+
+class DomainCandidateInvalid(DomainDiscoveryError):
+    """Raised when a discovered candidate fails structural validation."""
+
+    code = "DOMAIN_CANDIDATE_INVALID"
+
+
+class DomainPathEscape(DomainDiscoveryError):
+    """Raised when a resolved path escapes its authorized root."""
+
+    code = "DOMAIN_PATH_ESCAPE"
+
+
+class DomainLoaderError(DomainError):
+    """Base error for Domain Loader operations."""
+
+    code = "DOMAIN_LOADER_ERROR"
+
+
+class DomainLoadRejected(DomainLoaderError):
+    """Raised when a load is rejected by policy (e.g. untrusted source)."""
+
+    code = "DOMAIN_LOAD_REJECTED"
+
+
+class DomainLoadFailed(DomainLoaderError):
+    """Raised when a load operation fails."""
+
+    code = "DOMAIN_LOAD_FAILED"
+
+
+class DomainUnloadFailed(DomainLoaderError):
+    """Raised when an unload operation fails."""
+
+    code = "DOMAIN_UNLOAD_FAILED"
+
+
+class DomainReloadFailed(DomainLoaderError):
+    """Raised when a reload operation fails."""
+
+    code = "DOMAIN_RELOAD_FAILED"
+
+
+class DomainChecksumMismatch(DomainLoaderError):
+    """Raised when a recalculated checksum does not match the declared one."""
+
+    code = "DOMAIN_CHECKSUM_MISMATCH"
+
+
+class DomainSourceUntrusted(DomainLoaderError):
+    """Raised when an untrusted candidate is loaded without explicit opt-in."""
+
+    code = "DOMAIN_SOURCE_UNTRUSTED"
+
+
+class DomainRollbackFailed(DomainLoaderError):
+    """Base error for a failed rollback of a loader transaction.
+
+    Raised when a loader operation (load/unload/reload) fails *and* the
+    subsequent attempt to restore the registry to its pre-operation
+    snapshot also fails. This must never be swallowed: a failed rollback
+    means atomicity is lost, and callers must be told explicitly rather
+    than have the loader silently continue in a possibly-inconsistent
+    state.
+    """
+
+    code = "DOMAIN_ROLLBACK_FAILED"
+
+
+class DomainLoadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed load() also fails."""
+
+    code = "DOMAIN_LOAD_ROLLBACK_FAILED"
+
+
+class DomainUnloadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed unload() also fails."""
+
+    code = "DOMAIN_UNLOAD_ROLLBACK_FAILED"
+
+
+class DomainReloadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed reload() also fails."""
+
+    code = "DOMAIN_RELOAD_ROLLBACK_FAILED"
+
+
+# ── Phase 10.5 – Domain Validation Errors ──────────────────────────────────────
+
+
+class DomainValidationError(DomainError):
+    """Base error for Domain Validation operations (Phase 10.5)."""
+
+    code = "DOMAIN_VALIDATION_ERROR"
+
+
+class DomainValidationRequestInvalid(DomainValidationError):
+    """Raised when a DomainValidationRequest is structurally invalid."""
+
+    code = "DOMAIN_VALIDATION_REQUEST_INVALID"
+
+
+class DomainValidationExecutionError(DomainValidationError):
+    """Raised when validation execution fails unexpectedly."""
+
+    code = "DOMAIN_VALIDATION_EXECUTION_ERROR"
+
+
+class DomainValidationBlocked(DomainValidationError):
+    """Raised when a domain operation is blocked by validation results."""
+
+    code = "DOMAIN_VALIDATION_BLOCKED"
+
+
+class DomainValidationStepMissing(DomainValidationError):
+    """Raised when a required validation step is absent."""
+
+    code = "DOMAIN_VALIDATION_STEP_MISSING"
+
+
+class DomainValidationContextInvalid(DomainValidationError):
+    """Raised when the validation context is invalid or inconsistent."""
+
+    code = "DOMAIN_VALIDATION_CONTEXT_INVALID"
+
+
+# ── Phase 10.6 – Domain Resolution Errors ──────────────────────────────────────
+
+
+class DomainResolutionError(DomainError):
+    """Base error for Domain Resolution operations (Phase 10.6)."""
+
+    code = "DOMAIN_RESOLUTION_ERROR"
+
+
+class DomainResolutionContractError(DomainResolutionError, ValueError):
+    """Raised when a resolution contract invariant is violated."""
+
+    code = "DOMAIN_RESOLUTION_CONTRACT_ERROR"
+
+
+class DomainResolutionSerializationError(DomainResolutionError):
+    """Raised when serialization or deserialization of resolution contracts fails."""
+
+    code = "DOMAIN_RESOLUTION_SERIALIZATION_ERROR"
+
+
+class DomainResolutionContextInvalid(DomainResolutionError):
+    """Raised when a DomainResolutionContext is structurally invalid or empty."""
+
+    code = "DOMAIN_RESOLUTION_CONTEXT_INVALID"
+
+
+class DomainResolutionPolicyError(DomainResolutionError):
+    """Raised when a DomainResolutionPolicy has invalid invariants."""
+
+    code = "DOMAIN_RESOLUTION_POLICY_ERROR"
+
+
+class DomainResolutionSnapshotError(DomainResolutionError):
+    """Raised when a registry snapshot used for resolution is invalid."""
+
+    code = "DOMAIN_RESOLUTION_SNAPSHOT_ERROR"
+
+
+class DomainResolutionLimitExceeded(DomainResolutionError):
+    """Raised when a resolution input exceeds configured limits."""
+
+    code = "DOMAIN_RESOLUTION_LIMIT_EXCEEDED"
+
+
+# ── Phase 10.7 – Domain Resolver Errors ────────────────────────────────────────
+
+
+class DomainResolverError(DomainResolutionError):
+    """Base error for Domain Resolver operations (Phase 10.7)."""
+
+    code = "DOMAIN_RESOLVER_ERROR"
+
+
+class DomainResolverConfigurationError(DomainResolverError):
+    """Raised when the resolver is configured with invalid or incompatible settings."""
+
+    code = "DOMAIN_RESOLVER_CONFIGURATION_ERROR"
+
+
+class DomainResolverExecutionError(DomainResolverError):
+    """Raised when the resolver encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_RESOLVER_EXECUTION_ERROR"
+
+
+class DomainResolutionAmbiguityError(DomainResolverError):
+    """Raised when the resolver detects material ambiguity and cannot proceed.
+
+    Normally ambiguity produces an AMBIGUOUS result; this exception is reserved
+    for cases where the caller explicitly requires a non-ambiguous resolution.
+    """
+
+    code = "DOMAIN_RESOLUTION_AMBIGUITY_ERROR"
+
+
+class DomainResolutionUnsupportedError(DomainResolverError):
+    """Raised when no eligible domain is available and no fallback is safe."""
+
+    code = "DOMAIN_RESOLUTION_UNSUPPORTED_ERROR"
+
+
+class DomainResolutionBlockedError(DomainResolverError):
+    """Raised when a relevant candidate exists but policy/permissions block it."""
+
+    code = "DOMAIN_RESOLUTION_BLOCKED_ERROR"
+
+
+# ── Phase 10.8 – Domain Composition Errors ──────────────────────────────────────
+
+
+class DomainCompositionError(DomainError):
+    """Base error for Domain Composition operations (Phase 10.8)."""
+
+    code = "DOMAIN_COMPOSITION_ERROR"
+
+
+class DomainCompositionContractError(DomainCompositionError, ValueError):
+    """Raised when a composition contract invariant is violated."""
+
+    code = "DOMAIN_COMPOSITION_CONTRACT_ERROR"
+
+
+class DomainCompositionSerializationError(DomainCompositionError):
+    """Raised when serialization or deserialization of composition contracts fails."""
+
+    code = "DOMAIN_COMPOSITION_SERIALIZATION_ERROR"
+
+
+class DomainCompositionConfigurationError(DomainCompositionError):
+    """Raised when the composer is configured with invalid settings."""
+
+    code = "DOMAIN_COMPOSITION_CONFIGURATION_ERROR"
+
+
+class DomainCompositionExecutionError(DomainCompositionError):
+    """Raised when the composer encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_COMPOSITION_EXECUTION_ERROR"
+
+
+# ── Phase 10.9 – Cross-Domain Engine Errors ────────────────────────────────────
+
+
+class CrossDomainError(DomainError):
+    """Base error for Cross-Domain Engine operations (Phase 10.9)."""
+
+    code = "CROSS_DOMAIN_ERROR"
+
+
+class CrossDomainContractError(CrossDomainError, ValueError):
+    """Raised when a Cross-Domain contract invariant is violated."""
+
+    code = "CROSS_DOMAIN_CONTRACT_ERROR"
+
+
+class CrossDomainSerializationError(CrossDomainError):
+    """Raised when serialization or deserialization of Cross-Domain contracts fails."""
+
+    code = "CROSS_DOMAIN_SERIALIZATION_ERROR"
+
+
+class CrossDomainConfigurationError(CrossDomainError):
+    """Raised when the engine is configured with invalid or incompatible settings."""
+
+    code = "CROSS_DOMAIN_CONFIGURATION_ERROR"
+
+
+class CrossDomainLimitError(CrossDomainError):
+    """Raised when a limit configuration is invalid.
+
+    Reaching a runtime limit is never an exception — it becomes a
+    ``LIMIT_REACHED``/``PARTIAL`` result status. This error is reserved for
+    invalid limit *configuration* (e.g. non-positive maximums).
+    """
+
+    code = "CROSS_DOMAIN_LIMIT_ERROR"
+
+
+class CrossDomainPortError(CrossDomainError):
+    """Raised when a port contract is violated (e.g. an unexpected return type)."""
+
+    code = "CROSS_DOMAIN_PORT_ERROR"
+
+
+class CrossDomainExecutionError(CrossDomainError):
+    """Raised when the engine encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind
+    ``except Exception``. Unexpected adapter errors propagate as-is.
+    """
+
+    code = "CROSS_DOMAIN_EXECUTION_ERROR"
+
+
+# ── Phase 10.10 – Domain Resource Errors ───────────────────────────────────────
+
+
+class DomainResourceError(DomainError):
+    """Base error for Domain Resource operations (Phase 10.10)."""
+
+    code = "DOMAIN_RESOURCE_ERROR"
+
+
+class DomainResourceContractError(DomainResourceError, ValueError):
+    """Raised when a Domain Resource contract invariant is violated."""
+
+    code = "DOMAIN_RESOURCE_CONTRACT_ERROR"
+
+
+class DomainResourceSerializationError(DomainResourceError):
+    """Raised when serialization or deserialization of resource contracts fails."""
+
+    code = "DOMAIN_RESOURCE_SERIALIZATION_ERROR"
+
+
+class DomainResourceConfigurationError(DomainResourceError):
+    """Raised when a resource component is configured with invalid settings."""
+
+    code = "DOMAIN_RESOURCE_CONFIGURATION_ERROR"
+
+
+class DomainResourceRegistryError(DomainResourceError):
+    """Raised when a Domain Resource registry operation fails."""
+
+    code = "DOMAIN_RESOURCE_REGISTRY_ERROR"
+
+
+class DomainResourceResolutionError(DomainResourceError):
+    """Raised when a Domain Resource resolution encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_RESOURCE_RESOLUTION_ERROR"
+
+
+class DomainResourceDerivationError(DomainResourceError):
+    """Raised when a Domain Resource derivation invariant is violated."""
+
+    code = "DOMAIN_RESOURCE_DERIVATION_ERROR"
+
+
+# ── Phase 10.11 – Domain Profile Errors ────────────────────────────────────────
+
+
+class DomainProfileError(DomainError):
+    """Base error for Domain Profile operations (Phase 10.11)."""
+
+    code = "DOMAIN_PROFILE_ERROR"
+
+
+class DomainProfileContractError(DomainProfileError, ValueError):
+    """Raised when a Domain Profile contract invariant is violated."""
+
+    code = "DOMAIN_PROFILE_CONTRACT_ERROR"
+
+
+class DomainProfileSerializationError(DomainProfileError):
+    """Raised when serialization or deserialization of profile contracts fails."""
+
+    code = "DOMAIN_PROFILE_SERIALIZATION_ERROR"
+
+
+class DomainProfileConfigurationError(DomainProfileError):
+    """Raised when a profile component is configured with invalid settings."""
+
+    code = "DOMAIN_PROFILE_CONFIGURATION_ERROR"
+
+
+class DomainProfileRegistryError(DomainProfileError):
+    """Raised when a Domain Profile registry operation fails."""
+
+    code = "DOMAIN_PROFILE_REGISTRY_ERROR"
+
+
+class DomainProfileCompositionError(DomainProfileError):
+    """Raised when Domain Profile composition encounters a controlled internal error."""
+
+    code = "DOMAIN_PROFILE_COMPOSITION_ERROR"
+
+
+class DomainProfileResolutionError(DomainProfileError):
+    """Raised when Domain Profile resolution encounters a controlled internal error."""
+
+    code = "DOMAIN_PROFILE_RESOLUTION_ERROR"
+
+
+# ── Phase 10.12 – Domain Rule Errors ─────────────────────────────────────────
+
+
+class DomainRuleError(DomainError):
+    code = "DOMAIN_RULE_ERROR"
+
+
+class DomainRuleContractError(DomainRuleError, ValueError):
+    code = "DOMAIN_RULE_CONTRACT_ERROR"
+
+
+class DomainRuleSerializationError(DomainRuleError, ValueError):
+    code = "DOMAIN_RULE_SERIALIZATION_ERROR"
+
+
+class DomainRuleConfigurationError(DomainRuleError):
+    code = "DOMAIN_RULE_CONFIGURATION_ERROR"
+
+
+class DomainRuleSelectionError(DomainRuleError):
+    code = "DOMAIN_RULE_SELECTION_ERROR"
+
+
+class DomainRuleExecutionError(DomainRuleError, RuntimeError):
+    code = "DOMAIN_RULE_EXECUTION_ERROR"
+
+
+# ── Phase 10.40 – Domain Cognitive Integration Errors ───────────────────────
+
+
+class DomainCognitiveIntegrationError(DomainError):
+    pass
+
+
+class DomainCognitiveIntegrationContractError(
+    DomainCognitiveIntegrationError,
+    ValueError,
+):
+    pass
+
+
+class DomainCognitiveIntegrationBlockedError(
+    DomainCognitiveIntegrationError,
+):
+    pass
+
+
+# ── Phase 10.41 – Domain Agent Runtime Integration Errors ───────────────────
+
+
+class DomainAgentRuntimeIntegrationError(DomainError):
+    pass
+
+
+class DomainAgentRuntimeIntegrationContractError(
+    DomainAgentRuntimeIntegrationError,
+    ValueError,
+):
+    pass
+
+
+class DomainAgentRuntimeIntegrationBlockedError(
+    DomainAgentRuntimeIntegrationError,
+):
+    pass
+
+
+# ── Phase 10.44 – Domain Memory Knowledge Integration Errors ────────────────
+
+
+class DomainMemoryKnowledgeIntegrationError(DomainError):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_INTEGRATION_ERROR"
+
+
+class DomainMemoryKnowledgeContractError(
+    DomainMemoryKnowledgeIntegrationError,
+    ValueError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_CONTRACT_ERROR"
+
+
+class DomainMemoryKnowledgeProjectionError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_PROJECTION_ERROR"
+
+
+class DomainMemoryKnowledgeAuthorizationError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_AUTHORIZATION_ERROR"
+
+
+class DomainMemoryKnowledgeSerializationError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_SERIALIZATION_ERROR"
+
+
+# ── Phase 10.45 – Domain Interface Integration Errors ───────────────────────
+
+
+class DomainInterfaceIntegrationError(DomainError):
+    code = "DOMAIN_INTERFACE_INTEGRATION_ERROR"
+
+
+class DomainInterfaceContractError(
+    DomainInterfaceIntegrationError,
+    ValueError,
+):
+    code = "DOMAIN_INTERFACE_CONTRACT_ERROR"
+
+
+class DomainInterfaceSerializationError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_SERIALIZATION_ERROR"
+
+
+class DomainInterfaceAuthorityError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_AUTHORITY_ERROR"
+
+
+class DomainInterfaceVisibilityError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_VISIBILITY_ERROR"
+
+
+class DomainInterfaceIntentError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_INTENT_ERROR"
+
+
+# ── Phase 10.45 MAJOR-03 – Domain Selection Transition Errors ───────────────
+
+
+class DomainSelectionTransitionError(DomainError):
+    code = "DOMAIN_SELECTION_TRANSITION_ERROR"
+
+
+class DomainSelectionTransitionContractError(
+    DomainSelectionTransitionError,
+    ValueError,
+):
+    code = "DOMAIN_SELECTION_TRANSITION_CONTRACT_ERROR"
+
+
+class DomainSelectionTransitionSerializationError(
+    DomainSelectionTransitionError,
+):
+    code = "DOMAIN_SELECTION_TRANSITION_SERIALIZATION_ERROR"
+
+
+# ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
+
+
+class DomainOperationError(DomainError):
+    code = "DOMAIN_OPERATION_ERROR"
+
+    def to_dict(self) -> dict[str, Any]:
+        def thaw(value: Any) -> Any:
+            if isinstance(value, MappingProxyType):
+                return {key: thaw(item) for key, item in value.items()}
+            if isinstance(value, (tuple, frozenset)):
+                return [thaw(item) for item in value]
+            return value
+
+        details = thaw(self.details)
+        if self.field is not None and "field" not in details:
+            details["field"] = self.field
+        return {"code": self.code, "message": self.message, "details": details}
+
+
+class DomainOperationContractError(DomainOperationError, ValueError):
+    code = "DOMAIN_OPERATION_CONTRACT_ERROR"
+
+
+class DomainOperationRegistryError(DomainOperationError):
+    code = "DOMAIN_OPERATION_REGISTRY_ERROR"
+
+
+class DomainOperationResolutionError(DomainOperationError):
+    code = "DOMAIN_OPERATION_RESOLUTION_ERROR"
+
+
+class DomainOperationUnavailableError(DomainOperationError):
+    code = "DOMAIN_OPERATION_UNAVAILABLE_ERROR"
+
+
+class DomainOperationPermissionDeniedError(DomainOperationError, PermissionError):
+    code = "DOMAIN_OPERATION_PERMISSION_DENIED_ERROR"
+
+
+class DomainOperationApprovalRequiredError(DomainOperationError):
+    code = "DOMAIN_OPERATION_APPROVAL_REQUIRED_ERROR"
+
+
+class DomainOperationValidationError(DomainOperationError):
+    code = "DOMAIN_OPERATION_VALIDATION_ERROR"
+
+
+class DomainOperationExecutionError(DomainOperationError, RuntimeError):
+    code = "DOMAIN_OPERATION_EXECUTION_ERROR"
+
+
+class DomainOperationRollbackError(DomainOperationError, RuntimeError):
+    code = "DOMAIN_OPERATION_ROLLBACK_ERROR"
+
+
+class DomainOperationCancellationError(DomainOperationError):
+    code = "DOMAIN_OPERATION_CANCELLATION_ERROR"
+
+
+class DomainOperationSerializationError(DomainOperationError, ValueError):
+    code = "DOMAIN_OPERATION_SERIALIZATION_ERROR"
+
+
+class DomainPermissionError(DomainError):
+    code = "DOMAIN_PERMISSION_ERROR"
+
+
+class DomainPermissionContractError(DomainPermissionError, ValueError):
+    code = "DOMAIN_PERMISSION_CONTRACT_ERROR"
+
+
+class DomainPermissionRegistryError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_REGISTRY_ERROR"
+
+
+class DomainPermissionResolutionError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_RESOLUTION_ERROR"
+
+
+class DomainPermissionEvaluationError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_EVALUATION_ERROR"
+
+
+class DomainPermissionDeniedError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_DENIED_ERROR"
+
+
+class DomainPermissionApprovalRequiredError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_APPROVAL_REQUIRED_ERROR"
+
+
+class DomainPermissionConflictError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_CONFLICT_ERROR"
+
+
+class DomainPermissionCrossDomainError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_CROSS_DOMAIN_ERROR"
+
+
+class DomainPermissionSerializationError(DomainPermissionError, ValueError):
+    code = "DOMAIN_PERMISSION_SERIALIZATION_ERROR"
+
+
+# Phase 10.32 – Domain Conflict Resolution
+class DomainConflictResolutionContractError(DomainContractValidationError):
+    """Raised when a Phase 10.32 conflict-resolution contract is invalid."""
+
+    code = "DOMAIN_CONFLICT_RESOLUTION_CONTRACT_ERROR"
+
+
+class DomainConflictResolutionSerializationError(DomainConflictResolutionContractError):
+    """Raised when serialized Phase 10.32 conflict data is invalid."""
+
+    code = "DOMAIN_CONFLICT_RESOLUTION_SERIALIZATION_ERROR"
+
+
+# Phase 10.33 – Domain Events
+class DomainEventError(DomainError):
+    """Base error for Domain Event operations."""
+
+    code = "DOMAIN_EVENT_ERROR"
+
+
+class DomainEventContractError(DomainEventError, DomainContractValidationError):
+    """Raised when a Domain Event contract is invalid."""
+
+    code = "DOMAIN_EVENT_CONTRACT_ERROR"
+
+
+class DomainEventSerializationError(DomainEventContractError):
+    """Raised when Domain Event serialization or deserialization fails."""
+
+    code = "DOMAIN_EVENT_SERIALIZATION_ERROR"
+
+
+class DomainEventValidationError(DomainEventContractError):
+    """Raised when Domain Event validation fails (e.g. unknown event type)."""
+
+    code = "DOMAIN_EVENT_VALIDATION_ERROR"
+
+
+class DomainEventRegistryError(DomainEventError):
+    """Raised when Domain Event registration fails."""
+
+    code = "DOMAIN_EVENT_REGISTRY_ERROR"
+
+
+class DomainEventPublicationError(DomainEventError):
+    """Raised when Domain Event publication to Kernel fails."""
+
+    code = "DOMAIN_EVENT_PUBLICATION_ERROR"
+
+
+# Phase 10.34 – Domain Sessions
+class DomainSessionError(DomainError):
+    """Base error for all Domain Session operations."""
+
+    code = "DOMAIN_SESSION_ERROR"
+
+
+class DomainSessionContractError(DomainSessionError, DomainContractValidationError):
+    """Raised when a Domain Session contract is violated or fails validation."""
+
+    code = "DOMAIN_SESSION_CONTRACT_ERROR"
+
+
+class DomainSessionSerializationError(DomainSessionContractError):
+    """Raised when Domain Session serialization or deserialization fails."""
+
+    code = "DOMAIN_SESSION_SERIALIZATION_ERROR"
+
+
+class DomainSessionRevalidationError(DomainSessionError):
+    """Raised when Domain Session revalidation fails."""
+
+    code = "DOMAIN_SESSION_REVALIDATION_ERROR"
+
+
+class DomainSessionResumeError(DomainSessionError):
+    """Raised when Domain Session resumption fails."""
+
+    code = "DOMAIN_SESSION_RESUME_ERROR"
+
+
+class DomainSessionSecurityError(DomainSessionError):
+    """Raised when Domain Session security or credential policy is violated."""
+
+    code = "DOMAIN_SESSION_SECURITY_ERROR"
+
+
+# ── Phase 10.37 – Domain Observability Errors ─────────────────────────────────
+
+
+class InvalidDomainObservabilityContractError(DomainError, ValueError):
+    """Raised when Phase 10.37 observability data violates its public contract."""
+
+    code = "DOMAIN_OBSERVABILITY_CONTRACT_ERROR"
+
+
+class InvalidDomainObservabilityEvidenceError(InvalidDomainObservabilityContractError):
+    """Raised when supplied canonical observability evidence is malformed,
+    contradictory at the identity level, or unsafe."""
+
+    code = "DOMAIN_OBSERVABILITY_EVIDENCE_INVALID"
+
+
+# Phase 10.49 – Domain Knowledge Packages
+class DomainKnowledgePackageError(DomainError):
+    """Base error for Domain-owned knowledge package schema operations."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_ERROR"
+
+
+class DomainKnowledgePackageContractError(DomainKnowledgePackageError):
+    """Raised when a Domain knowledge package schema contract is invalid."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_CONTRACT_ERROR"
+
+
+class DomainKnowledgePackageSerializationError(DomainKnowledgePackageContractError):
+    """Raised when a Domain knowledge package schema payload is malformed."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_SERIALIZATION_ERROR"
+
+
+class DomainKnowledgePackageCompositionError(DomainKnowledgePackageError):
+    """Raised when multi-domain schema composition is irreconcilable."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_COMPOSITION_ERROR"
+
+
+class DomainKnowledgePackageValidationError(DomainKnowledgePackageError):
+    """Raised when a canonical KnowledgePackage violates a schema."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_VALIDATION_ERROR"
+
+
+# Phase 10.50 – Domain Privacy Policies
+class DomainPrivacyPolicyError(DomainError):
+    """Base error for Domain-owned privacy policy declarations."""
+
+    code = "DOMAIN_PRIVACY_POLICY_ERROR"
+
+
+class DomainPrivacyPolicyContractError(DomainPrivacyPolicyError, ValueError):
+    """Raised when a Domain privacy policy contract is invalid."""
+
+    code = "DOMAIN_PRIVACY_POLICY_CONTRACT_ERROR"
+
+
+class DomainPrivacyPolicySerializationError(DomainPrivacyPolicyContractError):
+    """Raised when a Domain privacy policy payload is malformed."""
+
+    code = "DOMAIN_PRIVACY_POLICY_SERIALIZATION_ERROR"
+
+
+__all__ = [
+    "CrossDomainConfigurationError",
+    "CrossDomainContractError",
+    "CrossDomainError",
+    "CrossDomainExecutionError",
+    "CrossDomainLimitError",
+    "CrossDomainPortError",
+    "CrossDomainSerializationError",
+    "DomainCandidateInvalid",
+    "DomainCapabilityConflict",
+    "DomainChecksumMismatch",
+    "DomainCognitiveIntegrationBlockedError",
+    "DomainCognitiveIntegrationContractError",
+    "DomainCognitiveIntegrationError",
+    "DomainCompositionConfigurationError",
+    "DomainCompositionContractError",
+    "DomainCompositionError",
+    "DomainCompositionExecutionError",
+    "DomainCompositionSerializationError",
+    "DomainConflictResolutionContractError",
+    "DomainConflictResolutionSerializationError",
+    "DomainContractError",
+    "DomainContractValidationError",
+    "DomainDependencyMissing",
+    "DomainDiscoveryError",
+    "DomainDiscoverySourceError",
+    "DomainError",
+    "DomainEventContractError",
+    "DomainEventError",
+    "DomainEventPublicationError",
+    "DomainEventRegistryError",
+    "DomainEventSerializationError",
+    "DomainEventValidationError",
+    "DomainInterfaceAuthorityError",
+    "DomainInterfaceContractError",
+    "DomainInterfaceIntegrationError",
+    "DomainInterfaceIntentError",
+    "DomainInterfaceSerializationError",
+    "DomainInterfaceVisibilityError",
+    "DomainKnowledgePackageCompositionError",
+    "DomainKnowledgePackageContractError",
+    "DomainKnowledgePackageError",
+    "DomainKnowledgePackageSerializationError",
+    "DomainKnowledgePackageValidationError",
+    "DomainLoadFailed",
+    "DomainLoadRejected",
+    "DomainLoadRollbackFailed",
+    "DomainLoaderError",
+    "DomainMemoryContractError",
+    "DomainMemoryError",
+    "DomainMemoryKnowledgeAuthorizationError",
+    "DomainMemoryKnowledgeContractError",
+    "DomainMemoryKnowledgeIntegrationError",
+    "DomainMemoryKnowledgeProjectionError",
+    "DomainMemoryKnowledgeSerializationError",
+    "DomainMemoryPermissionError",
+    "DomainMemoryPrivacyError",
+    "DomainMemoryProposalBindingError",
+    "DomainMemoryResolutionError",
+    "DomainMemorySerializationError",
+    "DomainMemoryValidationError",
+    "DomainOperationApprovalRequiredError",
+    "DomainOperationCancellationError",
+    "DomainOperationContractError",
+    "DomainOperationError",
+    "DomainOperationExecutionError",
+    "DomainOperationPermissionDeniedError",
+    "DomainOperationRegistryError",
+    "DomainOperationResolutionError",
+    "DomainOperationRollbackError",
+    "DomainOperationSerializationError",
+    "DomainOperationUnavailableError",
+    "DomainOperationValidationError",
+    "DomainPathEscape",
+    "DomainPermissionApprovalRequiredError",
+    "DomainPermissionConflictError",
+    "DomainPermissionContractError",
+    "DomainPermissionCrossDomainError",
+    "DomainPermissionDeniedError",
+    "DomainPermissionError",
+    "DomainPermissionEvaluationError",
+    "DomainPermissionRegistryError",
+    "DomainPermissionResolutionError",
+    "DomainPermissionSerializationError",
+    "DomainPrivacyPolicyContractError",
+    "DomainPrivacyPolicyError",
+    "DomainPrivacyPolicySerializationError",
+    "DomainProfileCompositionError",
+    "DomainProfileConfigurationError",
+    "DomainProfileContractError",
+    "DomainProfileError",
+    "DomainProfileRegistryError",
+    "DomainProfileResolutionError",
+    "DomainProfileSerializationError",
+    "DomainRegistryConflict",
+    "DomainRegistryError",
+    "DomainRegistryNotFound",
+    "DomainRegistryStateError",
+    "DomainRegistryValidationError",
+    "DomainRegistryVersionError",
+    "DomainReloadFailed",
+    "DomainReloadRollbackFailed",
+    "DomainResolutionAmbiguityError",
+    "DomainResolutionBlockedError",
+    "DomainResolutionContextInvalid",
+    "DomainResolutionContractError",
+    "DomainResolutionError",
+    "DomainResolutionLimitExceeded",
+    "DomainResolutionPolicyError",
+    "DomainResolutionSerializationError",
+    "DomainResolutionSnapshotError",
+    "DomainResolutionUnsupportedError",
+    "DomainResolverConfigurationError",
+    "DomainResolverError",
+    "DomainResolverExecutionError",
+    "DomainResourceConfigurationError",
+    "DomainResourceContractError",
+    "DomainResourceDerivationError",
+    "DomainResourceError",
+    "DomainResourceRegistryError",
+    "DomainResourceResolutionError",
+    "DomainResourceSerializationError",
+    "DomainRollbackFailed",
+    "DomainRuleConfigurationError",
+    "DomainRuleContractError",
+    "DomainRuleError",
+    "DomainRuleExecutionError",
+    "DomainRuleSelectionError",
+    "DomainRuleSerializationError",
+    "DomainSelectionTransitionContractError",
+    "DomainSelectionTransitionError",
+    "DomainSelectionTransitionSerializationError",
+    "DomainSerializationError",
+    "DomainSessionContractError",
+    "DomainSessionError",
+    "DomainSessionResumeError",
+    "DomainSessionRevalidationError",
+    "DomainSessionSecurityError",
+    "DomainSessionSerializationError",
+    "DomainSourceUntrusted",
+    "DomainUnloadFailed",
+    "DomainUnloadRollbackFailed",
+    "DomainValidationBlocked",
+    "DomainValidationContextInvalid",
+    "DomainValidationError",
+    "DomainValidationExecutionError",
+    "DomainValidationRequestInvalid",
+    "DomainValidationStepMissing",
+    "InvalidDomainObservabilityContractError",
+    "InvalidDomainObservabilityEvidenceError",
+]

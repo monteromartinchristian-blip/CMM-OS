@@ -1,0 +1,157 @@
+"""Tests for Phase 10.28 Sport Domain Workflows."""
+
+from __future__ import annotations
+
+from cmm.domains.sport.catalog import (
+    CANONICAL_SPORT_WORKFLOW_IDS,
+)
+from cmm.domains.sport.rules import evaluate_health_constraint
+from cmm.domains.sport.workflows import (
+    build_sport_workflow_definitions,
+    execute_return_to_training_workflow,
+)
+
+
+def test_sport_workflow_definitions_canonical_parity() -> None:
+    workflows = build_sport_workflow_definitions()
+    assert len(workflows) == 5
+    assert tuple(w.workflow_id for w in workflows) == CANONICAL_SPORT_WORKFLOW_IDS
+    assert all(w.domain_id == "domain:sport" for w in workflows)
+
+
+def test_sport_workflow_structure_safety_prefix() -> None:
+    workflows = build_sport_workflow_definitions()
+    for wf in workflows:
+        node_ids = [n.node_id for n in wf.nodes]
+        assert node_ids[0:3] == ["load", "profile", "reason"]
+        assert node_ids[-1] == "complete"
+        assert "validate" in node_ids
+
+
+def test_return_to_training_with_health_constraints_workflow_execution() -> None:
+    import dataclasses
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
+    )
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.general.permissions import build_general_permission_policy
+    from cmm.domains.health.permissions import build_health_permission_policy
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.sport import SPORT_DOMAIN_ID, build_sport_permission_policy
+
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_sport_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+    health_policy = dataclasses.replace(
+        build_health_permission_policy(),
+        allow_cross_domain_access=True,
+        allowed_target_domains=("domain:sport",),
+        allowed_capabilities=(
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ),
+        allowed_resource_kinds=("resource.health_resource",),
+        allowed_sensitivity_levels=("restricted",),
+    )
+    perm_registry.register(health_policy)
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: now)
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="auth.scope.100",
+        source_domain="domain:health",
+        target_domain=SPORT_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="return-to-training functional constraint",
+        actor_id="actor-test",
+        session_id="sess-test",
+        sensitivity_level="restricted",
+        resource_ids=("sport.resource.health_resource:rtt-001",),
+        resource_kinds=("resource.health_resource",),
+    )
+    pending = gate.evaluate_cross_domain(cross_request)
+    req_item = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
+    app_req = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id="run-1"),
+        requested_by="sports-physician",
+    )
+    approval_service.approve(app_req.id, "sports-physician")
+    consumed = gate.evaluate_cross_domain(cross_request, approval_request_id=app_req.id)
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+
+    # 1. With active Health constraint requiring reduced load
+    health_projection = {
+        "constraint_id": "c-001",
+        "status": "active",
+        "activity_limits": ["no_sprinting"],
+        "load_limits": {"max_intensity": 0.5},
+        "authorization_reference": consumed.decision_id,
+    }
+    vetted = evaluate_health_constraint(
+        health_projection,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
+    )
+    res = execute_return_to_training_workflow(
+        rest_hours=7.5,
+        fatigue_score=4,
+        pain_score=3,
+        health_constraint=vetted,
+        is_current=True,
+    )
+    assert res["status"] == "completed"
+    assert res["recommendation"] in (
+        "reduce_load",
+        "continue",
+        "hold",
+        "stop_and_check",
+    )
+    assert res["health_constraint_applied"] is True
+    assert res["is_diagnosis"] is False
+    assert res["treatment_modified"] is False
+    assert res["clinical_clearance_claimed"] is False
+
+
+def test_return_to_training_rejects_unauthorized_health_context() -> None:
+    res = execute_return_to_training_workflow(
+        rest_hours=8.0,
+        fatigue_score=2,
+        pain_score=0,
+        health_constraint={"full_clinical_history": ["diagnosis_A"]},
+        is_authorized=False,
+        is_current=True,
+    )
+    assert res["status"] == "completed"
+    assert res["health_constraint_applied"] is False
+
+
+def test_workflow_caller_boolean_cannot_authorize_health_constraint() -> None:
+    res = execute_return_to_training_workflow(
+        rest_hours=8.0,
+        fatigue_score=2,
+        pain_score=0,
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "fake-auth-ref",
+            "load_limits": {"reduction_pct": 50},
+        },
+        is_authorized=True,
+        is_current=True,
+    )
+    assert res["health_constraint_applied"] is False
+    assert res["recommendation"] == "continue"

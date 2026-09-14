@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from kernel.services.python_index import PythonIndex
-
 
 _EXCLUDED_PARTS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
@@ -37,8 +37,14 @@ class ProjectFile:
         }
 
 
+class _WeakReferenceable:
+    """Python 3.10-compatible weak-reference slot provider."""
+
+    __slots__ = ("__weakref__",)
+
+
 @dataclass(frozen=True, slots=True)
-class ProjectContext:
+class ProjectContext(_WeakReferenceable):
     root: Path
     files: tuple[ProjectFile, ...]
     total_python_files: int
@@ -51,6 +57,32 @@ class ProjectContext:
             "truncated": self.truncated,
             "files": [item.serialize() for item in self.files],
         }
+
+    @property
+    def is_analyzer_issued(self) -> bool:
+        """Whether this exact context was issued by ``ProjectAnalyzer``."""
+        return is_analyzer_issued_project_context(self)
+
+
+_ANALYZER_ISSUED_CONTEXTS: dict[int, weakref.ReferenceType[ProjectContext]] = {}
+
+
+def _remember_analyzer_issued_context(context: ProjectContext) -> None:
+    context_id = id(context)
+
+    def remove(reference: weakref.ReferenceType[ProjectContext]) -> None:
+        if _ANALYZER_ISSUED_CONTEXTS.get(context_id) is reference:
+            _ANALYZER_ISSUED_CONTEXTS.pop(context_id, None)
+
+    _ANALYZER_ISSUED_CONTEXTS[context_id] = weakref.ref(context, remove)
+
+
+def is_analyzer_issued_project_context(value: object) -> bool:
+    """Verify identity-backed provenance issued by the shared analyzer."""
+    if not isinstance(value, ProjectContext):
+        return False
+    reference = _ANALYZER_ISSUED_CONTEXTS.get(id(value))
+    return reference is not None and reference() is value
 
 
 class ProjectAnalyzer:
@@ -74,7 +106,9 @@ class ProjectAnalyzer:
         terms = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", goal.lower()))
         ranked = sorted(indexed, key=lambda item: (-self._score(item, terms), item.path))
         selected = tuple(ranked[:max_files])
-        return ProjectContext(root, selected, len(indexed), len(indexed) > len(selected))
+        context = ProjectContext(root, selected, len(indexed), len(indexed) > len(selected))
+        _remember_analyzer_issued_context(context)
+        return context
 
     def _summarize(self, root: Path, path: Path) -> ProjectFile:
         relative = path.relative_to(root)

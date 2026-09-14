@@ -415,8 +415,10 @@ class KnowledgeContradictionResolver:
             ContradictionKind.RELATIONAL,
         ):
             merge_rationale = (
-                f"Items share the same epistemic kind ('{item_a.kind.value}') and can be consolidated "
-                "into a merged knowledge item unifying evidence.",
+                (
+                    f"Items share the same epistemic kind ('{item_a.kind.value}') and can be consolidated "
+                    "into a merged knowledge item unifying evidence."
+                ),
             )
             merge_conf = (
                 0.85

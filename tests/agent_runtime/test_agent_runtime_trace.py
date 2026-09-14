@@ -1274,28 +1274,12 @@ class TestAgentTraceIntegrityVerifier:
         self, integrity_verifier: AgentTraceIntegrityVerifier
     ) -> None:
         started = datetime.now(timezone.utc)
-        completed = datetime(
-            started.year,
-            started.month,
-            started.day,
-            started.hour,
-            started.minute,
-            started.second + 1,
-            tzinfo=timezone.utc,
-        )
+        completed = started + timedelta(seconds=1)
         it = AgentTraceIteration(
             iteration_id="i1", sequence=1, started_at=started, completed_at=completed
         )
         # Corrupt the iteration so completed_at is BEFORE started_at
-        earlier = datetime(
-            started.year,
-            started.month,
-            started.day,
-            started.hour,
-            started.minute,
-            started.second - 1,
-            tzinfo=timezone.utc,
-        )
+        earlier = started - timedelta(seconds=1)
         _corrupt_frozen(it, completed_at=earlier)
         trace = AgentTrace(
             trace_id="t1", agent_run_id="r1", goal_id="g1", iterations=(it,)

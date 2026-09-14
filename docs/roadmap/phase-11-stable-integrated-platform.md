@@ -297,6 +297,7 @@ Central coordination point:
 OrchestrationRequest(
     user_id="user-123",
     session_id="session-456",
+    bot_id=None,
     input={...},
     channel="conversation",
     context={...},
@@ -310,8 +311,8 @@ Result:
 OrchestrationResult(
     status="completed",
     response={...},
-    domain="medical",
-    profile="MedicalProfile",
+    domain="health",
+    profile="HealthProfile",
     workflow_id=None,
     operations=[],
     approvals=[],
@@ -328,6 +329,10 @@ OrchestrationResult(
 - select the domain;
 - select the cognitive profile;
 - decide whether an agent must participate;
+- resolve requested PlatformCapabilities against user, session, Domain, resource, privacy, sensitivity, availability, autonomy, budget, and approval constraints;
+- distinguish requested capabilities from effective authority;
+- determine which compatible tools and canonical operations may satisfy the resulting effective capability set;
+- prevent Bot configuration, Agent binding, fallback, or model/provider output from widening authority;
 - determine which tools and operations are allowed;
 - check permissions;
 - create or resume sessions;
@@ -451,6 +456,9 @@ The API must expose stable resources for:
 - knowledge;
 - domains;
 - agents;
+- bots;
+- capabilities;
+- tools;
 - configuration;
 - events;
 - metrics;
@@ -487,6 +495,19 @@ POST   /memory/search
 
 GET    /domains
 GET    /agents
+GET    /bots
+POST   /bots
+GET    /bots/{id}
+PATCH  /bots/{id}
+POST   /bots/{id}/duplicate
+POST   /bots/{id}/archive
+
+GET    /capabilities
+GET    /capabilities/{id}
+
+GET    /tools
+GET    /tools/{id}
+
 GET    /system/health
 ```
 
@@ -558,6 +579,12 @@ ErrorResult(
 - filters;
 - traceability;
 - documented contracts.
+
+## Bot and Capability Application Services
+
+Phase 11 adds conceptual `BotService`, `CapabilityService`, and `ToolCatalogService` application seams. They expose product configuration, effective capability resolution, and implementation availability without owning Agent execution, canonical operations, approvals, autonomy, budgets, validation, or secrets.
+
+`/tools` is an implementation and availability inspection surface; it is not a second executable operation endpoint.
 
 ## Completion Criteria
 
@@ -698,12 +725,9 @@ Build the main natural-interaction interface for CMM OS.
 - cancellation;
 - attachments;
 - quick commands;
-- dedicated conversation file tab;
-- cross-device artifact preview and download;
-- complete and selective conversation export;
-- Markdown and PDF export preview;
-- import of Claude, ChatGPT, and compatible Markdown conversations;
-- continuation of imported conversations.
+- optional Bot association;
+- requested/effective capability visibility;
+- optional canonical Agent-backed status.
 
 ## Conversation Message
 
@@ -711,6 +735,7 @@ Build the main natural-interaction interface for CMM OS.
 ConversationMessage(
     id="message-123",
     session_id="session-456",
+    bot_id=None,
     role="user",
     content=[...],
     created_at="...",
@@ -719,6 +744,8 @@ ConversationMessage(
     metadata={...},
 )
 ```
+
+A conversation may be associated with a `bot_id`, but normal conversation must remain possible without Bot or Agent binding. The interface must distinguish requested capabilities from effective capability state and show blocked, unavailable, or approval-required states without treating them as executable authority.
 
 ## Assistant Response
 
@@ -767,9 +794,6 @@ When relevant, the interface must show:
 - approvals;
 - visible sources;
 - complete Orchestrator integration;
-- conversation file workspace;
-- selective Markdown and PDF export;
-- conversation import and continuation;
 - E2E tests.
 
 ---
@@ -1044,7 +1068,7 @@ Build a unified temporal view of relevant events across all domains.
 ```python
 TimelineEvent(
     id="event-123",
-    domain="medical",
+    domain="health",
     event_type="appointment",
     title="Pulmonology appointment",
     occurred_at="2026-09-04T10:00:00",
@@ -1243,10 +1267,7 @@ Allow users to review what CMM OS remembers and control its retention.
 - mark sensitivity;
 - block use;
 - export;
-- import;
-- review imported-conversation memory candidates;
-- accept, reject, edit, or merge proposed updates;
-- trace imported memories to conversation, message, and original file.
+- import.
 
 ## Memory Policy
 
@@ -1284,8 +1305,6 @@ MemoryUpdateProposal(
 - sensitivity control;
 - audit trail;
 - export;
-- supervised imported-memory review;
-- duplicate and contradiction handling;
 - privacy tests.
 
 ---
@@ -1329,6 +1348,35 @@ Centralize technical and functional system configuration.
 - budgets;
 - iteration limits;
 - cost limits.
+
+### Bots
+
+- identity and description;
+- instructions;
+- Communication Profile;
+- model and routing policy;
+- Domains;
+- knowledge and memory scope;
+- requested PlatformCapabilities;
+- autonomy preference within the canonical ceiling;
+- optional Agent binding;
+- versioning;
+- import and export.
+
+Bot configuration expresses requested product behavior. It does not grant effective permissions, approvals, autonomy, budgets, secrets, or execution authority.
+
+### Tools / Capabilities
+
+- Platform Capability Catalog;
+- requested and effective capability state;
+- implementation availability;
+- connection and health state;
+- local or remote execution metadata;
+- privacy and sensitivity requirements;
+- scopes;
+- approvals;
+- audit;
+- replaceable implementation adapters.
 
 ### Domains
 
@@ -1427,6 +1475,14 @@ Policy-Based Access Control
 Resource-Level Permissions
 ```
 
+## Bot and Capability Authorization Boundary
+
+A Bot may request PlatformCapabilities, but Bot configuration is never itself an authorization source.
+
+Effective capability authority must be derived through the canonical permission and policy owners. Agent binding cannot grant permissions, increase autonomy or budgets, remove approvals, transfer secrets, or activate Computer Use by implication.
+
+For sensitive or mutating capabilities, missing authority fails closed. Explicit deny wins.
+
 ## Capabilities
 
 - local authentication;
@@ -1498,7 +1554,12 @@ Protect data, credentials, operations, and communications.
 - sanitization;
 - input validation;
 - file controls;
+- Bot definitions must never contain credentials, API keys, refresh tokens, cookies, or operating-system authorization tokens;
+- authenticated-browser sessions must use independently authorized and scoped session/origin access;
+- Computer Use must use explicit application/resource scope, visible execution state, cancellation, human takeover, and revalidation before automated resume;
 - destructive-operation blocking.
+
+Bot configuration, Agent binding, model output, provider payloads, fallback, and imported configuration must never be treated as permission or capability-escalation authorities.
 
 ## Threat Model
 
@@ -1581,14 +1642,10 @@ For:
 - attachments;
 - backups;
 - artifacts;
-- conversation uploads;
-- model-generated files;
-- tool- and workflow-generated files;
-- imported conversation originals;
-- exported conversations;
-- multi-file download archives;
 - large logs;
 - results.
+
+Phase 11 persistence must also cover versioned Bot definitions, Bot capability requests, PlatformCapability descriptors or references, and effective capability-policy decision records. Secrets remain outside those records.
 
 ## Storage Abstraction
 
@@ -1601,9 +1658,8 @@ Provider-independent contracts:
 - `MemoryRepository`;
 - `EventRepository`;
 - `DocumentRepository`;
-- `ArtifactRepository`;
-- `ConversationImportRepository`;
-- `ConversationExportRepository`.
+- planned `BotRepository`;
+- planned `CapabilityDecisionRepository`.
 
 ## Capabilities
 
@@ -1761,17 +1817,13 @@ Formats:
 - JSONL;
 - CSV;
 - Markdown;
-- PDF;
 - GraphML;
 - compressed archives;
 - complete backup.
 
 Exportable elements:
 
-- conversations, complete or selectively scoped;
-- conversation files and generated artifacts;
-- global file-library metadata;
-- imported conversation originals;
+- conversations;
 - memory;
 - knowledge;
 - goals;
@@ -1779,15 +1831,14 @@ Exportable elements:
 - decisions;
 - timeline;
 - documents;
-- configuration.
+- configuration;
+- versioned Bot definitions;
+- portable Bot requested-capability policies.
 
 ## Import
 
 It must support:
 
-- Claude and ChatGPT Markdown conversation import;
-- provider-specific adapters behind shared contracts;
-- archive-only, continuation, and supervised-memory modes;
 - format validation;
 - duplicate detection;
 - schema mapping;
@@ -1798,15 +1849,19 @@ It must support:
 - cancellation;
 - rollback.
 
+## Bot Portability Rule
+
+Portable Bot configuration is not portable effective authority.
+
+Bot import/export must exclude credentials, tokens, cookies, hidden approval decisions, operating-system grants, and other secrets. Requested capabilities may travel as declarative configuration; privileged effective capability state must always be recomputed on the destination system.
+
+Imported Bot definitions default to no privileged effective authority until canonical policy resolution explicitly permits it.
+
 ## Completion Criteria
 
 - complete export;
-- selective export by conversation, message range, or explicit message selection;
-- Markdown and PDF conversation rendering;
-- optional inclusion of authorized files and artifacts;
+- selective export;
 - import;
-- imported-conversation continuation;
-- supervised memory and knowledge integration;
 - preview;
 - conflict resolution;
 - documentation;
@@ -1832,6 +1887,8 @@ PluginDefinition(
     entrypoint="...",
 )
 ```
+
+A plugin's declared capabilities describe what its implementation may satisfy; they do not grant user or Bot authority. Side-effecting tool implementations remain behind canonical permission, approval, validation, operation, and runtime boundaries.
 
 ## Plugin Types
 
@@ -1917,7 +1974,11 @@ Connect CMM OS to external services without coupling them to the core.
 - APIs;
 - webhooks;
 - search services;
+- browser automation adapters;
+- Computer Use adapters;
 - document systems.
+
+A concrete integration may implement one or more PlatformCapabilities, but implementation availability never grants effective authority. Capability authorization remains a CMM OS policy decision.
 
 ## Integration Adapter
 
@@ -2001,6 +2062,12 @@ The Model Gateway must isolate the Cognitive Layer, Agent Runtime, Domain Intell
 - audit generation;
 - local and remote execution.
 
+## Capability and Tool-Call Boundary
+
+Model tool calls are normalized requests for capability use; they are not permission grants. A provider response cannot enable a PlatformCapability, widen scope, lower an approval requirement, increase autonomy or budget, or activate Computer Use.
+
+Fallback and provider substitution must preserve or strengthen the effective capability envelope established before the model call.
+
 ## Model Request
 
 ```python
@@ -2056,9 +2123,46 @@ Initial adapters may include:
 - Google / Gemini;
 - Ollama;
 - OpenAI-compatible providers;
-- experimental Cline CLI adapter for ClinePass-backed models such as Kimi K3.
+- preferred `OpenCodeGoProvider` adapter for direct access to the OpenCode Go multimodel subscription through provider-compatible APIs;
+- experimental `ClineCliProvider` for ClinePass-backed models and Cline-specific external-worker workflows.
 
 The architecture must not depend on a closed provider list.
+
+### Preferred OpenCode Go Adapter
+
+The Model Gateway should prioritize an `OpenCodeGoProvider` as the first subscription-backed multimodel adapter for everyday CMM OS operation. The provider must connect through supported OpenAI-compatible or Anthropic-compatible interfaces and normalize every request and response into the shared `ModelRequest` and `ModelResponse` contracts.
+
+OpenCode Go is preferred over routing ordinary CMM OS requests through Cline because it allows CMM OS to remain the sole orchestrator. CMM OS must retain direct control over:
+
+- prompt and context construction;
+- domain and reasoning-profile selection;
+- tools and operation permissions;
+- memory and Knowledge Package use;
+- privacy and sensitivity policies;
+- response validation and escalation;
+- model routing, fallback, latency, and cost accounting.
+
+Initial use cases include:
+
+- general and domain conversation;
+- personal-assistant workflows;
+- preparation of medical appointments and structured health summaries, subject to health-domain safeguards;
+- long-context analysis;
+- document and knowledge processing;
+- coding and repository tasks when a direct model call is preferable to a second agent runtime.
+
+Required safeguards:
+
+- configuration-driven model discovery and enablement;
+- provider and model capability metadata;
+- per-model privacy, retention, and sensitivity restrictions;
+- deterministic routing and explicit exclusions;
+- timeout, retry, circuit-breaker, and fallback policies;
+- token, latency, and cost accounting;
+- audit records for the selected provider, model, policy, and validation result;
+- no assumption that every model in the subscription is suitable for sensitive domains.
+
+The first evaluation set should compare available models by domain, operation, quality, privacy, latency, and effective subscription limits. Exact model availability and commercial limits must remain configurable rather than hard-coded.
 
 ### Experimental Cline CLI Adapter
 
@@ -2082,7 +2186,17 @@ Required safeguards:
 - audit records identifying Cline, ClinePass, the selected underlying model when available, and all granted capabilities;
 - fallback only to providers compatible with the original privacy and permission constraints.
 
-The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline.
+The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline. This adapter is secondary to `OpenCodeGoProvider` for ordinary conversational, domain, and Model Gateway traffic.
+
+## Provider Priority
+
+Initial implementation priority:
+
+1. direct provider adapters and `OpenCodeGoProvider`;
+2. provider registry, routing, validation, privacy, and cost controls;
+3. experimental `ClineCliProvider` for workflows that specifically benefit from Cline as an external agent.
+
+Provider priority is an implementation default, not a permanent lock-in. Continuous evaluation may change routing preferences without coupling the core to any subscription or vendor.
 
 ## Policies
 
@@ -2156,6 +2270,36 @@ Event(
 - `plugin.failed`;
 - `security.alert`.
 
+Additional Phase 11 events for Bots and platform capabilities include:
+
+- `bot.created`;
+- `bot.updated`;
+- `bot.disabled`;
+- `bot.enabled`;
+- `bot.archived`;
+- `bot.imported`;
+- `bot.exported`;
+- `bot.agent_binding.updated`;
+- `bot.capability.requested`;
+- `bot.capability.updated`;
+- `capability.resolution.completed`;
+- `capability.allowed`;
+- `capability.blocked`;
+- `capability.approval_required`;
+- `tool.selected`;
+- `tool.execution.started`;
+- `tool.execution.completed`;
+- `tool.execution.failed`;
+- `computer_use.started`;
+- `computer_use.waiting_for_human`;
+- `computer_use.human_control`;
+- `computer_use.resumed`;
+- `computer_use.cancelled`;
+- `computer_use.completed`;
+- `computer_use.failed`.
+
+These events reuse the canonical Event System. No Bot-specific or Computer-Use-specific parallel event bus is permitted.
+
 ## Capabilities
 
 - publishing;
@@ -2204,6 +2348,8 @@ Structured logs containing:
 - duration;
 - result.
 
+Bot/capability-aware logs should include optional `bot_id`, `capability_id`, and tool implementation identity where applicable, without exposing secrets.
+
 ## Metrics
 
 Minimum metrics:
@@ -2223,7 +2369,11 @@ Minimum metrics:
 - storage;
 - events;
 - plugins;
-- integrations.
+- integrations;
+- Bot usage;
+- capability resolutions and policy blocks;
+- tool executions;
+- Computer Use sessions, cancellations, and human handoffs.
 
 ## Tracing
 
@@ -2420,10 +2570,8 @@ Build a modular interface capable of evolving without coupling itself to interna
 ## Modules
 
 - Conversation;
-- Conversation Files;
-- Global File Library;
-- Import Center;
-- Export Center;
+- Bots;
+- Tools / Capabilities;
 - Goals;
 - Workflows;
 - Review Center;
@@ -2434,6 +2582,16 @@ Build a modular interface capable of evolving without coupling itself to interna
 - Agents;
 - Configuration;
 - System Health.
+
+## First-Party Client Boundary
+
+**CMMChat** is the first-party conversational client/UI for CMM OS and is already under active interface development.
+
+CMMChat consumes versioned CMM OS application contracts. CMM OS remains authoritative for intelligence, capabilities, tools, permissions, Agents, data, validation, privacy, approvals, budgets, autonomy, and execution.
+
+CMM OS Core/Runtime must not depend on the CMMChat implementation. Alternative clients remain possible through the same stable interfaces.
+
+Bots are the user-facing assistant/product abstraction. Agents remain the advanced persistent runtime/execution abstraction.
 
 ## Principles
 
@@ -2471,8 +2629,6 @@ unauthorized
 - dark mode;
 - accessibility;
 - mobile support;
-- cross-device artifact preview and download;
-- import and export progress views;
 - reload recovery.
 
 ## Completion Criteria
@@ -2529,7 +2685,7 @@ SearchResult(
     snippet="...",
     score=0.91,
     source="...",
-    domain="medical",
+    domain="health",
     timestamp="...",
     references=[...],
 )
@@ -2650,7 +2806,11 @@ AuditRecord(
 - migrations;
 - backups;
 - sensitive access;
-- agent actions.
+- agent actions;
+- Bot definition and Agent-binding changes;
+- requested/effective capability decisions;
+- tool implementation selection and execution;
+- Computer Use lifecycle, scope, approvals, cancellation, and human handoff.
 
 ## Capabilities
 
@@ -2751,6 +2911,10 @@ For connections between:
 - Executor and Validation;
 - Memory and Knowledge Graph;
 - API and services;
+- Bot services and the canonical Agent Registry;
+- PlatformCapability resolution and Domain permissions;
+- tool implementations and the canonical Operation Registry;
+- Computer Use approvals, cancellation, and human handoff;
 - plugins and integrations.
 
 ### Contract Tests
@@ -2762,6 +2926,8 @@ For:
 - plugins;
 - storage;
 - models;
+- Bot definitions;
+- PlatformCapability descriptors and resolution states;
 - external interfaces.
 
 ### End-to-End Tests
@@ -2837,6 +3003,9 @@ Make it possible to install, use, administer, extend, and maintain CMM OS.
 - installation;
 - quick start;
 - conversation;
+- Bots;
+- Tools / Capabilities;
+- Computer Use and human takeover;
 - goals;
 - workflows;
 - approvals;
@@ -2855,6 +3024,9 @@ Make it possible to install, use, administer, extend, and maintain CMM OS.
 - storage;
 - security;
 - agents;
+- Bot contracts and lifecycle;
+- PlatformCapability and tool-resolution architecture;
+- Web, Browser, authenticated-browser, and Computer Use security;
 - Cognitive Layer;
 - plugins;
 - migrations;
@@ -3454,6 +3626,7 @@ Contains provider-independent contracts and domain logic:
 - agents;
 - domains;
 - permissions;
+- platform capability contracts;
 - policies.
 
 ### Runtime
@@ -3482,6 +3655,8 @@ Provides persistence and synchronization:
 - export;
 - synchronization adapters.
 
+CMMChat is the first-party conversational client/UI and is already under active interface development. It consumes the same versioned contracts available to alternative clients.
+
 ### Clients
 
 Expose the platform:
@@ -3504,7 +3679,7 @@ Connect external systems:
 - Actions;
 - plugins.
 
-Dependencies must point inward toward stable contracts. Core must not depend on clients, providers, deployment targets, or cloud services.
+Dependencies must point inward toward stable contracts. Core and Runtime must not depend on CMMChat or any other client, provider, deployment target, or cloud service.
 
 ---
 
@@ -3618,9 +3793,7 @@ Synchronization may include:
 - timeline events;
 - notifications;
 - configuration;
-- client state;
-- artifact metadata and selected offline files;
-- import and export job state.
+- client state.
 
 ## Requirements
 
@@ -3704,6 +3877,7 @@ Expose CMM OS capabilities through stable interfaces so the platform can serve i
 
 - REST API;
 - streaming API;
+- CMMChat through versioned application and streaming contracts;
 - MCP server;
 - OpenAI Actions-compatible endpoints;
 - CLI;
@@ -3717,6 +3891,7 @@ All interfaces must reuse the same:
 - authentication;
 - authorization;
 - permissions;
+- PlatformCapability resolution;
 - privacy policies;
 - validation;
 - routing;
@@ -3725,7 +3900,9 @@ All interfaces must reuse the same:
 - error contracts;
 - versioned schemas.
 
-Clients must not bypass the Orchestrator, Model Gateway, Validation System, or permission checks.
+Clients must not bypass the Orchestrator, Model Gateway, Validation System, PlatformCapability resolution, canonical operations, or permission checks.
+
+CMMChat is a first-party client, not an execution authority owner.
 
 ---
 
@@ -3746,6 +3923,7 @@ Initial MCP tools may expose:
 - request a validated operation;
 - review approvals;
 - inspect audit records;
+- inspect authorized PlatformCapabilities and implementation availability;
 - export authorized context.
 
 ## REST Capabilities
@@ -3758,6 +3936,9 @@ The REST API may expose:
 /api/v1/knowledge
 /api/v1/memory
 /api/v1/domains
+/api/v1/bots
+/api/v1/capabilities
+/api/v1/tools
 /api/v1/models
 /api/v1/evaluations
 /api/v1/audit
@@ -3776,7 +3957,7 @@ Actions-compatible endpoints must:
 - record every external invocation;
 - enforce rate and budget limits.
 
-Adapters must remain replaceable and must not contain domain logic.
+Adapters must remain replaceable and must not contain domain logic. They may expose or implement PlatformCapabilities, but they must never grant capability authority or create a parallel executable registry.
 
 ---
 
@@ -3802,6 +3983,7 @@ A package may include:
 
 - manifest;
 - operation schemas;
+- PlatformCapability descriptors or requirements;
 - prompts;
 - validation rules;
 - permissions;
@@ -3818,6 +4000,8 @@ A skill or plugin must not:
 
 - contain secrets;
 - silently broaden permissions;
+- create an alternative capability/permission authority;
+- create a second executable Tool Registry or Agent Runtime;
 - bypass CMM OS validation;
 - duplicate the primary memory store;
 - couple the core to one assistant vendor;
@@ -3888,7 +4072,11 @@ Ensure that accumulated knowledge, workflows, policies, and domain logic remain 
 - audit records;
 - exported memory;
 - documentation;
-- skills and plugins.
+- skills and plugins;
+- versioned Bot definitions;
+- portable requested-capability policies without secrets or effective grants.
+
+Portable Bot configuration must remain provider-independent. Credentials, cookies, operating-system grants, and privileged effective capability state are not portable assets; effective authority must be recomputed by the destination runtime.
 
 ## Exit Modes
 
@@ -4433,6 +4621,250 @@ Import and export must validate format and schema, preserve provenance and order
 - unit, adapter-contract, memory-integration, and E2E tests;
 - documentation;
 - green global suite.
+
+---
+
+# Phase 10 Domain Integration Addendum — Health, Mental Health and Neurodivergence
+
+## Objective
+
+Integrate the canonical Phase 10 sibling Domain Packs `domain:health`, `domain:mental-health`, and `domain:neurodivergence` through the existing Phase 11 platform services without creating domain-specific platform infrastructure.
+
+Phase 11 must consume the Domain Intelligence contracts generically. It must not introduce a separate Health router, Mental Health router, Neurodivergence router, independent domain memory, domain-specific orchestration runtime, or second Knowledge Model.
+
+## Canonical Domain Identities
+
+```text
+domain:health             -> HealthProfile
+domain:mental-health      -> MentalHealthProfile
+domain:neurodivergence    -> NeurodivergenceProfile
+```
+
+The three domains are siblings.
+
+Health remains authoritative for clinical diagnosis status, medication, treatment, medical tests and specialists, medical risk and red flags, and clinical documentation.
+
+Mental Health remains authoritative for its non-clinical emotional and therapy-continuity specialization.
+
+Neurodivergence remains authoritative for its neurodevelopmental evidence, certainty-state, longitudinal, functional, and differential-overlap specialization.
+
+Supporting domains receive only the minimum authorized projection required for the active purpose.
+
+## Orchestrator, Domain Router and Context Resolver
+
+The existing Orchestrator, Domain Router, and Context Resolver must:
+
+- resolve `health`, `mental-health`, and `neurodivergence` as distinct canonical domain identities;
+- select one primary domain and zero or more supporting domains;
+- preserve primary/supporting identity through orchestration results and Domain Trace references;
+- apply the existing restrictive permission intersection before cross-domain context is exposed;
+- preserve provenance, epistemic kind, temporal validity, uncertainty, sensitivity, and source-domain authority;
+- prohibit a supporting domain from widening permissions;
+- prohibit a supporting domain from promoting a hypothesis or inference to a stronger epistemic status;
+- avoid defaulting Mental Health requests to Health merely because the content is emotionally or psychiatrically adjacent;
+- avoid defaulting Neurodivergence requests to Health merely because medication or clinical evidence may be relevant;
+- route clinical diagnosis, treatment, medication, and medical-risk authority to Health when those semantics are required.
+
+Representative compositions:
+
+```text
+primary=domain:mental-health
+supporting=[domain:relationships, domain:neurodivergence, domain:health]
+```
+
+```text
+primary=domain:neurodivergence
+supporting=[domain:health, domain:mental-health]
+```
+
+```text
+primary=domain:health
+supporting=[domain:mental-health, domain:neurodivergence]
+```
+
+No supporting domain is implied merely because it is listed as a possible composition.
+
+## Configuration and Domain Lifecycle
+
+All installed domains, including Mental Health and Neurodivergence, must be supported by the existing domain configuration and lifecycle surfaces:
+
+- discovery;
+- registration;
+- enablement and disablement;
+- version and compatibility status;
+- health checks;
+- per-domain permissions;
+- per-domain privacy and provider policy;
+- per-domain autonomy constraints;
+- Domain Pack installation and update state.
+
+Disabling one sibling domain must not disable the others.
+
+## Timeline
+
+Timeline events must retain the canonical domain identity that owns the event or derived interpretation.
+
+The Timeline must:
+
+- filter separately by `health`, `mental-health`, and `neurodivergence`;
+- preserve source-domain identity for cross-domain projections;
+- avoid silently reclassifying an existing Health event as Mental Health or Neurodivergence;
+- support authorized multi-domain references without duplicating the underlying event;
+- preserve sensitivity and permission boundaries in every view.
+
+## Search and Knowledge Explorer
+
+Search and Knowledge Explorer must:
+
+- expose canonical domain facets for `health`, `mental-health`, and `neurodivergence`;
+- keep the three result identities distinct;
+- apply authorization before snippets, previews, facets, counts, or related-item expansion are returned;
+- preserve epistemic status and provenance in results;
+- avoid treating absence from an unauthorized domain as confirmed absence;
+- support explicit cross-domain queries only through existing permission-filtered composition.
+
+A `SearchResult.domain` value that refers to the Health Domain must use `health`, not `medical`.
+
+## Memory Workspace and Knowledge
+
+Memory Workspace and Knowledge interfaces must reuse the shared Phase 8 and Phase 10.18 contracts.
+
+They must:
+
+- preserve domain references without creating per-domain copies of the Knowledge Store;
+- show the source domain of claims, hypotheses, decisions, and corrections;
+- keep sensitive Mental Health and Neurodivergence inferences non-persistent unless the applicable memory permission and approval permit persistence;
+- preserve revision, invalidation, temporal succession, contradiction, and provenance history;
+- prohibit silent migration or duplication of existing Health knowledge into either new domain;
+- keep cross-domain projections purpose-limited and revocable.
+
+## Workflows and Operations
+
+Workflow routing and templates must be able to target the two new Domain Packs through the existing Workflow Engine.
+
+Examples include:
+
+- Mental Health therapy-session preparation and post-session processing;
+- Mental Health therapy-transcript review under sensitive-data controls;
+- Neurodivergence longitudinal evidence organization;
+- Neurodivergence assessment-preparation workflows;
+- mixed-domain workflows in which Health supplies authorized medication or diagnosis-state context.
+
+Workflow selection must not change domain authority, permissions, or epistemic status.
+
+## Model Gateway and Routing
+
+Model Gateway and Routing Policy Engine must support all installed domains generically, including the two new domains.
+
+For `domain:mental-health` and `domain:neurodivergence`:
+
+- default domain privacy is `SENSITIVE`;
+- provider/model routing must not weaken the effective privacy policy;
+- remote egress requires the same permission and provider-policy checks as any other sensitive domain;
+- model selection may use domain benchmark and quality evidence from Phase 10;
+- provider selection must not change which domain is authoritative;
+- routing metadata must remain outside private chain-of-thought content.
+
+Health continues to use canonical `domain="health"` in model requests.
+
+## Model Evaluation and Continuous Provider Evaluation
+
+The Model Evaluation Framework and continuous provider evaluation must support evaluation by canonical domain.
+
+The platform must be able to:
+
+- evaluate models separately for Health, Mental Health, and Neurodivergence;
+- consume each Domain Pack's benchmark suites and quality metrics;
+- compare provider/model performance without flattening domain-specific safety or epistemic requirements;
+- block a provider/model combination that violates effective domain privacy or minimum quality policy;
+- preserve evaluator version, model version, provider, benchmark, cost, latency, and blocking-failure evidence.
+
+A strong result in one sibling domain must not be treated as evidence of equivalent quality in another.
+
+## Cost Management and Dashboards
+
+Cost and model-usage dashboards must support canonical by-domain attribution for:
+
+```text
+health
+mental-health
+neurodivergence
+```
+
+The platform must keep domain identity separate when reporting requests, tokens, latency, cache use, provider, model, cost, fallback, validation failures, and blocked egress.
+
+Sensitive content itself must not be copied into cost telemetry.
+
+## Knowledge Package Export and Portability
+
+Knowledge Package export must:
+
+- preserve the canonical source domain;
+- apply the Domain Knowledge Package schema selected by Phase 10;
+- preserve privacy, provenance, epistemic status, contradictions, uncertainty, and temporal validity;
+- exclude unauthorized supporting-domain content;
+- preserve restrictive permission intersection for composed packages;
+- avoid provider-specific domain formats.
+
+Mental Health and Neurodivergence exports remain `SENSITIVE` unless an explicit, authorized policy produces a more restrictive result.
+
+## Audit and Traceability
+
+Phase 11 audit and trace surfaces must make it possible to determine:
+
+- the resolved primary domain;
+- supporting domains;
+- why each domain participated;
+- which permission decisions authorized cross-domain context;
+- which Knowledge Package and domain schema were used;
+- which provider/model routing decision applied;
+- which privacy policy was effective;
+- which domain benchmark/evaluation evidence influenced model selection;
+- which external egress occurred;
+- which persistent updates were proposed, approved, rejected, or applied.
+
+Audit records must retain IDs and safe categorical facts rather than duplicating sensitive source content or private reasoning.
+
+## Required E2E Domain-Integration Scenarios
+
+Phase 11 E2E validation must include at least these scenarios:
+
+1. **Mental Health routing isolation**
+   An ordinary emotional or therapy-continuity request resolves to `domain:mental-health` and does not inherit Health clinical presentation or clinical authority by default.
+
+2. **Neurodivergence minimized Health projection**
+   A Neurodivergence request resolves to `domain:neurodivergence`; Health data is exposed only when authorized and only as the minimum purpose-required projection.
+
+3. **Mixed sibling-domain composition**
+   A request requiring multiple sibling domains selects exactly one primary domain plus explicit supporting domains, applies restrictive permission intersection, and preserves source-domain epistemic authority.
+
+4. **Search, Timeline and dashboard identity**
+   Search results, Timeline views, Knowledge Explorer facets, model-usage records, and cost attribution keep `health`, `mental-health`, and `neurodivergence` distinct without duplicating underlying knowledge.
+
+5. **Sensitive provider-routing enforcement**
+   A provider/model route that would weaken `SENSITIVE` privacy for Mental Health or Neurodivergence is rejected or rerouted according to existing policy, with the decision visible in audit metadata.
+
+These scenarios extend the existing Phase 11 integration test surface. They do not introduce a separate test framework or runtime.
+
+## Completion Constraint
+
+Phase 11 integration is incomplete if either new Domain Pack requires a parallel platform subsystem to function.
+
+The correct integration path is always:
+
+```text
+existing Phase 11 service
+        +
+canonical Phase 10 Domain Pack contracts
+        +
+existing permissions / privacy / validation
+```
+
+not:
+
+```text
+new domain-specific platform stack
+```
 
 ---
 
@@ -5023,11 +5455,6 @@ These capabilities may be developed after the platform has been stabilized.
 - conversational interface;
 - configurable communication profiles;
 - neutral and Calm Authority presentation profiles;
-- conversation file workspaces;
-- global artifact library;
-- complete and selective Markdown and PDF chat export;
-- Claude and ChatGPT Markdown conversation import;
-- cross-device artifact preview and download;
 - Goal Workspace;
 - Workflow Manager;
 - Review Center;
@@ -5087,8 +5514,6 @@ These capabilities may be developed after the platform has been stabilized.
 - restore;
 - import;
 - export;
-- versioned artifact storage;
-- imported-conversation originals;
 - retention.
 
 ## Extensibility
@@ -5109,8 +5534,6 @@ These capabilities may be developed after the platform has been stabilized.
 - model usage audit;
 - reusable backend interfaces;
 - MCP, REST, and Actions adapters;
-- external audio ingestion and Plaud MCP synchronization;
-- provider-independent conversation import adapters;
 - skills and plugin packaging;
 - Context Layer Mode;
 - exit and portability strategy;
@@ -5176,6 +5599,198 @@ These capabilities may be developed after the platform has been stabilized.
 
 ---
 
+# 11.59 — Bot Identity and Configuration Layer
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce a first-class user-facing Bot abstraction without duplicating the Phase 9 Agent Runtime or any canonical execution authority.
+
+## Core Boundary
+
+```text
+Bot
+= product identity and configuration
+
+Agent
+= persistent execution/runtime entity
+
+Bot != Agent
+```
+
+A Bot may define or reference identity, instructions, Communication Profile, model/routing policy, Domain context, knowledge scope, memory scope, requested PlatformCapabilities, autonomy preference within the canonical ceiling, optional Agent binding, and version/lifecycle state.
+
+## Bot Modes
+
+```text
+CONVERSATIONAL
+TOOL_ENABLED
+AGENT_BACKED
+```
+
+- `CONVERSATIONAL`: normal conversation with no persistent Agent requirement.
+- `TOOL_ENABLED`: may request authorized PlatformCapabilities without becoming an Agent.
+- `AGENT_BACKED`: presents a user-facing identity while execution is delegated to an existing canonical Phase 9 Agent.
+
+## Authority Invariants
+
+A Bot must never own a second Agent Runtime; grant effective permissions; increase canonical autonomy or budgets; suppress approvals; bypass Domain permissions, canonical operations, or validation; activate Computer Use merely through Agent binding; or persist credentials, API keys, refresh tokens, cookies, operating-system authorization tokens, or other secrets.
+
+Imported Bot configuration carries requested behavior only. Effective privileged authority must be recomputed by CMM OS.
+
+## CMMChat Product Surface
+
+CMMChat is the first-party client/UI expected to expose the Bot workspace. Its current interface development is independent from implementation of this runtime contract.
+
+CMMChat may create, edit, display, import, export, and bind Bots through versioned application contracts, but CMM OS remains authoritative for runtime policy and execution.
+
+## Design Point
+
+`DP-059` — CMM OS must support a first-class, versioned, provider-independent Bot definition that remains distinct from Agent, Domain, Operation, PlatformCapability, ToolImplementation, and model provider, with optional Agent binding that cannot grant execution authority.
+
+## Future Connected Acceptance
+
+`AT-DP-059` is planned and not yet implemented. It must eventually prove through canonical or official in-memory components that conversational, tool-enabled, and Agent-backed Bots preserve all authority boundaries, invalid bindings fail closed, Computer Use is not implied, serialization excludes secrets, and versioned definitions round-trip deterministically.
+
+---
+
+# 11.60 — Platform Capability Catalog and Tool Resolution
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce provider-independent platform capability descriptors and most-restrictive capability resolution without creating a second executable Tool Registry.
+
+## Core Distinctions
+
+```text
+PlatformCapability
+!= DomainCapability
+!= ToolImplementation
+!= Operation
+```
+
+`PlatformCapability` describes a stable functional ability; `DomainCapability` retains existing Phase 10 specialization semantics; `ToolImplementation` is replaceable; `Operation` remains the canonical executable contract.
+
+## PlatformCapabilityCatalog
+
+The catalog is descriptive/resolutive. It may register and resolve descriptors, report availability, expose compatible implementation references, and surface risk/privacy/approval metadata.
+
+It must not execute tools, grant permissions, own Agent runtime state, approval state, autonomy, budgets, secrets, or replace the canonical Operation Registry.
+
+## Effective Capability Resolution
+
+```text
+Bot requested capabilities
+∩ user policy
+∩ session policy
+∩ Domain permissions
+∩ resource permissions
+∩ privacy policy
+∩ sensitivity rules
+∩ integration availability
+∩ operation availability
+∩ autonomy ceiling
+∩ budget limits
+∩ approval policy
+= effective capability set
+```
+
+Explicit deny wins. Sensitive or mutating capability with missing authority fails closed. Domain policy, Agent binding, model/provider output, and fallback may never widen effective authority.
+
+## Tool Resolution
+
+```text
+PlatformCapability
+↓
+effective capability resolution
+↓
+compatible implementation candidates
+↓
+policy-compatible implementation
+↓
+canonical Operation
+↓
+canonical Runtime / Execution
+```
+
+## Design Point
+
+`DP-060` — CMM OS must expose a provider-independent Platform Capability Catalog that describes and resolves effective capability availability without executing capabilities directly or replacing the canonical Operation Registry.
+
+## Future Connected Acceptance
+
+`AT-DP-060` is planned and not yet implemented. It must eventually prove that requested capability never implies authorization, deny wins, unavailable implementations remain unavailable, approval-required state is not executable authority, execution uses the canonical operation/runtime path, no second executable registry exists, and concrete implementation replacement preserves the PlatformCapability contract.
+
+---
+
+# 11.61 — Web, Browser and Computer Use
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce Web Search, Browser, authenticated-browser access, and Computer Use as separate independently authorized PlatformCapabilities with progressively stronger safety requirements.
+
+## Capability Separation
+
+```text
+web.search
+!= browser.navigate
+!= browser.read_authenticated
+!= computer.use
+```
+
+Granting one capability never implicitly grants another.
+
+## Web Search
+
+`web.search` supports authorized discovery and source retrieval. It does not imply browser control, authenticated sessions, filesystem mutation, arbitrary network access, or Computer Use.
+
+## Browser
+
+`browser.navigate` and `browser.read` support controlled navigation and page inspection. Authenticated browser access requires separate authority through `browser.read_authenticated` or a later equivalent capability and must preserve scoped session/origin access, credential isolation, audit, human takeover, and approval for sensitive side effects.
+
+## Computer Use
+
+`computer.use` is high impact and requires explicit fail-closed authorization, application/resource scope, least privilege, visible active state, cancellation, human takeover, canonical approval for sensitive or irreversible effects, credential isolation, audit, timeout/recovery, validation after mutations where applicable, and no activation merely because a Bot is Agent-backed.
+
+## Human-in-the-Loop State
+
+```text
+RUNNING_AUTOMATED
+WAITING_FOR_HUMAN
+HUMAN_CONTROL
+RESUMING_AUTOMATION
+COMPLETED
+FAILED
+CANCELLED
+```
+
+Automated resume after human control must recompute effective authority.
+
+## Provider Independence
+
+Concrete implementations may later include native browser adapters, OpenBot, Tencent BrowserSkill, platform Computer Use providers, remote desktop adapters, or other local/remote automation runtimes. No concrete implementation becomes the core contract.
+
+## Design Point
+
+`DP-061` — Web Search, Browser, authenticated-browser access, and Computer Use must remain separate independently authorized capabilities, with Computer Use explicitly scoped, cancellable, auditable, human-takeover capable, and subject to stronger canonical approval rules.
+
+## Future Connected Acceptance
+
+`AT-DP-061` is planned and not yet implemented. It must eventually prove independent authorization of Web, Browser, authenticated-browser, and Computer Use; no Agent-binding escalation; canonical approval for sensitive actions; human handoff, cancellation, resume revalidation, credential isolation, canonical audit/event evidence, and implementation-independent semantics.
+
+---
+
 # Final Acceptance Test
 
 The phase will be considered complete when CMM OS can reliably execute the following scenario:
@@ -5218,23 +5833,14 @@ The phase will be considered complete when CMM OS can reliably execute the follo
 36. A backup is created.
 37. The backup is successfully restored in a clean environment.
 38. The global suite remains green.
-39. The user opens an existing conversation from an iPhone.
-40. The conversation `Files` tab shows uploaded and generated artifacts.
-41. The user previews and downloads a PDF created previously on the main Mac.
-42. The same artifact is available through the global file library.
-43. The user selects a message range and previews a Markdown and PDF export.
-44. The export includes only authorized selected content and optionally related artifacts.
-45. The user imports a Markdown conversation from Claude or ChatGPT.
-46. The system detects the format and displays the parsed conversation before persistence.
-47. The user continues the imported conversation inside CMM OS.
-48. The system proposes candidate facts, preferences, events, and decisions.
-49. The user accepts, rejects, edits, or merges each proposal.
-50. Only approved updates reach Memory and the Knowledge Store.
-51. A new Plaud recording is discovered through the MCP adapter.
-52. CMM OS imports it without duplication and preserves the original audio.
-53. The recording is transcribed with timestamps and diarization when available.
-54. The user reviews the transcript before Timeline, Knowledge, or Memory updates are proposed.
-55. The complete flow remains auditable and the global suite remains green.
+39. The user opens the Bot workspace through a first-party client such as CMMChat.
+40. A `TOOL_ENABLED` Bot requests `web.search` without becoming an Agent.
+41. Effective capability resolution permits Web Search while independently denying Browser and Computer Use.
+42. Computer Use is explicitly granted for a scoped target and a sensitive effect reaches the canonical approval path.
+43. The Computer Use session enters human takeover and recomputes authority before automated resume.
+44. An `AGENT_BACKED` Bot resolves through the canonical Agent Registry without receiving wider permissions, autonomy, budgets, or approvals.
+45. A concrete tool implementation is replaced without changing the Bot or PlatformCapability contract.
+46. Export/import preserves portable Bot configuration while excluding secrets and privileged effective authority.
 
 ---
 
@@ -5257,14 +5863,12 @@ CMM OS will stop being a set of specialized engines and become a complete person
 - recovering from failures;
 - coordinating domains;
 - integrating with external services;
+- exposing configurable user-facing Bots without duplicating the Agent Runtime;
+- resolving provider-independent PlatformCapabilities through canonical policy and operations;
+- supporting independently authorized Web Search, Browser, and supervised Computer Use;
+- serving CMMChat as a first-party client without coupling Core/Runtime to its implementation;
 - operating locally;
 - presenting results through configurable communication profiles;
-- ingesting and transcribing authorized Plaud recordings through a replaceable MCP adapter;
-- organizing uploaded and generated artifacts by conversation;
-- providing a global cross-device file library;
-- exporting complete or selected chats to Markdown and PDF;
-- importing and continuing Claude, ChatGPT, and compatible Markdown conversations;
-- integrating imported memory and knowledge only through supervised review;
 - preserving meaning while adapting language, register, and channel;
 - selecting local or remote models without provider coupling;
 - controlling cost and privacy;

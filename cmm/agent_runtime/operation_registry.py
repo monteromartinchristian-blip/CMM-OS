@@ -6,6 +6,7 @@ Defines the registry interface and thread-safe in-memory implementation for oper
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from threading import RLock
 
 from cmm.agent_runtime.errors import (
@@ -18,6 +19,23 @@ from cmm.agent_runtime.operation_execution_contracts import (
     AgentOperationRequest,
     OperationDescriptor,
 )
+from cmm.agent_runtime.operation_schema import (
+    OperationSchemaValidationError,
+    validate_operation_schema,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOperationRegistrySnapshot:
+    """Immutable snapshot of the agent operation registry state.
+
+    ``descriptors`` is the canonical ordered tuple of registered descriptors
+    in registration order.  ``order`` is the tuple of ``(name, version)``
+    keys that reconstructs the registration order index.
+    """
+
+    descriptors: tuple[OperationDescriptor, ...]
+    order: tuple[tuple[str, str], ...]
 
 
 class AgentOperationRegistry(ABC):
@@ -66,6 +84,16 @@ class AgentOperationRegistry(ABC):
     @abstractmethod
     def validate_request(self, request: AgentOperationRequest) -> bool:
         """Validate request against descriptor's parameter schema."""
+        ...
+
+    @abstractmethod
+    def snapshot_state(self) -> AgentOperationRegistrySnapshot:
+        """Capture the full registry state for transactional rollback."""
+        ...
+
+    @abstractmethod
+    def restore_state(self, snapshot: AgentOperationRegistrySnapshot) -> None:
+        """Restore the full registry state from a snapshot."""
         ...
 
 
@@ -142,89 +170,77 @@ class InMemoryAgentOperationRegistry(AgentOperationRegistry):
                 f"Operation '{desc.name}' is disabled."
             )
 
-        schema = desc.input_schema
-        if not schema:
+        if not desc.input_schema:
             return True
-
-        required_fields = schema.get("required", [])
-        properties = schema.get("properties", {})
-        allow_additional = schema.get("additionalProperties", True)
-
-        params = request.parameters
-
-        # Required fields check
-        for req in required_fields:
-            if req not in params:
-                raise AgentOperationParameterValidationError(
-                    f"Missing required parameter '{req}' for operation '{desc.name}'."
-                )
-
-        # Additional fields check
-        if allow_additional is False:
-            for k in params:
-                if k not in properties:
-                    raise AgentOperationParameterValidationError(
-                        f"Disallowed additional parameter '{k}' for operation '{desc.name}'."
-                    )
-
-        # Basic type & schema property validation
-        for k, v in params.items():
-            if k in properties:
-                prop_spec = properties[k]
-                expected_type = prop_spec.get("type")
-                if expected_type == "string" and not isinstance(v, str):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be string, got {type(v).__name__}."
-                    )
-                elif expected_type == "integer" and (
-                    isinstance(v, bool) or not isinstance(v, int)
-                ):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be integer, got {type(v).__name__}."
-                    )
-                elif expected_type == "number" and not isinstance(v, (int, float)):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be number, got {type(v).__name__}."
-                    )
-                elif expected_type == "boolean" and not isinstance(v, bool):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be boolean, got {type(v).__name__}."
-                    )
-                elif expected_type == "array" and not isinstance(v, (list, tuple)):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be array/list, got {type(v).__name__}."
-                    )
-                elif expected_type == "object" and not isinstance(
-                    v, (dict, type(request.parameters))
-                ):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' must be object/dict, got {type(v).__name__}."
-                    )
-
-                # Enum value check
-                if "enum" in prop_spec and v not in prop_spec["enum"]:
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' value '{v}' not in allowed enum: {prop_spec['enum']}."
-                    )
-
-                # Range checks for numbers/integers
-                if (
-                    isinstance(v, (int, float))
-                    and not isinstance(v, bool)
-                    and "minimum" in prop_spec
-                    and v < prop_spec["minimum"]
-                ):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' value {v} below minimum {prop_spec['minimum']}."
-                    )
-                if (
-                    isinstance(v, (int, float))
-                    and not isinstance(v, bool)
-                    and "maximum" in prop_spec
-                    and v > prop_spec["maximum"]
-                ):
-                    raise AgentOperationParameterValidationError(
-                        f"Parameter '{k}' value {v} exceeds maximum {prop_spec['maximum']}."
-                    )
-
+        try:
+            validate_operation_schema(
+                request.parameters, desc.input_schema, raise_on_error=True
+            )
+        except OperationSchemaValidationError as exc:
+            first = exc.issues[0]
+            raise AgentOperationParameterValidationError(
+                f"Invalid parameters for operation '{desc.name}' at {first.path}: {first.message}."
+            ) from exc
         return True
+
+    # ── Snapshot / restore ───────────────────────────────────────────────────
+
+    def snapshot_state(self) -> AgentOperationRegistrySnapshot:
+        """Capture the full registry state for transactional rollback."""
+        with self._lock:
+            descriptors = tuple(self._descriptors[key] for key in self._order)
+            order = tuple(self._order)
+        return AgentOperationRegistrySnapshot(descriptors=descriptors, order=order)
+
+    def restore_state(self, snapshot: AgentOperationRegistrySnapshot) -> None:
+        """Restore the full registry state from a snapshot.
+
+        Validates the snapshot completely before mutating.  Rejects wrong
+        types and invalid snapshots without modifying the registry.
+        """
+        if not isinstance(snapshot, AgentOperationRegistrySnapshot):
+            raise TypeError(
+                "snapshot must be an AgentOperationRegistrySnapshot"
+            )
+        if not isinstance(snapshot.descriptors, tuple):
+            raise TypeError("snapshot.descriptors must be a tuple")
+        if not isinstance(snapshot.order, tuple):
+            raise TypeError("snapshot.order must be a tuple")
+        for descriptor in snapshot.descriptors:
+            if not isinstance(descriptor, OperationDescriptor):
+                raise TypeError(
+                    "snapshot.descriptors contains a non-OperationDescriptor"
+                )
+        for item in snapshot.order:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise TypeError("snapshot.order entries must be (name, version) pairs")
+            name, version = item
+            if not isinstance(name, str) or not isinstance(version, str):
+                raise TypeError("snapshot.order entries must be (name, version) pairs")
+
+        # Validate consistency before mutating
+        descriptor_keys = {(d.name, d.version) for d in snapshot.descriptors}
+        if len(descriptor_keys) != len(snapshot.descriptors):
+            raise TypeError(
+                "snapshot.descriptors contains duplicate (name, version) keys"
+            )
+        for key in snapshot.order:
+            if key not in descriptor_keys:
+                raise TypeError(
+                    "snapshot.order references a missing descriptor"
+                )
+        if len(snapshot.order) != len(set(snapshot.order)):
+            raise TypeError(
+                "snapshot.order contains duplicate (name, version) keys"
+            )
+        if len(snapshot.order) != len(snapshot.descriptors):
+            raise TypeError(
+                "snapshot.order must contain exactly one entry per descriptor"
+            )
+
+        # All validation passed — mutate
+        with self._lock:
+            self._descriptors = {
+                (d.name, d.version): d for d in snapshot.descriptors
+            }
+            self._order = list(snapshot.order)

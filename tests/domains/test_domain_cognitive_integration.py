@@ -1,0 +1,3280 @@
+"""Tests for Phase 10.40 Domain resource adaptation into Phase 8."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Any
+
+import pytest
+
+from cmm.cognitive import (
+    AdaptationContext,
+    AdaptationStatus,
+    CandidateKind,
+    CognitiveValidationContext,
+    CognitiveValidationDecision,
+    CognitiveValidationResult,
+    CognitiveValidator,
+    Contradiction,
+    ExistingResourceAdapter,
+    ExtractionContext,
+    ExtractionStatus,
+    InMemoryKnowledgeStore,
+    InMemoryReasoningRuleRegistry,
+    KnowledgeBundle,
+    KnowledgeExtractionResult,
+    KnowledgeExtractorRegistry,
+    KnowledgeItem,
+    KnowledgeKind,
+    KnowledgePackage,
+    KnowledgeStatus,
+    PlainTextKnowledgeExtractor,
+    ReasoningAuthorityContext,
+    ReasoningEscalation,
+    ReasoningFinding,
+    ReasoningGap,
+    ReasoningRecommendation,
+    ReasoningRiskLevel,
+    ReasoningRule,
+    ReasoningRuleCategory,
+    ReasoningRuleContext,
+    ReasoningRuleDefinition,
+    ReasoningRuleResult,
+    ReasoningRuleResultStatus,
+    ReasoningRuleScope,
+    ReasoningRuleStatus,
+    ReasoningSeverity,
+    Resource,
+    ResourceAdaptationResult,
+    ResourceAdapterRegistry,
+    ResourceInput,
+    ResourceKind,
+    ResourcePermission,
+    ResourcePermissionOperation,
+    ResourceProvenance,
+    ResourceSourceKind,
+    ResourceTemporalScope,
+    ResourceTransformation,
+    SensitivityLevel,
+    TemporalScope,
+    TemporalScopeKind,
+)
+from cmm.cognitive.contracts import Confidence
+from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+from cmm.domains.cognitive_integration_contracts import (
+    DomainCognitiveIntegrationRequest,
+    DomainCognitiveIntegrationResult,
+    DomainCognitiveResourceInput,
+)
+from cmm.domains.composition_contracts import DomainComposition, PresentationComposition
+from cmm.domains.enums import (
+    DomainCompositionStatus,
+    DomainReasoningDepth,
+    DomainResourceResolutionStatus,
+    DomainRuleExecutionStatus,
+    DomainRuleSelectionStatus,
+)
+from cmm.domains.errors import (
+    DomainCognitiveIntegrationBlockedError,
+    DomainCognitiveIntegrationContractError,
+)
+from cmm.domains.identifiers import DomainId
+from cmm.domains.presentation_contracts import (
+    DomainPresentationItemType,
+    DomainPresentationRequest,
+)
+from cmm.domains.profile_contracts import (
+    DomainMemoryPolicy,
+    DomainPresentationPolicy,
+    DomainProductionPolicy,
+    DomainQuestionPolicy,
+    DomainTemporalPolicy,
+    ResolvedDomainProfile,
+)
+from cmm.domains.resource_contracts import (
+    DomainResourceBinding,
+    DomainResourceResolution,
+)
+from cmm.domains.rule_contracts import DomainRuleExecutionResult
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
+from cmm.validation.findings import ValidationFinding
+
+NOW = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)
+CONTENT_CREATED_AT = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
+VALID_FROM = datetime(2026, 9, 1, 0, 0, tzinfo=timezone.utc)
+VALID_UNTIL = datetime(2026, 9, 30, 23, 59, tzinfo=timezone.utc)
+OBSERVED_AT = datetime(2026, 9, 2, 9, 0, tzinfo=timezone.utc)
+LAST_VERIFIED_AT = datetime(2026, 9, 2, 9, 30, tzinfo=timezone.utc)
+
+
+class _ExactExistingResourceAdapter(ExistingResourceAdapter):
+    name = "domain.existing_resource"
+
+    def __init__(self) -> None:
+        self.seen_context: AdaptationContext | None = None
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ):
+        self.seen_context = context
+        return super().adapt(source, context=context)
+
+
+class _ResolutionDecoyAdapter(ExistingResourceAdapter):
+    name = "resolution.decoy"
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ):
+        raise AssertionError("registry auto-resolution must not select this adapter")
+
+
+class _ExactPlainTextKnowledgeExtractor(PlainTextKnowledgeExtractor):
+    name = "domain.plain_text"
+
+    def __init__(self) -> None:
+        self.seen_context: ExtractionContext | None = None
+        self.result: KnowledgeExtractionResult | None = None
+
+    def extract(
+        self,
+        resource: Resource,
+        *,
+        context: ExtractionContext | None = None,
+    ) -> KnowledgeExtractionResult:
+        self.seen_context = context
+        self.result = super().extract(resource, context=context)
+        return self.result
+
+
+class _ExtractionDecoy(PlainTextKnowledgeExtractor):
+    name = "extraction.decoy"
+
+    def extract(
+        self,
+        resource: Resource,
+        *,
+        context: ExtractionContext | None = None,
+    ) -> KnowledgeExtractionResult:
+        raise AssertionError("extractor auto-resolution must not select this extractor")
+
+
+class _FailedExistingResourceAdapter(ExistingResourceAdapter):
+    name = "domain.existing_resource"
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ) -> ResourceAdaptationResult:
+        return ResourceAdaptationResult(
+            adapter_name=self.name,
+            adapter_version=self.version,
+            input_id=source.id,
+            status=AdaptationStatus.FAILED,
+            errors=("adapter failure",),
+            created_at=NOW,
+        )
+
+
+class _MissingResourceAdapter(ExistingResourceAdapter):
+    name = "domain.existing_resource"
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ) -> ResourceAdaptationResult:
+        return ResourceAdaptationResult(
+            adapter_name=self.name,
+            adapter_version=self.version,
+            input_id=source.id,
+            status=AdaptationStatus.COMPLETED,
+            resource=None,
+            created_at=NOW,
+        )
+
+
+class _MandatoryStatusExtractor(PlainTextKnowledgeExtractor):
+    name = "mandatory"
+
+    def __init__(self, status: ExtractionStatus) -> None:
+        self.status = status
+
+    def extract(
+        self,
+        resource: Resource,
+        *,
+        context: ExtractionContext | None = None,
+    ) -> KnowledgeExtractionResult:
+        return KnowledgeExtractionResult(
+            resource_id=resource.id,
+            extractor_name=self.name,
+            extractor_version=self.version,
+            status=self.status,
+            errors=(f"mandatory extraction {self.status.value}",),
+            created_at=NOW,
+        )
+
+
+class _RecordingValidationRule:
+    name = "test.record_context"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, CognitiveValidationContext]] = []
+
+    def applies(self, target: object) -> bool:
+        return True
+
+    def evaluate(
+        self,
+        target: object,
+        context: CognitiveValidationContext,
+    ) -> tuple[ValidationFinding, ...]:
+        self.calls.append((target, context))
+        return ()
+
+
+class _RequestInformationValidationRule:
+    name = "test.request_information"
+
+    def applies(self, target: object) -> bool:
+        return isinstance(target, KnowledgePackage)
+
+    def evaluate(
+        self,
+        target: object,
+        context: CognitiveValidationContext,
+    ) -> tuple[ValidationFinding, ...]:
+        return (
+            ValidationFinding(
+                code="COG_EVIDENCE_INSUFFICIENT",
+                message="Canonical evidence is incomplete",
+                severity=ValidationSeverity.WARNING,
+                source="test.cognitive_validation",
+                blocking=True,
+                metadata={"target_id": getattr(target, "id", "unknown")},
+            ),
+        )
+
+
+class _CountingReasoningRule:
+    def __init__(
+        self,
+        rule_id: str = "test.cognitive_validation_count",
+        *,
+        scope: ReasoningRuleScope = ReasoningRuleScope.DOMAIN,
+        domain_id: str | None = "domain:health",
+        priority: int = 1,
+    ) -> None:
+        self.evaluations = 0
+        self._definition = ReasoningRuleDefinition(
+            id=rule_id,
+            name="Cognitive validation count",
+            version="1.0.0",
+            scope=scope,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=priority,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id=domain_id,
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        self.evaluations += 1
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+            domain_id=self.definition.domain_id,
+        )
+
+
+class _PresentationEvidenceReasoningRule:
+    def __init__(self) -> None:
+        self._definition = ReasoningRuleDefinition(
+            id="health.presentation",
+            name="Canonical presentation evidence",
+            version="1.0.0",
+            scope=ReasoningRuleScope.DOMAIN,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=1,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id="domain:health",
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        question = next(
+            item
+            for item in context.knowledge_items
+            if item.kind is KnowledgeKind.QUESTION
+        )
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            domain_id=self.definition.domain_id,
+            findings=(
+                ReasoningFinding(
+                    code="CANONICAL_WARNING",
+                    message="Canonical warning evidence remains represented.",
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            contradictions=(
+                Contradiction(
+                    id="canonical-contradiction-1",
+                    item_a_id="integration-provenance-item",
+                    item_b_id=question.id,
+                    created_at=context.timestamp,
+                ),
+            ),
+            gaps=(
+                ReasoningGap(
+                    code="CANONICAL_GAP",
+                    message="Canonical gap evidence remains represented.",
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            recommendations=(
+                ReasoningRecommendation(
+                    code="CANONICAL_RECOMMENDATION",
+                    message="Review canonical evidence.",
+                    severity=ReasoningSeverity.INFO,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            escalation=ReasoningEscalation(
+                code="CANONICAL_ESCALATION",
+                message="Seek qualified review.",
+                severity=ReasoningSeverity.CRITICAL,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            ),
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+        )
+
+
+def _canonical_resource(content: str = "The plan is stable.") -> Resource:
+    return Resource(
+        id="resource-1",
+        domain="adapter-domain",
+        kind=ResourceKind.DOCUMENT,
+        source=ResourceSourceKind.USER_INPUT,
+        content=content,
+        provenance=ResourceProvenance(
+            source_type=ResourceSourceKind.USER_INPUT,
+            source_id="adapter-source-1",
+            author="adapter-author",
+            retrieved_at=NOW,
+            original_location="memory://resource-1",
+            checksum="adapter-checksum",
+            transformation_history=(
+                ResourceTransformation(
+                    operation="adapter_normalisation",
+                    actor_id="adapter-actor",
+                    created_at=NOW,
+                ),
+            ),
+            metadata={"adapter_metadata": "retained"},
+        ),
+        reliability=Confidence(0.99, source="adapter"),
+        temporal_scope=ResourceTemporalScope(
+            content_created_at=CONTENT_CREATED_AT,
+            observed_at=CONTENT_CREATED_AT,
+            ingested_at=NOW,
+        ),
+        sensitivity=SensitivityLevel.INTERNAL,
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(
+                    ResourcePermissionOperation.READ,
+                    ResourcePermissionOperation.INFER,
+                )
+            ),
+        ),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def _resource_input(
+    resource: Resource | None = None,
+    *,
+    extractor_name: str | None = "plain_text",
+) -> DomainCognitiveResourceInput:
+    payload = resource or _canonical_resource()
+    binding = DomainResourceBinding(
+        id="binding-1",
+        resource_id="resource-1",
+        definition_id="definition-1",
+        domain_id=DomainId("health"),
+        adapter="domain.existing_resource",
+        provenance=("domain-source-1", "domain-source-2"),
+        sensitivity=SensitivityLevel.SENSITIVE,
+        temporal_scope={
+            "valid_from": VALID_FROM,
+            "valid_until": VALID_UNTIL,
+            "observed_at": OBSERVED_AT,
+            "last_verified_at": LAST_VERIFIED_AT,
+        },
+        source_priority=17,
+        reliability=0.73,
+    )
+    resolution = DomainResourceResolution(
+        id="resolution-1",
+        resource_id=binding.resource_id,
+        status=DomainResourceResolutionStatus.RESOLVED,
+        trace_id="resolution-trace-1",
+        resolved_at=NOW,
+        bindings=(binding,),
+    )
+    return DomainCognitiveResourceInput(
+        resolution=resolution,
+        binding=binding,
+        source=ResourceInput(
+            id=binding.resource_id,
+            source_kind=ResourceSourceKind.USER_INPUT,
+            payload=payload,
+            sensitivity=binding.sensitivity,
+        ),
+        extractor_name=extractor_name,
+    )
+
+
+def _registries(
+    adapter: _ExactExistingResourceAdapter,
+) -> tuple[ResourceAdapterRegistry, KnowledgeExtractorRegistry]:
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(adapter)
+    adapter_registry.register(_ResolutionDecoyAdapter(), priority=100)
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(PlainTextKnowledgeExtractor())
+    return adapter_registry, extractor_registry
+
+
+def _resource_input_with_binding_permissions(
+    permissions: tuple[str, ...],
+) -> DomainCognitiveResourceInput:
+    base = _resource_input()
+    new_binding = replace(base.binding, permissions=permissions)
+    new_res = replace(
+        base.resolution,
+        bindings=(new_binding,),
+    )
+    return replace(
+        base,
+        resolution=new_res,
+        binding=new_binding,
+    )
+
+
+class _SpyResourceAdapter(_ExactExistingResourceAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.adapt_calls = 0
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ) -> ResourceAdaptationResult:
+        self.adapt_calls += 1
+        return super().adapt(source, context=context)
+
+
+class _SpyKnowledgeExtractor(PlainTextKnowledgeExtractor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.extract_calls = 0
+
+    def extract(
+        self,
+        resource: Resource,
+        *,
+        context: ExtractionContext | None = None,
+    ) -> KnowledgeExtractionResult:
+        self.extract_calls += 1
+        return super().extract(resource, context=context)
+
+
+def _make_default_integrator(
+    *,
+    adapter: Any = None,
+    extractor: Any = None,
+    rule_registry: Any = None,
+    knowledge_store: Any = None,
+) -> DefaultDomainCognitiveIntegrator:
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(adapter or _ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(extractor or PlainTextKnowledgeExtractor())
+    return DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=knowledge_store or _store_with_matching_provenance(),
+        rule_registry=rule_registry or InMemoryReasoningRuleRegistry(),
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+
+def _integration_request(
+    *,
+    minimum_confidence: float = 0.8,
+    temporal_policy: DomainTemporalPolicy | None = None,
+) -> DomainCognitiveIntegrationRequest:
+    composition = DomainComposition(
+        id="composition-1",
+        resolution_id="resolution-result-1",
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=DomainId("health"),
+        supporting_domains=(DomainId("university"),),
+        composed_at=NOW,
+    )
+    profile = ResolvedDomainProfile(
+        id="profile-1",
+        primary_domain=DomainId("health"),
+        supporting_domains=(DomainId("university"),),
+        profile_names=("HealthProfile",),
+        required_rules=(),
+        optional_rules=(),
+        prohibited_rules=(),
+        allowed_resource_kinds=None,
+        priority_resource_kinds=(),
+        prohibited_resource_kinds=(),
+        minimum_confidence=minimum_confidence,
+        reasoning_depth=DomainReasoningDepth.DEEP,
+        allowed_inferences=None,
+        prohibited_inferences=(),
+        maximum_questions=3,
+        escalation_rules=(),
+        prohibited_actions=(),
+        question_policy=DomainQuestionPolicy(),
+        presentation_policy=DomainPresentationPolicy(),
+        memory_policy=DomainMemoryPolicy(),
+        temporal_policy=temporal_policy or DomainTemporalPolicy(),
+        production_policy=DomainProductionPolicy(),
+        permissions=None,
+        modifications=(),
+        trace_id="profile-trace-1",
+        resolved_at=NOW,
+    )
+    return DomainCognitiveIntegrationRequest(
+        request_id="request-1",
+        resolution_context_id="resolution-context-1",
+        resolution_result_id="resolution-result-1",
+        objective="Review health information",
+        composition=composition,
+        profile=profile,
+        actor_id="actor-1",
+        session_id="session-1",
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+
+
+def _serialized_store_state(store: InMemoryKnowledgeStore) -> dict[str, object]:
+    return {
+        "items": [item.serialize() for item in store.list_items()],
+        "evidence": [evidence.serialize() for evidence in store.list_evidence()],
+        "relations": [relation.serialize() for relation in store.list_relations()],
+        "contradictions": [
+            contradiction.serialize() for contradiction in store.list_contradictions()
+        ],
+        "bundles": [bundle.serialize() for bundle in store.list_bundles()],
+    }
+
+
+def _presentation_rule_result(
+    *,
+    findings: tuple[ReasoningFinding, ...] = (),
+    produced_knowledge: tuple[KnowledgeItem, ...] = (),
+    contradictions: tuple[Contradiction, ...] = (),
+    gaps: tuple[ReasoningGap, ...] = (),
+    recommendations: tuple[ReasoningRecommendation, ...] = (),
+    escalations: tuple[ReasoningEscalation, ...] = (),
+) -> DomainRuleExecutionResult:
+    return DomainRuleExecutionResult(
+        id="rule-result-1",
+        plan_id="rule-plan-1",
+        status=DomainRuleExecutionStatus.COMPLETED,
+        findings=findings,
+        produced_knowledge=produced_knowledge,
+        contradictions=contradictions,
+        gaps=gaps,
+        recommendations=recommendations,
+        escalations=escalations,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+
+
+def test_presentation_items_map_only_canonical_evidence_with_stable_ids() -> None:
+    """Would fail if mappings changed type, hashed content, or invented confidence."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
+
+    question = KnowledgeItem(
+        id="canonical-question-1",
+        statement="Which canonical evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.42, source="canonical-extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    non_question = replace(
+        question,
+        id="canonical-observation-1",
+        statement="This is not a presentation question.",
+        kind=KnowledgeKind.OBSERVATION,
+    )
+    finding = ReasoningFinding(
+        code="CANONICAL_WARNING",
+        message="Content must never be embedded in the reference ID.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    second_finding = replace(finding, code="SECOND_FINDING")
+    gap = ReasoningGap(
+        code="CANONICAL_GAP",
+        message="More evidence is needed.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    contradiction = Contradiction(
+        id="canonical-contradiction-1",
+        item_a_id=question.id,
+        item_b_id=non_question.id,
+        created_at=NOW,
+    )
+    recommendation = ReasoningRecommendation(
+        code="CANONICAL_RECOMMENDATION",
+        message="Review the canonical evidence.",
+        severity=ReasoningSeverity.INFO,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    escalation = ReasoningEscalation(
+        code="CANONICAL_ESCALATION",
+        message="Seek qualified review.",
+        severity=ReasoningSeverity.CRITICAL,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.99),
+        bundles=(
+            KnowledgeBundle(
+                id="canonical-bundle-1",
+                items=(question, non_question),
+                created_at=NOW,
+            ),
+        ),
+        rule_result=_presentation_rule_result(
+            findings=(finding, second_finding),
+            gaps=(gap,),
+            contradictions=(contradiction,),
+            recommendations=(recommendation,),
+            escalations=(escalation,),
+        ),
+    )
+
+    assert tuple(item.item_type for item in items) == (
+        DomainPresentationItemType.FINDING,
+        DomainPresentationItemType.FINDING,
+        DomainPresentationItemType.GAP,
+        DomainPresentationItemType.CONTRADICTION,
+        DomainPresentationItemType.RECOMMENDATION,
+        DomainPresentationItemType.ESCALATION,
+        DomainPresentationItemType.QUESTION,
+    )
+    assert tuple(item.ref_id for item in items) == (
+        "rule-result-1:finding:0",
+        "rule-result-1:finding:1",
+        "rule-result-1:gap:0",
+        "canonical-contradiction-1",
+        "rule-result-1:recommendation:0",
+        "rule-result-1:escalation:0",
+        "canonical-question-1",
+    )
+    assert tuple(item.source_order for item in items) == tuple(range(7))
+    assert tuple(item.confidence for item in items) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        0.42,
+    )
+    assert items[3].requires_provenance is True
+    assert items[6].requires_provenance is True
+    assert items[6].requires_user_interaction is True
+    assert items[6].pending is True
+    assert all("Content" not in item.ref_id for item in items)
+
+
+def test_presentation_gap_interaction_uses_only_explicit_canonical_flags() -> None:
+    """Would fail if wording/profile thresholds synthesized interaction state."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    implicit = ReasoningGap(
+        code="CLARIFICATION_REQUIRED",
+        message="User clarification is required before proceeding.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        references=("canonical-question-1",),
+    )
+    explicit = replace(
+        implicit,
+        code="EXPLICIT_USER_RESOLUTION",
+        metadata={
+            "pending": True,
+            "requires_user_interaction": True,
+            "requires_approval": True,
+            "requires_confirmation": True,
+        },
+    )
+
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=1.0),
+        bundles=(),
+        rule_result=_presentation_rule_result(gaps=(implicit, explicit)),
+    )
+
+    assert items[0].confidence is None
+    assert items[0].requires_provenance is False
+    assert items[0].pending is False
+    assert items[0].requires_user_interaction is False
+    assert items[0].requires_approval is False
+    assert items[0].requires_confirmation is False
+    assert items[1].pending is True
+    assert items[1].requires_user_interaction is True
+    assert items[1].requires_approval is True
+    assert items[1].requires_confirmation is True
+
+
+def test_presentation_items_include_rule_questions_with_first_seen_deduplication() -> (
+    None
+):
+    """Would fail if rule-produced questions were omitted or duplicated by ID."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
+
+    bundle_question = KnowledgeItem(
+        id="shared-question-1",
+        statement="Which bundle evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.31, source="bundle-extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    repeated_rule_question = replace(
+        bundle_question,
+        statement="A later copy must not replace the first canonical question.",
+        confidence=Confidence(0.88, source="rule-copy"),
+    )
+    rule_question = KnowledgeItem(
+        id="rule-question-1",
+        statement="Which rule evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.67, source="rule-output"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    rule_observation = replace(
+        rule_question,
+        id="rule-observation-1",
+        statement="Rule observations do not become presentation questions.",
+        kind=KnowledgeKind.OBSERVATION,
+    )
+
+    items = _presentation_items(
+        request=_integration_request(),
+        bundles=(
+            KnowledgeBundle(
+                id="bundle-with-shared-question",
+                items=(bundle_question,),
+                created_at=NOW,
+            ),
+        ),
+        rule_result=_presentation_rule_result(
+            produced_knowledge=(
+                repeated_rule_question,
+                rule_question,
+                rule_observation,
+            ),
+        ),
+    )
+
+    assert tuple(item.ref_id for item in items) == (
+        "shared-question-1",
+        "rule-question-1",
+    )
+    assert all(item.item_type is DomainPresentationItemType.QUESTION for item in items)
+    assert tuple(item.source_order for item in items) == (0, 1)
+    assert tuple(item.confidence for item in items) == (0.31, 0.67)
+    assert all(item.requires_provenance for item in items)
+    assert all(item.pending for item in items)
+    assert all(item.requires_user_interaction for item in items)
+
+
+def test_package_and_context_builders_read_store_without_mutating_it() -> None:
+    from cmm.domains.cognitive_integration import (
+        _build_knowledge_package,
+        _build_reasoning_context,
+    )
+
+    temporal_scope = TemporalScope(
+        kind=TemporalScopeKind.INTERVAL,
+        valid_from=VALID_FROM,
+        valid_until=VALID_UNTIL,
+        last_verified_at=LAST_VERIFIED_AT,
+    )
+    first = KnowledgeItem(
+        id="prior-health-fact",
+        statement="Health information is current.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="evidence"),
+        resource_id="resource-1",
+        temporal_scope=temporal_scope,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    second = KnowledgeItem(
+        id="prior-health-observation",
+        statement="Health information may be outdated.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.55, source="evidence"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    contradiction = Contradiction(
+        id="health-contradiction",
+        item_a_id=first.id,
+        item_b_id=second.id,
+        explanation="The source dates disagree.",
+        created_at=NOW,
+    )
+    store = InMemoryKnowledgeStore()
+    store.save_item(first)
+    store.save_item(second)
+    store.save_contradiction(contradiction)
+    before = _serialized_store_state(store)
+    request = _integration_request(
+        temporal_policy=DomainTemporalPolicy(
+            require_current_information=True,
+            maximum_age_seconds=7_200,
+        )
+    )
+
+    package = _build_knowledge_package(
+        store=store,
+        request=request,
+        adapted_resources=(_canonical_resource(),),
+    )
+    context = _build_reasoning_context(
+        request=request,
+        package=package,
+        extracted_bundles=(),
+        adapted_resources=(_canonical_resource(),),
+        timestamp=NOW,
+    )
+
+    assert package.profile == "profile-1"
+    assert package.domain == "domain:health"
+    assert package.session_id == "session-1"
+    assert package.facts == (first,)
+    assert package.observations == (second,)
+    assert package.contradictions == (contradiction,)
+    assert package.resources == (_canonical_resource(),)
+    assert dict(package.temporal_scope) == {
+        "require_current_information": True,
+        "maximum_age_seconds": 7_200,
+    }
+    assert dict(package.metadata) == {"domain_composition_id": "composition-1"}
+    assert context.knowledge_items == (first, second)
+    assert context.contradictions == (contradiction,)
+    assert _serialized_store_state(store) == before
+
+
+def test_reasoning_context_builds_stable_first_seen_canonical_knowledge_union() -> None:
+    from cmm.domains.cognitive_integration import _build_reasoning_context
+
+    temporal_scope = TemporalScope(
+        kind=TemporalScopeKind.INTERVAL,
+        valid_from=VALID_FROM,
+        valid_until=VALID_UNTIL,
+        last_verified_at=LAST_VERIFIED_AT,
+    )
+    fact = KnowledgeItem(
+        id="fact-1",
+        statement="Health fact.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="evidence"),
+        temporal_scope=temporal_scope,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    observation = KnowledgeItem(
+        id="observation-1",
+        statement="Health observation.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.62, source="evidence"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    inference = KnowledgeItem(
+        id="inference-1",
+        statement="Health inference.",
+        kind=KnowledgeKind.INFERENCE,
+        confidence=Confidence(0.63, source="evidence"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    hypothesis = KnowledgeItem(
+        id="hypothesis-1",
+        statement="Health hypothesis.",
+        kind=KnowledgeKind.HYPOTHESIS,
+        confidence=Confidence(0.64, source="evidence"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    question = KnowledgeItem(
+        id="question-1",
+        statement="What health evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.65, source="evidence"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    extracted_first = KnowledgeItem(
+        id="extracted-1",
+        statement="First extracted item.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.66, source="extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    extracted_second = KnowledgeItem(
+        id="extracted-2",
+        statement="Second extracted item.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.67, source="extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    contradiction = Contradiction(
+        id="contradiction-1",
+        item_a_id=fact.id,
+        item_b_id=observation.id,
+        explanation="Canonical contradiction.",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-1",
+        objective="Review health information",
+        facts=(fact,),
+        observations=(observation,),
+        inferences=(inference,),
+        hypotheses=(hypothesis,),
+        other_knowledge=(question,),
+        contradictions=(contradiction,),
+        created_at=NOW,
+    )
+    bundles = (
+        KnowledgeBundle(id="bundle-1", items=(extracted_first, fact), created_at=NOW),
+        KnowledgeBundle(
+            id="bundle-2",
+            items=(extracted_second, extracted_first),
+            created_at=NOW,
+        ),
+    )
+    resources = (
+        replace(
+            _canonical_resource(),
+            id="public-resource",
+            sensitivity=SensitivityLevel.PUBLIC,
+        ),
+        replace(
+            _canonical_resource(),
+            id="restricted-resource",
+            sensitivity=SensitivityLevel.RESTRICTED,
+        ),
+    )
+
+    context = _build_reasoning_context(
+        request=_integration_request(minimum_confidence=0.9),
+        package=package,
+        extracted_bundles=bundles,
+        adapted_resources=resources,
+        timestamp=NOW,
+    )
+
+    assert context.reasoning_id == "domain-cognitive:request-1"
+    assert [item.id for item in context.knowledge_items] == [
+        "fact-1",
+        "observation-1",
+        "inference-1",
+        "hypothesis-1",
+        "question-1",
+        "extracted-1",
+        "extracted-2",
+    ]
+    assert context.knowledge_items[0] is fact
+    assert context.knowledge_items[0].confidence.value == 0.61
+    assert context.knowledge_items[0].temporal_scope is temporal_scope
+    assert context.contradictions == (contradiction,)
+    assert context.contradictions[0] is contradiction
+    assert context.active_domains == ("domain:health", "domain:university")
+    assert context.primary_domain == "domain:health"
+    assert context.supporting_domains == ("domain:university",)
+    assert context.effective_permissions == ("resource:read", "resource:infer")
+    assert context.effective_sensitivity == "restricted"
+    assert dict(context.metadata) == {
+        "domain_composition_id": "composition-1",
+        "domain_profile_id": "profile-1",
+        "minimum_confidence": 0.9,
+        "reasoning_depth": "deep",
+        "maximum_questions": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    ("sensitivities", "expected"),
+    (
+        ((), None),
+        ((SensitivityLevel.PUBLIC,), "public"),
+        (
+            (SensitivityLevel.PUBLIC, SensitivityLevel.INTERNAL),
+            "internal",
+        ),
+        (
+            (SensitivityLevel.INTERNAL, SensitivityLevel.PERSONAL),
+            "personal",
+        ),
+        (
+            (SensitivityLevel.PERSONAL, SensitivityLevel.SENSITIVE),
+            "sensitive",
+        ),
+        (
+            (SensitivityLevel.SENSITIVE, SensitivityLevel.HIGHLY_SENSITIVE),
+            "highly_sensitive",
+        ),
+        (
+            (SensitivityLevel.HIGHLY_SENSITIVE, SensitivityLevel.RESTRICTED),
+            "restricted",
+        ),
+    ),
+)
+def test_effective_sensitivity_uses_canonical_phase_8_rank(
+    sensitivities: tuple[SensitivityLevel, ...], expected: str | None
+) -> None:
+    from cmm.domains.cognitive_integration import _effective_sensitivity
+
+    resources = tuple(
+        replace(
+            _canonical_resource(),
+            id=f"resource-{index}",
+            sensitivity=sensitivity,
+        )
+        for index, sensitivity in enumerate(sensitivities)
+    )
+
+    assert _effective_sensitivity(resources) == expected
+
+
+def test_resource_uses_binding_adapter_and_exact_adaptation_context() -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    resource_input = _resource_input()
+    selected_adapter = _ExactExistingResourceAdapter()
+    adapter_registry, extractor_registry = _registries(selected_adapter)
+
+    resource, _ = _adapt_domain_resource(
+        resource_input,
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        actor_id="actor-1",
+        session_id="session-1",
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+
+    assert resource.id == "resource-1"
+    assert selected_adapter.seen_context == AdaptationContext(
+        actor_id="actor-1",
+        target_domain="domain:health",
+        permissions=("resource:read", "resource:infer"),
+        trace_id="binding-1",
+        session_id="session-1",
+        timestamp=NOW,
+        metadata={"domain_resolution_id": "resolution-1"},
+    )
+
+
+def test_resource_preserves_domain_metadata_in_canonical_phase_8_shapes() -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    selected_adapter = _ExactExistingResourceAdapter()
+    adapter_registry, extractor_registry = _registries(selected_adapter)
+
+    resource, _ = _adapt_domain_resource(
+        _resource_input(),
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        actor_id="actor-1",
+        session_id="session-1",
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+
+    assert type(resource) is Resource
+    assert resource.sensitivity is SensitivityLevel.SENSITIVE
+    assert type(resource.reliability) is Confidence
+    assert resource.reliability == Confidence(
+        value=0.73,
+        source="domain_resource_binding",
+        reasons=("binding-1",),
+    )
+    assert type(resource.temporal_scope) is ResourceTemporalScope
+    assert resource.temporal_scope.valid_from == VALID_FROM
+    assert resource.temporal_scope.valid_until == VALID_UNTIL
+    assert resource.temporal_scope.observed_at == OBSERVED_AT
+    assert resource.temporal_scope.last_verified_at == LAST_VERIFIED_AT
+    assert resource.temporal_scope.content_created_at == CONTENT_CREATED_AT
+    assert resource.temporal_scope.ingested_at == NOW
+
+    assert resource.provenance.source_type is ResourceSourceKind.USER_INPUT
+    assert resource.provenance.source_id == "adapter-source-1"
+    assert resource.provenance.author == "adapter-author"
+    assert resource.provenance.retrieved_at == NOW
+    assert resource.provenance.original_location == "memory://resource-1"
+    assert resource.provenance.checksum == "adapter-checksum"
+    assert resource.provenance.transformation_history[0].operation == (
+        "adapter_normalisation"
+    )
+    assert resource.provenance.metadata == {
+        "adapter_metadata": "retained",
+        "domain_binding_id": "binding-1",
+        "domain_definition_id": "definition-1",
+        "domain_provenance": ("domain-source-1", "domain-source-2"),
+        "domain_source_priority": 17,
+    }
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    (_FailedExistingResourceAdapter(), _MissingResourceAdapter()),
+    ids=("failed", "missing-resource"),
+)
+def test_resource_adaptation_fails_closed_without_successful_canonical_resource(
+    adapter: ExistingResourceAdapter,
+) -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(adapter)
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(PlainTextKnowledgeExtractor())
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _adapt_domain_resource(
+            _resource_input(),
+            adapter_registry=adapter_registry,
+            extractor_registry=extractor_registry,
+            actor_id="actor-1",
+            session_id="session-1",
+            effective_permissions=("resource:read", "resource:infer"),
+        )
+
+    assert error.value.details["binding_id"] == "binding-1"
+    assert error.value.details["adapter"] == "domain.existing_resource"
+
+
+def test_materialisation_uses_requested_extractor_and_canonical_context() -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    adapter = _ExactExistingResourceAdapter()
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(adapter)
+    extractor = _ExactPlainTextKnowledgeExtractor()
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(extractor)
+    extractor_registry.register(_ExtractionDecoy(), priority=100)
+
+    resource, bundle = _adapt_domain_resource(
+        _resource_input(extractor_name="domain.plain_text"),
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        actor_id="actor-1",
+        session_id="session-1",
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+
+    assert extractor.seen_context is not None
+    assert extractor.seen_context.actor_id == "actor-1"
+    assert extractor.seen_context.domain == "domain:health"
+    assert extractor.seen_context.trace_id == "binding-1"
+    assert extractor.seen_context.session_id == "session-1"
+    assert bundle.actor_id == "actor-1"
+    assert bundle.items
+    assert all(type(item) is KnowledgeItem for item in bundle.items)
+    assert all(item.status is KnowledgeStatus.UNVERIFIED for item in bundle.items)
+    assert all(item.kind is not KnowledgeKind.FACT for item in bundle.items)
+    assert all(item.resource_id == resource.id for item in bundle.items)
+    assert all(
+        item.evidence[0].resource_provenance_id == "adapter-source-1"
+        for item in bundle.items
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    (ExtractionStatus.FAILED, ExtractionStatus.UNSUPPORTED),
+)
+def test_material_extraction_fails_closed_for_mandatory_failure(
+    status: ExtractionStatus,
+) -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(_ExactExistingResourceAdapter())
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(_MandatoryStatusExtractor(status))
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _adapt_domain_resource(
+            _resource_input(extractor_name="mandatory"),
+            adapter_registry=adapter_registry,
+            extractor_registry=extractor_registry,
+            actor_id="actor-1",
+            session_id="session-1",
+            effective_permissions=("resource:read", "resource:infer"),
+        )
+
+    assert error.value.details == {
+        "binding_id": "binding-1",
+        "extractor": "mandatory",
+        "status": status.value,
+    }
+
+
+def test_question_candidate_follows_canonical_materialisation_path() -> None:
+    from cmm.domains.cognitive_integration import _adapt_domain_resource
+
+    question = "What should happen next?"
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(_ExactExistingResourceAdapter())
+    extractor = _ExactPlainTextKnowledgeExtractor()
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(extractor)
+
+    _, bundle = _adapt_domain_resource(
+        _resource_input(
+            _canonical_resource(question),
+            extractor_name="domain.plain_text",
+        ),
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        actor_id="actor-1",
+        session_id="session-1",
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+
+    assert extractor.result is not None
+    question_candidates = [
+        candidate
+        for candidate in extractor.result.candidates
+        if candidate.kind is CandidateKind.QUESTION
+    ]
+    assert [candidate.value for candidate in question_candidates] == [question]
+    question_items = [
+        item for item in bundle.items if item.kind is KnowledgeKind.QUESTION
+    ]
+    assert [item.statement for item in question_items] == [question]
+    assert bundle.open_questions == (question,)
+
+
+def test_cognitive_validation_covers_package_every_resource_and_materialized_item() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    resources = (
+        replace(_canonical_resource(), id="resource-1"),
+        replace(_canonical_resource(), id="resource-2"),
+    )
+    extracted_items = (
+        KnowledgeItem(
+            id="extracted-item-1",
+            statement="First extracted observation.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.72, source="extraction"),
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+        KnowledgeItem(
+            id="extracted-item-2",
+            statement="Second extracted observation.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.73, source="extraction"),
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+    bundles = (
+        KnowledgeBundle(
+            id="bundle-1",
+            items=(extracted_items[0],),
+            created_at=NOW,
+        ),
+        KnowledgeBundle(
+            id="bundle-2",
+            items=(extracted_items[1],),
+            created_at=NOW,
+        ),
+    )
+    package = KnowledgePackage(
+        id="package-1",
+        objective="Review health information",
+        resources=resources,
+        provenance=("resource-1", "resource-2"),
+        created_at=NOW,
+    )
+    recording_rule = _RecordingValidationRule()
+    validator = CognitiveValidator((*CognitiveValidator().rules, recording_rule))
+    request = _integration_request()
+
+    results = _validate_cognitive_inputs(
+        validator=validator,
+        request=request,
+        package=package,
+        resources=resources,
+        bundles=bundles,
+        now=NOW,
+    )
+
+    expected_targets = (package, *resources, *extracted_items)
+    expected_context = CognitiveValidationContext(
+        actor_id="actor-1",
+        domain="domain:health",
+        permission_context={
+            "effective_permissions": ("resource:read", "resource:infer"),
+        },
+        require_current_information=False,
+        now=NOW,
+        metadata={
+            "domain_profile_id": "profile-1",
+            "domain_composition_id": "composition-1",
+        },
+    )
+    assert tuple(target for target, _ in recording_rule.calls) == expected_targets
+    assert all(context == expected_context for _, context in recording_rule.calls)
+    assert [result.target_id for result in results] == [
+        "package-1",
+        "resource-1",
+        "resource-2",
+        "extracted-item-1",
+        "extracted-item-2",
+    ]
+    assert [result.target_kind for result in results] == [
+        "knowledge_package",
+        "Resource",
+        "Resource",
+        "knowledge_item",
+        "knowledge_item",
+    ]
+
+
+def test_blocking_privacy_validation_prevents_rule_evaluation_and_hides_content() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    untrusted_content = "PRIVATE-CONTENT-MUST-NOT-LEAK"
+    resource = replace(
+        _canonical_resource(untrusted_content),
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(ResourcePermissionOperation.READ,),
+            ),
+        ),
+    )
+    package = KnowledgePackage(
+        id="privacy-blocked-package",
+        objective="Review health information",
+        resources=(resource,),
+        provenance=(resource.id,),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+    assert isinstance(counting_rule, ReasoningRule)
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(),
+            package=package,
+            resources=(resource,),
+            bundles=(),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="privacy-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "privacy-blocked-package"
+    assert error.value.details["decision"] == "block"
+    assert error.value.details["blocking_finding_codes"] == ("COG_PRIVACY_DENIED",)
+    assert untrusted_content not in str(error.value)
+    assert untrusted_content not in repr(dict(error.value.details))
+
+
+def test_missing_mandatory_provenance_blocks_before_rule_evaluation() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="missing-provenance-package",
+        objective="Review health information",
+        provenance=(),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(),
+            package=package,
+            resources=(),
+            bundles=(),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="provenance-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "missing-provenance-package"
+    assert error.value.details["decision"] == "block"
+    assert error.value.details["blocking_finding_codes"] == ("COG_PROVENANCE_MISSING",)
+
+
+def test_expired_required_current_validation_blocks_before_rule_evaluation() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    expired_item = KnowledgeItem(
+        id="expired-item",
+        statement="This observation is no longer current.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.8, source="extraction"),
+        temporal_scope=TemporalScope(
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            valid_until=datetime(2025, 1, 2, tzinfo=timezone.utc),
+        ),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="expired-bundle",
+        items=(expired_item,),
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="current-information-package",
+        objective="Review current health information",
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(
+                temporal_policy=DomainTemporalPolicy(
+                    require_current_information=True,
+                )
+            ),
+            package=package,
+            resources=(),
+            bundles=(bundle,),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="expired-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "expired-item"
+    assert error.value.details["decision"] == "invalidate"
+    assert error.value.details["blocking_finding_codes"] == ("COG_TEMPORAL_EXPIRED",)
+
+
+def test_request_information_validation_remains_evidence_and_rules_may_proceed() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="information-gap-package",
+        objective="Review health information",
+        missing_information=("current blood pressure reading",),
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    validator = CognitiveValidator(
+        (*CognitiveValidator().rules, _RequestInformationValidationRule())
+    )
+    counting_rule = _CountingReasoningRule()
+
+    results = _validate_cognitive_inputs(
+        validator=validator,
+        request=_integration_request(),
+        package=package,
+        resources=(),
+        bundles=(),
+        now=NOW,
+    )
+    rule_result = counting_rule.evaluate(
+        ReasoningRuleContext(reasoning_id="information-gap", timestamp=NOW)
+    )
+
+    assert results[0].decision is CognitiveValidationDecision.REQUEST_INFORMATION
+    assert "COG_EVIDENCE_INSUFFICIENT" in {
+        finding.code for finding in results[0].findings
+    }
+    assert package.other_knowledge == ()
+    assert package.missing_information == ("current blood pressure reading",)
+    assert counting_rule.evaluations == 1
+    assert rule_result.status is ReasoningRuleResultStatus.APPLIED
+
+
+def test_escalate_validation_remains_evidence_and_rules_may_proceed() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="escalated-package",
+        objective="Review contradictory health information",
+        contradictions=(
+            Contradiction(
+                id="unresolved-contradiction",
+                item_a_id="claim-a",
+                item_b_id="claim-b",
+                explanation="The health claims disagree.",
+                created_at=NOW,
+            ),
+        ),
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    results = _validate_cognitive_inputs(
+        validator=CognitiveValidator(),
+        request=_integration_request(),
+        package=package,
+        resources=(),
+        bundles=(),
+        now=NOW,
+    )
+    counting_rule.evaluate(
+        ReasoningRuleContext(reasoning_id="escalated", timestamp=NOW)
+    )
+
+    assert results[0].decision is CognitiveValidationDecision.ESCALATE
+    assert counting_rule.evaluations == 1
+
+
+class _MutationSentinelKnowledgeStore(InMemoryKnowledgeStore):
+    def _mutation_forbidden(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError(
+            "the Domain cognitive integrator must not mutate the store"
+        )
+
+    save_item = _mutation_forbidden
+    delete_item = _mutation_forbidden
+    save_evidence = _mutation_forbidden
+    delete_evidence = _mutation_forbidden
+    save_relation = _mutation_forbidden
+    delete_relation = _mutation_forbidden
+    save_contradiction = _mutation_forbidden
+    delete_contradiction = _mutation_forbidden
+    save_bundle = _mutation_forbidden
+    delete_bundle = _mutation_forbidden
+
+
+def _integrator_dependencies() -> dict[str, object]:
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+    return {
+        "adapter_registry": adapter_registry,
+        "extractor_registry": extractor_registry,
+        "knowledge_store": InMemoryKnowledgeStore(),
+        "rule_registry": InMemoryReasoningRuleRegistry(),
+    }
+
+
+def _store_with_matching_provenance(
+    store: InMemoryKnowledgeStore | None = None,
+) -> InMemoryKnowledgeStore:
+    value = store or InMemoryKnowledgeStore()
+    InMemoryKnowledgeStore.save_item(
+        value,
+        KnowledgeItem(
+            id="integration-provenance-item",
+            statement="Review canonical health information.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.91, source="existing-evidence"),
+            resource_id="resource-1",
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+    return value
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "adapter_registry",
+        "extractor_registry",
+        "knowledge_store",
+        "rule_registry",
+        "cognitive_validator",
+        "rule_selector",
+        "rule_executor",
+        "clock",
+    ),
+)
+def test_integrator_rejects_invalid_dependencies_with_narrow_error(field: str) -> None:
+    """Would fail if constructor wiring admitted a non-canonical dependency."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    dependencies = _integrator_dependencies()
+    dependencies[field] = object()
+
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        DefaultDomainCognitiveIntegrator(**dependencies)  # type: ignore[arg-type]
+
+    assert error.value.field == field
+
+
+def test_integrator_keeps_injected_stateful_owners_and_defaults_stateless_helpers() -> (
+    None
+):
+    """Would fail if the integrator hid a store/registry or omitted allowed defaults."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+    from cmm.domains.rule_execution import DefaultDomainRuleExecutor
+    from cmm.domains.rule_selection import DefaultDomainRuleSelector
+
+    dependencies = _integrator_dependencies()
+    clock = lambda: NOW
+    integrator = DefaultDomainCognitiveIntegrator(
+        **dependencies,  # type: ignore[arg-type]
+        clock=clock,
+    )
+
+    assert integrator._adapter_registry is dependencies["adapter_registry"]
+    assert integrator._extractor_registry is dependencies["extractor_registry"]
+    assert integrator._knowledge_store is dependencies["knowledge_store"]
+    assert integrator._rule_registry is dependencies["rule_registry"]
+    assert type(integrator._cognitive_validator) is CognitiveValidator
+    assert type(integrator._rule_selector) is DefaultDomainRuleSelector
+    assert type(integrator._rule_executor) is DefaultDomainRuleExecutor
+    assert integrator._clock is clock
+
+
+def test_global_before_domain_rules_use_canonical_selection_and_execution() -> None:
+    """Would fail if Domain specialization could precede a mandatory global rule."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    global_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+        priority=1,
+    )
+    domain_rule = _CountingReasoningRule(
+        "health.required",
+        scope=ReasoningRuleScope.DOMAIN,
+        domain_id="domain:health",
+        priority=100,
+    )
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(domain_rule)
+    rule_registry.register(global_rule)
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(_resource_input(),),
+        global_mandatory_rules=(global_rule.definition.id,),
+        profile=replace(
+            request.profile,
+            required_rules=(domain_rule.definition.id,),
+        ),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert tuple(
+        selected.definition.id for selected in result.rule_plan.selected_rules
+    ) == ("global.mandatory", "health.required")
+    assert result.rule_result.applied_rule_ids == (
+        "global.mandatory",
+        "health.required",
+    )
+    assert all(
+        type(item) is ReasoningRuleResult for item in result.rule_result.rule_results
+    )
+    assert all(
+        type(item) is CognitiveValidationResult for item in result.validation_results
+    )
+    assert tuple(item.target_id for item in result.validation_results) == (
+        result.knowledge_package.id,
+        result.adapted_resources[0].id,
+        *(item.id for item in result.extracted_bundles[0].items),
+    )
+    assert global_rule.evaluations == 1
+    assert domain_rule.evaluations == 1
+    assert result.presentation_items == ()
+    assert result.trace_references.resolution_context_id == "resolution-context-1"
+    assert result.trace_references.resolution_result_id == "resolution-result-1"
+    assert result.trace_references.composition_id == "composition-1"
+
+
+def test_integrator_builds_reference_only_domain_trace_links() -> None:
+    """Would fail if canonical trace references omitted the knowledge package."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+    request = replace(_integration_request(), resources=(_resource_input(),))
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert (
+        result.trace_references.resolution_context_id == request.resolution_context_id
+    )
+    assert result.trace_references.resolution_result_id == request.resolution_result_id
+    assert result.trace_references.composition_id == request.composition.id
+    assert result.trace_references.knowledge_package_ids == (
+        result.knowledge_package.id,
+    )
+    assert result.trace_references.cognitive_result_ids == ()
+    assert result.trace_references.reasoning_trace_ids == ()
+
+
+def test_integrator_preserves_blocked_rule_plan_without_evaluating_rules() -> None:
+    """Would fail if the integrator bypassed canonical blocked-plan execution."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    global_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(global_rule)
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(_resource_input(),),
+        global_mandatory_rules=(global_rule.definition.id,),
+        profile=replace(request.profile, required_rules=("health.missing",)),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert result.rule_plan.status is DomainRuleSelectionStatus.BLOCKED
+    assert result.rule_result.status is DomainRuleExecutionStatus.BLOCKED
+    assert result.rule_result.blocked_rule_ids == ("health.missing",)
+    assert result.rule_result.rule_results == ()
+    assert global_rule.evaluations == 0
+
+
+def test_integrator_leaves_seeded_official_knowledge_store_exactly_unchanged() -> None:
+    """Would fail if integration persisted adapted or materialized knowledge."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    prior_item = KnowledgeItem(
+        id="prior-health-item",
+        statement="Existing canonical health knowledge.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.91, source="existing-evidence"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    store = InMemoryKnowledgeStore()
+    store.save_item(prior_item)
+    before = _serialized_store_state(store)
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=store,
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(replace(_integration_request(), resources=(_resource_input(),)))
+
+    assert prior_item.id in {
+        item.id
+        for item in (
+            *result.knowledge_package.facts,
+            *result.knowledge_package.observations,
+            *result.knowledge_package.inferences,
+            *result.knowledge_package.hypotheses,
+            *result.knowledge_package.other_knowledge,
+        )
+    }
+    assert _serialized_store_state(store) == before
+
+
+def test_integrator_never_calls_a_knowledge_store_mutator() -> None:
+    """Would fail on any direct KnowledgeStoreProtocol mutation attempt."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(
+            _MutationSentinelKnowledgeStore()
+        ),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(replace(_integration_request(), resources=(_resource_input(),)))
+
+    assert result.adapted_resources[0].id == "resource-1"
+    assert result.extracted_bundles[0].items
+
+
+def test_integrator_returns_references_consumed_by_real_presentation_planner() -> None:
+    """Would fail if integration rendered output or dropped canonical evidence."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+    from cmm.domains.presentation_contracts import (
+        DomainPresentationItemType,
+    )
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+    from cmm.domains.rule_execution import DefaultDomainRuleExecutor
+
+    rule = _PresentationEvidenceReasoningRule()
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(rule)
+    presentation = PresentationComposition(
+        values={
+            "preferred_section_order": (
+                "findings",
+                "gaps",
+                "contradictions",
+                "questions",
+            )
+        },
+        provenance={"health": "profile-1"},
+    )
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(
+            _resource_input(
+                _canonical_resource("Which health evidence is missing?"),
+            ),
+        ),
+        composition=replace(request.composition, presentation=presentation),
+        profile=replace(
+            request.profile,
+            required_rules=(rule.definition.id,),
+            presentation_policy=DomainPresentationPolicy(
+                include_provenance=True,
+                preferred_section_order=(
+                    "findings",
+                    "gaps",
+                    "contradictions",
+                    "questions",
+                ),
+            ),
+        ),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        rule_executor=DefaultDomainRuleExecutor(
+            clock=lambda: NOW,
+            id_factory=lambda: "canonical-rule-result-1",
+        ),
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert request.composition.presentation is not None
+    plan = DefaultDomainPresentationPlanner().plan(
+        DomainPresentationRequest(
+            request_id="presentation-request-1",
+            upstream_result_id=result.rule_result.id,
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=result.presentation_items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(domain) for domain in request.composition.supporting_domains
+            ),
+        )
+    )
+
+    by_type = {item.item_type: item for item in result.presentation_items}
+    question_item = next(
+        item
+        for bundle in result.extracted_bundles
+        for item in bundle.items
+        if item.kind is KnowledgeKind.QUESTION
+    )
+    sections = {section.section_id: section.item_refs for section in plan.sections}
+    assert plan.item_refs == result.presentation_items
+    assert plan.question_refs == (question_item.id,)
+    assert question_item.id in sections["questions"]
+    assert "canonical-rule-result-1:finding:0" in sections["findings"]
+    assert "canonical-rule-result-1:gap:0" in sections["gaps"]
+    assert "canonical-contradiction-1" in sections["contradictions"]
+    assert by_type[DomainPresentationItemType.QUESTION].confidence == (
+        question_item.confidence.value
+    )
+    assert (
+        next(
+            item
+            for item in plan.item_refs
+            if item.item_type is DomainPresentationItemType.QUESTION
+        ).confidence
+        == question_item.confidence.value
+    )
+
+
+# ── Task 10: Adversarial Boundary Tests (Scenarios A through I) ───────────────
+
+
+@pytest.mark.parametrize(
+    "status",
+    (DomainCompositionStatus.BLOCKED, DomainCompositionStatus.FAILED),
+    ids=("blocked", "failed"),
+)
+def test_adversarial_scenario_a_blocked_or_failed_composition_rejected(
+    status: DomainCompositionStatus,
+) -> None:
+    """Scenario A: Blocked or failed composition cannot cross integration boundary."""
+    comp = _integration_request().composition
+    # Frozen composition mutation for boundary testing
+    object.__setattr__(comp, "status", status)
+    try:
+        with pytest.raises(
+            DomainCognitiveIntegrationContractError,
+            match="composition status must be COMPOSED or PARTIAL",
+        ):
+            DomainCognitiveIntegrationRequest(
+                request_id="req-blocked-comp",
+                resolution_context_id="ctx-1",
+                resolution_result_id="res-1",
+                objective="Test boundary",
+                composition=comp,
+                profile=_integration_request().profile,
+            )
+    finally:
+        object.__setattr__(comp, "status", DomainCompositionStatus.COMPOSED)
+
+
+def test_adversarial_scenario_b_profile_composition_mismatch_rejected() -> None:
+    """Scenario B: Profile with mismatched primary or supporting domain is rejected."""
+    prof = _integration_request().profile
+    original_domain = prof.primary_domain
+    object.__setattr__(prof, "primary_domain", DomainId("university"))
+    try:
+        with pytest.raises(
+            DomainCognitiveIntegrationContractError,
+            match="profile active domains must match composition",
+        ):
+            DomainCognitiveIntegrationRequest(
+                request_id="req-mismatch",
+                resolution_context_id="ctx-1",
+                resolution_result_id="res-1",
+                objective="Test mismatch",
+                composition=_integration_request().composition,
+                profile=prof,
+            )
+    finally:
+        object.__setattr__(prof, "primary_domain", original_domain)
+
+
+def test_adversarial_scenario_c_forged_binding_rejected() -> None:
+    """Scenario C: Resource binding absent from its resolution is rejected."""
+    res_in = _resource_input()
+    forged_binding = replace(res_in.binding, id="forged-binding-absent-from-res")
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="binding must occur in resolution.bindings",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=forged_binding,
+            source=replace(res_in.source, id=forged_binding.resource_id),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_d_resource_id_mismatch_rejected() -> None:
+    """Scenario D: ResourceInput.id differing from binding.resource_id is rejected."""
+    res_in = _resource_input()
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="source.id must match binding.resource_id",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=res_in.binding,
+            source=replace(res_in.source, id="mismatched-resource-id-999"),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_e_sensitivity_mismatch_or_downgrade_rejected() -> None:
+    """Scenario E: ResourceInput sensitivity differing from binding is rejected."""
+    res_in = _resource_input()
+    assert res_in.binding.sensitivity == SensitivityLevel.SENSITIVE
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="source.sensitivity must match binding.sensitivity",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=res_in.binding,
+            source=replace(res_in.source, sensitivity=SensitivityLevel.PUBLIC),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_f_unknown_configured_adapter_fails_closed() -> None:
+    """Scenario F: Unknown binding.adapter fails closed without fallback to another adapter."""
+    from cmm.cognitive import MappingResourceAdapter, PlainTextResourceAdapter
+    from cmm.cognitive.errors import ComponentNotFoundError
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(PlainTextResourceAdapter())
+    adapter_registry.register(MappingResourceAdapter())
+
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(PlainTextKnowledgeExtractor())
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    res_in = _resource_input()
+    object.__setattr__(res_in.binding, "adapter", "unknown_missing_adapter")
+    try:
+        with pytest.raises(
+            ComponentNotFoundError,
+            match="no adapter named 'unknown_missing_adapter'",
+        ):
+            integrator.integrate(replace(_integration_request(), resources=(res_in,)))
+    finally:
+        object.__setattr__(res_in.binding, "adapter", "domain.existing_resource")
+
+
+def test_adversarial_scenario_g_failed_extraction_prevents_rule_evaluation() -> None:
+    """Scenario G: Failed mandatory extraction halts flow before any rule evaluation."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(_ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(_MandatoryStatusExtractor(ExtractionStatus.FAILED))
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=rule_reg,
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(
+        DomainCognitiveIntegrationBlockedError,
+        match="Mandatory Domain resource extraction did not succeed",
+    ):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(_resource_input(extractor_name="mandatory"),),
+                global_mandatory_rules=(counting_rule.definition.id,),
+            )
+        )
+
+    assert counting_rule.evaluations == 0
+
+
+def test_adversarial_scenario_h_permission_mismatch_fails_closed() -> None:
+    """Scenario H: A binding with required permissions absent from effective permissions fails closed."""
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    integrator = _make_default_integrator(rule_registry=rule_reg)
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    with pytest.raises(
+        DomainCognitiveIntegrationBlockedError,
+        match="required permissions not satisfied",
+    ):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(res_in,),
+                global_mandatory_rules=(counting_rule.definition.id,),
+                effective_permissions=("resource:read", "resource:infer"),
+            )
+        )
+    assert counting_rule.evaluations == 0
+
+
+def test_adversarial_scenario_i_canonical_validation_block_prevents_rule_evaluation() -> (
+    None
+):
+    """Scenario I: Canonical validation block prevents reasoning rule evaluation."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(_ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(PlainTextKnowledgeExtractor())
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=rule_reg,
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    untrusted_res = replace(
+        _canonical_resource("SENSITIVE-CONTENT-VALIDATION-BLOCK"),
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(ResourcePermissionOperation.READ,),
+            ),
+        ),
+    )
+    res_in = _resource_input(resource=untrusted_res)
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(res_in,),
+                global_mandatory_rules=(counting_rule.definition.id,),
+            )
+        )
+
+    assert counting_rule.evaluations == 0
+
+
+# ── PERM-1 .. PERM-7: BLOCKER-01 Permission Matrix Tests ────────────────────
+
+
+def test_perm_1_one_required_permission_request_has_none_blocks() -> None:
+    """PERM-1: one required permission, request has none -> BLOCK."""
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=(),
+    )
+    integrator = _make_default_integrator()
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as exc_info:
+        integrator.integrate(request)
+    assert exc_info.value.details.get("binding_id") == res_in.binding.id
+    assert "sensitive.special.read" in exc_info.value.details.get(
+        "missing_permissions", ()
+    )
+
+
+def test_perm_2_two_required_permissions_request_has_one_blocks() -> None:
+    """PERM-2: two required permissions, request has one -> BLOCK."""
+    res_in = _resource_input_with_binding_permissions(("perm.read", "perm.special"))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read",),
+    )
+    integrator = _make_default_integrator()
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as exc_info:
+        integrator.integrate(request)
+    assert exc_info.value.details.get("binding_id") == res_in.binding.id
+    assert exc_info.value.details.get("missing_permissions") == ("perm.special",)
+
+
+def test_perm_3_exact_satisfaction_allows() -> None:
+    """PERM-3: exact satisfaction -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(("perm.read", "perm.special"))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read", "perm.special"),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_4_request_has_superset_allows() -> None:
+    """PERM-4: request has a superset -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(("perm.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read", "perm.special", "perm.extra"),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_5_binding_requires_no_permissions_allows() -> None:
+    """PERM-5: binding requires no permissions -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(())
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=(),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_6_blocked_path_calls_no_adapter_or_extractor() -> None:
+    """PERM-6: blocked path calls no adapter/extractor -> PASS."""
+    spy_adapter = _SpyResourceAdapter()
+    spy_extractor = _SpyKnowledgeExtractor()
+    integrator = _make_default_integrator(
+        adapter=spy_adapter,
+        extractor=spy_extractor,
+    )
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(request)
+    assert spy_adapter.adapt_calls == 0
+    assert spy_extractor.extract_calls == 0
+
+
+def test_perm_7_blocked_path_evaluates_no_rules() -> None:
+    """PERM-7: blocked path evaluates no rules -> PASS."""
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+    integrator = _make_default_integrator(rule_registry=rule_reg)
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        global_mandatory_rules=(counting_rule.definition.id,),
+        effective_permissions=(),
+    )
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(request)
+    assert counting_rule.evaluations == 0
+
+
+# ── PRES-1 .. PRES-7: MAJOR-01 Presentation Evidence Tests ──────────────────
+
+
+def test_pres_1_package_contradiction_preserved() -> None:
+    """PRES-1: package contradiction preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    pkg_contradiction = Contradiction(
+        id="package-contradiction-1",
+        item_a_id="item-a1",
+        item_b_id="item-b1",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-1",
+        objective="Test objective",
+        contradictions=(pkg_contradiction,),
+        created_at=NOW,
+    )
+    assert any(c.id == "package-contradiction-1" for c in package.contradictions)
+
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    contradiction_refs = [
+        item
+        for item in items
+        if item.item_type is DomainPresentationItemType.CONTRADICTION
+    ]
+    assert any(item.ref_id == "package-contradiction-1" for item in contradiction_refs)
+
+
+def test_pres_2_rule_result_contradiction_preserved() -> None:
+    """PRES-2: rule-result contradiction preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    rule_contradiction = Contradiction(
+        id="rule-contradiction-1",
+        item_a_id="item-x",
+        item_b_id="item-y",
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=None,
+        bundles=(),
+        rule_result=_presentation_rule_result(contradictions=(rule_contradiction,)),
+    )
+    contradiction_refs = [
+        item
+        for item in items
+        if item.item_type is DomainPresentationItemType.CONTRADICTION
+    ]
+    assert any(item.ref_id == "rule-contradiction-1" for item in contradiction_refs)
+
+
+def test_pres_3_duplicate_contradiction_deduplicated_by_canonical_id() -> None:
+    """PRES-3: duplicate contradiction from package + rule result deduped by canonical ID."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    shared_contradiction = Contradiction(
+        id="shared-contradiction-1",
+        item_a_id="item-x",
+        item_b_id="item-y",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-3",
+        objective="Test objective",
+        contradictions=(shared_contradiction,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(contradictions=(shared_contradiction,)),
+    )
+    matching = [item for item in items if item.ref_id == "shared-contradiction-1"]
+    assert len(matching) == 1
+    assert matching[0].item_type is DomainPresentationItemType.CONTRADICTION
+
+
+def test_pres_4_canonical_question_preserved() -> None:
+    """PRES-4: canonical QUESTION preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    question = KnowledgeItem(
+        id="canonical-question-pres-4",
+        statement="What is the procedure?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.88, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-pres-4",
+        items=(question,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+    q_items = [
+        item for item in items if item.item_type is DomainPresentationItemType.QUESTION
+    ]
+    assert any(item.ref_id == "canonical-question-pres-4" for item in q_items)
+
+
+def test_pres_5_canonical_confidence_unchanged() -> None:
+    """PRES-5: canonical Confidence unchanged."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    question = KnowledgeItem(
+        id="canonical-question-pres-5",
+        statement="What is the procedure?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.73, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-pres-5",
+        items=(question,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.95),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+    q_item = next(item for item in items if item.ref_id == "canonical-question-pres-5")
+    assert q_item.confidence == 0.73
+
+
+def test_pres_6_required_non_blocking_validation_warning_represented() -> None:
+    """PRES-6: required non-blocking validation warning represented in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    warning_finding = ValidationFinding(
+        code="COG_TEMPORAL_UNKNOWN",
+        message="Temporal validity unknown",
+        severity=ValidationSeverity.WARNING,
+        source="cognitive.temporality",
+        blocking=False,
+    )
+    val_result = CognitiveValidationResult(
+        id="val-result-warning-1",
+        target_id="resource-1",
+        target_kind="Resource",
+        status=ValidationStatus.PASSED,
+        decision=CognitiveValidationDecision.ACCEPT_WITH_WARNING,
+        findings=(warning_finding,),
+        warnings=(warning_finding,),
+        validated_rules=("cognitive.temporality",),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        validation_results=(val_result,),
+        rule_result=_presentation_rule_result(),
+    )
+    warning_items = [
+        item for item in items if item.item_type is DomainPresentationItemType.WARNING
+    ]
+    assert len(warning_items) >= 1
+    assert warning_items[0].ref_id == f"{val_result.id}:warning:0"
+
+
+def test_pres_7_real_default_domain_presentation_planner_preserves_references() -> None:
+    """PRES-7: real DefaultDomainPresentationPlanner preserves all presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+
+    pkg_contradiction = Contradiction(
+        id="pkg-contradiction-7",
+        item_a_id="item-a7",
+        item_b_id="item-b7",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-7",
+        objective="Test objective",
+        contradictions=(pkg_contradiction,),
+        created_at=NOW,
+    )
+
+    question = KnowledgeItem(
+        id="question-7",
+        statement="What is the exam room?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.67, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-7",
+        items=(question,),
+        created_at=NOW,
+    )
+
+    warning_finding = ValidationFinding(
+        code="COG_TEMPORAL_UNKNOWN",
+        message="Temporal validity unknown",
+        severity=ValidationSeverity.WARNING,
+        source="cognitive.temporality",
+        blocking=False,
+    )
+    val_result = CognitiveValidationResult(
+        id="val-result-7",
+        target_id="resource-1",
+        target_kind="Resource",
+        status=ValidationStatus.PASSED,
+        decision=CognitiveValidationDecision.ACCEPT_WITH_WARNING,
+        findings=(warning_finding,),
+        warnings=(warning_finding,),
+        validated_rules=("cognitive.temporality",),
+        created_at=NOW,
+    )
+
+    presentation = PresentationComposition(
+        values={},
+        provenance={},
+    )
+    request = replace(
+        _integration_request(),
+        composition=replace(
+            _integration_request().composition, presentation=presentation
+        ),
+    )
+    items = _presentation_items(
+        request=request,
+        package=package,
+        validation_results=(val_result,),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+
+    planner = DefaultDomainPresentationPlanner()
+    plan = planner.plan(
+        DomainPresentationRequest(
+            request_id="pres-req-7",
+            upstream_result_id="rule-result-1",
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(d) for d in request.composition.supporting_domains
+            ),
+        )
+    )
+
+    planned_ref_ids = tuple(ref.ref_id for ref in plan.item_refs)
+    assert "pkg-contradiction-7" in planned_ref_ids
+    assert "question-7" in planned_ref_ids
+    assert f"{val_result.id}:warning:0" in planned_ref_ids
+
+
+# ── FACT-1 .. FACT-6: V3 Canonical FACT Presentation Matrix ─────────────────
+
+
+def test_fact_1_package_canonical_fact_preserved() -> None:
+    """FACT-1: package canonical FACT -> presentation ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationEpistemicKind
+
+    fact = KnowledgeItem(
+        id="package-fact-1",
+        statement="All examinations occur in Room 101.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.85, source="handbook"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-1",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "package-fact-1"]
+    assert len(matching) == 1
+    ref = matching[0]
+    assert ref.item_type is DomainPresentationItemType.FINDING
+    assert ref.epistemic_kind is DomainPresentationEpistemicKind.FACT
+
+
+def test_fact_2_rule_produced_canonical_fact_preserved() -> None:
+    """FACT-2: rule-produced canonical FACT -> presentation ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationEpistemicKind
+
+    rule_fact = KnowledgeItem(
+        id="rule-fact-2",
+        statement="Room 101 capacity is 50.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.78, source="rule-calc"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=None,
+        bundles=(),
+        rule_result=_presentation_rule_result(produced_knowledge=(rule_fact,)),
+    )
+    matching = [item for item in items if item.ref_id == "rule-fact-2"]
+    assert len(matching) == 1
+    ref = matching[0]
+    assert ref.item_type is DomainPresentationItemType.FINDING
+    assert ref.epistemic_kind is DomainPresentationEpistemicKind.FACT
+    assert ref.confidence == 0.78
+    assert ref.requires_provenance is True
+
+
+def test_fact_3_duplicate_fact_deduplicated_by_canonical_id() -> None:
+    """FACT-3: duplicate KnowledgeItem ID across package/rule/bundle -> one stable ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    shared_fact = KnowledgeItem(
+        id="shared-fact-3",
+        statement="Academic year starts in September.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.90, source="academic-calendar"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    shared_fact_alt = KnowledgeItem(
+        id="shared-fact-3",
+        statement="Academic year begins in Sept.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.80, source="alt-source"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-3",
+        objective="Test objective",
+        facts=(shared_fact,),
+        created_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-fact-3",
+        items=(shared_fact_alt,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(produced_knowledge=(shared_fact_alt,)),
+    )
+    matching = [item for item in items if item.ref_id == "shared-fact-3"]
+    assert len(matching) == 1
+    assert matching[0].confidence == 0.90
+
+
+def test_fact_4_canonical_confidence_preserved_exactly() -> None:
+    """FACT-4: canonical Confidence preserved exactly without profile override."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    fact = KnowledgeItem(
+        id="fact-conf-4",
+        statement="Specific prerequisite course is CS101.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="syllabus"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-4",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.95),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "fact-conf-4"]
+    assert len(matching) == 1
+    assert matching[0].confidence == 0.61
+
+
+def test_fact_5_requires_provenance_preserved() -> None:
+    """FACT-5: requires_provenance preserved on canonical knowledge refs."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    fact = KnowledgeItem(
+        id="fact-prov-5",
+        statement="Accredited degree requirement.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.82, source="accreditation-board"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-5",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "fact-prov-5"]
+    assert len(matching) == 1
+    assert matching[0].requires_provenance is True
+
+
+def test_fact_6_real_default_domain_presentation_planner_preserves_fact_ref() -> None:
+    """FACT-6: real DefaultDomainPresentationPlanner preserves FACT ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+
+    fact = KnowledgeItem(
+        id="fact-plan-6",
+        statement="Graduation ceremony date is June 20.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="registrar"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-6",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    presentation = PresentationComposition(
+        values={},
+        provenance={},
+    )
+    request = replace(
+        _integration_request(),
+        composition=replace(
+            _integration_request().composition, presentation=presentation
+        ),
+    )
+    items = _presentation_items(
+        request=request,
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    planner = DefaultDomainPresentationPlanner()
+    plan = planner.plan(
+        DomainPresentationRequest(
+            request_id="pres-req-fact-6",
+            upstream_result_id="rule-result-1",
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(d) for d in request.composition.supporting_domains
+            ),
+        )
+    )
+    planned_ref_ids = tuple(ref.ref_id for ref in plan.item_refs)
+    assert "fact-plan-6" in planned_ref_ids
+    findings_section = next(s for s in plan.sections if s.section_id == "findings")
+    assert "fact-plan-6" in findings_section.item_refs
+
+
+# ── Phase 10.53 V3 redo: trusted reasoning authority injection seam ──────────
+
+
+class _SpyAuthorityRule:
+    """Captures the exact ReasoningRuleContext a rule receives."""
+
+    def __init__(self) -> None:
+        self.captured_context: ReasoningRuleContext | None = None
+        self._definition = ReasoningRuleDefinition(
+            id="test.authority_spy",
+            name="Authority spy",
+            version="1.0.0",
+            scope=ReasoningRuleScope.DOMAIN,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=1,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id="domain:health",
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        self.captured_context = context
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+            domain_id=self.definition.domain_id,
+        )
+
+
+def _authority_request_with_spy(
+    spy: _SpyAuthorityRule, **request_overrides: object
+) -> tuple[DefaultDomainCognitiveIntegrator, DomainCognitiveIntegrationRequest]:
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(spy)
+    request = replace(
+        _integration_request(),
+        profile=replace(
+            _integration_request().profile,
+            required_rules=(spy.definition.id,),
+        ),
+        **request_overrides,  # type: ignore[arg-type]
+    )
+    integrator = _make_default_integrator(rule_registry=rule_registry)
+    return integrator, request
+
+
+def _canonical_claim(claim_id: str = "clinical_status", **overrides: object):
+    """A provenance-bearing authoritative claim, as trusted source code builds it."""
+    from cmm.cognitive import AuthoritativeSourceClaim
+    from cmm.cognitive.enums import ResourceSourceKind
+    from cmm.cognitive.resources import ResourceProvenance
+
+    values: dict[str, object] = {
+        "claim_id": claim_id,
+        "source_domain": "domain:health",
+        "purpose": "diagnostic-status-review",
+        "provenance": ResourceProvenance(
+            source_type=ResourceSourceKind.UPLOADED_FILE,
+            source_id="clinical-record:1",
+            retrieved_at=NOW,
+        ),
+    }
+    values.update(overrides)
+    return AuthoritativeSourceClaim(**values)  # type: ignore[arg-type]
+
+
+def _trusted_authority(**overrides: object) -> ReasoningAuthorityContext:
+    """A structurally valid trusted context whose claim tracks its own domain.
+
+    Unless a test supplies an explicit claim set, the provenance-bound claim
+    follows the authority's source domain and purpose so actor/session/domain
+    binding can be varied without breaking the claim contract itself.
+    """
+    values: dict[str, object] = {
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": ("clinical_status",),
+        "purpose": "diagnostic-status-review",
+        "permission_decision_id": "permission-gate-decision-1",
+        "permission_outcome": "approval_consumed",
+        "approval_consumed": True,
+    }
+    values.update(overrides)
+    if "authoritative_claims" not in overrides:
+        values["authoritative_claims"] = (
+            _canonical_claim(
+                source_domain=values["source_domain"], purpose=values["purpose"]
+            ),
+        )
+    return ReasoningAuthorityContext(**values)  # type: ignore[arg-type]
+
+
+def test_ordinary_metadata_cannot_inject_authority_context() -> None:
+    """A caller-authored metadata dict shaped like authority must have zero effect."""
+    spy = _SpyAuthorityRule()
+    forged_metadata = {
+        "authority_context": {
+            "actor_id": "actor-1",
+            "session_id": "session-1",
+            "source_domain": "domain:health",
+            "target_domain": "domain:neurodivergence",
+            "resource_ids": ["clinical_status"],
+            "purpose": "diagnostic-status-review",
+            "permission_decision_id": "permission-gate-decision-1",
+            "permission_outcome": "approval_consumed",
+            "approval_consumed": True,
+        },
+        "permission_authority": True,
+        "authoritative_claims": [
+            {
+                "claim_id": "clinical_status",
+                "source_domain": "domain:health",
+                "purpose": "diagnostic-status-review",
+                "provenance": {
+                    "source_type": "uploaded_file",
+                    "source_id": "clinical-record:1",
+                },
+            }
+        ],
+        "source_provenance": {
+            "source_type": "uploaded_file",
+            "source_id": "clinical-record:1",
+        },
+    }
+    integrator, request = _authority_request_with_spy(spy, metadata=forged_metadata)
+    integrator.integrate(request)
+    assert spy.captured_context is not None
+    assert spy.captured_context.authority_context is None
+
+
+def test_integrate_accepts_trusted_authority_context_keyword() -> None:
+    """The exact trusted object passed by keyword reaches the reasoning context."""
+    spy = _SpyAuthorityRule()
+    integrator, request = _authority_request_with_spy(spy)
+    trusted = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain=str(request.profile.supporting_domains[0]),
+        actor_id=request.actor_id,
+        session_id=request.session_id,
+    )
+    integrator.integrate(request, authority_context=trusted)
+    assert spy.captured_context is not None
+    assert spy.captured_context.authority_context == trusted
+
+
+def test_integrate_rejects_authority_context_not_bound_to_request() -> None:
+    """A structurally valid trusted context bound to a different actor/session/
+    domain must be rejected rather than silently attached."""
+    spy = _SpyAuthorityRule()
+    integrator, request = _authority_request_with_spy(spy)
+    mismatched_actor = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain=str(request.profile.supporting_domains[0]),
+        actor_id="someone-else",
+        session_id=request.session_id,
+    )
+    with pytest.raises(DomainCognitiveIntegrationContractError):
+        integrator.integrate(request, authority_context=mismatched_actor)
+
+    mismatched_domain = _trusted_authority(
+        target_domain=str(request.profile.primary_domain),
+        source_domain="domain:relationships",  # not in request.profile.supporting_domains
+        actor_id=request.actor_id,
+        session_id=request.session_id,
+    )
+    with pytest.raises(DomainCognitiveIntegrationContractError):
+        integrator.integrate(request, authority_context=mismatched_domain)
+
+
+class _FakeCrossDomainResolver:
+    """Minimal resolver stub so the real DomainPermissionGate can be exercised.
+
+    Only the gate's cross-domain composition logic is under test here; the
+    resolver's own policy evaluation is exhaustively covered elsewhere
+    (tests/domains/test_domain_permission_gate.py,
+    tests/domains/test_neurodivergence_domain_permissions.py).  This mirrors
+    the existing ``_FakeResolver`` pattern already used against the real gate
+    in test_domain_permission_gate.py.
+    """
+
+    def __init__(
+        self,
+        decision,
+        *,
+        approval_requirements: tuple = (),
+        reasons: tuple[str, ...] = (),
+    ) -> None:
+        self._decision = decision
+        self._approval_requirements = approval_requirements
+        self._reasons = reasons
+
+    def resolve_cross_domain(self, request, *, now=None):
+        from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+        return CrossDomainPermissionDecision(
+            request_id=request.request_id,
+            decision=self._decision,
+            approval_requirements=self._approval_requirements,
+            reasons=self._reasons,
+        )
+
+
+def _real_cross_domain_gate_result(
+    outcome_decision, *, approval_requirements: tuple = (), **request_overrides: object
+):
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import DomainPermissionGate
+
+    resolver = _FakeCrossDomainResolver(
+        outcome_decision, approval_requirements=approval_requirements
+    )
+    gate = DomainPermissionGate(resolver, clock=lambda: NOW)
+    values: dict[str, object] = {
+        "request_id": "req-authority-1",
+        "source_domain": "domain:health",
+        "target_domain": "domain:neurodivergence",
+        "resource_ids": ("clinical_status",),
+        "reason": "diagnostic-status-review",
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+    }
+    values.update(request_overrides)
+    request = CrossDomainPermissionRequest(**values)  # type: ignore[arg-type]
+    return gate.evaluate_cross_domain(request)
+
+
+def test_build_reasoning_authority_context_denies_deny_and_approval_required() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    deny_result = _real_cross_domain_gate_result(PermissionOutcome.DENY)
+    assert deny_result.allowed is False
+    assert build_reasoning_authority_context(deny_result) is None
+
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
+    )
+
+    par = PermissionApprovalRequirement(
+        requirement_id="cross-domain:req-authority-1",
+        action=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        actor_id="actor-1",
+        session_id="session-1",
+        domain_id="domain:health",
+        source_domain="domain:health",
+        target_domain="domain:neurodivergence",
+        fingerprint="fp-authority-1",
+        scope="cross_domain",
+    )
+    pending_result = _real_cross_domain_gate_result(
+        PermissionOutcome.APPROVAL_REQUIRED, approval_requirements=(par,)
+    )
+    assert pending_result.allowed is False
+    assert build_reasoning_authority_context(pending_result) is None
+
+
+def test_build_reasoning_authority_context_binds_real_allow_gate_decision() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    assert allow_result.allowed is True
+
+    authority = build_reasoning_authority_context(
+        allow_result, authoritative_claims=(_canonical_claim(),)
+    )
+    assert authority is not None
+    assert authority.actor_id == allow_result.actor_id
+    assert authority.session_id == allow_result.session_id
+    assert authority.source_domain == "domain:health"
+    assert authority.target_domain == "domain:neurodivergence"
+    assert authority.resource_ids == ("clinical_status",)
+    assert authority.purpose == "diagnostic-status-review"
+    assert authority.permission_decision_id == allow_result.decision_id
+    assert authority.permission_outcome == "allow"
+    assert authority.approval_consumed is False
+    assert authority.authoritative_claims == (_canonical_claim(),)
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+    assert authority.authoritative_claims[0].source_provenance_id == "clinical-record:1"
+
+
+def test_build_reasoning_authority_context_promotes_only_bound_provenance_claims() -> None:
+    """Only a provenance-bearing claim that binds to this gate result is authority.
+
+    Unbound, foreign-domain, foreign-purpose, mapping-shaped and duck-typed
+    entries are not promoted, and the builder never raises for them.
+    """
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    bound = _canonical_claim()
+
+    authority = build_reasoning_authority_context(
+        allow_result,
+        authoritative_claims=(
+            bound,
+            _canonical_claim("another_resource"),
+            _canonical_claim(source_domain="domain:mental-health"),
+            _canonical_claim(purpose="another-purpose"),
+            {
+                "claim_id": "clinical_status",
+                "source_domain": "domain:health",
+                "purpose": "diagnostic-status-review",
+                "provenance": {"source_id": "clinical-record:1"},
+            },
+            "clinical_status",
+            object(),
+        ),  # type: ignore[arg-type]
+    )
+
+    assert authority is not None
+    assert authority.authoritative_claims == (bound,)
+    assert authority.authoritative_claim_ids == ("clinical_status",)
+
+
+@pytest.mark.parametrize(
+    "claims",
+    (
+        pytest.param((), id="no-claims"),
+        pytest.param(("clinical_status",), id="naked-claim-ids"),
+        pytest.param(
+            (
+                {
+                    "claim_id": "clinical_status",
+                    "source_domain": "domain:health",
+                    "purpose": "diagnostic-status-review",
+                    "provenance": {"source_id": "clinical-record:1"},
+                },
+            ),
+            id="mapping-claims",
+        ),
+        pytest.param(
+            (_canonical_claim(source_domain="domain:relationships"),),
+            id="unbound-source-domain",
+        ),
+        pytest.param(
+            (_canonical_claim(purpose="another-purpose"),),
+            id="unbound-purpose",
+        ),
+        pytest.param((_canonical_claim("another_resource"),), id="unrequested-resource"),
+    ),
+)
+def test_build_reasoning_authority_context_without_bound_claims_grants_no_source_authority(
+    claims,
+) -> None:
+    """Permission authority may exist while no source-domain claim is promoted."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    allow_result = _real_cross_domain_gate_result(PermissionOutcome.ALLOW)
+    authority = build_reasoning_authority_context(
+        allow_result, authoritative_claims=claims
+    )
+
+    assert authority is not None
+    assert authority.authoritative_claims == ()
+    assert authority.authoritative_claim_ids == ()
+    assert authority.permission_decision_id == allow_result.decision_id
+
+
+def test_build_reasoning_authority_context_ignores_caller_maps_and_denials() -> None:
+    """Denied authority stays ``None``; a forged map grants nothing."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    assert (
+        build_reasoning_authority_context(
+            {"outcome": "allow"}, authoritative_claims=(_canonical_claim(),)
+        )
+        is None
+    )
+    assert (
+        build_reasoning_authority_context(
+            None, authoritative_claims=(_canonical_claim(),)  # type: ignore[arg-type]
+        )
+        is None
+    )
+
+    deny_result = _real_cross_domain_gate_result(PermissionOutcome.DENY)
+    assert (
+        build_reasoning_authority_context(
+            deny_result, authoritative_claims=(_canonical_claim(),)
+        )
+        is None
+    )
+
+
+def test_build_reasoning_authority_context_rejects_non_gate_result_mappings() -> None:
+    """A free-form mapping shaped like a gate result is never trusted.
+
+    ``build_reasoning_authority_context`` types-checks its argument, so a
+    caller-authored dict or JSON mapping — even one that copies every field
+    name a ``PermissionGateResult`` would have — is rejected outright.  The
+    discipline that the *caller* must never construct its input via
+    ``PermissionGateResult.from_dict()`` on untrusted request data belongs to
+    callers of this function (only trusted in-process gate-evaluation code
+    may call it with a live result), not to a runtime type check alone.
+    """
+    from cmm.domains.cognitive_integration import build_reasoning_authority_context
+
+    assert build_reasoning_authority_context({"outcome": "allow"}) is None
+    assert build_reasoning_authority_context(None) is None  # type: ignore[arg-type]

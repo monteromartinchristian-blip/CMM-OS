@@ -1,0 +1,59 @@
+"""Phase 10.49 – ``domain:life-plan`` knowledge package schema.
+
+A local, pure declaration narrowing the canonical Phase 8
+:class:`cmm.cognitive.knowledge_packages.KnowledgePackage`.  No I/O, no
+model/provider calls, no registry mutation, no knowledge storage.
+"""
+
+from __future__ import annotations
+
+from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel
+from cmm.domains.identifiers import DomainId
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageFieldPolicy,
+    DomainKnowledgePackageSchema,
+)
+
+__all__ = ["build_life_plan_knowledge_package_schema"]
+
+
+def build_life_plan_knowledge_package_schema() -> DomainKnowledgePackageSchema:
+    """Declare the approved ``domain:life-plan`` knowledge package schema."""
+    return DomainKnowledgePackageSchema(
+        id="knowledge-package-schema:life_plan",
+        domain_id=DomainId(slug="life-plan"),
+        version="1",
+        required_sections=("objective",),
+        # Life Plan discipline. Canonical Life Plan semantics coordinate active
+        # goals and their dependencies (`goal_dependency`, `decision_status`)
+        # and qualify external assumptions from supporting domains with
+        # minimized, purpose-bound projections. Recorded facts must therefore
+        # retain provenance, while scenarios and alternatives stay explicitly
+        # uncertain and contradictions remain visible. Goal state is not
+        # hard-required: the canonical package construction path cannot populate
+        # it, so a package carries active goals only when a caller supplies them.
+        field_policies=(
+            DomainKnowledgePackageFieldPolicy(
+                field_name="facts",
+                allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+                require_provenance=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="observations",
+                allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="inferences",
+                preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="hypotheses",
+                preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="contradictions",
+                preserve_contradictions=True,
+            ),
+        ),
+        minimum_sensitivity=SensitivityLevel.SENSITIVE,
+    )

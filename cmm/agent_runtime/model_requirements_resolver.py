@@ -131,11 +131,16 @@ def resolve_model_requirements(
         for field_name in _CAPABILITY_FIELDS
     }
 
-    premium_allowed = all(
-        source.requirements.premium_allowed for source in ordered_sources
+    premium_sources = tuple(
+        source for source in ordered_sources if source.contributes_premium_permission
+    )
+    premium_allowed = (
+        all(source.requirements.premium_allowed for source in premium_sources)
+        if premium_sources
+        else False
     )
     premium_requested = any(
-        source.requirements.premium_allowed for source in ordered_sources
+        source.requirements.premium_allowed for source in premium_sources
     )
 
     try:
@@ -189,12 +194,16 @@ def resolve_runtime_model_requirements(
     operation: object | None = None,
     policy_result: object | None = None,
     approval_resolution: object | None = None,
+    domain_policies: Iterable[object] = (),
 ) -> ResolvedModelRequirements:
     """Resolve requirements declared by runtime contracts.
 
     Layers without requirements are ignored. Precedence is represented
     through deterministic priorities while every hard constraint is
-    combined using the most-restrictive strategy.
+    combined using the most-restrictive strategy. Domain policies contribute
+    objective requirements through the canonical adapter; they never widen a
+    stricter inherited constraint. Domain policies are consumed structurally so
+    this module never imports the Domain Intelligence package.
     """
 
     from cmm.agent_runtime.agent_registry_contracts import AgentDescriptor
@@ -296,6 +305,14 @@ def resolve_runtime_model_requirements(
                 "approval_resolution must be an ApprovalResolution or None"
             )
         sources.extend(approval_model_requirement_sources(approval_resolution))
+
+    if domain_policies:
+        from cmm.agent_runtime.domain_model_policy_adapter import (
+            domain_model_requirement_source,
+        )
+
+        for policy in domain_policies:
+            sources.append(domain_model_requirement_source(policy))
 
     if not sources:
         raise ModelRequirementsResolutionError(

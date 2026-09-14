@@ -4,6 +4,18 @@ Objective
 
 To build specialized infrastructure that will allow CMM OS to understand, reason, plan and act differently depending on the area of life or work involved, without fragmenting the system or creating independent architecture.
 
+Canonical requirements already consolidated for Phases 10.16–10.30 are maintained in the
+[Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
+with source-clause evidence in the
+[Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).
+Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
+— Domain Trace (2026-08-02), and Phase 10.18 — Domain Memory Integration
+(2026-08-03) are complete. Their implemented boundaries are
+[Domain Presentation](../reference/domain-presentation.md),
+[Domain Trace](../reference/domain-trace.md), and
+[Domain Memory Integration](../reference/domain-memory-integration.md).
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 — Neurodivergence Domain is complete, independently re-audited and closed after final Re-audit V4 `PASS` (`PHASE10_53=CLOSED`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`).
+
 Domain Intelligence will not be a collection of separate assistants.
 
 It will be a shared specialization layer that configures, for each domain:
@@ -173,7 +185,7 @@ domain:oppositions
 domain:reflection
 domain:concerns
 domain:languages
-domain:nil
+domain:parenthood
 domain:sport
 domain:life-plan
 domain:project
@@ -297,7 +309,7 @@ metadata={},
 
 Contract Restrictions
 
-Domains should be free to:
+Domains must not be free to:
 
 * redefinir KnowledgeItem;
 * redefinir Resource;
@@ -570,7 +582,7 @@ domain:oppositions
 domain:reflection
 domain:concerns
 domain:languages
-domain:nil
+domain:parenthood
 domain:sport
 domain:life-plan
 domain:project
@@ -1341,11 +1353,11 @@ Hechos e interpretaciones
 ↓
 Concerns Domain
 ↓
-Beliefs and fear
+Support need, concern support, reassurance and uncertainty
 ↓
 Reflection Domain
 ↓
-Preguntas abiertas
+Broader meaning and open questions
 ↓
 Integrated outcome
 
@@ -1473,7 +1485,7 @@ Domain Profile Definition
 
 DomainProfileDefinition(
 domain_id="domain:health",
-profile_name="MedicalProfile",
+profile_name="HealthProfile",
 required_rules=[],
 optional_rules=[],
 prohibited_rules=[],
@@ -1519,11 +1531,11 @@ OppositionProfile
 
 ReflectionProfile
 
-ConcernProfile
+ConcernSupportProfile
 
 LanguageProfile
 
-NilProfile
+ParenthoodProfile
 
 SportProfile
 
@@ -1929,6 +1941,13 @@ Capacidades
 
 10.15 - Domain Permissions
 
+Status: Complete and audited (2026-08-02). The implementation includes
+restrictive composition, source/target cross-domain policy, canonical atomic
+approvals, real operation/workflow gates, declarative source/egress/export
+restrictions, post-verification obligations, public serialization contracts,
+and dependency-direction tests. Connectors, real provider calls, effective
+redaction, secrets, full traces and Phase 11 RBAC remain out of scope.
+
 Objective
 
 Control what resources, inferences, operations and workflows can use each domain.
@@ -2030,6 +2049,11 @@ metadata={},
 
 10.16 - Domain Presentation
 
+Status: Complete (2026-08-02). The implementation is constrained by the
+[Domain Presentation reference](../reference/domain-presentation.md): it plans
+reference-only structure and visibility after upstream resolution, preserves
+semantics through validation, and does not render or decide interaction.
+
 Objective
 
 To adapt how to have results according to the domain without changing the epistemological content or concealing uncertainty.
@@ -2096,142 +2120,40 @@ Componentes initial
 
 ⸻
 
-10.17 - Domain Trace
+10.17 - Domain Trace — Complete (2026-08-02)
 
-Objective
+`DomainTrace` is a final, frozen, deterministic reference-only aggregate.  It
+records request/goal identity, participating primary/supporting domains,
+contributions grouped by domain, typed global references, result/trace
+pairings, final status and timezone-aware timing.  It does not contain an
+objective or copied upstream content.  The pure assembler derives duration,
+digest and ID; the external typed inventory validator enforces category,
+attribution, pairing, privacy and integrity rules. Authoritative selections are
+bound to their resolution/composition source IDs; cross-domain result and trace
+IDs resolve through distinct typed categories; DomainResult order is canonical;
+and corrupt diagnostics fail closed without echoing unsafe values. See
+[Domain Trace](../reference/domain-trace.md).
 
-Record how each domain was resolved, composed, and used during an execution.
-
-Domain Trace
-
-DomainTrace(
-id="domain-trace-123",
-objective="...",
-resolution_context_id="domain-resolution-context-123",
-resolution_result_id="domain-resolution-123",
-primary_domain="domain:life-plan",
-supporting_domains=[],
-composition_id="domain-composition-123",
-loaded_resources=[],
-applied_profiles=[],
-applied_rules=[],
-executed_operations=[],
-executed_workflows=[],
-permission_decisions=[],
-approval_decisions=[],
-cross_domain_transfers=[],
-conflicts=[],
-warnings=[],
-reasoning_trace_ids=[],
-started_at="...",
-completed_at="...",
-duration_ms=820,
-metadata={},
-)
-
-Cross-Domain Transfer Trace
-
-CrossDomainTransferTrace(
-source_domain="domain:health",
-target_domain="domain:life-plan",
-transferred_knowledge_ids=[],
-transferred_entity_ids=[],
-purpose="Apply health constraints to planning",
-permissions=[],
-filtered_items=[],
-created_at="...",
-metadata={},
-)
-
-The following information should be available:
-
-* why a domain was selected
-* what dominion was main,
-* which domains have been involved,
-* which resources were provided by each domain;
-* what rules have been put forward by each domain,
-* which effective profile was used;
-* what permissions have been applied,
-* what information was transferred;
-* what information was leaked,
-* which operations were executed;
-* what approvals have been requested;
-* which conflicts appeared;
-* how they were resolved;
-* What resulted from each domain.
-
-Restrictions
-
-The strap should not include:
-
-* internal chains of thought;
-* secrets;
-* credenciales;
-* contenido sensible innecesario;
-* information outside permissions;
-* prompts privados;
-* information not used.
+No cross-domain transfer trace type, second AgentTrace/ReasoningTrace/KnowledgePackage,
+store, stream, provider audit, private prompt or chain-of-thought is created.
 
 ⸻
 
-10.18 - Domain Memory Integration
+10.18 - Domain Memory Integration (Completed 2026-08-03)
 
 Objective
 
-Allow domains to read and propose updates about common memory without creating separate warehouses.
+Allow domains to select reference-only memory views and bind update proposals to shared memory without creating separate domain warehouses, persistent copies, or parallel claim models.
 
-Principio general
+Implemented Architecture & Contracts
 
-No:
+1. **One Shared Memory**: All knowledge, entities, relations, evidence, resources, and temporal scopes reside in `cmm.cognitive`.
+2. **DomainMemoryView**: A deterministic, reference-only view result containing `view_id`, `request_id`, `primary_domain`, required full canonical `request_digest` (SHA-256 of `DomainMemoryViewRequest`), optional `trace_id` and `temporal_reference`, canonical `selection_decisions`, `selected_references`, `content_digest`, and `digest`. `view_id` is content-bound to `request_digest` and selection decisions.
+3. **DomainMemoryProposalBinding**: Reference-only binding linking domain execution (`domain_id`, `trace_id`, `view_id`, `view_digest`) to existing canonical Phase 8 `MemoryUpdateProposal` and Phase 9 `AgentKnowledgeUpdateProposal` objects by ID.
+4. **Capability Separation**: Read permission does not imply proposal or write authorization (`READ != PROPOSE != APPROVE != APPLY != INVALIDATE != DELETE`).
+5. **Fail-Closed Validation**: `DefaultDomainMemoryIntegrationValidator` enforces exact proposal affected-reference inventory coverage, reference integrity, and privacy bounds without side-effects or store mutations.
 
-HealthMemory
-UniversityMemory
-RelationshipMemory
-ProjectMemory
-
-A common memory with:
-
-* knowledge
-* entities;
-* relaciones;
-* procedencia;
-* applicable domains;
-* sensibilidad;
-* permissions
-* temporality;
-* versions.
-
-Domain Memory View
-
-DomainMemoryView(
-domain_id="domain:university",
-knowledge_ids=[],
-entity_ids=[],
-relation_ids=[],
-filters={},
-permissions=[],
-generated_at="...",
-metadata={},
-)
-
-The view will be a leaked consultation, not a copy.
-
-Domain Memory Update Proposal
-
-DomainMemoryUpdateProposal(
-id="domain-memory-proposal-123",
-domain_id="domain:health",
-session_id="session-123",
-additions=[],
-updates=[],
-invalidations=[],
-relations=[],
-cross_domain_links=[],
-requires_confirmation=True,
-confidence=0.9,
-reasons=[],
-metadata={},
-)
+See [Domain Memory Integration Reference](../reference/domain-memory-integration.md).
 
 Capacidades
 
@@ -2250,21 +2172,19 @@ Capacidades
 
 Preventing fragmentation
 
-Domains should be free to:
+Domains must not be free to:
 
-* create independent persistent copies
-* To cover up knowledge with other authorized domains;
-* duplicate personas;
-* duplicate events;
-* double targets
-* duplicate decisiones;
-* sobrescribir preferencias;
+* create independent persistent copies;
+* duplicate personas/events/goals/decisions;
+* overwrite preferences;
 * remove versions;
-* Keep knowledge without sources.
+* retain source-free knowledge.
 
 ⸻
 
 10.19 - General Domain
+
+**Status:** Complete and audited (2026-08-08).
 
 Objective
 
@@ -2321,9 +2241,26 @@ General Domain should not become a domain that quietly absorbes all applications
 
 When a specialized domain is available, it should be used.
 
+### Implementation notes
+
+- `domain:general` is implemented via pure factories under `cmm/domains/general/`.
+- 13 production modules (including `catalog.py`); 17 test modules.
+- The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for the 8 operations, 6 rules, 9 resources, and 4 workflows.
+- The Phase 10.13 `INITIAL_DOMAIN_OPERATION_IDS` contains 4 historical `general.*` placeholders with different semantics; they are preserved for backward compatibility and do not collide with the Phase 10.19 canonical set.
+- Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries.
+- Canonical bootstrap: `build_standard_general_domain_bootstrap()` constructs the standard registries with General Domain fully integrated.
+- The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=DomainId(slug="general")`, using the standard `DomainScoringPolicy` (no manual `minimum_resolution_score` adjustment required).
+- Operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
+- Permission policy is low-risk/fail-closed: no automatic external actions, no sensitive inference, no memory write, no file modification.
+- Memory is accessed via proposals only (`allow_write=False`).
+- Specialized domains always prevail when valid and authorized.
+- General Domain is not added as a supporting domain by default.
+
 ⸻
 
 10.20 - Health Domain
+
+**Status:** Complete and audited (2026-08-08).
 
 Objective
 
@@ -2505,9 +2442,25 @@ Permissions
 * confirmation for sensitive memory
 * Mandatory human climbing as appropriate.
 
+### Implementation notes
+
+- `domain:health` is implemented via pure factories under `cmm/domains/health/`.
+- 14 modules (including the `catalog.py` single source of truth and the `__init__.py` public surface), plus 17 test modules.
+- The canonical catalog (`cmm/domains/health/catalog.py`) is the single source of truth for the 12 operations, 8 rules, 15 entities, 12 resources, and 8 workflows, all derived from the sorted-tuple convention.
+- `DomainKind` is `PERSONAL` and all health resources are `HIGHLY_SENSITIVE`.
+- Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries (mirrors General).
+- Canonical bootstrap: `build_standard_health_domain_bootstrap()` composes General + Health on the SAME registries (it reuses `build_standard_general_domain_bootstrap()` and registers the complete Health Domain into those exact registries), and exposes a `DefaultDomainResolver` configured with `fallback_domain=DomainId(slug="general")`. A generic request resolves to General; a Health signal routes to Health when eligible and is fail-closed (never silently diverted to General) when it is not.
+- Operations are declared and remain **UNAVAILABLE** by default (fail-closed); real implementations must be injected explicitly. Higher-risk operations (e.g. `health.export_medical_context`, `health.register_symptom_update`) are approval-gated. `export_medical_context` is a **PREPARATION** operation: it prepares structured, exportable context (context/references/provenance/uncertainty) for a clinician and performs no external transmission.
+- Permission policy is HIGH-sensitivity, fail-closed: read-only surface, no automatic external communications, no memory write, no sensitive-inference persistence, no definitive diagnosis.
+- Memory is proposal-only (`allow_write=False`); Health never autonomously makes a definitive diagnosis, changes medication, or overrides clinician instructions.
+- `NoDefinitiveDiagnosisRule` blocks any non-documented diagnosis claim; `ProfessionalEscalationRule` blocks under risk factors and requests human review.
+- General Domain remains the fallback, but Section 15 is honored: a desired Health signal is never silently absorbed by General when Health is unavailable, denied, unauthorized, or disabled (it resolves BLOCKED instead).
+
 ⸻
 
 10.21 - Relationships Domain
+
+**Status:** Complete and audited (2026-08-09).
 
 Objective
 
@@ -2660,6 +2613,8 @@ Permissions
 ⸻
 
 10.22 - University Domain
+
+**Status:** Complete and audited (2026-08-12).
 
 Objective
 
@@ -2816,6 +2771,10 @@ Permissions
 
 10.23 - Opposition Domain
 
+Statement
+
+Complete — independently audited.
+
 Objective
 
 Specialize CMM OS to manage opposition exams, syllabi, calls, progress, mock exams, workload, risks, and alternative paths.
@@ -2906,16 +2865,16 @@ It allows to compare bodies and routes without treating an alternative as abando
 
 Operaciones
 
-* opposition.create_study_plan;
-* opposition.divide_syllabus;
-* opposition.track_progress;
-* opposition.review_mock_exam;
-* opposition.compare_bodies;
-* opposition.review_call;
-* opposition.generate_weekly_review;
-* opposition.identify_risks;
-* opposition.generate_revision_plan;
-* opposition.update_progress.
+* oppositions.create_study_plan;
+* oppositions.divide_syllabus;
+* oppositions.track_progress;
+* oppositions.review_mock_exam;
+* oppositions.compare_bodies;
+* oppositions.review_call;
+* oppositions.generate_weekly_review;
+* oppositions.identify_risks;
+* oppositions.generate_revision_plan;
+* oppositions.update_progress.
 
 Workflows
 
@@ -2945,6 +2904,10 @@ Permissions
 ⸻
 
 10.24 - Reflection Domain
+
+Status
+
+Phase 10.24 — Complete — independently audited.
 
 Objective
 
@@ -3044,324 +3007,1394 @@ Permissions
 
 ⸻
 
-10.25 - Concerns Domain
+**10.25** - **Concerns Domain**
+
+Status
+
+Complete. Independently audited.
+
+Canonical specification:
+
+`docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
+
+Implementation reference:
+
+`docs/reference/concerns-domain.md` (`cmm/domains/concerns/`)
 
 Objective
 
-Specify CMM OS to discuss concerns, fears, scenarios, real signs, uncertainty and potential actions without feeding catastrophic conclusions.
+Specialize CMM OS for conversations in which the user brings a problem,
+worry, fear, uncertainty, "rayada", ambiguous situation, repeated concern,
+difficult decision, need for reassurance, or need simply to talk something
+through.
 
-Entidades
+Concerns is not primarily a risk-analysis domain.
 
-* concern;
-* fear;
-* risk;
-* scenario;
-* trigger;
-* belief;
-* evidence;
-* uncertainty;
-* coping_action;
-* unresolved_question.
+Its central flow is:
+```text
+Understand the concern
+↓
+Understand why it matters to the user
+↓
+Resolve or cautiously infer the current support need
+↓
+Think through the situation with the user
+↓
+Separate reality, interpretation, fear, hypothesis, scenario and uncertainty
+when useful
+↓
+Reassure when evidence supports reassurance
+OR
+acknowledge a real concern when evidence supports it
+OR
+preserve uncertainty when it cannot be resolved
+↓
+Explore options or a next step only when useful or wanted
+↓
+Continue talking when no action is needed
+```
 
-Resources
+Core invariants
 
-* user_message;
-* conversation;
-* note;
-* journal_entry;
-* event;
-* goal;
-* memory_entry;
-* domain_result.
+```text
+concern support != risk analysis only
+being helpful != forcing action
+being reassuring != inventing certainty
+being validating != confirming every interpretation
+being analytical != becoming emotionally cold
+being cautious != becoming alarmist
+repetition != pathology
+uncertainty != danger
+emotion != evidence
+```
 
-Rules
+Architecture
 
-ConcernFactScenarioRule
+Implement exactly one specialized Domain Pack:
 
-Distingue:
+```text
+cmm/domains/concerns/
+```
 
-* hecho;
-* possibility;
-* escenario;
-* miedo;
-* prediction.
+using the shared hardened Phase 10 package boundary:
 
-CatastrophicCertaintyRule
+```text
+__init__.py
+bootstrap.py
+catalog.py
+definition.py
+integration.py
+memory.py
+operations.py
+permissions.py
+presentation.py
+profile.py
+resources.py
+rules.py
+trace.py
+workflows.py
+```
 
-Avoid treating the worse stage as a probable result.
+Concerns must not introduce a parallel planner, agent runtime, memory store,
+knowledge store, workflow engine, permission engine, temporal engine, or
+conversation engine.
 
-ControllableUncontrollableRule
+It reuses shared Phase 8, Phase 9 and Phase 10 infrastructure.
 
-Separa:
+Semantic behavior and communication style remain separate.
 
-* aspectos controlables;
-* parcialmente controlables;
-* uncontrollable.
+Concerns determines what should be understood, which distinctions matter,
+whether reassurance is justified, whether material concern exists, whether
+uncertainty remains open, whether another domain should participate, and
+whether action is useful.
 
-EvidenceBalanceRule
+It does not define a fixed assistant personality. Surface warmth, register,
+verbosity, rhythm and channel behavior remain shared presentation concerns
+and later Phase 11 Communication Profiles.
 
-Searches for evidence for and against.
+Support Need
 
-ImmediateRiskRule
+The central conversational concept is:
 
-It detects when a concern represents a real current risk.
+```text
+support_need
+```
 
-ReassuranceLoopRule
+Canonical values:
 
-Avoid generating repeated confirmation cycles without new information.
+```text
+UNDERSTANDING
+EXPLORATION
+PERSPECTIVE
+REALITY_CHECK
+REASSURANCE
+INFORMATION
+PROBLEM_SOLVING
+DECISION_SUPPORT
+EMOTIONAL_PROCESSING
+NEXT_STEP
+MIXED
+UNCLEAR
+```
 
-Operaciones
+A support need is a current conversational hypothesis, not a diagnosis,
+personality trait or durable identity.
 
-* concerns.structure_concern;
-* concerns.separate_fact_scenario;
-* concerns.compare_risks;
-* concerns.identify_controllable_actions;
-* concerns.detect_open_questions;
-* concerns.generate_monitoring_plan;
-* concerns.review_evolution;
-* concerns.prepare_professional_discussion.
+Explicit current user intent has precedence over inference or historical
+preference.
 
-Workflows
+Entities — exactly 17
 
-Concern Analysis
+```text
+concern
+situation
+trigger
+emotion
+fear
+need
+support_need
+fact
+interpretation
+hypothesis
+scenario
+evidence
+uncertainty
+risk
+desired_outcome
+option
+action
+```
 
-Risk and Scenario Review
+Resources — exactly 10
 
-Recurring Concern Review
+```text
+user_message
+conversation
+note
+journal_entry
+memory_entry
+event
+goal
+decision
+domain_result
+external_source
+```
 
+Rules — exactly 14
+
+```text
+UnderstandBeforeInterveneRule
+EmotionalValidationRule
+ExperienceRealitySeparationRule
+SupportNeedCalibrationRule
+ContextualQuestionRule
+UncertaintyPreservationRule
+EvidenceCalibratedReassuranceRule
+ProportionalRiskRule
+NoCatastrophicEscalationRule
+NoFalseReassuranceRule
+RepetitionWithoutPathologizingRule
+AgencyWithoutPressureRule
+DirectnessWithoutHarshnessRule
+ImmediateRiskEscalationRule
+```
+
+Key semantics
+
+`UnderstandBeforeInterveneRule`
+
+Do not automatically jump from concern to advice, coping instructions,
+monitoring, or an action plan. Respond directly when sufficient context
+already exists.
+
+`EmotionalValidationRule`
+
+Preserve the legitimacy of the user's lived emotional experience without
+promoting an interpretation of external reality to fact.
+
+```text
+valid emotional experience != verified external interpretation
+```
+
+`ExperienceRealitySeparationRule`
+
+When useful, distinguish:
+
+```text
+what happened
+what the user experienced
+what the user interpreted
+what the user fears
+what is hypothesized
+what may happen
+what remains unknown
+```
+
+Required distinctions include:
+
+```text
+fact != interpretation
+interpretation != fear
+fear != prediction
+prediction != fact
+possibility != probability
+emotional certainty != evidential certainty
+```
+
+`SupportNeedCalibrationRule`
+
+Resolve or cautiously infer what type of support is currently useful.
+The inferred need remains revisable throughout the conversation.
+
+`ContextualQuestionRule`
+
+Questions are tools, not rituals. Ask only when the answer would materially
+change interpretation, reassurance, risk, routing, decision, or next step.
+
+`UncertaintyPreservationRule`
+
+Preserve genuine uncertainty rather than inventing certainty either to
+comfort or to warn. Uncertainty may coexist with reassurance.
+
+`EvidenceCalibratedReassuranceRule`
+
+Reassurance is explicitly allowed when evidence supports it.
+
+Canonical outcomes:
+
+```text
+REASSURANCE_SUPPORTED
+REASSURANCE_PARTIAL
+UNCERTAIN
+CONCERN_SUPPORTED
+INSUFFICIENT_BASIS
+```
+
+Reassurance must remain evidence-calibrated and must not become false
+certainty.
+
+`ProportionalRiskRule`
+
+Risk analysis remains available but is not the center of every concern
+conversation. Emotional intensity does not determine objective risk.
+
+`NoCatastrophicEscalationRule`
+
+Do not silently promote:
+
+```text
+possibility → probability
+ambiguity → warning sign
+change → deterioration
+silence → rejection
+symptom → serious disease
+setback → failure
+uncertainty → danger
+```
+
+without adequate evidence.
+
+`NoFalseReassuranceRule`
+
+Do not erase real warning signals merely to comfort the user.
+
+`RepetitionWithoutPathologizingRule`
+
+Returning to the same concern is not automatically a harmful reassurance
+loop.
+
+```text
+same topic != same question
+same question != pathological repetition
+repetition != compulsion
+continued distress != irrationality
+need for further understanding != reassurance seeking
+```
+
+The system may revisit the concern and reassure again.
+
+A possible repetitive certainty-seeking pattern requires multiple grounded
+signals across turns and must never become an automatic psychiatric
+interpretation or conversational punishment.
+
+`AgencyWithoutPressureRule`
+
+Canonical action states:
+
+```text
+NO_ACTION_NEEDED
+ACTION_OPTIONAL
+ACTION_USEFUL
+ACTION_RECOMMENDED
+DOMAIN_ESCALATION_NEEDED
+USER_DECISION_REQUIRED
+```
+
+The user may legitimately wait, observe, think, continue talking, act later,
+or take no action.
+
+`DirectnessWithoutHarshnessRule`
+
+The system may give a grounded opinion and may respectfully disagree.
+
+Empathy does not require agreement.
+
+`ImmediateRiskEscalationRule`
+
+Credible immediate risk is routed through existing shared or specialized
+contracts. Ordinary worry, sadness, fear or uncertainty must not silently
+become a crisis workflow.
+
+Profile
+
+Default specialized cognitive profile:
+
+```text
+ConcernSupportProfile
+```
+
+Its reasoning configuration prioritizes:
+
+```text
+high contextual sensitivity
+high epistemic discipline
+high tolerance for uncertainty
+high emotional-context awareness
+moderate-to-high interpretive openness
+low default action pressure
+low default alarm
+evidence-calibrated reassurance
+willingness to state a grounded opinion
+targeted questioning
+cross-domain awareness
+```
+
+The profile does not encode a fixed communication persona.
+
+Operations — exactly 13
+
+```text
+concerns.understand_concern
+concerns.infer_support_need
+concerns.map_lived_experience
+concerns.separate_reality_interpretation
+concerns.explore_hypotheses
+concerns.calibrate_uncertainty
+concerns.evaluate_reassurance
+concerns.evaluate_risk
+concerns.identify_open_questions
+concerns.explore_options
+concerns.prepare_next_step
+concerns.review_recurring_concern
+concerns.prepare_professional_discussion
+```
+
+Operations are analytical or preparatory.
+
+They do not directly send messages, contact professionals, modify calendars,
+publish, write semantic memory, execute personal decisions, or start
+continuous monitoring.
+
+Workflows — exactly 8
+
+```text
+Open Concern Conversation
+Talk It Through
+Reality Check
+Reassurance Review
+Practical Problem Solving
 Decision Under Uncertainty
+Recurring Concern Review
+Professional Discussion Preparation
+```
 
-Monitoring Plan
+A valid workflow may end with:
+
+```text
+better understood
+reassured
+partially reassured
+still uncertain
+material concern acknowledged
+decision deferred
+no action necessary
+continue talking
+```
+
+No workflow is required to produce a conclusion, action plan, risk matrix,
+or monitoring plan.
+
+First-response behavior
+
+The first response should normally:
+
+1. identify the core issue;
+2. recognize why it matters where useful;
+3. give substantive perspective immediately when enough context exists;
+4. ask a question only if materially necessary;
+5. avoid dumping a framework, checklist or generic coping protocol.
+
+Reassurance behavior
+
+The system may provide reassurance repeatedly while it remains grounded.
+
+Repeated discussion must not automatically trigger refusal,
+pathologization, or a claim that reassurance itself is harmful.
+
+No forced positivity
+
+Alternative explanations may be explored when plausible, but must not erase
+genuine negative evidence.
+
+```text
+less negative explanation exists
+!=
+less negative explanation is true
+```
+
+No forced cognitive correction
+
+The domain must not assume:
+
+```text
+distress = distorted thought
+```
+
+Cross-domain composition
+
+Concerns owns:
+
+```text
+concern support
+support need
+fear and uncertainty framing
+reassurance calibration
+problem exploration
+action pressure
+recurring-concern review
+```
+
+Specialized domains remain responsible for their own factual and risk
+semantics.
+
+Required initial compositions include:
+
+```text
+General + Concerns
+Relationships + Concerns
+Health + Concerns
+Reflection + Concerns
+University + Concerns
+Oppositions + Concerns
+Life Plan + Concerns
+Project + Concerns
+```
+
+No direct private-store access between domains.
+
+Memory
+
+Concern state is sensitive.
+
+The domain may produce memory proposals through shared contracts but must
+not silently persist fear, support need, inferred emotional patterns,
+recurring-concern patterns, psychological interpretations, risk
+interpretations, or third-party motives.
+
+```text
+conversation state != semantic memory
+```
 
 Permissions
 
-* co-ordination with Health at risk
-* Coordination with Reflection
-* without diagnoses,
-* without false peace and quiet,
-* without alarm,
-* controlled memory for transitional concerns.
+Concerns is a high-sensitivity personal domain.
+
+Required intentions include:
+
+```text
+cross-domain access only through authorized projections
+no diagnosis
+no third-party diagnosis
+no automatic personal decisions
+no automatic external communication
+no automatic semantic-memory persistence
+no autonomous monitoring by default
+no hidden risk escalation
+no unrestricted external research
+```
+
+Unknown or malformed authorization fails closed.
+
+Safety
+
+Safety behavior must remain proportional.
+
+Do not automatically convert:
+
+```text
+sadness → suicide workflow
+health worry → emergency
+relationship conflict → abuse classification
+repeated worry → psychiatric interpretation
+```
+
+When credible immediate risk exists, use the relevant shared policy or
+specialized domain.
+
+Trace
+
+The domain trace must expose why Concerns was selected, which supporting
+domains participated, what support need was explicit or inferred, which
+resources and evidence were used, what uncertainty remained, whether
+reassurance or material concern was supported, why questions were asked,
+why action was or was not proposed, what memory proposal was created, and
+what permissions constrained the result.
+
+DP-025
+
+CMM OS must support a user through a problem, worry, fear or uncertainty by:
+
+- understanding the situation and its lived significance;
+- resolving or cautiously inferring the current support need;
+- preserving emotional experience without promoting interpretation to fact;
+- distinguishing reality, interpretation, hypothesis, fear, scenario and
+  uncertainty when relevant;
+- providing evidence-calibrated reassurance when justified;
+- acknowledging material concern when justified;
+- avoiding catastrophic escalation and false reassurance;
+- revisiting recurring concerns without automatically pathologizing repetition;
+- asking only materially useful questions;
+- supporting action and decisions without forcing them;
+- coordinating with specialized domains for factual and risk semantics;
+- preserving provenance, permissions, uncertainty and memory boundaries.
+
+Canonical acceptance identifiers:
+
+```text
+DP-025
+AT-DP-025
+```
+
+The exhaustive behavioral, adversarial, rollback, permission, memory,
+cross-domain, deterministic and E2E requirements are defined in:
+
+`docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
+
+Completion criteria
+
+Phase 10.25 is complete when:
+
+- one canonical `domain:concerns` Domain Pack exists;
+- the hardened shared package boundary is preserved;
+- exactly 17 entities, 10 resources, 14 rules, 13 operations and
+  8 workflows are canonical;
+- `ConcernSupportProfile` uses shared profile infrastructure;
+- reassurance is allowed when supported;
+- false reassurance and catastrophic escalation are prevented;
+- emotional validation does not inflate facts;
+- recurrence is not automatically pathologized;
+- questions are materially useful;
+- grounded direct opinions are possible;
+- action remains proportional and under user control;
+- sensitive inference is not silently persisted;
+- cross-domain composition works;
+- permissions fail closed;
+- bootstrap is atomic;
+- rollback is complete;
+- fresh import is side-effect free;
+- focused, domain and global suites are green;
+- `AT-DP-025` passes;
+- independent audit leaves no unresolved blocking finding.
+
+Implementation status (2026-08-21)
+
+- One canonical `cmm/domains/concerns/` Domain Pack exists with exactly the
+  hardened 14-module boundary.
+- Exactly 17 entities, 10 resources, 14 rules, 13 operations and 8 workflows
+  are canonical (`catalog.py` single source of truth).
+- `ConcernSupportProfile` is bound through the shared profile infrastructure.
+- Reassurance is evidence-calibrated; false reassurance and catastrophic
+  escalation gates are executable and green.
+- Emotional validation never inflates facts; recurrence review never
+  pathologizes (`pathology_inferred=False` always); pattern recognition
+  requires all five grounded dimensions.
+- Questions are material-only; grounded disagreement is possible; action
+  remains proportional, proposal-only and user-controlled.
+- Sensitive content kinds cannot be silently persisted under any
+  authorization chain; permissions fail closed on literal-boolean semantics.
+- Bootstrap is atomic validation-first with complete snapshot/restore
+  rollback at every registration boundary; fresh import registers nothing.
+- Focused, all-domain and global verification suites are green; fresh closure
+  evidence is recorded in the Phase 10.25 final closure audit.
+- `AT-DP-025`: connected 25-step acceptance scenario plus named gates —
+  `PASS`, independently audited.
+- Independent audit: complete. All blocking findings from the audit,
+  re-audit, final-audit and closure-audit sequence were remediated; the final
+  independent closure check is `PASS` with no unresolved blocking finding.
 
 ⸻
 
 10.26 - Languages Domain
 
+**Status:** Complete — independently audited and closed. Final independent closure audit: PASS; BLOCKERS=0; MAJORS=0; MINORS=0; AT-DP-026: PASS; DP-026: VERIFIED_EXISTING.
+
+Canonical design:
+
+`docs/superpowers/specs/2026-08-23-languages-domain-design.md`
+
+Canonical identity:
+
+```text
+domain:languages
+Display name: Idiomas
+Profile: LanguageLearningProfile
+```
+
 Objective
 
-Specify CMM OS to manage language, level, goals, practice, errors, planning and evaluation.
+Specialize CMM OS as an active language-learning tutor and rigorous
+longitudinal learning system while preserving the shared Kernel,
+Cognitive Layer, Knowledge Model, Agent Runtime, Planner, Workflow
+System, Validation System, permissions, and memory contracts.
 
-Entidades
+The domain is multi-language by design, supports multiple concurrent
+goals per language, and distinguishes preferred language variety from
+exclusive correctness.
 
-* language;
-* skill;
-* proficiency_level;
-* exercise;
-* mistake;
-* vocabulary_item;
-* grammar_topic;
-* study_session;
-* exam;
-* certification;
-* learning_goal.
+Canonical proficiency invariants:
 
-Resources
+```text
+certified proficiency != estimated proficiency
+estimated proficiency != observed performance
+global proficiency != proficiency by skill
+practice result != stable proficiency
+certification readiness != general proficiency
+```
 
-* language_plan;
-* exercise_result;
-* conversation;
-* writing_sample;
-* audio_transcript;
-* vocabulary_list;
-* exam_guide;
-* calendar_event;
-* user_message;
-* memory_entry.
+Canonical error and progression invariants:
 
-Rules
+```text
+observed error != recurrent error pattern
+better score once != demonstrated stable progression
+valid language variety != error
+transcript alone != pronunciation evidence
+```
 
+### Entities — 16
+
+```text
+language
+language_variety
+skill_dimension
+language_goal
+proficiency_framework
+proficiency_record
+assessment_evidence
+practice_session
+exercise
+observed_error
+error_pattern
+vocabulary_item
+grammar_topic
+certification_target
+review_item
+learning_plan
+```
+
+### Resources — 15
+
+```text
+user_message
+conversation
+writing_sample
+audio_transcript
+exercise_result
+assessment_result
+language_plan
+lesson_material
+vocabulary_list
+language_reference
+certification_guide
+official_certification_source
+calendar_event
+memory_entry
+domain_result
+```
+
+### Rules — 14
+
+```text
 LanguageLevelEvidenceRule
-
-Distinguishes certified level, estimated level, and point-in-time performance.
-
 SkillSeparationRule
-
-Separa:
-
-* oral understanding
-* oral expression
-* written understanding
-* written expression;
-* grammar
-* vocabulario.
-
-ErrorPatternRule
-
-It detects recurrent errors without generalizing from a minimum sample.
-
+LanguageVarietyValidityRule
+ProficiencyFrameworkRule
+ErrorPatternEvidenceRule
+CorrectionPriorityRule
+AdaptiveDifficultyRule
 SpacedReviewRule
-
-Prioriza revisiones temporalmente distribuidas.
-
 LearningLoadRule
-
-It adapts the plan to time, energy and other targets.
-
+GoalAlignmentRule
+ProgressionEvidenceRule
 CertificationTemporalRule
+CulturalContextEvidenceRule
+LanguageMemoryConsentRule
+```
 
-Checks official calls, levels, and current dates.
+### Operations — 15
 
-Operaciones
+```text
+languages.assess_sample
+languages.update_level_evidence
+languages.create_learning_plan
+languages.generate_lesson
+languages.generate_exercises
+languages.review_exercise
+languages.review_writing
+languages.generate_conversation_turn
+languages.generate_roleplay_turn
+languages.review_speaking
+languages.review_errors
+languages.track_vocabulary
+languages.plan_review_schedule
+languages.prepare_certification
+languages.generate_progress_review
+```
 
-* languages.assess_sample;
-* languages.create_learning_plan;
-* languages.generate_exercises;
-* languages.review_errors;
-* languages.track_vocabulary;
-* languages.prepare_exam;
-* languages.generate_weekly_review;
-* languages.update_level_evidence;
-* languages.plan_conversation_practice.
+### Workflows — 9
 
-Workflows
-
-Language Level Review
-
-Weekly Language Plan
-
+```text
+Language Onboarding
+Proficiency Assessment
+Adaptive Language Lesson
+Conversation & Roleplay Practice
 Writing Review
-
-Speaking Practice
-
+Error Remediation
+Vocabulary & Spaced Review
 Certification Preparation
+Progress Review
+```
 
-Vocabulary Review
+Canonical Progress Review workflow ID:
+
+```text
+languages.progress_checkpoint
+```
+
+Pedagogical modes:
+
+```text
+teach
+practice
+assess
+review
+certification
+immersion
+```
 
 Permissions
 
-* bajo riesgo;
-* monitoring of recurrent errors
-* non-automatic external actions;
-* calendars under authorisation.
+```text
+low-risk internal pedagogy
+consent-gated longitudinal progress tracking
+shared approval for external mutations
+no automatic external actions
+calendar proposal != calendar write
+```
+
+Memory
+
+```text
+session observation != persistent memory
+observed error != persistent recurrent pattern
+candidate update != confirmed persistence
+cross-domain relevance != unrestricted sharing
+```
+
+Cross-domain ownership:
+
+```text
+Languages
+→ language competence, teaching, practice, correction,
+  certification preparation and progression
+
+University
+→ academic objective and university obligations
+
+Oppositions
+→ opposition objective, requirements and deadlines
+
+General
+→ non-linguistic knowledge/content
+
+Concerns
+→ worry, uncertainty and reassurance
+
+Reflection
+→ personal meaning, identity and broad reflection
+```
+
+The domain owning the objective is primary. Languages is supporting
+when it supplies specialized linguistic competence to another primary
+domain.
+
+Phase 10.26 completed its independent closure process successfully.
+`AT-DP-026` passes as a connected 45-checkpoint acceptance scenario over the
+real shared resolver, composer, Workflow Engine, calendar permission boundary,
+memory, projection, presentation, and independently inventoried typed trace
+paths.
+
+Current status:
+
+- Phase 10.26: Complete — independently audited and closed
+- AT-DP-026: PASS
+- DP-026: VERIFIED_EXISTING
+- final independent closure audit: PASS
+- BLOCKERS=0; MAJORS=0; MINORS=0
 
 ⸻
 
-10.27 - Nil Domain
+10.27 - Paternidad Domain
 
-Objective
+**Status:** Complete — independently audited and closed. Final independent closure audit: PASS; BLOCKERS=0; MAJORS=0; MINORS=0; AT-DP-027: PASS; DP-027: VERIFIED_EXISTING.
 
-Specify CMM OS to organize the paternity project, its decisions, dependencies, scenarios, documentation and long term planning.
+## Objective
 
-The domain name will be configurable and will not have to link architecture to a particular personal name.
+Specialize CMM OS to support parenthood as one coherent domain covering both:
 
-Entidades
+1. the path to becoming a parent; and
+2. the long-term exercise of parenting for each child.
 
-* parenthood_goal;
-* child_project;
-* country;
-* legal_route;
-* medical_route;
-* clinic;
-* agency;
-* donor;
-* financial_scenario;
-* legal_requirement;
-* timeline;
-* decision;
-* ethical_constraint;
-* school;
-* residence_plan.
+The domain must preserve a single architectural identity while exposing different functional spaces according to the stage of the parenting project.
 
-Resources
+## Canonical Identity
 
-* life_plan;
-* legal_document;
-* medical_report;
-* financial_plan;
-* agency_information;
-* country_information;
-* decision;
-* note;
-* user_message;
-* external_source;
-* memory_entry.
+```text
+domain:parenthood
+```
 
-Rules
+Public display name:
 
-ParenthoodDecisionExplicitRule
+```text
+Paternidad
+```
 
-It prevents registration of decisions that are not expressed by the user.
+The architecture must not encode:
 
-LegalTemporalValidityRule
+- a particular child's personal name;
+- a particular route to parenthood;
+- legacy personal project names;
+- legacy abbreviations associated with a specific route.
 
-It requires monitoring of existing legislation.
+Personal names belong only to presentation and user data.
 
-MedicalLegalSeparationRule
+---
 
-Distinguish medical, legal, economic and administrative requirements.
+## Functional Requirement Sources
 
-EthicalConstraintRule
+Phase 10.27 uses two canonical prompt specifications as functional requirement sources:
 
-It retains ethical criteria as restrictions.
+- `docs/roadmap/requirements/parenthood/camino-a-la-paternidad.md` for `parenthood.journey`;
+- `docs/roadmap/requirements/parenthood/paternidad.md` for `parenthood.child:<child_id>`.
 
-CountryComparisonRule
+Their role is to refine expected domain behavior, rules, operations, workflows, questions, presentation expectations and acceptance criteria.
 
-Compare countries using common criteria.
+They are not independent Domain Packs and they are not executable policy.
 
-CostUncertaintyRule
+Prompt requirements must remain subordinate to Kernel contracts, Cognitive Layer epistemic rules, Agent Runtime policy, validation, permissions, privacy, approval requirements, cross-domain restrictions and memory policy.
 
-Preserves ranges, contingencies, and unconfirmed costs.
+Material behavior derived from these sources should be traceable to a domain rule, operation, workflow or acceptance test.
 
-LongTermDependencyRule
+## Functional Structure
 
-Relates:
+```text
+Paternidad
+├── Camino a la Paternidad
+│   └── parenthood.journey
+│
+└── Hijos
+    ├── parenthood.child:<child_id>
+    ├── parenthood.child:<child_id>
+    └── parenthood.child:<child_id>
+```
 
-* ingresos;
-* vivienda;
-* edad;
-* training
-* estabilidad;
-* legislation
-* Medical times.
+The public interface may display each child workspace using that child's configured name.
 
-Operaciones
+Example:
 
-* nil.build_parenthood_timeline;
-* nil.compare_countries;
-* nil.compare_routes;
-* nil.review_legal_requirements;
-* nil.review_financial_scenarios;
-* nil.prepare_questions;
-* nil.track_decisions;
-* nil.update_project_plan;
-* nil.generate_documentation_checklist;
-* nil.review_risks.
+```text
+Paternidad
+├── Camino a la Paternidad
+├── <nombre del hijo 1>
+├── <nombre del hijo 2>
+└── <nombre del hijo N>
+```
 
-Workflows
+Internally:
 
-Parenthood Project Review
+```text
+domain:parenthood
 
-Country Comparison
+workspace:parenthood-journey-001
 
-Agency Review
+child:001
+display_name:<configured child name>
 
-Legal Route Review
+child:002
+display_name:<configured child name>
+```
 
-Financial Readiness Review
+A child's name is presentation data and must never become a Domain Pack identifier.
 
-Medical Preparation
+---
 
-Annual Plan Update
+# Functional Area — Camino a la Paternidad
 
-Permissions
+## Objective
 
-* sensibilidad alta;
-* Mandatory web verification for changing information
-* priority official sources;
-* without final legal decisions
-* without payment;
-* without contact with agencies;
-* without the persistence of decisions inferred.
-* human approval for any outside action.
+Support the planning and supervised management of the process of becoming a parent.
+
+This functional area covers the period before the exercise of day-to-day parenting begins and may remain available afterwards as historical context.
+
+## Scope
+
+It may organize:
+
+- parenthood goals;
+- family-building and reproductive pathways;
+- jurisdictions;
+- medical pathways;
+- medical providers;
+- relevant participants;
+- medical preparation;
+- legal requirements;
+- administrative requirements;
+- documentation;
+- financial scenarios;
+- ethical constraints;
+- timelines;
+- travel and logistics;
+- decisions;
+- risks;
+- transition to birth and parenthood.
+
+The public product name is always **Camino a la Paternidad**.
+
+The architecture must use generic parenthood terminology and must not expose legacy route-specific abbreviations as product or domain identifiers.
+
+## Entities
+
+- `parenthood_goal`;
+- `parenthood_pathway`;
+- `jurisdiction`;
+- `medical_pathway`;
+- `medical_provider`;
+- `participant`;
+- `legal_requirement`;
+- `administrative_requirement`;
+- `documentation_requirement`;
+- `financial_scenario`;
+- `ethical_constraint`;
+- `timeline`;
+- `decision`;
+- `risk`;
+- `birth_transition`.
+
+## Resources
+
+- `life_plan`;
+- `legal_document`;
+- `medical_report`;
+- `financial_plan`;
+- `provider_information`;
+- `jurisdiction_information`;
+- `decision`;
+- `note`;
+- `user_message`;
+- `external_source`;
+- `memory_entry`.
+
+## Rules
+
+### ParenthoodDecisionExplicitRule
+
+Prevents registration of decisions that have not been explicitly adopted by the user.
+
+### LegalTemporalValidityRule
+
+Requires current verification when legal or administrative information may have changed.
+
+### MedicalLegalSeparationRule
+
+Keeps medical, legal, economic and administrative requirements distinguishable.
+
+### EthicalConstraintRule
+
+Preserves the user's ethical criteria as explicit constraints.
+
+### CostUncertaintyRule
+
+Preserves ranges, contingencies and unconfirmed costs.
+
+### JourneyDependencyRule
+
+Relates timing, finances, housing, personal circumstances, medical requirements, legal requirements and other dependencies without converting them into automatic decisions.
+
+### JourneyToChildBoundaryRule
+
+Prevents pre-parenthood operational material from being copied wholesale into a child's parenting workspace.
+
+Only information relevant to the child's ongoing care, identity, health, documentation or family context may be proposed for transfer.
+
+## Operations
+
+- `parenthood.journey.build_timeline`;
+- `parenthood.journey.compare_pathways`;
+- `parenthood.journey.review_requirements`;
+- `parenthood.journey.review_financial_scenarios`;
+- `parenthood.journey.prepare_questions`;
+- `parenthood.journey.track_decisions`;
+- `parenthood.journey.update_plan`;
+- `parenthood.journey.generate_documentation_checklist`;
+- `parenthood.journey.review_risks`.
+
+## Workflows
+
+- Path to Parenthood Review;
+- Pathway Comparison;
+- Provider Review;
+- Requirements Review;
+- Financial Readiness Review;
+- Medical Preparation Review;
+- Documentation Review;
+- Annual Journey Plan Update.
+
+---
+
+# Functional Area — Child Parenting Workspaces
+
+## Objective
+
+Support the exercise of parenthood and the long-term upbringing of each child through an independent child workspace inside the shared Paternidad domain.
+
+Each child must have a stable internal identifier.
+
+The visible workspace name may use the child's configured personal name.
+
+## Child Workspace Contract
+
+Conceptual model:
+
+```python
+ChildParentingWorkspace(
+    id="child:001",
+    domain_id="domain:parenthood",
+    display_name="<configured child name>",
+    status="active",
+    developmental_stage=None,
+    created_at="...",
+    metadata={},
+)
+```
+
+The internal identity must remain stable even if the public display name changes.
+
+## Entities
+
+- `child`;
+- `developmental_stage`;
+- `care_need`;
+- `routine`;
+- `milestone`;
+- `education_plan`;
+- `school`;
+- `activity`;
+- `health_context`;
+- `wellbeing_signal`;
+- `family_context`;
+- `support_network`;
+- `parental_decision`;
+- `value`;
+- `boundary`;
+- `schedule`;
+- `residence_plan`;
+- `long_term_plan`.
+
+## Resources
+
+- `parenting_note`;
+- `education_document`;
+- `child_development_resource`;
+- `health_summary`;
+- `schedule`;
+- `parental_decision`;
+- `school_information`;
+- `activity_information`;
+- `user_message`;
+- `external_source`;
+- `memory_entry`.
+
+## Rules
+
+### ChildInterestAndWellbeingRule
+
+Requires recommendations and plans to consider the child's safety, wellbeing, development and individual needs.
+
+### DevelopmentalContextRule
+
+Requires reasoning to account for the child's developmental stage.
+
+### AgeAppropriateGuidanceRule
+
+Rejects recommendations incompatible with age, maturity or current capabilities.
+
+### ParentChildBoundaryRule
+
+Distinguishes the parent's goals, preferences and concerns from the child's own needs, preferences and developing autonomy.
+
+### HealthBoundaryRule
+
+Allows relevant health context without duplicating the Health domain or making autonomous clinical decisions.
+
+### EducationBoundaryRule
+
+Allows educational planning while delegating specialized assessment to the appropriate domain when necessary.
+
+### MinorPrivacyRule
+
+Applies restrictive handling to information concerning minors.
+
+### LongTermContinuityRule
+
+Relates present parenting decisions to long-term objectives while allowing plans to evolve.
+
+### ParentalUncertaintyRule
+
+Preserves uncertainty and alternatives where no single objectively correct parenting choice exists.
+
+### SiblingIdentityIsolationRule
+
+Prevents histories, health information, needs, preferences or decisions from being silently merged between different children.
+
+## Operations
+
+- `parenthood.child.review_needs`;
+- `parenthood.child.review_developmental_stage`;
+- `parenthood.child.plan_routines`;
+- `parenthood.child.prepare_parental_decision`;
+- `parenthood.child.review_education_plan`;
+- `parenthood.child.review_family_context`;
+- `parenthood.child.track_milestones`;
+- `parenthood.child.prepare_questions`;
+- `parenthood.child.track_decisions`;
+- `parenthood.child.update_parenting_plan`;
+- `parenthood.child.review_risks_and_needs`.
+
+## Workflows
+
+- Child Needs Review;
+- Developmental Stage Review;
+- Education Planning Review;
+- Routine Review;
+- Parental Decision Review;
+- Family Context Review;
+- Milestone Review;
+- Annual Parenting Plan Review.
+
+---
+
+# Transition — Camino a la Paternidad → Child Workspace
+
+The transition must be explicit and traceable.
+
+```text
+Camino a la Paternidad
+        ↓
+Birth / parenthood transition
+        ↓
+Create child workspace
+        ↓
+Select relevant transferable context
+        ↓
+Privacy / memory review
+        ↓
+Transfer authorized context
+        ↓
+Continue through the child's parenting workspace
+```
+
+The system must not automatically copy the complete journey history into the child's workspace.
+
+Transfer candidates may include:
+
+- identity and civil documentation relevant to the child;
+- relevant birth information;
+- relevant medical history;
+- relevant genetic or family-history information when authorized;
+- dates and milestones;
+- relevant family context;
+- decisions that continue to affect parenting.
+
+The system must preserve provenance for transferred information.
+
+---
+
+# Multiple Children
+
+The domain must support any number of child workspaces without creating new Domain Packs.
+
+```text
+Paternidad
+├── Camino a la Paternidad
+├── <Child workspace 1>
+├── <Child workspace 2>
+└── <Child workspace N>
+```
+
+Each child workspace has:
+
+- independent identity;
+- independent timeline;
+- independent development state;
+- independent health context;
+- independent education context;
+- independent decisions;
+- independent memories and provenance;
+- controlled shared-family context.
+
+Shared family information may be referenced across workspaces, but child-specific information must remain isolated unless an explicit cross-child relationship is semantically required.
+
+---
+
+# Cross-Domain Integration
+
+The Paternidad domain may coordinate with:
+
+- `domain:health`;
+- `domain:university` or future education-related capabilities when appropriate;
+- `domain:life-plan`;
+- `domain:general`;
+- calendar and scheduling services;
+- financial context through scoped resources;
+- external information services when current verification is required.
+
+Cross-domain access must follow the restrictive intersection of permissions.
+
+The Paternidad domain must not duplicate another domain's specialized reasoning engine.
+
+---
+
+# Privacy
+
+Initial orientation:
+
+```text
+Paternidad -> SENSITIVE
+```
+
+Information concerning minors receives restrictive defaults.
+
+The effective policy must consider:
+
+- global privacy policy;
+- user policy;
+- session policy;
+- resource policy;
+- child workspace;
+- functional area;
+- Knowledge Package policy;
+- domain policy;
+- workflow policy;
+- operation policy.
+
+Remote processing of sensitive child information must be denied by default unless explicitly authorized by the effective policy.
+
+---
+
+# Permissions
+
+- high sensitivity;
+- restrictive defaults for information concerning minors;
+- changing legal, administrative or medical information requires appropriate current verification;
+- no autonomous high-impact parental decisions;
+- no autonomous external communication concerning a child;
+- no autonomous enrolment;
+- no autonomous contracting;
+- no autonomous payment;
+- no autonomous consent;
+- no autonomous legal commitment;
+- cross-domain access must be scoped and justified;
+- health information is imported only when relevant and authorized;
+- no persistence of inferred parental decisions;
+- no automatic transfer from journey records to child workspaces;
+- explicit human approval for external actions.
+
+---
+
+# Profile
+
+```text
+ParenthoodProfile
+```
+
+The profile may adapt its reasoning according to the active functional scope:
+
+```text
+parenthood.journey
+parenthood.child:<child_id>
+```
+
+This does not create separate reasoning engines or separate Domain Packs.
+
+---
+
+# Completion Criteria
+
+The minimum Paternidad domain is complete when:
+
+- `domain:parenthood` is registered;
+- `ParenthoodProfile` is available;
+- the public display name is `Paternidad`;
+- `Camino a la Paternidad` exists as a functional area;
+- child parenting workspaces exist as generic instances;
+- child names remain presentation data;
+- multiple children are supported;
+- child identities remain isolated;
+- journey-to-child transfer is explicit and selective;
+- privacy rules for minors are enforced;
+- parenthood operations use `parenthood.*`;
+- no legacy personal project identifier remains in current architecture;
+- no legacy route-specific abbreviation is exposed as a public product identifier;
+- domain resolution tests pass;
+- permission tests pass;
+- multi-child isolation tests pass;
+- journey-to-child transition tests pass;
+- the global suite remains green.
+
+---
+
+# Public Naming
+
+The public naming model is:
+
+```text
+Paternidad
+├── Camino a la Paternidad
+└── <nombre de cada hijo>
+```
+
+Architecture:
+
+```text
+domain:parenthood
+├── parenthood.journey
+└── parenthood.child:<child_id>
+```
+
+This separation is mandatory.
+
+Public names are human-facing presentation.
+
+Canonical identifiers are stable system contracts.
 
 ⸻
 
@@ -3453,6 +4486,13 @@ Permissions
 * without high-risk recommendations;
 * without automatic modification of treatment;
 * calendars under authorisation.
+
+Status: complete — independently audited and closed.
+
+Final Closure Evidence:
+* Independent closure: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+* Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (`PASS`, 44 connected checkpoints)
+* Closure Adversarial Gate: `tests/domains/test_sport_domain_closure_adversarial.py` (`PASS`, 30 permanent regression checks)
 
 ⸻
 
@@ -3742,72 +4782,124 @@ Permissions
 
 10.31 - Domain Selection Policies
 
+> **Implementation status:** Complete — independently audited and closed
+> **DP-031:** `IMPLEMENTED`
+> **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints; independent audit V2 `PASS`
+> **Canonical design:** `docs/superpowers/specs/2026-08-27-domain-selection-policies-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-27-domain-selection-policies-implementation-plan.md`
+> **Focused Phase 10.31 tests:** 95 passed
+> **Domain suite:** 6684 passed
+> **Global suite:** 12224 passed
+> **Phase 10.31 Python delta:** 14 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Repository-wide Ruff:** 826 pre-existing violations outside the Phase 10.31 Python delta; not part of this milestone
+> **Independent audit:** V2 `PASS` — audited HEAD `76dacf3`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `dfa48d98b154526ce85efe067d7086e3ddde36c9b4c6cf643d097647553d9227`
+> **Audit remediation:** V1 findings remediated by `76dacf3`; 11 dedicated audit-regression tests `PASS`
+
 Objective
 
-To define explicit policies to solve domains in a predictable and auditable manner.
+Define explicit, immutable policies for selecting primary and supporting domains predictably, safely, and audibly while retaining `DefaultDomainResolver` as the single resolution engine.
 
 Domain Selection Policy
 
+```python
 DomainSelectionPolicy(
-name="default",
-explicit_domain_priority=True,
-session_domain_priority=True,
-goal_domain_priority=True,
-allow_multi_domain=True,
-maximum_supporting_domains=3,
-minimum_primary_confidence=0.7,
-minimum_supporting_confidence=0.55,
-fallback_domain="domain:general",
-ambiguity_strategy="clarify_or_fallback",
-metadata={},
+    name="default",
+    explicit_domain_priority=True,
+    session_domain_priority=True,
+    goal_domain_priority=True,
+    allow_multi_domain=True,
+    maximum_supporting_domains=3,
+    minimum_primary_confidence=0.70,
+    minimum_supporting_confidence=0.55,
+    fallback_domain="domain:general",
+    ambiguity_strategy="clarify_or_fallback",
+    metadata={},
 )
+```
 
-Initial policies
+Canonical precedence
 
-Explicit First
+1. safety, authorization, and availability;
+2. explicit domain selection;
+3. structured session continuity;
+4. structured active-goal domain;
+5. ordinary structured evidence;
+6. primary selection confidence;
+7. supporting-domain confidence and limits;
+8. General fallback.
 
-It respects the domain expressly indicated with the exception of a security conflict.
+Selection invariants
 
-Session Continuity
+* Safety, authorization, and availability always precede selection preferences.
+* One eligible explicit domain wins over ordinary scoring.
+* Multiple eligible explicit domains remain ambiguous regardless of score gap; no arbitrary explicit-domain tie-break is allowed.
+* Session continuity and active-goal priority are explicit structured inputs. They are not inferred from `session_id`, `goal_id`, or registry `ACTIVE` state.
+* A session/goal disagreement may be resolved by sufficiently clear ordinary evidence; otherwise the result remains ambiguous and requires clarification.
+* The default primary confidence floor is `0.70`.
+* The default supporting confidence floor is `0.55`.
+* Missing declared probabilistic confidence does not invalidate historical structured scoring; declared selection confidence is distinct from aggregate candidate-score confidence.
+* Supporting domains are limited by both scoring policy and selection policy.
+* `allow_multi_domain=False` disables ordinary supporting-domain selection.
+* Required supporting domains that cannot fit the effective policy limit fail closed with `DOMAIN_SELECTION_REQUIRED_DOMAIN_LIMIT_CONFLICT`.
+* General fallback cannot widen permissions or bypass an unavailable, denied, or otherwise ineligible General domain.
 
-Maintain session domain as long as it remains relevant.
+High-Impact Conservative
 
-Goal Priority
+High-impact handling is generic and policy-driven. No medical, legal, financial, or other domain slugs are hardcoded into selection logic.
 
-Prioritizes the domain of the active target.
+For a domain declared high-impact by the applicable resolution policy, the resolver uses the most restrictive applicable primary-confidence floor across:
 
-High-Risk Conservative
-
-It requires better confidence for medical, legal or financial domains.
-
-Multi-Domain Limited
-
-It allows several domains with boundaries.
-
-General Fallback
-
-He uses General Domain if there's insufficient evidence.
+* `DomainSelectionPolicy.minimum_primary_confidence`;
+* `DomainScoringPolicy.high_impact_minimum_confidence`;
+* `DomainResolutionPolicy.minimum_confidence`, when declared.
 
 Reevaluation Policy
 
-It allows to change the composition if new information appears during the workflow.
+Reevaluation is represented by the immutable, side-effect-free `DomainSelectionTransition`.
 
-Domain change
+It records:
 
-When changing main domain:
+* exact previous and new resolution IDs;
+* previous and new primary domain;
+* previous and new supporting domains;
+* primary/supporting change flags;
+* declarative reason codes;
+* whether recomposition is required;
+* whether a session update is required.
 
-* The ground for registration should be established.
-* The context should be preserved.
-* permissions should be re-evaluated.
-* profiles have to be re-evaluated.
-* Reevaluating rules
-* Questions have to be re-evaluated.
-* they should not duplicate operations;
-* The sitting should be updated.
+Reevaluation does not:
+
+* replay operations;
+* mutate a session;
+* execute workflows;
+* apply persistence;
+* perform external side effects.
+
+Those actions remain responsibilities of later orchestration layers.
+
+Phase boundaries
+
+* Phase 10.31 owns selection policy and pure selection transitions.
+* Phase 10.32 owns general domain-conflict resolution.
+* Phase 10.33 owns domain events.
+* Phase 10.34 owns persistent domain sessions.
+* The current milestone does not introduce a second resolver or parallel selection engine.
 
 ⸻
 
 10.32 - Domain Conflict Resolution
+
+> **Implementation status:** Complete — independently audited and closed
+> **DP-032:** `IMPLEMENTED`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 125 dedicated audit-regression tests `PASS`; final independent audit V11 `PASS`
+> **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
+> **Focused Phase 10.32 tests:** 222 passed
+> **Domain suite:** 6906 passed
+> **Global suite:** 12446 passed
+> **Phase 10.32 Python delta:** 22 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Independent audit:** V11 `PASS` — audited HEAD `2fb413d`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `80f80afbe286c959dd00559e9f11f7dd5b2f6bebb9259d42199c1aa7695904cc`
+> **Audit remediation:** V1–V10 findings remediated; 125 dedicated audit-regression tests `PASS`
 
 Objective
 
@@ -3881,6 +4973,18 @@ No:
 
 10.33 - Domain Events
 
+> **Implementation status:** Complete — independently audited and closed
+> **DP-033:** `IMPLEMENTED`
+> **AT-DP-033:** `PASS` — 66 connected logical checkpoints (CP-01 through CP-66 in `tests/domains/test_domain_events_dp033_acceptance.py`), 92 parametrized pytest cases
+> **Audit remediation:** V1–V8 findings remediated; V9 independent audit `PASS` with BLOCKERS=0, MAJORS=0, MINORS=0; the credential regression matrix is registry-driven with exact 20/20 signature-vector parity; all audit regression suites remain passing.
+> **Independent audit:** V9 `PASS` — audited HEAD `6d19556d112606bd145c3f323d8a1ee041d4677e`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `21a30698da0b121b43739c5ec3de427c70987190ed3c2528ce2648ad8e4de43a`
+> **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-29-phase-10.33-audit-v7-credential-policy-remediation.md`
+> **Focused Phase 10.33 tests:** 848 passed
+> **Domain suite:** 7840 passed
+> **Global suite:** 13380 passed
+> **Phase 10.33 Python delta:** 26 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
+
 Objective
 
 To integrate domains with the Kernel through stable events.
@@ -3940,9 +5044,15 @@ The specialized events should:
 
 10.34 - Domain Sessions
 
+> **Status:** Complete — independently audited and closed; final independent audit V10 `PASS`; `DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`; BLOCKERS=0; MAJORS=0; MINORS=0
+> **Reference document:** `docs/reference/domain-sessions.md`
+> **Design specification:** `docs/superpowers/specs/2026-08-30-domain-sessions-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-30-domain-sessions-implementation-plan.md`
+> **Focused tests:** 455 passed (`AT-DP-034` — 56/56 portable evidence-bound checkpoints, 41 audit V1 regression tests, 23 audit V3 regression tests, 34 audit V4 regression tests, 32 audit V5 regression tests, 17 audit V6 lifecycle regression tests, 6 audit V8 fixture-isolation regression tests, 6 audit V9 artifact-binding regression tests; 8295 domain tests; 13850 global tests)
+
 Objective
 
-Extender Session Context to preserve the specialized status of a domain performance.
+Extend shared Phase 8 Session Context to preserve, revalidate, and restore the specialized state of domain intelligence safely across process restarts and pauses.
 
 Domain Session Context
 
@@ -4004,31 +5114,27 @@ On resume:
 
 10.35 - Domain SDK
 
+> **Status:** Complete — independently audited and closed. Final independent audit V3: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-035=VERIFIED_EXISTING`; `AT-DP-035=PASS`.
+>
+> **Audited implementation HEAD:** `6893dc68c64b9780df3da29877a7935cfe5e9cba`
+> **Audit V3 bundle SHA-256:** `1d5847215a81d8ae8a29ee42fcf38227a582b0aa0683164d545e3871345f2848`
+> **Independent audit:** `docs/audits/phase-10.35-independent-audit-v3.md`
+
 Objective
 
 Allow to create, validate, test and pack new domains without changing CMM OS core.
 
-CLI inicial
+Implemented CLI
 
 cmm domain create <name>
-cmm domain inspect <domain-id>
-cmm domain list
-cmm domain discover
 cmm domain validate <path>
 cmm domain test <path>
-cmm domain install <path>
-cmm domain uninstall <domain-id>
-cmm domain enable <domain-id>
-cmm domain disable <domain-id>
-cmm domain reload <domain-id>
 cmm domain pack <path>
-cmm domain publish <path>
-cmm domain capabilities <domain-id>
-cmm domain operations <domain-id>
-cmm domain workflows <domain-id>
-cmm domain permissions <domain-id>
-cmm domain resolve --input "..."
-cmm domain trace <trace-id>
+
+These four commands are the required and delivered Phase 10.35 surface.
+Installation, enablement, publication, resolution, trace inspection and the
+broader registry/API CLI belong to Phase 10.36 or later. Phase 10.35 does not
+claim those commands as implemented.
 
 Scaffold
 
@@ -4037,126 +5143,106 @@ cmm domain create finance
 Resultado:
 
 finance/
-├── manifest.yaml
+├── manifest.json
 ├── README.md
-├── resources/
-│   └── **init**.py
-├── profiles/
-│   └── finance.py
-├── rules/
-│   └── **init**.py
-├── operations/
-│   └── **init**.py
-├── workflows/
-│   └── review.yaml
-├── permissions/
-│   └── finance.yaml
-├── presentation/
-│   └── policy.yaml
-├── validators/
-│   └── **init**.py
 ├── fixtures/
 │   └── sample.json
 └── tests/
-├── test_manifest.py
-├── test_rules.py
-├── test_operations.py
-└── test_workflows.py
+    └── test_domain.py
 
-SDK Components
+The older `manifest.yaml` tree elsewhere in this roadmap is conceptual and
+historical. The implemented Phase 10.35 SDK uses the canonical declarative
+`manifest.json` format and creates external, developer-owned Domain Packs.
+
+Implemented SDK components
 
 * DomainBuilder;
 * ManifestBuilder;
-* ResourceRegistrationAPI;
-* RuleRegistrationAPI;
-* OperationRegistrationAPI;
-* WorkflowRegistrationAPI;
-* PermissionBuilder;
-* PresentationBuilder;
 * DomainTestHarness;
 * DomainFixtureLoader;
 * DomainPackager;
-* DomainCompatibilityChecker.
+* canonical validation facade.
 
 Domain Test Harness
 
-It should allow:
+The implemented harness discovers, parses, validates and loads the real target
+pack through canonical components into isolated canonical registries. Loading
+registers the target but does not enable it, authorize operations or grant
+permissions. Pack-owned pytest tests remain the readiness gate used by
+`cmm domain test`.
 
-* Loan the domain independently.
-* using memory stors;
-* using simulated resources;
-* enforce rules;
-* execute operations;
-* execute workflows;
-* simulate permissions
-* simular approvals;
-* inspeccionar traces;
-* check fragmentation
-* check compatibility.
-
-Plantillas
+Implemented template
 
 * basic_domain;
-* personal_domain;
-* high_risk_domain;
-* project_domain;
-* read_only_domain;
-* external_service_domain;
-* multi_domain_extension.
 
 ⸻
 
 10.36 - Domain API
 
-Objective
+Status
 
-Expand domain capabilities with stable contracts.
+Complete — independently audited and closed.
+`DP-036 = VERIFIED_EXISTING`; `AT-DP-036 = PASS`.
 
-The API should allow:
+Delivered surface
 
-* list domains
-* consult domains;
-* descubrir;
-* validate;
-* instalar;
-* habilitar;
-* deshabilitar;
-* to solve domains;
-* query capabilities;
-* to consult resources;
-* to consult rules;
-* query operations;
-* query workflows;
-* execute operations;
-* iniciar workflows;
-* To consult sessions;
-* query conflicts;
-* query traces;
-* to consult permissions;
-* responder approvals;
-* generate memory proposals.
+`cmm.domains.api` exposes the stable public coordination facade:
 
-Endpoints conceptuales
+* `DomainAPI` — runtime-checkable protocol.
+* `DefaultDomainAPI` — dependency-injected implementation.
 
-GET /domains
-GET /domains/{domain_id}
-POST /domains/resolve
-POST /domains/validate
-POST /domains/{domain_id}/enable
-POST /domains/{domain_id}/disable
-GET /domains/{domain_id}/capabilities
-GET /domains/{domain_id}/operations
-GET /domains/{domain_id}/workflows
-POST /domains/{domain_id}/operations/{operation_id}
-POST /domains/{domain_id}/workflows/{workflow_id}
-GET /domain-sessions/{session_id}
-GET /domain-traces/{trace_id}
-GET /domain-conflicts
-POST /domain-approvals/{approval_id}
+The stable collaborator contract is typed against the canonical protocols
+(`DomainDiscovery`, `DomainResolver`, `DomainTraceReferenceValidator`);
+concrete defaults (`FileSystemDomainDiscovery`, `DefaultDomainResolver`,
+`DefaultDomainTraceReferenceValidator`) are injection examples, not the
+public boundary. `get_capabilities` returns `tuple[DomainCapability, ...]`.
 
-The API and CLI should use the same internal services.
+Both are exported from `cmm.domains`. Fresh imports are side-effect free.
 
-No parallel implementations are required.
+Approved public methods (canonical owner):
+
+* `list_domains` — `DomainRegistry.list`
+* `get_domain` — `DomainRegistry.get`
+* `discover_domains` — `DomainDiscovery.discover` (stable protocol boundary; default example: `FileSystemDomainDiscovery`; non-executing, non-registering)
+* `validate_domain` — `PipelineDomainValidator.validate` (never installs or enables)
+* `install_domain` — `DeclarativeDomainLoader.load` (canonical runtime load + registration only; `install != enable`, `install != authorization`, no durable package store)
+* `enable_domain` / `disable_domain` — `DomainRegistry.enable` / `DomainRegistry.disable`
+* `resolve_domain` — `DomainResolver.resolve` (stable protocol boundary; default example: `DefaultDomainResolver`; no API-side scoring or selection policy)
+* `get_capabilities` — `DomainDefinition.capabilities` via `DomainRegistry.get_required`
+* `get_resources` / `get_rules` / `get_operations` / `get_workflows` — `DomainRegistry.list_*`
+* `execute_operation` — `DefaultDomainOperationOrchestrator.execute` (permission/approval/transaction/rollback boundaries remain authoritative; no implementation bypass)
+* `start_workflow` — `InMemoryDomainWorkflowRegistry.resolve_active` + `DomainWorkflowExecutor.execute_result` (no API-side workflow engine)
+* `get_session` — `SharedSessionDomainAdapter.load_domain_session` (shared `SessionStore` remains authoritative)
+* `resume_session` — `DomainSessionResumer.resume` (fail-closed current-state revalidation; persisted state is not current authorization)
+* `resolve_conflict` — pure `DomainConflictResolver.resolve` (input never mutated)
+* `assemble_trace` — `DomainTraceAssembler.assemble` (reference-only)
+* `validate_trace` — `DomainTraceReferenceValidator.validate` (stable protocol boundary; default example: `DefaultDomainTraceReferenceValidator`)
+
+Not invented by Phase 10.36
+
+* No session enumeration (`list_all_domain_sessions`, `search_domain_sessions`).
+* No trace store, trace repository, trace cache, `get_trace`/`get_trace_by_id`, or `list_traces`.
+* No durable package installation, publication, uninstall, or permission-grant APIs.
+* No generic `DomainAPIError` hierarchy — canonical subsystem exceptions propagate unchanged.
+
+Canonical shared fix
+
+`DomainMetadata.from_dict` now honors the empty-mapping factory default for the
+nested `metadata` field instead of producing `None` (regression:
+`tests/domains/test_domain_contracts.py::TestDomainDefinition::test_metadata_from_dict_without_nested_metadata_uses_empty_mapping`).
+Declarative Domain Pack manifests with author/license-only metadata previously
+crashed typed-metadata consumers during session recomposition.
+
+Reference
+
+* Design: `docs/superpowers/specs/2026-08-31-domain-api-design.md`
+* Plan: `docs/superpowers/plans/2026-08-31-domain-api-implementation-plan.md`
+* Implementation reference: `docs/reference/domain-api.md`
+* Acceptance: `tests/domains/test_domain_api_dp036_acceptance.py` (AT-DP-036)
+* Adversarial boundaries: `tests/domains/test_domain_api_adversarial.py`
+* Final independent re-audit: `docs/audits/phase-10.36-independent-reaudit-v3.md` — V3 `PASS` (`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`)
+* Audited implementation HEAD: `c119abbeaeedf297087ccc5cb01ba311f4cd5c61`
+* Audit V3 bundle SHA-256: `add96184a11d98c3625d9bdec786a10460e34a3211b34b972f2d43d62f4221d0`
 
 ⸻
 
@@ -4238,9 +5324,99 @@ findings=[],
 metadata={},
 )
 
+Implementation status
+
+Phase 10.37 — Domain Observability is **complete, independently audited and closed**.
+
+```text
+DP-037 = VERIFIED_EXISTING
+AT-DP-037 = PASS
+```
+
+Implemented projection: canonical Domain evidence → read-only privacy-minimized
+projection → exact metrics or explicit `UNAVAILABLE` + per-domain read-only
+health → ephemeral deterministic report.
+
+* Canonical 25-entry metric catalog: `CANONICAL_DOMAIN_OBSERVABILITY_METRICS`.
+* Exact/unavailable semantics: `no evidence != zero != guess`; unavailable is
+  never encoded as zero.
+* Read-only per-domain health checking (manifest, registry, resources, rules,
+  operations, workflows, permissions, dependencies).
+* Strict anti-inference: general does not imply fallback; supporting domains do
+  not imply transfer; repeated knowledge references do not imply reuse; missing
+  questions do not imply avoided; missing duplicates do not imply prevented.
+* Reference-first privacy: raw payloads, metadata, user text and secret-shaped
+  content are never copied into output.
+* No parallel observability infrastructure: no store, repository, event bus,
+  runtime, engine, registry, loader or trace; Domain Events remain 23/23;
+  DomainAPI remains unchanged.
+
+* Implementation reference: `docs/reference/domain-observability.md`
+* Acceptance: `tests/domains/test_domain_observability_dp037_acceptance.py`
+  (AT-DP-037)
+* Final independent re-audit: `docs/audits/phase-10.37-independent-reaudit-v6.md` — `PASS`.
+* Audited implementation HEAD: `a17326421daa2479f58d7ab45b6a66b1bef75936`.
+* Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
+* Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
+* The independently audited boundary now extends through Phase 10.37.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.45 — Integration with Interfaces**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; audit V4 bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`.
+
 ⸻
 
 10.38 - Security
+
+Status
+
+**Phase 10.38** — Security — Domain Pack Authority Boundary is **complete, independently audited and closed**. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+
+```text
+**DP-038** = VERIFIED_EXISTING
+**AT-DP-038** = PASS
+```
+
+Implemented boundary
+
+> A Domain Pack may be discovered, validated and explicitly loaded without
+> those facts granting authority; activation and runtime capabilities remain
+> constrained by an explicit Domain trust policy and the existing canonical
+> permission/approval system; and Domain Pack content cannot redefine those
+> controls.
+
+* `DomainTrustLevel`: `trusted`, `verified`, `internal`, `community`,
+  `untrusted`, `blocked`.
+* `DomainTrustPolicy`: immutable explicit declaration with restrictive safe
+  defaults and an explicit authorized-source boundary.
+* Pure `evaluate_domain_trust`: fail-closed identity/validation/source/
+  signature/manual-enable semantics.
+* `allow_untrusted=True` remains explicit load/registration permission only;
+  it never enables or authorizes.
+* Trust is a permission ceiling integrated through the existing
+  `DomainPermissionResolver`/`DomainPermissionGate`; the trust layer returns
+  only DENY or ABSTAIN and never grants.
+* External/non-internal activation requires an explicit trust policy; a trusted
+  INTERNAL candidate with no policy preserves Phase 10.36 activation behavior.
+* `require_signature`: presence semantics only.
+* Pack prompts/configuration are data, never authorization evidence; the
+  canonical static `domain.security` scanner remains the only prompt scanner.
+* Rejected activation is atomic: no registry mutation, no permission grant, no
+  approval created/consumed; exact loader-result coherence proven through
+  `DeclarativeDomainLoader.get_loaded`.
+* Cross-domain trust ceilings evaluate the actual transferred capability
+  (memory write / code execution / sensitive resources / destructive
+  operations), not only `DOMAIN_CROSS_ACCESS`.
+* Activation requires terminal validation evidence: `PENDING`/`RUNNING`
+  validation can never enable a Domain.
+* No parallel security infrastructure: no trust store/registry, no security
+  engine/runtime/loader/event bus/trace store; canonical owners unchanged;
+  Domain Events remain 23/23.
+* `signature present != cryptographically verified`; Phase 10.38 provides no
+  OS/container sandbox; Phase 11 platform security remains out of scope.
+
+* Implementation reference: `docs/reference/domain-security.md`
+* Acceptance: `tests/domains/test_domain_security_dp038_acceptance.py` (AT-DP-038; `PASS`; 34 connected checkpoints; final evidence clean).
+* Final independent re-audit: `docs/audits/phase-10.38-independent-reaudit-v3.md` — **V3** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`.
+* Audited implementation HEAD: `dcf2a058c9ab849642291c44842e1efe53d57906`.
+* Audit V3 bundle SHA-256: `dae36ab2b50bd3d09861eb3ea090be8edddc9e905ee720049171a350205300e0`.
 
 Objective
 
@@ -4326,11 +5502,13 @@ Domain Packs may contain prompts but:
 
 10.39 - Preventing fragmentation
 
+**Phase 10.39** — Preventing Fragmentation is **complete, independently audited and closed**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+
 Objective
 
-Ensure that specialization does not turn CMM OS into an unconnected set of subsystems.
+Ensure that specialization does not turn CMM OS into an unconnected set of subsytems.
 
-Domains should be free to:
+Domains must not be free to:
 
 * To create an own memory
 * create an own Knowledge Store
@@ -4339,7 +5517,7 @@ Domains should be free to:
 * create an agent Runtime of its own
 * To create an own Planner
 * To create an own Workflow Engine
-* to create an own permit system;
+* To create an own permit system;
 * to create different epistemological contracts;
 * to create incompatible identifiers;
 * The traceability should be discharged.
@@ -4385,9 +5563,89 @@ Those checks should be part of:
 * publication
 * global suite.
 
+### Implementation status
+
+**Canonical guard:** Existing `domain.fragmentation` validation step via
+`DomainFragmentationValidator` / `analyze_fragmentation(...)`.
+No parallel `DomainArchitectureGuard` service, runtime, store, registry,
+resolver, loader, or validation subsystem was introduced.
+
+**DP-039** = VERIFIED_EXISTING
+**AT-DP-039** = PASS — `tests/domains/test_domain_architecture_guard_dp039_acceptance.py`
+**Implementation evidence:** hardened `cmm/domains/validation_fragmentation.py`
+**Final independent re-audit:** `docs/audits/phase-10.39-independent-reaudit-v4.md` — `PASS`
+**Audited implementation HEAD:** `93147139e12665e3734328b904277788ac8bd8d6`
+**Audit V4 bundle SHA-256:** `b7d39bf5b55ae042f732bf01e7a51685f2158ffce3d6355b62350d51326ce981`
+**Closure eligibility:** `YES`
+
+### Architecture
+
+Phase 10.39 hardens the existing canonical fragmentation boundary:
+
+```text
+DomainValidationRequest
+→ PipelineDomainValidator
+→ domain.fragmentation
+→ DomainFragmentationValidator
+→ analyze_fragmentation(...)
+→ DomainValidationResult.fragmentation_valid
+→ ensure_domain_validation_allows_install(...)
+```
+
+### Protected shared owners
+
+Phase 10.39 protects ownership boundaries of:
+- MemoryStore, KnowledgeStore, KnowledgeGraph, Planner, AgentRuntime
+- ReasoningEngine, WorkflowEngine, PermissionSystem, SessionStore, SessionContext, OperationResult
+- Canonical contracts: KnowledgeItem, Evidence, TemporalScope, Resource, ResourceProvenance, MemoryUpdateProposal, DomainSessionContext, DomainOperationResult
+- Recreated canonical global services: DomainRegistry, ResourceRegistry, WorkflowRegistry, EventBus, DomainResolver, DomainLoader, TraceStore
+
+### Detection capabilities
+
+| Finding code | Coverage |
+|---|---|
+| `DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION` | Private memory infrastructure |
+| `DOMAIN_FRAGMENTATION_KNOWLEDGE_STORE_DUPLICATION` | Private Knowledge Store |
+| `DOMAIN_FRAGMENTATION_KNOWLEDGE_GRAPH_DUPLICATION` | Private Knowledge Graph |
+| `DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION` | Private Planner |
+| `DOMAIN_FRAGMENTATION_AGENT_RUNTIME_DUPLICATION` | Private Agent Runtime |
+| `DOMAIN_FRAGMENTATION_REASONING_ENGINE_DUPLICATION` | Private Reasoning Engine |
+| `DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION` | Private Workflow Engine |
+| `DOMAIN_FRAGMENTATION_PERMISSION_SYSTEM_DUPLICATION` | Private Permission System |
+| `DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION` | Private Session Store/Context |
+| `DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION` | Private OperationResult |
+| `DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION` | Protected canonical contract redefinition |
+| `DOMAIN_FRAGMENTATION_REGISTRY_DUPLICATION` | Recreated DomainRegistry/ResourceRegistry/WorkflowRegistry |
+| `DOMAIN_FRAGMENTATION_RESOLVER_DUPLICATION` | Recreated DomainResolver |
+| `DOMAIN_FRAGMENTATION_LOADER_DUPLICATION` | Recreated DomainLoader |
+| `DOMAIN_FRAGMENTATION_EVENT_BUS_DUPLICATION` | Recreated EventBus |
+| `DOMAIN_FRAGMENTATION_TRACE_STORE_DUPLICATION` | Recreated TraceStore |
+| `DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS` | Direct backend/persistence imports |
+| `DOMAIN_FRAGMENTATION_DIRECT_WRITE` | Direct filesystem writes |
+| `DOMAIN_FRAGMENTATION_POLICY_BYPASS` | Explicit validation/policy bypass flags |
+| `DOMAIN_FRAGMENTATION_BACKEND_BYPASS` | Direct backend implementation imports |
+
+### Canonical adapter recognition
+
+Legitimate adapters extending canonical imported bases (e.g., `from cmm.planner import TaskPlanner; class MyPlanner(TaskPlanner): ...`) are recognized as canonical reuse and NOT blocked. Adapter exemption is component-aware: a protected component is only exempt when its inherited canonical base is the approved canonical base for that specific component.
+
 ⸻
 
 10.40 - Integration with Cognitive Layer
+
+Status
+
+**Phase 10.40** — Integration with Cognitive Layer is **complete, independently audited and closed**.
+- **State:** `CLOSED`
+- **Final Independent Re-Audit:** **V3** — `PASS` (`docs/audits/phase-10.40-independent-reaudit-v3.md`); `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+- **Audited Implementation HEAD:** `35af5c4aa3ac7ef68e43e695cb1269173fdb6084`.
+- **Audit V3 Bundle SHA-256:** `171048e000468a8b3ea60be106edd2b9a2e58b64e30a098d088de0bcf4f89d7c`.
+- **Design Point:** `DP-040=VERIFIED_EXISTING`.
+- **Acceptance:** `AT-DP-040=PASS` (`tests/domains/test_domain_cognitive_dp040_acceptance.py`; connected Domain-to-Cognitive acceptance).
+- **Core Production Modules:** `cmm/domains/cognitive_integration.py`, `cmm/domains/cognitive_integration_contracts.py`.
+- **Reference Documentation:** `docs/reference/domain-cognitive-integration.md`.
+- **Boundary Verification:** 0 cognitive → domain imports, 0 agent runtime imports in 10.40 core, 0 parallel owners, 0 store mutations.
+- **Audited Boundary:** The independently audited Domain Intelligence boundary now extends through Phase 10.40.
 
 Objective
 
@@ -4456,6 +5714,8 @@ Domains should not implement:
 ⸻
 
 10.41 - Integration with Agent Runtime
+
+**Status:** Complete — independently audited and closed. Final independent re-audit **V3**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-041=VERIFIED_EXISTING`; `AT-DP-041=PASS`. Audited implementation HEAD `6972e7495bccc0e69ccaa7d007f915ef891e8913`; audit V3 bundle SHA-256 `c9677d836843de8068ba5ed3c0e7d8cd87e12bc4df34e1e2361195f5d8f28458`; independent report `docs/audits/phase-10.41-independent-reaudit-v3.md`. Canonical integrator `cmm/domains/agent_runtime_integration.py`; contracts `cmm/domains/agent_runtime_integration_contracts.py`; reference `docs/reference/domain-agent-runtime-integration.md`; `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`. Phase 10.42 is now the next milestone.
 
 Objective
 
@@ -4600,6 +5860,10 @@ The Planner should not:
 
 ⸻
 
+**Phase 10.42 status:** Complete — independently audited and closed. Final independent re-audit **V12**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`; independent report `docs/audits/phase-10.42-independent-reaudit-v12.md`. Canonical integrator `cmm/domains/planner_workflow_integration.py`; contracts `cmm/domains/planner_workflow_integration_contracts.py`; reference `docs/reference/domain-planner-workflow-integration.md`. **Phase 10.43 — Integration with Validation System** is complete, independently audited and closed after final independent re-audit **V6** `PASS`.
+
+⸻
+
 10.43 - Integration with Validation System
 
 Objective
@@ -4661,6 +5925,51 @@ Activate
 
 The Project Domain will have to use the Validation System for any code changes.
 
+**Phase 10.43 status:** Complete — independently audited and closed.
+**Final independent re-audit V6:** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`.
+**Audited implementation HEAD:** `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`.
+**Audit V6 bundle SHA-256:** `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
+**Final independent audit report:** `docs/audits/phase-10.43-independent-final-reaudit-v6.md`.
+**Final audit-report commit:** `494d8b98afb7ce885b779f1cc4b3b7e15e61509f`.
+Implementation boundary: six
+policy families (`DomainPackInstallationPolicy`, `DomainPackUpdatePolicy`,
+`DomainOperationPolicy`, `DomainWorkflowPolicy`,
+`CrossDomainExecutionPolicy`, `ProjectDomainChangePolicy`) in
+`cmm/domains/validation_policy_bindings.py`; thin integration in
+`cmm/domains/validation_integration.py`; canonical Phase 7
+`ValidationPolicy`/`ValidationRegistry`/`ValidationPipeline`/
+`ValidationResult` reuse via existing `PipelineDomainValidator` and Phase 9
+`AgentValidationAdapter`; lifecycle enforcement in
+`cmm/domains/loader.py` (install/update policies gate registration);
+runtime enforcement via the orchestrator provider seam, the workflow
+operation adapter, the orchestrated cross-domain operation port, and the
+specialized-result acceptance gate in `cmm/domains/operation_execution.py`
+over the generic Phase 9 `validation_requirements` seam;
+Phase 10.42 planner/workflow projection unchanged;
+connected acceptance
+`tests/domains/test_domain_validation_integration_dp043_acceptance.py`
+(including V3 provider-omission fail-closed, empty-requirements fail-closed,
+provider-independent specialized gate, Project affected-test rejection with
+repair and host change derivation without caller hints, and impact escalation via
+real runtime operations failing closed with rollback on unmapped steps);
+V4 runtime: canonical change scope and impact derived from Phase 7 `ChangeSetBuilder`
+and `diff_python_sources` combined monotonically with caller hints refusing downgrade,
+post-execution snapshot escalation check with rollback, command result parser
+fail-closed hardening (pytest non-zero exit without XML, ruff non-zero exit without diagnostics),
+`ProjectDomainChangePolicy` governs `project.modify_code` with canonical Phase 7
+escalation, Phase 7 commit gate remains owner;
+V5 runtime: Project impact owner is the canonical Phase 7 `ChangeImpactAnalyzer`
+(`ChangeSetBuilder.build_from_snapshots` over before/after host snapshots; Domain
+local classifier removed), validation root is the trusted host-registered
+implementation root (caller metadata is a match-checked hint only), POST
+validation is recomputed post-mutation from the actual ChangeSet through the
+same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
+covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
+and post-validation rejection uses canonical rollback restoration
+(`CheckpointRestorationRollbackExecutor`);
+reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.46.
+Phase 10.44 is **complete, independently audited and closed** after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`.
+
 ⸻
 
 10.44 - Integration with Memory and Knowledge Graph
@@ -4713,6 +6022,33 @@ It should not:
 * duplicate entities;
 * convertir correlaciones en causalidad;
 * mezclar periodos incompatible.
+
+Implementation Status (Phase 10.44):
+- Status: Complete — independently audited and closed
+- Requirement: `DP-044` (`SRC-R10:R10-C44`)
+- Acceptance: `AT-DP-044=PASS` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`; independently verified in final re-audit V4)
+- Audit History: V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` remain preserved as historical evidence; final independent re-audit **V4** `PASS` recorded in `docs/audits/phase-10.44-independent-final-reaudit-v4.md` (`BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`; audit-report commit `25875631636caa90806fa5ac35cbc7c770f4c265`)
+- Closure Eligibility: `CLOSURE_ELIGIBLE=YES` — final independent V4 re-audit `PASS`
+- Audited Baseline: Phase 10.44 is the latest independently audited and closed milestone (`DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`).
+- Delivered Architecture:
+  - Stateless coordinator `DefaultDomainMemoryKnowledgeIntegrator` in `cmm/domains/memory_knowledge_integration.py`
+  - Immutable projection contracts in `cmm/domains/memory_knowledge_integration_contracts.py`
+  - Domain error hierarchy extensions in `cmm/domains/errors.py`
+  - Public facade seam `DefaultDomainAPI.project_memory_knowledge` in `cmm/domains/api.py`
+  - Reuses Phase 10.18 `DomainMemoryView`, `DefaultDomainMemoryViewResolver`, and `DefaultDomainMemoryIntegrationValidator`
+  - Reuses Phase 8 canonical `KnowledgeItem`, `KnowledgeRelation`, `Contradiction`, and `InMemoryKnowledgeStore`
+  - Reuses Phase 9 `KnowledgeUpdateProposalEngine` and `InMemoryKnowledgeUpdateRepository` via Phase 10.18 `DomainMemoryProposalBinding`
+  - Canonical authority binding: projection accepts only exact canonical `DomainResolutionResult`/`DomainComposition` objects whose id/status/primary/supporting-domain fields are coherent with the request (`DomainResolutionStatus.RESOLVED` and COMPOSED or PARTIAL only, so AMBIGUOUS/INSUFFICIENT_INFORMATION/BLOCKED/UNSUPPORTED/FAILED resolutions fail closed), whose Phase 10.18 `DomainMemoryViewRequest` is content-bound to the same canonical resolution identity (`memory_request.resolution_reference_id == resolution.id`), and which reject duck-typed impostors fail-closed
+  - Zero Domain-owned Knowledge Graph, store, repository, persistence, temporal engine, contradiction engine, or causal inference
+  - Zero direct imports of `cmm.memory` or `TechnicalMemory` in Phase 10.44 code
+  - Zero mutations to cognitive stores during projection
+  - Pure fail-closed suppression of dangling relation/contradiction endpoints
+  - Multi-hop dependency and impact path derivation preserves canonical relation IDs and kinds without causal strengthening
+  - Connected acceptance test `AT-DP-044` passes end-to-end with 125 dedicated Phase 10.44 tests green (53 projection-contract, 42 integration, 10 architecture, 19 API-contract, and 1 acceptance), including the identical Phase 9 relation proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority, the canonical supersession lineage decision pointing at the current reference identity, and the connected resolution chain assertions (`memory_request.resolution_reference_id == request.resolution_reference_id == resolution.id == composition.resolution_id` with the view content-bound to the memory request)
+  - Reference documentation: `docs/reference/domain-memory-knowledge-graph-integration.md`
+  - Specification: `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
+  - Implementation plan: `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
+  - Next milestone: Phase 10.45 — Integration with Interfaces (not started).
 
 ⸻
 
@@ -4788,73 +6124,123 @@ It should have:
 * acciones externas;
 * conflicts unresolvable.
 
+Implementation Status (Phase 10.45):
+- Status: Complete — independently audited and closed after final Independent Re-audit V4 `PASS` (`PHASE10_45=CLOSED`)
+- Requirement: `DP-045` (`SRC-R10:R10-C45`)
+- Acceptance: `AT-DP-045=PASS` (`tests/domains/test_domain_interface_dp045_acceptance.py`) — independently verified in final Re-audit V4 (`DP-045=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`)
+- Audit V1 evidence: `docs/audits/phase-10.45-independent-audit-v1.md` (FAIL, 4 MAJOR); `docs/audits/phase-10.45-major-03-architectural-block-evidence.md`; amendment `docs/superpowers/specs/2026-09-09-phase-10.45-major-03-selection-transition-amendment.md`; remediation plan `docs/superpowers/plans/2026-09-09-phase-10.45-audit-v1-remediation-plan.md`
+- Audit V2 evidence: `docs/audits/phase-10.45-independent-reaudit-v2.md` (FAIL, 3 MAJOR: incomplete selection-transition authority binding, unbound permission evidence with non-ALLOW fall-through, composition-incoherent persisted revision)
+- Audit V3 evidence: `docs/audits/phase-10.45-independent-reaudit-v3.md` (FAIL, 1 MAJOR: pre/post-delta authority exception bypassing exact session coherence, plus supporting-order set semantics)
+- Final Re-audit V4 evidence: `docs/audits/phase-10.45-independent-final-reaudit-v4.md` (`PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`; audit-report commit `8122cc3398dce05cbc69dcb11d97f1b080ec5e59`)
+- Delivered Architecture:
+  - Thin, stateless, interface-neutral integrator `DefaultDomainInterfaceIntegrator` in `cmm/domains/interface_integration.py`
+  - Immutable frozen/slotted projection contracts in `cmm/domains/interface_integration_contracts.py` (SHA-256 `content_digest` over projection content; `to_dict`/`from_dict` digest-preserving round-trip)
+  - Domain error hierarchy additions `DomainInterface*Error` in `cmm/domains/errors.py`
+  - Public facade seams `DefaultDomainAPI.project_interface` / `submit_interface_intent` in `cmm/domains/api.py`
+  - Five interface-neutral views: `ConversationalDomainView` (presentation-visibility constrained; supporting domains filtered to visible content; confidence = min over visible items; memory proposal refs from the presentation plan group; `result_refs` mirror only the presentation plan's canonical cross-domain result items — an accepted canonical `CrossDomainResult` bound to the projection, never a fabricated carrier), `DomainSelectorView` (verbatim canonical resolution mirror; READY only when RESOLVED), `DomainCenterView` (verbatim registry lifecycle; `update_status="unknown"` always), `CrossDomainInterfaceView` (membership/permission-bound transfers; canonical `dependency:<src>:<tgt>:<kind>` refs; unresolved membership contradictions; result-first precedence; PARTIAL/PENDING/READY/BLOCKED status derivation), `DomainReviewCenterView` (only PENDING/POSTPONED approvals; strict category mapping incl. `domain_operation.` reason codes and `unresolved_conflict` items for unresolved contradictions requiring review; membership-bound)
+  - Canonical selection-transition coordinator seam (MAJOR-03 remediation, V2-hardened, V3 exact-coherence): `DefaultDomainSelectionTransitionCoordinator` in `cmm/domains/selection_transition.py` with frozen contracts in `cmm/domains/selection_transition_contracts.py`; ADD_SUPPORTING/WITHDRAW_SUPPORTING intents with a coordinator injected build typed `DomainSelectionTransitionRequest`s (`transition:<intent_id>`) delegated to `coordinator.apply(...)` — ACCEPTED→READY, PENDING→PENDING, BLOCKED→BLOCKED with canonical reason codes; exact session↔resolution↔composition coherence (composition id, primary, exact supporting tuple in canonical order, resolution-context binding, exact canonical types, RESOLVED/COMPOSED-or-PARTIAL only) with fail-closed mismatches before any permission/resolver/composer/persistence side effect and zero persistence proven; pending-delta bypass removed so a pre-delta session claiming post-delta resolution/composition identity fails closed; complete permission-evidence binding (target/source/session/request-id, exact canonical decision, only ALLOW proceeds, DENY→BLOCKED, APPROVAL_REQUIRED→PENDING, anything else→BLOCKED) with typed authority surfaces; exact set-changing delta verification with primary preservation; persisted revision rebuilt from the new canonical composition (effective profile/rules/permissions/workflows/operations) with unrelated state preserved; session-bound via canonical `DomainSessionContext` and revision checked against the canonical session store (`save_domain_session(..., expected_previous_revision=...)`); stale sessions → typed BLOCKED `domain_selection_transition_session_conflict`
+  - Selector path without coordinator injection: read-only EXPLAIN_SELECTION; AUTO_RESOLVE/SELECT_PRIMARY delegated to the canonical resolver (explicit-domain enforcement for SELECT_PRIMARY); ADD_SUPPORTING delegated to canonical cross-domain permission resolution bound to intent target + primary domain (DENY→BLOCKED, APPROVAL_REQUIRED→PENDING, ALLOW→UNAVAILABLE); WITHDRAW_SUPPORTING/REQUEST_POLICY_CHANGE → UNAVAILABLE with explicit reason tokens; the interface itself never mutates composition, session, registry, or policy
+  - Exact-canonical-type authority binding (`type(x) is not`) for every input; duck-typed impostors fail closed; RESOLVED-only resolutions; COMPOSED/PARTIAL-only compositions; reference/binding mismatch fail-closed; session and memory-knowledge inputs bound to the canonical request/resolution/composition IDs (a provided session without a request session reference fails closed)
+  - No UI/CMMChat/Phase 11 seam, no conversational runtime, no renderer, no store/runtime/engine ownership, no parallel infrastructure
+  - Dedicated test inventory: 211 focused Phase 10.45 tests green — 37 contract, 88 integration, 10 API-contract, 12 architecture, 63 selection-transition, 1 connected acceptance (`tests/domains/test_domain_interface_integration_contracts.py`, `test_domain_interface_integration.py`, `test_domain_interface_integration_api.py`, `test_domain_interface_integration_architecture.py`, `test_domain_interface_dp045_acceptance.py`, `test_domain_selection_transition.py`)
+  - Reference documentation: `docs/reference/domain-interface-integration.md`
+  - Specification: `docs/superpowers/specs/2026-09-08-phase-10.45-integration-with-interfaces-design.md`
+  - Implementation plan: `docs/superpowers/plans/2026-09-08-phase-10.45-interface-integration-implementation-plan.md`
+  - `AT-DP-045=PASS` independently verified in final Re-audit V4; `DP-045=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`
+  - Phase 10.46 subsequently completed and closed after Independent Re-audit V2 PASS; Phase 10.47 is the next unstarted phase.
+
 ⸻
 
 
 10.46 - Domain Model Policies
 
-Objective
+Status
 
-Allow every Domain Pack to declare model preferences and restrictions without coupling domain logic to a concrete provider.
+Complete; independently re-audited and closed after Re-audit V2 PASS.
+
+PHASE10_46=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+DP-046=VERIFIED_EXISTING
+AT-DP-046=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=f62069cf935fff5bbac6055e5a63d9b0302993a6
+AUDIT_BUNDLE_SHA256=8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a
+REAUDIT_V2_REPORT=docs/audits/phase-10.46-independent-reaudit-v2.md
+REAUDIT_V2_REPORT_COMMIT=b2c70a1b7b9f6b4e9e1eb377ebf4c3c45a1197fe
+
+Independent Audit V1 failed with `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`:
+`MAJOR_01=DOMAIN_PREMIUM_PERMISSION_NOT_NEUTRAL` and
+`MAJOR_02=STRUCTURAL_ADAPTER_NOT_FAIL_CLOSED`. Both were remediated and
+independently verified in Re-audit V2 `PASS`; V2 reports `BLOCKERS=0`,
+`MAJORS=0`, `MINORS=0`, `DP-046=VERIFIED_EXISTING`, `AT-DP-046=PASS`, and
+`CLOSURE_ELIGIBLE=YES`. V1 remains preserved as historical evidence in
+`docs/audits/phase-10.46-independent-audit-v1.md`; final V2 evidence is
+`docs/audits/phase-10.46-independent-reaudit-v2.md`, audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`, bundle SHA-256
+`8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`, audit-report commit `b2c70a1b7b9f6b4e9e1eb377ebf4c3c45a1197fe`.
+
+DP-046 — User-Controlled, Model-Agnostic Domain Policy
+
+> Domain Packs declare only objective, typed, serializable, and auditable inference and validation requirements. They contain no concrete model/provider identifiers and cannot prefer, prohibit, select, construct, or invoke concrete models or providers. Model choice and reasoning level are user-controlled chat settings. CMM OS performs model selection only when the user explicitly delegates that choice to automatic routing, always through canonical requirements, privacy, budget, availability, evaluation, and routing infrastructure.
 
 Domain Model Policy
 
 ```python
 DomainModelPolicy(
     domain_id="domain:health",
-    default_capability="nuanced_reasoning",
-    preferred_models=[],
-    preferred_providers=[],
-    prohibited_models=[],
-    prohibited_providers=[],
-    local_models=[],
-    premium_fallback=[],
-    privacy_default="SENSITIVE",
-    minimum_quality="high",
-    latency_tolerance="normal",
-    context_requirement="long",
-    require_structured_output=True,
+
+    require_reasoning=False,
     require_tool_calling=False,
-    require_context_validation=True,
-    require_response_validation=True,
-    recommended_budget_eur=None,
+    require_structured_output=False,
+    require_json_mode=False,
+    require_json_schema=False,
+    require_vision=False,
+    require_audio_input=False,
+    require_audio_output=False,
+    require_embeddings=False,
+
+    minimum_context_window=None,
+
+    require_context_validation=False,
+    require_response_validation=False,
+
     fallback_policy=None,
+
     metadata={},
 )
 ```
 
-A domain may define:
+A domain may define only objective requirements:
 
-* preferred and prohibited models;
-* preferred and prohibited providers;
-* default capability;
-* minimum quality;
-* privacy requirements;
-* latency tolerance;
-* context-length requirements;
-* structured-output requirements;
-* tool-calling requirements;
-* multimodal requirements;
-* local-processing preferences;
-* premium fallback;
-* recommended budget;
-* validation requirements;
-* fallback policy.
+* required capabilities (reasoning, tool calling, structured output, JSON mode, JSON schema, vision, audio input/output, embeddings);
+* an optional minimum context window;
+* whether canonical context/response validation stages are required;
+* an optional typed canonical fallback policy;
+* serializable audit metadata.
+
+A domain must **not** define preferred/prohibited models or providers, local model names, concrete premium fallbacks, minimum quality, latency tolerance, a recommended budget, or concrete routing weights. The earlier conceptual roadmap shape for this phase is superseded by the approved model-agnostic design and is not authoritative.
 
 The policy must be combined with:
 
-* global model policy;
-* user policy;
-* session policy;
-* workflow requirements;
-* operation requirements;
-* privacy policy;
+* global/user/session policy;
+* workflow and operation requirements;
+* privacy and permission constraints;
 * economic budget;
-* provider availability.
+* provider/model availability from the canonical ProviderRegistry and ModelCatalog;
+* canonical routing when the user selects AUTO.
 
-The effective policy must preserve the most restrictive privacy, permission, and cost constraints.
+The effective policy must preserve the most restrictive privacy, permission, and cost constraints. A domain policy can never widen a stricter ancestor policy.
 
 A Domain Pack must not select or invoke a provider directly.
+
+Implementation: `cmm/domains/model_policy_contracts.py`, `cmm/domains/contracts.py`, `cmm/agent_runtime/domain_model_policy_adapter.py`, `cmm/agent_runtime/model_requirements_resolver.py`. Reference: `docs/reference/domain-model-policies.md`. Acceptance: `tests/domains/test_domain_model_policy_dp046_acceptance.py`.
+
+Phase 10.46 is closed. Next action: Phase 10.47 may begin after verification of this closure commit; Phase 10.47 has not started.
 
 ⸻
 
@@ -4923,6 +6309,23 @@ Relationships:
 * emotional continuity;
 * tone.
 
+Concerns:
+
+* understanding before intervention;
+* support-need calibration;
+* emotional validation without fact inflation;
+* reality, interpretation, fear and scenario separation;
+* evidence-calibrated reassurance;
+* preservation of uncertainty;
+* proportional risk;
+* absence of catastrophic escalation;
+* absence of false reassurance;
+* recurring concerns without automatic pathologization;
+* materially useful questions;
+* grounded directness without forced agreement;
+* proportional action without pressure;
+* cross-domain factual and risk handoff.
+
 University:
 
 * planning;
@@ -4940,6 +6343,24 @@ Oppositions:
 * call tracking;
 * requirement comparison;
 * continuity of prior decisions.
+
+Mental Health:
+
+* ordinary emotional conversation without default medicalization;
+* fact, interpretation, fear, intuition, and uncertainty separation;
+* therapy continuity and session preparation;
+* longitudinal emotional context;
+* proportionate safety escalation;
+* cross-domain minimization and privacy preservation.
+
+Neurodivergence:
+
+* certainty-state preservation;
+* developmental and longitudinal evidence;
+* differential and overlap analysis;
+* executive, sensory, academic, social, and functional context;
+* screening/self-report non-promotion;
+* purpose-minimized Health and Mental Health coordination.
 
 Project:
 
@@ -4964,6 +6385,77 @@ Each case must support:
 * human evaluation.
 
 Benchmark suites must be versioned, reproducible, exportable, and compatible with the Phase 11 Model Evaluation Framework.
+
+Closure status (Phase 10.47)
+
+Superseded conceptual fields: `candidate_models` removed by the model-agnostic
+design; `quality_criteria` replaced by unweighted `evaluation_criteria`;
+`evaluation_policy`, `privacy_policy` and `default_budget` removed as suite-owned
+engines. There is no benchmark runner and no benchmark registry: benchmark
+suites belong to `DomainDefinition.benchmark_suites`, and the existing
+`DomainRegistry` remains the only Domain registry. Phase 10.48 owns domain
+quality metrics; Phase 11.36 owns execution, comparison and rankings.
+
+Implementation: `cmm/domains/benchmark_contracts.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.benchmark_suites`); `cmm/domains/<domain>/benchmarks.py` for
+all twelve implemented first-party packs; public exports in
+`cmm/domains/__init__.py`. Reference: `docs/reference/domain-benchmark-suites.md`.
+Acceptance: `tests/domains/test_domain_benchmark_dp047_acceptance.py`.
+Architecture guards: `tests/domains/test_domain_benchmark_architecture.py`.
+
+Independent Audit V1 (`docs/audits/phase-10.47-independent-audit-v1.md`)
+returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`. Corrected Independent
+Re-audit V2 (`docs/audits/phase-10.47-independent-reaudit-v2.md`) returned `FAIL`
+with `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`; `MAJOR_01` was independently verified
+remediated, `MAJOR_04` was withdrawn as a false positive, and `MAJOR_02`/
+`MAJOR_03` remained not verified remediated. Remediation V2 therefore closes
+exactly those two findings:
+
+- `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING`: verified remediated and
+  preserved regression-only; `benchmark_suites` remains a supported declarative
+  Domain Pack field parsed through the canonical
+  `ParsedDomainPack.from_declarative_dict` → `DomainBenchmarkSuite.from_dict` →
+  `DomainDefinition` → existing loader/registry/rollback path.
+- `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED`: metadata authority
+  detection now applies a narrow deterministic authority grammar over normalized
+  keys, rejecting compound authority aliases such as `preferred_model_id`,
+  `candidate_provider_id`, `model_preference`, `routing_model` and their
+  camel/kebab/space and nested variants, while `required_schema` and descriptive
+  keys such as `modeling_notes` remain accepted.
+- `MAJOR_03=NON_CANONICAL_COST_DIGEST`: `maximum_cost_eur` canonical text is
+  derived exactly from the stored `Decimal` coefficient and exponent, so
+  serialization preserves all significant digits and is independent of ambient
+  `decimal` context precision.
+
+```text
+PHASE10_47=CLOSED
+
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=FAIL
+INDEPENDENT_REAUDIT_V5=PASS
+
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MINOR_01=VERIFIED_REMEDIATED
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MAJOR_04=WITHDRAWN_FALSE_POSITIVE
+
+DP-047=VERIFIED_EXISTING
+AT-DP-047=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=5babd930c9aa01d2a92ab6bd48f70f8a20ed71a0
+AUDIT_V5_BUNDLE_SHA256=2544e6d9e737e7a50dde5c9745df1865b2143ba1f7b2fbfdccec6ed4785b5396
+REAUDIT_V5_REPORT_COMMIT=a4d542a2561ee986129f0e34713c6fb6065e3d8b
+PHASE10_48=NOT_STARTED
+```
+
+Phase 10.47 is complete, independently re-audited and closed after final Re-audit V5 `PASS`. Historical V1/V2/V3/V4 failures remain preserved. Phase 10.48 has not started.
 
 ⸻
 
@@ -5015,8 +6507,12 @@ Examples:
 
 * Health prioritizes factual fidelity, prudence, temporality, and safety.
 * Relationships prioritizes ambiguity handling, contextual continuity, and non-attribution of intent.
+* Concerns prioritizes contextual understanding, support-need calibration, epistemic separation, evidence-calibrated reassurance, proportional risk, useful questioning, non-pathologizing recurrence, and user agency.
 * University prioritizes dates, constraints, feasibility, and plan quality.
 * Project prioritizes correctness, architecture, validation, and tool calling.
+
+* Mental Health prioritizes emotional fidelity, epistemic separation, contextual continuity, non-pathologizing support, safety proportionality, and privacy.
+* Neurodivergence prioritizes certainty preservation, developmental/longitudinal evidence, differential reasoning, non-promotion of hypotheses, functional relevance, and privacy.
 
 A high aggregate score must not compensate for a failed blocking metric.
 
@@ -5029,6 +6525,72 @@ Results must preserve:
 * aggregate score;
 * confidence;
 * human-review results.
+
+Closure status (Phase 10.48)
+
+Phase 10.48 is complete, independently re-audited and closed after final
+Independent Re-audit V4 `PASS`. Historical Independent Audit V1 and Re-audits
+V2/V3 `FAIL` remain preserved. All findings are independently verified
+remediated with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
+`CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD: `dc94090147daaaaaee71250bb411d903666f6b13`. Final
+audit bundle SHA-256: `00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085`.
+
+A Domain Pack declares immutable, domain-owned quality policy through
+`DomainDefinition.quality_metrics`, reusing the canonical `DomainRegistry` and
+the existing declarative Domain Pack parser; already-produced evidence is
+validated and aggregated deterministically by pure helper functions. No
+benchmark, evaluator, model or provider is executed, and no quality registry,
+loader, resolver, store, runtime or engine is introduced.
+
+Implementation: `cmm/domains/quality_contracts.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.quality_metrics`); `cmm/domains/pack.py` and
+`cmm/domains/manifest.py` (canonical declarative `quality_metrics`);
+`cmm/domains/<domain>/quality_metrics.py` for all twelve implemented first-party
+packs. Reference: `docs/reference/domain-quality-metrics.md`. Focused tests:
+`tests/domains/test_domain_quality_contracts.py`,
+`tests/domains/test_domain_quality_pack_integration.py`,
+`tests/domains/test_domain_quality_first_party.py`. Architecture guards:
+`tests/domains/test_domain_quality_architecture.py`. Acceptance:
+`tests/domains/test_domain_quality_dp048_acceptance.py`. Audit V1:
+`docs/audits/phase-10.48-independent-audit-v1.md`. Remediation V1 design:
+`docs/superpowers/specs/2026-09-10-phase-10.48-remediation-v1-design.md`.
+Remediation V1 plan:
+`docs/superpowers/plans/2026-09-10-phase-10.48-remediation-v1-implementation-plan.md`.
+Baseline-aware Ruff/format verifier:
+`scripts/audit/verify_phase_10_48_ruff_baseline.py`. Independent Re-audit V2:
+`docs/audits/phase-10.48-independent-reaudit-v2.md`. Independent Re-audit V3:
+`docs/audits/phase-10.48-independent-reaudit-v3.md`. Final Independent Re-audit
+V4: `docs/audits/phase-10.48-independent-reaudit-v4.md` (`PASS`; audit-report commit `3e652884062dc5adc0a56859efd7f3ab5b9dfbd5`).
+
+```text
+PHASE10_48=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+MINOR_02=VERIFIED_REMEDIATED
+MINOR_03=VERIFIED_REMEDIATED
+MINOR_04=VERIFIED_REMEDIATED
+DP-048=VERIFIED_EXISTING
+AT-DP-048=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=dc94090147daaaaaee71250bb411d903666f6b13
+AUDIT_V4_BUNDLE_SHA256=00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085
+REAUDIT_V4_REPORT=docs/audits/phase-10.48-independent-reaudit-v4.md
+REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
+```
+
+Phase 10.48 is complete, independently re-audited and closed after final
+Independent Re-audit V4 `PASS`. Historical V1/V2/V3 failures remain preserved.
+Phase 10.49 has since been implemented on top of that closure baseline and is
+closed after independent re-audit V3 PASS; its implementation status is recorded below.
 
 ⸻
 
@@ -5064,8 +6626,11 @@ Relationship Knowledge Package
 University Knowledge Package
 Opposition Knowledge Package
 Reflection Knowledge Package
+Concerns Knowledge Package
 Life Plan Knowledge Package
 Project Knowledge Package
+Mental Health Knowledge Package
+Neurodivergence Knowledge Package
 ```
 
 Every specialization must retain the common fields for:
@@ -5094,6 +6659,162 @@ Domains may add fields but must not:
 * duplicate stored knowledge.
 
 A package may be composed across domains through explicit schemas and permission intersection.
+
+Implementation status (Phase 10.49)
+
+Phase 10.49 is implemented and remediated, closed after independent re-audit V3 PASS. It
+declares an immutable, versioned Domain specialization of the canonical Phase 8
+`KnowledgePackage`. A schema may only narrow or reject; it never grants
+execution, provider, network, file, resource, cross-domain, approval, privacy
+or permission authority. The canonical `KnowledgePackageBuilder` remains the
+only package construction path.
+
+```text
+PHASE10_48=CLOSED
+PHASE10_49=CLOSED
+
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+MINOR_02=VERIFIED_REMEDIATED
+MINOR_03=VERIFIED_REMEDIATED
+
+FIRST_PARTY_REQUIRED_FIELD_REACHABILITY=PASS
+DOMAIN_SPECIFIC_FIRST_PARTY_POLICIES=PASS
+UNIQUE_FIRST_PARTY_POLICY_SHAPES=11
+NON_FACT_CANONICAL_PACKAGE_COMPATIBILITY=PASS_WHERE_DOMAIN_POLICY_ALLOWS
+RESOLVED_CONTRADICTION_PRESERVATION=PASS
+
+DOMAIN_KNOWLEDGE_PACKAGE_SCHEMA=IMPLEMENTED
+EFFECTIVE_SCHEMA_COMPOSITION=IMPLEMENTED
+CANONICAL_KNOWLEDGE_PACKAGE_VALIDATION=IMPLEMENTED
+CANONICAL_BUILDER=KnowledgePackageBuilder
+PARALLEL_BUILDER=NONE
+PARALLEL_REGISTRY=NONE
+PARALLEL_LOADER=NONE
+PARALLEL_RESOLVER=NONE
+PARALLEL_STORE=NONE
+PARALLEL_RUNTIME=NONE
+PARALLEL_ENGINE=NONE
+
+FIRST_PARTY_SCHEMAS=12
+MENTAL_HEALTH_SCHEMA=NOT_IMPLEMENTED
+NEURODIVERGENCE_SCHEMA=NOT_IMPLEMENTED
+
+DP-049=VERIFIED_EXISTING
+AT-DP-049=PASS
+CLOSURE_ELIGIBLE=YES
+```
+
+Contract types: `DomainKnowledgePackageFieldPolicy`,
+`DomainKnowledgePackageSchema`, `EffectiveDomainKnowledgePackageSchema`. Pure
+helpers: `compose_domain_knowledge_package_schemas`,
+`validate_domain_knowledge_package`.
+
+Canonical sensitivity floors are explicit rank mappings over the existing
+Cognitive `SensitivityLevel` — never enum declaration order, and never a new
+Domain privacy enum. First-party floors: Health, Relationships, Reflection,
+Concerns, Parenthood, Sport and Life Plan `SENSITIVE`; University, Oppositions,
+Languages, Project and General `INTERNAL`.
+
+`minimum_sensitivity` and `memory_policy.sensitivity_limit` are separate
+contracts. The schema floor is not derived one-to-one from memory policy; in
+five Domains (Health, Relationships, University, Oppositions, Reflection) the
+schema floor is lower than the memory limit, and in Languages (INTERNAL floor
+vs PERSONAL memory limit) it is also lower. Composition takes the strongest
+floor by explicit canonical rank and can never lower it.
+
+Implementation: `cmm/domains/knowledge_package_contracts.py`;
+`cmm/domains/knowledge_package_composition.py`;
+`cmm/domains/knowledge_package_validation.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.knowledge_package_schema`); `cmm/domains/pack.py` and
+`cmm/domains/manifest.py` (canonical declarative `knowledge_package_schema`);
+`cmm/domains/cognitive_integration_contracts.py` and
+`cmm/domains/cognitive_integration.py` (optional post-construction validation);
+`cmm/domains/<domain>/knowledge_package.py` for all twelve implemented
+first-party packs. Reference: `docs/reference/domain-knowledge-packages.md`.
+Focused tests: `tests/domains/test_domain_knowledge_package_contracts.py`,
+`tests/domains/test_domain_knowledge_package_pack_integration.py`,
+`tests/domains/test_domain_knowledge_package_composition.py`,
+`tests/domains/test_domain_knowledge_package_validation.py`,
+`tests/domains/test_domain_knowledge_package_cognitive_integration.py`,
+`tests/domains/test_domain_knowledge_package_first_party.py`. Architecture
+guards: `tests/domains/test_domain_knowledge_package_architecture.py`.
+Acceptance: `tests/domains/test_domain_knowledge_package_dp049_acceptance.py`.
+Design:
+`docs/superpowers/specs/2026-09-10-phase-10.49-domain-knowledge-packages-design.md`.
+Plan:
+`docs/superpowers/plans/2026-09-10-phase-10.49-domain-knowledge-packages-implementation-plan.md`.
+
+Pre-audit gate evidence on the frozen implementation HEAD:
+
+```text
+V3_EVIDENCE_TREE_HEAD=152dd19e1fe245a3752e526f71fe4933c7f698e8
+V3_EVIDENCE_METHOD=exact-HEAD git clone / git archive export
+V3_EVIDENCE_DATE=2026-09-11
+
+FOCUSED_PHASE_10_49_TESTS=308
+FOCUSED_PHASE_10_49_RESULT=PASS
+REMEDIATION_EVIDENCE_TESTS=10
+REMEDIATION_EVIDENCE_RESULT=PASS
+PHASE8_REGRESSIONS=104
+PHASE8_CONTRADICTION_PRIVACY_RESOURCE_REGRESSIONS=168
+PHASE10_39_REGRESSIONS=112
+PHASE10_40_REGRESSIONS=158
+PHASE10_44_REGRESSIONS=106
+PHASE10_46_47_48_REGRESSIONS=765
+DOMAIN_PACK_REGRESSIONS=94
+DOMAIN_LOADER_MANIFEST_REGRESSIONS=205
+REGRESSION_GATE_RESULT=PASS
+
+DOMAIN_SUITE_TESTS=10981
+DOMAIN_SUITE_FAILURES=0
+DOMAIN_SUITE_ERRORS=0
+GLOBAL_SUITE_TESTS=16742
+GLOBAL_SUITE_FAILURES=0
+GLOBAL_SUITE_ERRORS=0
+
+COMPILEALL=PASS
+RUFF_VERSION=0.16.2
+BASELINE_HEAD=6f9deeb37b6e3237bea4564c5e5607249eb12b70
+GLOBAL_RUFF_BASELINE=839
+GLOBAL_RUFF_CURRENT=839
+GLOBAL_FORMAT_BASELINE=271
+GLOBAL_FORMAT_CURRENT=271
+CHANGED_PYTHON_FILES=52
+CHANGED_PYTHON_RUFF_VIOLATIONS=0
+CHANGED_PYTHON_FORMAT_FILES=0
+NO_NEW_RUFF_REGRESSIONS=PASS
+NO_NEW_FORMAT_REGRESSIONS=PASS
+BASELINE_AWARE_GATE=PASS
+
+CLAUSE_COVERAGE=PASS
+UNCLASSIFIED_CLAUSES=0
+DUPLICATE_PRIMARY_MAPPINGS=0
+DIFF_HYGIENE=CLEAN
+```
+
+The single authoritative V3 pre-audit gate set is frozen after the final
+exact-HEAD run and is recorded identically across the live Phase 10.49 surfaces.
+Independent-audit severity counts are never published before the independent
+re-audit supplies them. The Domain and global suites were executed against an
+exact-HEAD `git clone` of the same committed tree (with a `git archive` export
+cross-check of the Domain suite); a plain archive export without `.git` produces
+one environment-only false failure
+(`tests/agent_runtime/test_observation_engine.py::test_git_observer_real_repo`)
+that is not a Phase 10.49 defect.
+
+> Sandbox artifact errors (PermissionError: EEXIST on pytest temp directories) are
+> pre-existing filesystem broker interference from the local AI execution
+> sandbox. They affect tests across Phases 10.39, 10.40, 10.47, 10.48, Domain
+> Pack/SDK, Project Domain, and Validation suites. They are not caused by Phase
+> 10.49 changes and are excluded from the authoritative re-audit bundle using the
+> clean exact-HEAD clone/export method.
+
+Domain Privacy Defaults remain owned by Phase 10.50; Phase 10.49 deliberately
+does not introduce processing-policy defaults. Mental Health and Neurodivergence
+schemas remain deferred and absent.
 
 ⸻
 
@@ -5129,7 +6850,10 @@ Initial orientation:
 Health             -> SENSITIVE
 Relationships      -> SENSITIVE
 Reflection         -> SENSITIVE
-Nil / Parenthood   -> SENSITIVE
+Concerns           -> SENSITIVE
+Paternidad / Parenthood   -> SENSITIVE
+Mental Health      -> SENSITIVE
+Neurodivergence    -> SENSITIVE
 University         -> REMOTE_ALLOWED
 Oppositions        -> REMOTE_ALLOWED
 Languages          -> REMOTE_ALLOWED
@@ -5160,6 +6884,102 @@ Domains must not:
 * preserve sensitive outputs in unauthorized caches;
 * transfer information to supporting domains without permission;
 * omit privacy decisions from the Domain Trace.
+
+Implementation status (Phase 10.50)
+
+Phase 10.50 is implemented, remediated, independently re-audited and closed after Re-audit V2 `PASS`.
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`):
+nested `default_privacy` was not fail-closed at the Domain declarative
+boundary, and `PRIVACY_DECISION` trace references were not canonically bound to
+an auditable `PrivacyDecision`. Remediation V1 addresses exactly those two
+findings. It declares one additive, immutable, versioned `DomainPrivacyPolicy`
+per first-party Domain that projects into the canonical Phase 8
+`PrivacyMetadata` and participates in canonical most-restrictive resolution and
+operation evaluation. The Domain policy is a restrictive input only: it never
+grants remote, provider, export, cache or approval authority, never weakens
+`LOCAL_ONLY`, and never replaces the canonical Phase 8 privacy owner or the
+Phase 10.15 permission chain.
+
+```text
+PHASE10_49=CLOSED
+PHASE10_50=CLOSED
+
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=WITHDRAWN_FALSE_POSITIVE
+
+DP-050=VERIFIED_EXISTING
+AT-DP-050=PASS
+CLOSURE_ELIGIBLE=YES
+
+AUDITED_REMEDIATION_HEAD=45dd5550635d56956b3ae073ddac60568ba8aac6
+REAUDIT_V2_BUNDLE_SHA256=e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace
+FINAL_AUDIT_REPORT=docs/audits/phase-10.50-independent-reaudit-v2.md
+AUDIT_REPORT_COMMIT=526650d382c69b81d01064f28d69d1bcbda7bed9
+
+DOMAIN_PRIVACY_POLICY_CONTRACT=PASS
+CANONICAL_PRIVACY_METADATA_REUSE=PASS
+NESTED_DEFAULT_PRIVACY_UNKNOWN_FIELDS=REJECTED
+NESTED_ALLOW_CROSS_DOMAIN=REJECTED
+NESTED_PRIVACY_SECRET_METADATA=REJECTED
+DIRECT_CONSTRUCTOR_SECRET_METADATA=REJECTED
+PHASE8_PRIVACY_GLOBAL_BEHAVIOR_CHANGED=NO
+PRIVACY_DECISION_SAFE_EVIDENCE=PASS
+PRIVACY_DECISION_ID=DETERMINISTIC_CONTENT_ADDRESSED
+PRIVACY_DECISION_REFERENCE_BOUND=PASS
+PRIVACY_DECISION_INVENTORY_BINDING=PASS
+PRIVACY_DECISION_FAKE_REFERENCE=REJECTED
+PRIVACY_DECISION_RAW_PAYLOAD_IN_TRACE=NO
+PARALLEL_PRIVACY_ENGINE=NONE
+PARALLEL_PRIVACY_RESOLVER=NONE
+PARALLEL_PRIVACY_REGISTRY=NONE
+PARALLEL_PRIVACY_STORE=NONE
+PARALLEL_PRIVACY_RUNTIME=NONE
+PRIVACY_POLICY_SENSITIVE_ENUM_ADDED=NO
+CROSS_DOMAIN_PRIVACY_AUTHORITY_ADDED=NO
+FIRST_PARTY_DOMAINS=12
+FIRST_PARTY_DECLARED_PRIVACY_POLICIES=11
+GENERAL_DOMAIN_PRIVACY_DEFAULT=NONE
+```
+
+The `SENSITIVE` shorthand in the objective above is an orientation label, not a
+`PrivacyPolicy` enum member. A sensitive Domain expresses that orientation
+through canonical `PrivacyPolicy.LOCAL_ONLY` plus canonical
+`SensitivityLevel.SENSITIVE`. Phase 10.50 does not add
+`PrivacyPolicy.SENSITIVE`, does not add `allow_cross_domain`, and does not
+create `DomainPrivacyEngine`, `DomainPrivacyResolver`, `DomainPrivacyRegistry`,
+`DomainPrivacyStore`, `DomainPrivacyRuntime`, `PrivacyDecisionTraceStore`,
+`PrivacyDecisionTraceRegistry`, `PrivacyDecisionTraceResolver` or
+`PrivacyDecisionTraceAssembler`.
+
+The MAJOR-01 remediation validates the exact canonical serialized
+`PrivacyMetadata` field set and rejects credential/secret-like nested metadata
+at the Domain declarative boundary before delegating to the tolerant canonical
+`PrivacyMetadata.from_mapping(...)`, and applies the same protection to the
+direct-constructor path; Phase 8 global parser semantics are unchanged. The
+MAJOR-02 remediation binds a real canonical `PrivacyDecision` to a
+deterministic content-addressed `PrivacyDecisionTraceEvidence`, derives the
+`PRIVACY_DECISION` reference from the evidence identity, and enforces the
+pairing through the existing authoritative `DomainTraceReferenceInventory` and
+`DefaultDomainTraceReferenceValidator`.
+
+Twelve first-party Domains are implemented; eleven declare an explicit privacy
+policy. General is the explicit no-Domain-wide-default case, so its privacy is
+resolved per resource/package/operation/context and absence of a Domain policy
+never becomes `REMOTE_ALLOWED`.
+
+Independent Audit V1 `FAIL` remains preserved as historical evidence. Phase
+10.50 is closed after Independent Re-audit V2 `PASS`: `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `MAJOR_01=VERIFIED_REMEDIATED`, `MAJOR_02=VERIFIED_REMEDIATED`,
+`MAJOR_03=WITHDRAWN_FALSE_POSITIVE`, `DP-050=VERIFIED_EXISTING`,
+`AT-DP-050=PASS`, and `CLOSURE_ELIGIBLE=YES`. Reference:
+`docs/reference/domain-privacy-policies.md`.
 
 ⸻
 
@@ -5424,7 +7244,7 @@ Block 24 - Secondary Domains
 * Reflection;
 * Concerns;
 * Languages;
-* Nil;
+* Paternidad;
 * Sport;
 * minimum functional versions
 * tests.
@@ -5758,7 +7578,7 @@ Minimum scenarios:
 83. Minimum reflection Domain
 84. Minimum Domain concerns
 85. Minimum Domain languages
-86. Nil Domain minimum
+86. Paternidad Domain minimum
 87. Minimum Sport Domain
 88. agent with a domain,
 89. agente multi-domain;
@@ -5826,10 +7646,14 @@ The phase should include:
 * Reflection Domain;
 * Concerns Domain;
 * Languages Domain;
-* Nil Domain;
+* Paternidad Domain;
 * Sport Domain;
 * Life Plan Domain;
 * Project Domain;
+
+* Mental Health Domain;
+
+* Neurodivergence Domain;
 * integration with Cognitive Layer;
 * integration with Agent Runtime;
 * integration with Planner;
@@ -5932,8 +7756,12 @@ Closure criteria
 * Minimum reflection Domain
 * Minimum Domain concerns
 * Minimum Domain languages
-* Nil Domain minimum
+* Paternidad Domain minimum
 * Minimum Sport Domain
+
+* Minimum Mental Health Domain
+
+* Minimum Neurodivergence Domain
 * Domain SDK;
 * scaffold;
 * test harness;
@@ -6021,6 +7849,14 @@ CMM OS may use the same infrastructure to:
 * maintain a personal project;
 * review training;
 * coordinate a life plan;
+
+* sustain emotional and therapy continuity without turning ordinary emotional conversation into clinical output;
+
+* organize longitudinal neurodivergence evidence without promoting hypotheses, screening results, or model inference to diagnosis;
+
+* sustain emotional and therapy continuity without turning ordinary conversation into clinical assessment;
+
+* organize longitudinal neurodivergence evidence without promoting hypotheses, screening results, or model inferences to diagnosis;
 * develop and maintain its own code.
 
 All of this without creating isolated assistants, duplicated memories, or incompatible architecture.
@@ -6032,3 +7868,950 @@ The Agent Runtime will continue to determine how targets and actions are pursued
 Domain Intelligence will determine what specialization should be applied in each context.
 
 From this infrastructure, Phase 11 can integrate UI, goals, workflows, agents, memory, knowledge, permissions, and domains into a complete, extensible, and coherent personal platform.
+
+Phase 10.51 — Core Conformance & Closure interpretation
+-------------------------------------------------------
+
+The 28-block Implementation Order above was the historical **build order**, not
+a backlog of components still to be created. Phases 10.1–10.50 incrementally
+implemented and independently closed every canonical owner it enumerates: the
+shared architecture and contracts (10.1–10.14), permissions/presentation/trace/
+memory (10.15–10.18), the twelve first-party Domain Packs (10.19–10.30),
+selection/conflict/session/events/SDK/API/observability/security/fragmentation
+(10.31–10.39), the integration and late policy/evidence layers
+(10.40–10.50), and the privacy policies closed at Phase 10.50.
+
+Phase 10.51 therefore does **not** recreate any historical block. It converts
+the original Implementation Order and closure criteria into an executable
+conformance-and-closure gate proving that:
+
+* every required capability has one canonical owner reachable through the
+  current public or integration path;
+* the architecture remains non-fragmented and no parallel engine, registry,
+  loader, resolver, store, runtime, planner, memory, validation, trace,
+  permission, security, model, benchmark, quality, knowledge-package or privacy
+  subsystem exists or is introduced;
+* the connected core journey (canonical `DomainDefinition` → pack/bootstrap/
+  registry → resolution → composition → permission restriction → operation/
+  workflow availability → Cognitive/Knowledge Package projection → privacy
+  decision → reference-only Domain Trace → proposal-based memory integration)
+  runs through real components, with an adversarial authority downgrade that
+  fails closed;
+* no missing core responsibility is silently deferred into Phase 10.52, Phase
+  10.53 or Phase 11.
+
+The historical order has become the closure matrix after the 10.1–10.50
+implementation. Design point `DP-051` (Domain Intelligence Core Conformance)
+and connected acceptance `AT-DP-051` (Core Conformance and Connected Journey)
+express this. The executable 28-block owner matrix is
+`tests/domains/domain_core_conformance_support.py`; the connected acceptance is
+`tests/domains/test_domain_core_dp051_acceptance.py`; the anti-fragmentation and
+boundary guard is `tests/domains/test_domain_core_conformance_architecture.py`;
+and the reference is `docs/reference/domain-core-conformance.md`.
+
+Final closure status: Independent Audit V1 `FAIL` identified one documentary
+major and one documentary minor; both were remediated without production or test
+changes. Independent Re-audit V2 is `PASS`: `PHASE10_51=CLOSED`,
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `MAJOR_01=VERIFIED_REMEDIATED`,
+`MINOR_01=VERIFIED_REMEDIATED`, `DP-051=VERIFIED_EXISTING`,
+`AT-DP-051=PASS`, `CLOSURE_ELIGIBLE=YES`. Audited remediation HEAD
+`9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report
+`docs/audits/phase-10.51-independent-reaudit-v2.md`; report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`. `NEW_PRODUCTION_FILES=0`,
+`PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase 10.52 is now
+independently re-audited and closed after final Re-audit V4 `PASS`
+(`PHASE10_52=CLOSED`, `DP-052=VERIFIED_EXISTING`, `AT-DP-052=PASS`,
+`CLOSURE_ELIGIBLE=YES`); the closed DP-051 historical baseline of twelve
+pre-10.52 packs and two deferred packs remains preserved verbatim as historical
+evidence. After Phase 10.53 the current first-party inventory is
+`FIRST_PARTY_DOMAIN_PACKS=14` with `CURRENT_DEFERRED_DOMAIN_PACKS=0`;
+`PHASE10_53=CLOSED` after independent Re-audit V4 `PASS`. Phase 11 remains out of
+scope.
+
+⸻
+
+10.52 - Mental Health Domain
+
+Objective
+
+Provide a dedicated Domain Pack for emotional wellbeing, personal emotional conversation, therapy continuity, therapy-session analysis, and longitudinal emotional context without turning ordinary conversation into default clinical assessment.
+
+The domain must preserve warmth, humanity, uncertainty, and conversational freedom while remaining compatible with the shared CMM OS epistemic, privacy, permission, memory, validation, and trace contracts.
+
+Canonical identity
+
+```text
+domain:mental-health
+MentalHealthProfile
+DP-052
+AT-DP-052
+privacy = SENSITIVE
+```
+
+Mental Health is a sibling of Health and Neurodivergence.
+
+It is not a child namespace of `domain:health` and does not inherit clinical authority merely because emotional or psychiatric context is present.
+
+Scope
+
+The Mental Health Domain owns specialization for:
+
+* emotional wellbeing;
+* ordinary personal emotional conversation and support;
+* therapy continuity;
+* preparation before therapy sessions;
+* processing after therapy sessions;
+* analysis of therapy-session transcripts and notes;
+* longitudinal emotional context;
+* emotionally relevant decisions;
+* lived meaning of relationships, life events, goals, setbacks, and transitions;
+* distinction between facts, interpretations, fears, intuitions, hypotheses, and uncertainty when relevant;
+* detection of rumination, loops, or repeated analysis without automatically pathologizing repetition;
+* proportionate safety escalation when an actual immediate-risk condition is resolved upstream or by domain rules.
+
+The domain must be able to operate in at least four semantically distinct interaction states:
+
+```text
+ordinary emotional conversation
+therapeutic reflection
+clinical psychiatric information
+actual immediate safety risk
+```
+
+These states may alter reasoning and presentation requirements but do not create separate Domain Packs or runtimes.
+
+Non-goals
+
+Mental Health must not:
+
+* medicalize ordinary distress, uncertainty, sadness, frustration, loneliness, conflict, or reflection by default;
+* diagnose from conversation;
+* infer a stable disorder solely from emotional language;
+* alter treatment or medication doses;
+* override Health on documented diagnosis, treatment, medication, or medical safety;
+* act as a substitute for a qualified clinician where professional assessment is materially required;
+* persist sensitive emotional inferences silently;
+* export sensitive emotional context silently;
+* transfer sensitive emotional context to another domain without purpose and permission;
+* contact clinicians, relatives, institutions, or other third parties autonomously;
+* create an independent Mental Health planner, runtime, memory store, Knowledge Graph, Cognitive Layer, or temporal engine.
+
+Knowledge and epistemic requirements
+
+Mental Health reuses Phase 8 knowledge contracts and must preserve:
+
+* provenance;
+* epistemic kind;
+* temporal validity;
+* confidence;
+* uncertainty;
+* contradiction identity;
+* correction and supersession history;
+* source authority by attribute and purpose;
+* sensitivity;
+* permission state.
+
+Where useful, domain reasoning must distinguish at least:
+
+```text
+FACT
+OBSERVATION
+INTERPRETATION
+HYPOTHESIS
+FEAR
+INTUITION
+PREFERENCE
+DECISION
+UNCERTAINTY
+```
+
+The exact storage representation remains the shared Phase 8 knowledge model; the Domain Pack must not create a competing claim taxonomy or persistence system.
+
+Conversation-derived interpretation must remain revisable and must not be promoted to fact merely because it is repeated, emotionally salient, or consistent with a prior model response.
+
+Resources
+
+Representative resources may include:
+
+* authorized conversation history;
+* therapy-session transcripts;
+* therapy notes;
+* user-authored reflections;
+* prior decisions and goals;
+* authorized relationship context;
+* authorized life-plan context;
+* purpose-minimized Health context;
+* purpose-minimized Neurodivergence context;
+* current safety information when relevant;
+* files or external sources explicitly authorized for the active task.
+
+Resource access is scoped. A resource available to Health or Relationships is not automatically available to Mental Health.
+
+Reasoning profile
+
+```text
+MentalHealthProfile
+```
+
+The profile should support a human, warm, natural conversational mode while preserving epistemic discipline.
+
+It may resolve modes such as:
+
+```text
+conversational
+supportive
+reflective
+therapy-preparation
+therapy-review
+structured-longitudinal-analysis
+safety-focused
+```
+
+Presentation style must remain separate from reasoning truth conditions, permissions, and safety decisions.
+
+Rules
+
+The minimum rule set must cover:
+
+* emotional-context relevance;
+* fact/interpretation/fear/intuition separation when materially useful;
+* non-pathologizing default;
+* proportionate questioning based on material information gaps;
+* continuity with authorized prior emotional context;
+* therapy-transcript source/provenance preservation;
+* separation between therapist statements, user statements, and model interpretation;
+* uncertainty preservation;
+* repeated-loop detection without automatic disorder attribution;
+* Health authority for clinical diagnosis/treatment/medication;
+* purpose-minimized cross-domain imports;
+* sensitive-inference persistence controls;
+* immediate-risk escalation without converting ordinary distress into emergency framing.
+
+Operations
+
+Representative operations may include:
+
+```text
+mental_health.review_emotional_context
+mental_health.prepare_therapy_session
+mental_health.review_therapy_session
+mental_health.analyze_therapy_transcript
+mental_health.compare_emotional_periods
+mental_health.map_fact_interpretation_uncertainty
+mental_health.review_emotional_decision
+mental_health.propose_memory_update
+```
+
+Operations that persist, export, communicate, or mutate external systems require the applicable Phase 10 permission and approval contracts.
+
+Workflows
+
+Minimum workflows should include:
+
+```text
+Emotional Context Review
+Therapy Session Preparation
+Therapy Session Post-Processing
+Therapy Transcript Review
+Longitudinal Emotional Review
+Emotionally Relevant Decision Review
+Sensitive Memory Proposal Review
+Safety Escalation Review
+```
+
+A workflow may pause for missing information or approval and must reuse the shared Agent Runtime and Workflow Engine.
+
+Permissions and approvals
+
+Default sensitivity:
+
+```text
+SENSITIVE
+```
+
+The effective permission policy must separate:
+
+* read;
+* infer;
+* propose persistence;
+* persist;
+* transfer;
+* export;
+* communicate;
+* external mutation.
+
+Permission to discuss an inference does not imply permission to persist it.
+
+Permission to read therapy material does not imply permission to transfer it to Relationships, Health, Neurodivergence, or an external provider.
+
+No autonomous external communication is allowed for sensitive Mental Health content.
+
+Cross-domain coordination
+
+Mental Health may act as primary with supporting domains such as:
+
+```text
+domain:relationships
+domain:neurodivergence
+domain:health
+domain:reflection
+domain:concerns
+domain:life-plan
+domain:general
+```
+
+Examples:
+
+```text
+"Prepare tomorrow's psychologist session"
+primary = domain:mental-health
+supporting = relationships / neurodivergence / health when materially relevant
+```
+
+```text
+"A psychiatrist changed my medication and I feel different emotionally"
+primary = domain:health
+supporting = mental-health / neurodivergence when materially relevant
+```
+
+Any transfer must preserve:
+
+* source-domain authority;
+* provenance;
+* epistemic kind;
+* temporal validity;
+* uncertainty;
+* sensitivity;
+* purpose limitation;
+* restrictive permission intersection.
+
+Supporting domains receive only the minimum authorized projection needed for the active purpose.
+
+Memory
+
+Mental Health uses the shared Domain Memory Integration contracts.
+
+It must not create a private parallel memory store.
+
+Sensitive emotional interpretations are proposal-first and require the applicable confirmation before persistence.
+
+Existing Health knowledge must not be silently moved, duplicated, or reclassified into Mental Health.
+
+Any future reclassification must be explicit, provenance-preserving, auditable, and supervised.
+
+Presentation
+
+Mental Health presentation should be capable of being:
+
+* conversational and human;
+* emotionally attentive;
+* direct when useful;
+* structured when the task requires structure;
+* non-clinical by default for ordinary emotional conversation;
+* explicit about uncertainty when interpretation matters;
+* calm and proportionate around safety.
+
+Presentation must not fabricate therapeutic certainty, diagnostic authority, or crisis framing.
+
+Traceability
+
+Domain Trace must identify:
+
+* Mental Health as primary or supporting domain;
+* selected profile;
+* rule/operation/workflow references;
+* cross-domain projections;
+* permission and approval decisions;
+* memory proposals;
+* safety escalations;
+* Knowledge Package and cognitive trace references.
+
+It must not copy private prompt content, chain of thought, sensitive transcript bodies, or subordinate traces.
+
+Privacy
+
+Initial orientation:
+
+```text
+Mental Health -> SENSITIVE
+```
+
+Remote processing is governed by the effective privacy intersection and must not be inferred from general provider availability.
+
+Sensitive therapy or emotional material must not enter unauthorized caches, exports, providers, or supporting-domain contexts.
+
+Knowledge Package
+
+The Mental Health Knowledge Package specializes the shared Phase 8 `KnowledgePackage` and may require domain-relevant sections for:
+
+* active emotional objective;
+* source-separated conversation/therapy evidence;
+* facts and observations;
+* interpretations and hypotheses;
+* uncertainty and contradictions;
+* relevant longitudinal context;
+* authorized supporting-domain projections;
+* permissions and privacy.
+
+It must retain the common base contract and must not duplicate stored knowledge.
+
+Benchmarks and quality metrics
+
+Representative benchmark areas:
+
+* ordinary emotional conversation without over-clinicalization;
+* fact versus interpretation separation;
+* continuity across therapy sessions;
+* transcript speaker/source fidelity;
+* appropriate questioning;
+* non-pathologizing loop handling;
+* emotionally useful responses;
+* proportionate safety escalation;
+* cross-domain minimization;
+* privacy compliance.
+
+Blocking quality failures include:
+
+* invented diagnosis;
+* treatment or medication change;
+* unsupported promotion of interpretation to fact;
+* unauthorized sensitive transfer;
+* unauthorized persistence;
+* emergency escalation without a resolved material basis;
+* loss of provenance in therapy material.
+
+AT-DP-052 acceptance contract
+
+`AT-DP-052` is the connected acceptance gate for the pack and is independently verified `PASS` by final Re-audit V4.
+
+At minimum it must test:
+
+* canonical registration of `domain:mental-health`;
+* `MentalHealthProfile` resolution;
+* ordinary emotional conversation without default clinical presentation;
+* therapy-session preparation and review;
+* therapy-transcript provenance;
+* epistemic separation;
+* sensitive inference persistence controls;
+* Health clinical-authority boundary;
+* cross-domain permission intersection;
+* supporting-domain minimization;
+* privacy `SENSITIVE`;
+* no parallel cognitive/runtime/memory engine;
+* regression protection for existing domains;
+* green global suite.
+
+Implementation boundary
+
+Phase 10.52 implements only the Domain Pack specialization required by existing shared infrastructure.
+
+It must not reopen Phases 0–9, 10.15–10.20, or create new platform infrastructure that belongs to Phase 11.
+
+Completion criteria
+
+Phase 10.52 is complete only when:
+
+* `domain:mental-health` is registered;
+* `MentalHealthProfile` is available;
+* resources, rules, operations, workflows, permissions, presentation, trace, memory integration, Knowledge Package schema, privacy, benchmarks, and quality metrics are connected;
+* Health authority boundaries are enforced;
+* cross-domain projections are purpose-minimized and permission-filtered;
+* no sensitive inference is silently persisted or transferred;
+* `AT-DP-052` passes;
+* domain/adversarial tests pass;
+* global regression suite passes;
+* independent closure audit passes.
+
+Final independent closure evidence:
+
+```text
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+DP-052=VERIFIED_EXISTING
+AT-DP-052=PASS
+CLOSURE_ELIGIBLE=YES
+```
+
+Final closure status (Phase 10.52)
+
+The Domain Pack is implemented over the existing shared infrastructure:
+`cmm/domains/mental_health/` (19 modules), `MentalHealthProfile`, 10 resources,
+13 rules, 8 operations, 8 shared-engine workflows, restrictive permissions,
+canonical `SENSITIVE` privacy, presentation, reference-only trace,
+proposal-first memory integration, Knowledge Package schema, model policy,
+benchmarks and quality metrics, atomic validation-first registration and
+`build_standard_mental_health_domain_bootstrap()`.
+
+`domain:mental-health` is the thirteenth first-party Domain Pack
+(`FIRST_PARTY_DOMAIN_PACKS=13` at Phase 10.52 closure); the closed DP-051
+historical baseline (twelve pre-10.52 packs, two deferred packs) is preserved
+verbatim and only the current inventory is extended. Health keeps clinical
+authority, ordinary emotional conversation is non-clinical by default, therapy
+transcript provenance is preserved, sensitive inference is never silently
+persisted, cross-domain context is purpose-minimized, and authority downgrades
+are revalidated and fail closed.
+
+Phase 10.53 adds `domain:neurodivergence` as the fourteenth first-party Domain
+Pack. The current inventory is `FIRST_PARTY_DOMAIN_PACKS=14` with
+`CURRENT_DEFERRED_DOMAIN_PACKS=0`; `PHASE10_53=CLOSED` after final independent
+Re-audit V4 `PASS`, with `DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS`,
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0` and `CLOSURE_ELIGIBLE=YES`. Exploration is
+permitted (`EXPLORATORY_MODEL_INFERENCE=ALLOWED`,
+`DIFFERENTIAL_REASONING=BALANCED_NOT_ADVERSARIAL`) while promotion fails closed
+(`MODEL_INFERENCE_TO_CONFIRMED_DIAGNOSIS=BLOCKED`,
+`SCREENING_TO_CONFIRMED_DIAGNOSIS=BLOCKED`,
+`SELF_REPORT_TO_CONFIRMED_DIAGNOSIS=BLOCKED`); Health clinical authority,
+sibling source authority, the `SENSITIVE`/`LOCAL_ONLY` privacy floor,
+current-permission-gated cross-domain admission, canonical approval consumption
+and proposal-first sensitive memory are all preserved. Reference:
+`docs/reference/neurodivergence-domain.md`.
+
+```text
+PHASE10_52=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=CLOSED
+MAJOR_02=CLOSED
+MAJOR_03=CLOSED
+MINOR_01=CLOSED
+DP-052=VERIFIED_EXISTING
+AT-DP-052=PASS
+CLOSURE_ELIGIBLE=YES
+PHASE10_53=NOT_STARTED
+```
+
+Reference: `docs/reference/mental-health-domain.md`. Final independent Re-audit
+V4 is `PASS`; audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`; Re-audit V4
+bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; final report
+`docs/audits/phase-10.52-independent-reaudit-v4.md`; audit-report commit
+`78842087e7a52795c217ed7ca4b4a7f3a2112969`.
+
+⸻
+
+10.53 - Neurodivergence Domain
+
+Objective
+
+Provide a dedicated Domain Pack for longitudinal neurodevelopmental organization and reasoning across confirmed information, evaluations in progress, hypotheses, developmental history, functional impact, and differential/overlap analysis without promoting uncertainty to diagnosis.
+
+Canonical identity
+
+```text
+domain:neurodivergence
+NeurodivergenceProfile
+DP-053
+AT-DP-053
+privacy = SENSITIVE
+```
+
+Neurodivergence is a sibling of Health and Mental Health.
+
+Health retains authority for clinical diagnosis status, medication, treatment, medical tests, and medical safety.
+
+Scope
+
+The Neurodivergence Domain owns specialization for:
+
+* confirmed TDAH information;
+* TEA when documented as confirmed, in evaluation, suspected, hypothesized, ruled out, or insufficiently supported;
+* high intellectual abilities / AACC under the same evidence-status discipline;
+* TERIA/ARFID under the same evidence-status discipline;
+* dysgraphia and related documented learning/writing difficulties;
+* developmental history;
+* executive functioning;
+* sensory functioning;
+* academic and occupational/functional impact;
+* social functioning through a neurodevelopmental lens;
+* neuropsychological and psychometric assessments;
+* longitudinal evidence;
+* differential and overlap analysis;
+* preparation of structured evidence for professional assessment.
+
+The pack may organize several neurodevelopmental questions at once without assuming that they share one cause or one diagnostic status.
+
+Non-goals
+
+Neurodivergence must not:
+
+* promote screening results to diagnosis;
+* promote self-report to diagnosis;
+* promote an isolated trait to a stable diagnostic identity;
+* promote model inference to confirmed diagnosis;
+* assume that every academic, emotional, social, sensory, or executive difficulty is caused by neurodivergence;
+* alter medication or treatment;
+* override Health on documented clinical status or medical safety;
+* erase competing explanations;
+* silently persist inferred labels;
+* silently transfer sensitive developmental or clinical material;
+* create an independent Neurodivergence planner, runtime, memory store, Knowledge Graph, Cognitive Layer, or temporal engine.
+
+Knowledge and epistemic requirements
+
+The domain must preserve a visible certainty hierarchy equivalent to:
+
+```text
+CONFIRMED
+IN EVALUATION
+HYPOTHESIS
+NOT CONFIRMED / RULED OUT / INSUFFICIENTLY SUPPORTED
+```
+
+The exact canonical enums may reuse shared Phase 8 epistemic contracts, but the semantic distinctions above are mandatory.
+
+Every material neurodevelopmental claim should preserve when available:
+
+* source;
+* author/observer;
+* date;
+* assessment context;
+* method or instrument;
+* direct observation versus retrospective report;
+* current versus historical relevance;
+* confidence/uncertainty;
+* contradiction or competing evidence;
+* clinical status authority.
+
+A diagnostic label must not be inferred solely from similarity between user experience and diagnostic criteria.
+
+Resources
+
+Representative resources may include:
+
+* authorized developmental history;
+* school records;
+* academic records;
+* neuropsychological reports;
+* psychometric results;
+* clinical reports;
+* assessment notes;
+* user-authored chronology;
+* authorized conversation history;
+* purpose-minimized Health data;
+* purpose-minimized Mental Health context;
+* purpose-minimized University context;
+* purpose-minimized Relationships context;
+* external clinical or scientific information when explicitly authorized and current verification is required.
+
+Reasoning profile
+
+```text
+NeurodivergenceProfile
+```
+
+The profile should support:
+
+```text
+longitudinal-analysis
+developmental-history
+assessment-preparation
+evidence-comparison
+differential-overlap
+functional-impact
+structured-summary
+```
+
+It must prefer evidence organization and uncertainty preservation over premature categorical conclusions.
+
+Rules
+
+The minimum rule set must cover:
+
+* certainty-state preservation;
+* source authority by attribute and purpose;
+* developmental temporality;
+* direct observation versus retrospective report;
+* screening versus diagnostic assessment;
+* trait versus impairment/function distinction;
+* longitudinal corroboration;
+* contradiction preservation;
+* differential explanations;
+* overlap among TDAH, TEA, AACC, TERIA/ARFID, dysgraphia, Mental Health, and other relevant contexts;
+* Health authority for clinical diagnosis/treatment/medication;
+* purpose-minimized cross-domain imports;
+* prohibition on global attribution of difficulties to neurodivergence;
+* sensitive-label persistence controls.
+
+Operations
+
+Representative operations may include:
+
+```text
+neurodivergence.build_developmental_timeline
+neurodivergence.review_evidence
+neurodivergence.compare_assessment_sources
+neurodivergence.map_certainty_states
+neurodivergence.review_functional_impact
+neurodivergence.analyze_differential_overlap
+neurodivergence.prepare_assessment_summary
+neurodivergence.propose_memory_update
+```
+
+Workflows
+
+Minimum workflows should include:
+
+```text
+Developmental History Review
+Evidence Consolidation Review
+Diagnostic-Status Review
+Neuropsychological Assessment Preparation
+Assessment Result Integration
+Differential and Overlap Review
+Functional Impact Review
+Sensitive Memory Proposal Review
+```
+
+The workflows organize evidence and preparation; they do not perform autonomous diagnosis.
+
+Permissions and approvals
+
+Default sensitivity:
+
+```text
+SENSITIVE
+```
+
+The policy must distinguish read, infer, persist, transfer, export, and communicate permissions.
+
+Sensitive diagnostic hypotheses or developmental interpretations must not be persisted or transferred solely because they are useful during one reasoning session.
+
+No autonomous external communication of assessment material, diagnostic hypotheses, or sensitive developmental history is allowed.
+
+Cross-domain coordination
+
+Typical supporting domains:
+
+```text
+domain:health
+domain:mental-health
+domain:university
+domain:relationships
+domain:general
+```
+
+Examples:
+
+```text
+"Could these social difficulties fit TEA or anxiety?"
+primary = domain:neurodivergence
+supporting = domain:mental-health
+```
+
+```text
+"Concerta seems to increase my anxiety"
+primary = domain:neurodivergence
+supporting = domain:health + domain:mental-health
+```
+
+```text
+"Summarize evidence for an upcoming neuropsychological assessment"
+primary = domain:neurodivergence
+supporting = domain:health / domain:university / domain:mental-health as authorized
+```
+
+Health remains authoritative for medication, treatment, medical contraindications, and documented diagnosis status.
+
+Mental Health remains authoritative for emotional/therapy context when that context is imported as support.
+
+University remains authoritative for academic/institutional context when imported as support.
+
+Relationships remains authoritative for relationship-specific context when imported as support.
+
+Transfers must preserve source-domain authority, provenance, epistemic kind, temporality, uncertainty, sensitivity, purpose limitation, and restrictive permission intersection.
+
+Memory
+
+Neurodivergence uses shared Phase 8/10.18 memory and Knowledge Package contracts.
+
+It must not create a diagnosis registry or independent longitudinal store outside shared knowledge infrastructure.
+
+Existing Health knowledge must not be silently migrated or duplicated into Neurodivergence.
+
+Future reclassification requires explicit supervised transformation with preserved provenance and auditability.
+
+Presentation
+
+Neurodivergence presentation should make uncertainty and status understandable without flattening the evidence.
+
+It should distinguish clearly between:
+
+* confirmed documented information;
+* evaluation in progress;
+* plausible hypothesis;
+* unsupported or contradictory evidence;
+* functional observations;
+* model interpretation.
+
+The system should be able to produce professional structured summaries for assessment preparation while retaining source fidelity.
+
+Traceability
+
+Domain Trace must identify:
+
+* Neurodivergence as primary or supporting domain;
+* profile and rule references;
+* resources and Knowledge Package references;
+* certainty-sensitive operations/workflows;
+* cross-domain projections;
+* permission decisions;
+* memory proposals;
+* cognitive trace references.
+
+It must not store private prompt text, chain of thought, sensitive source bodies, or copied subordinate traces.
+
+Privacy
+
+Initial orientation:
+
+```text
+Neurodivergence -> SENSITIVE
+```
+
+Developmental, clinical, school, assessment, and sensitive personal context must follow the restrictive effective privacy policy.
+
+Provider availability does not grant remote-processing permission.
+
+Knowledge Package
+
+The Neurodivergence Knowledge Package specializes the shared Phase 8 `KnowledgePackage` and may require domain-relevant sections for:
+
+* active assessment/reasoning objective;
+* developmental timeline;
+* evidence by source and period;
+* confirmed information;
+* evaluation-in-progress information;
+* hypotheses;
+* contradictory/insufficient evidence;
+* functional observations;
+* authorized supporting-domain projections;
+* privacy and permissions.
+
+It must not become a second medical record or duplicate stored Health knowledge.
+
+Benchmarks and quality metrics
+
+Representative benchmark areas:
+
+* certainty-state preservation;
+* developmental chronology;
+* source/observer separation;
+* screening versus diagnosis separation;
+* longitudinal corroboration;
+* differential overlap reasoning;
+* functional relevance;
+* competing explanations;
+* cross-domain minimization;
+* privacy compliance.
+
+Blocking quality failures include:
+
+* hypothesis promoted to diagnosis;
+* self-report or screening promoted to diagnosis;
+* model inference presented as clinical fact;
+* all difficulties attributed to neurodivergence without evidence;
+* medication/treatment modification;
+* Health authority violation;
+* unauthorized sensitive transfer or persistence;
+* provenance loss.
+
+AT-DP-053 acceptance contract
+
+`AT-DP-053` is independently verified `PASS` in final Re-audit V4.
+
+At minimum it must test:
+
+* canonical registration of `domain:neurodivergence`;
+* `NeurodivergenceProfile` resolution;
+* certainty hierarchy preservation;
+* screening/self-report/model-inference non-promotion;
+* developmental chronology;
+* differential and overlap reasoning;
+* Health authority boundary;
+* purpose-minimized Mental Health/University/Relationships projections;
+* sensitive persistence and transfer controls;
+* privacy `SENSITIVE`;
+* no parallel cognitive/runtime/memory engine;
+* regression protection for existing domains;
+* green global suite.
+
+Implementation boundary
+
+Phase 10.53 implements only the Domain Pack specialization required by existing shared infrastructure.
+
+It must not reopen Phases 0–9 or replace Health, Mental Health, University, Relationships, Cognitive Layer, Agent Runtime, or Phase 11 platform responsibilities.
+
+Completion criteria
+
+Phase 10.53 is complete only when:
+
+* `domain:neurodivergence` is registered;
+* `NeurodivergenceProfile` is available;
+* resources, rules, operations, workflows, permissions, presentation, trace, memory integration, Knowledge Package schema, privacy, benchmarks, and quality metrics are connected;
+* certainty states cannot be silently promoted;
+* cross-domain source authority is preserved;
+* sensitive persistence and transfer controls are enforced;
+* `AT-DP-053` passes;
+* domain/adversarial tests pass;
+* global regression suite passes;
+* independent closure audit passes.
+
+The pack is complete, independently re-audited and closed after final Re-audit
+V4 `PASS`. Audit history remains preserved: Independent Audit V1 `FAIL`,
+Independent Re-audit V2 `FAIL`, and Independent Re-audit V3 redo `FAIL`;
+the final Independent Re-audit V4 independently verified the trusted-authority
+and provenance remediation with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS` and `CLOSURE_ELIGIBLE=YES`.
+
+The final authority boundary preserves the shared runtime-only
+`ReasoningAuthorityContext`; caller-authored metadata cannot manufacture
+authority (`METADATA_ONLY_AUTHORITY_FORGERY=BLOCKED`;
+`AUTHORITY_SERIALIZATION=STRIPPED`; `CALLER_REHYDRATION_OF_AUTHORITY=BLOCKED`).
+Clinical source authority travels as a provenance-bound
+`AuthoritativeSourceClaim` built from canonical `ResourceProvenance`, so
+definitive Health semantics without trusted source provenance remain blocked
+while the canonical provenance-bound path can confirm
+(`TRUSTED_SOURCE_PROVENANCE_BINDING=PASS`).
+
+```text
+PHASE10_53 = CLOSED
+INDEPENDENT_REAUDIT_V4 = PASS
+BLOCKERS = 0
+MAJORS = 0
+MINORS = 0
+DP-053 = VERIFIED_EXISTING
+AT-DP-053 = PASS
+CLOSURE_ELIGIBLE = YES
+FIRST_PARTY_DOMAIN_PACKS = 14
+CURRENT_DEFERRED_DOMAIN_PACKS = 0
+AUDITED_IMPLEMENTATION_HEAD = 54a46da5770ed9da05a6369995683919d70a08bf
+REAUDIT_V4_BUNDLE_SHA256 = 2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f
+```
+
+Final report: `docs/audits/phase-10.53-independent-reaudit-v4.md`. Audit-report commit:
+`c59251b929c0ebe314f12d100169ea952d510d74`. The implemented contract is documented in
+`docs/reference/neurodivergence-domain.md`; the connected acceptance is
+`tests/domains/test_neurodivergence_domain_dp053_acceptance.py` (29
+checkpoints).
+
+<!-- PHASE10_49_FINAL_AUDIT_PROVENANCE -->
+```text
+INDEPENDENT_REAUDIT_V3=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+DP-049=VERIFIED_EXISTING
+AT-DP-049=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=b5688b9d686f7cf52ab02f4f911818656370b39d
+REAUDIT_V3_BUNDLE_SHA256=c179ba16bc99e2bea4b7bccb755f8e958839bc617fa08a3cd2efa5a939f5912a
+PHASE10_49=CLOSED
+```

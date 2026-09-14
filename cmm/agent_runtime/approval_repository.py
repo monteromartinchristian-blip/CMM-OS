@@ -7,6 +7,7 @@ ApprovalDecision, and ApprovalResolution domain entities.
 from __future__ import annotations
 
 import threading
+from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
@@ -29,6 +30,15 @@ def _now_utc() -> datetime:
 @runtime_checkable
 class ApprovalRepository(Protocol):
     """Protocol defining the repository interface for the Human Approval System."""
+
+    @property
+    def atomic_consumption_guaranteed(self) -> bool:
+        """Declare that ``critical_section`` protects validation and consumption."""
+        ...
+
+    def critical_section(self) -> AbstractContextManager[None]:
+        """Return one boundary covering reads, validation, and consumption."""
+        ...
 
     def add_request(self, request: ApprovalRequest) -> ApprovalRequest:
         """Store a new ApprovalRequest."""
@@ -89,6 +99,26 @@ class ApprovalRepository(Protocol):
         """Evaluate expiration times and mark expired pending requests."""
         ...
 
+    def mark_consumed(
+        self, request_id: str, *, now: datetime | None = None
+    ) -> bool:
+        """Atomically mark a request as consumed. Returns True iff this call consumed it."""
+        ...
+
+    def mark_revoked(
+        self, request_id: str, actor_id: str, *, now: datetime | None = None
+    ) -> bool:
+        """Mark a request as revoked. Returns True iff this call revoked it."""
+        ...
+
+    def is_consumed(self, request_id: str) -> bool:
+        """Check if a request has been consumed."""
+        ...
+
+    def is_revoked(self, request_id: str) -> bool:
+        """Check if a request has been revoked."""
+        ...
+
 
 class InMemoryApprovalRepository:
     """Deterministic, thread-safe in-memory implementation of ApprovalRepository."""
@@ -99,6 +129,17 @@ class InMemoryApprovalRepository:
         self._decisions: dict[str, ApprovalDecision] = {}
         self._decisions_by_request: dict[str, list[str]] = {}
         self._resolutions: dict[str, ApprovalResolution] = {}
+        self._consumed: dict[str, datetime] = {}
+        self._revoked: dict[str, tuple[str, datetime]] = {}
+
+    @property
+    def atomic_consumption_guaranteed(self) -> bool:
+        """The repository's re-entrant lock protects the full consume sequence."""
+        return True
+
+    def critical_section(self) -> AbstractContextManager[None]:
+        """Use the repository RLock as one re-entrant atomic boundary."""
+        return self._lock
 
     def add_request(self, request: ApprovalRequest) -> ApprovalRequest:
         """Store a new ApprovalRequest."""
@@ -291,3 +332,47 @@ class InMemoryApprovalRepository:
                     self._requests[req_id] = updated_req
                     expired_requests.append(updated_req)
             return tuple(expired_requests)
+
+    def mark_consumed(
+        self, request_id: str, *, now: datetime | None = None
+    ) -> bool:
+        """Atomically mark a request as consumed. Returns True iff this call consumed it.
+
+        Thread-safe: two concurrent calls for the same one_time request
+        will result in exactly one returning True.
+        """
+        current_time = now or _now_utc()
+        with self._lock:
+            if request_id not in self._requests:
+                raise ApprovalRequestNotFoundError(
+                    f"ApprovalRequest with ID {request_id!r} not found"
+                )
+            if request_id in self._consumed:
+                return False
+            self._consumed[request_id] = current_time
+            return True
+
+    def mark_revoked(
+        self, request_id: str, actor_id: str, *, now: datetime | None = None
+    ) -> bool:
+        """Mark a request as revoked. Returns True iff this call revoked it."""
+        current_time = now or _now_utc()
+        with self._lock:
+            if request_id not in self._requests:
+                raise ApprovalRequestNotFoundError(
+                    f"ApprovalRequest with ID {request_id!r} not found"
+                )
+            if request_id in self._revoked:
+                return False
+            self._revoked[request_id] = (actor_id, current_time)
+            return True
+
+    def is_consumed(self, request_id: str) -> bool:
+        """Check if a request has been consumed."""
+        with self._lock:
+            return request_id in self._consumed
+
+    def is_revoked(self, request_id: str) -> bool:
+        """Check if a request has been revoked."""
+        with self._lock:
+            return request_id in self._revoked

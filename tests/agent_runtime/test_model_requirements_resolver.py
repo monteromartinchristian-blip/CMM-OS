@@ -16,6 +16,7 @@ from cmm.agent_runtime.model_requirements_errors import (
 from cmm.agent_runtime.model_requirements_resolver import (
     resolve_model_requirements,
 )
+from cmm.domains.model_policy_contracts import DomainModelPolicy
 from kernel.llm.model_selection import ModelRequirements
 
 
@@ -524,3 +525,236 @@ def test_phase_9_29_adapter_exports() -> None:
     for name in expected:
         assert hasattr(runtime, name)
         assert name in runtime.__all__
+
+
+# ── Phase 10.46 – Domain model policy composition ─────────────────────────────
+
+
+def test_runtime_resolution_composes_domain_policy_source() -> None:
+    from cmm.agent_runtime.model_requirements_resolver import (
+        resolve_runtime_model_requirements,
+    )
+    from cmm.agent_runtime.operation_execution_contracts import (
+        OperationDescriptor,
+    )
+
+    operation = OperationDescriptor(
+        name="llm.reason",
+        description="Reason over content",
+        model_requirements=ModelRequirements(
+            minimum_context_window=16_000,
+            allowed_providers=("local", "remote"),
+            maximum_input_cost_per_million=Decimal("2.00"),
+            premium_allowed=True,
+        ),
+    )
+
+    resolved = resolve_runtime_model_requirements(
+        operation=operation,
+        domain_policies=(
+            DomainModelPolicy(
+                domain_id="domain:health",
+                require_structured_output=True,
+                minimum_context_window=64_000,
+            ),
+        ),
+    )
+
+    domain_sources = tuple(
+        source for source in resolved.sources if source.source_kind == "domain"
+    )
+    assert len(domain_sources) == 1
+    assert domain_sources[0].source_id == "domain:health"
+    assert domain_sources[0].priority == 25
+    assert resolved.effective.structured_output is True
+    assert resolved.effective.minimum_context_window == 64_000
+    assert resolved.effective.allowed_providers == ("local", "remote")
+    assert resolved.effective.maximum_input_cost_per_million == Decimal("2.00")
+    # A neutral domain source abstains from premium permission composition, so
+    # the authoritative operation allow is preserved.
+    assert resolved.effective.premium_allowed is True
+
+
+def test_runtime_resolution_supports_domain_policies_alone() -> None:
+    from cmm.agent_runtime.model_requirements_resolver import (
+        resolve_runtime_model_requirements,
+    )
+
+    resolved = resolve_runtime_model_requirements(
+        domain_policies=(
+            DomainModelPolicy(
+                domain_id="domain:health",
+                require_reasoning=True,
+                minimum_context_window=32_768,
+            ),
+        )
+    )
+
+    assert len(resolved.sources) == 1
+    assert resolved.sources[0].source_kind == "domain"
+    assert resolved.effective.reasoning is True
+    assert resolved.effective.minimum_context_window == 32_768
+
+
+def test_runtime_resolution_orders_multiple_domain_policies_deterministically() -> None:
+    from cmm.agent_runtime.model_requirements_resolver import (
+        resolve_runtime_model_requirements,
+    )
+
+    resolved = resolve_runtime_model_requirements(
+        domain_policies=(
+            DomainModelPolicy(
+                domain_id="domain:law",
+                require_tool_calling=True,
+                minimum_context_window=128_000,
+            ),
+            DomainModelPolicy(
+                domain_id="domain:health",
+                require_structured_output=True,
+                minimum_context_window=64_000,
+            ),
+        )
+    )
+
+    assert tuple(source.source_id for source in resolved.sources) == (
+        "domain:health",
+        "domain:law",
+    )
+    assert resolved.effective.structured_output is True
+    assert resolved.effective.tool_calling is True
+    assert resolved.effective.minimum_context_window == 128_000
+
+
+def test_runtime_resolution_domain_policy_cannot_widen_stricter_sources() -> None:
+    from cmm.agent_runtime.model_requirements_resolver import (
+        resolve_runtime_model_requirements,
+    )
+    from cmm.agent_runtime.operation_execution_contracts import (
+        OperationDescriptor,
+    )
+
+    operation = OperationDescriptor(
+        name="llm.reason",
+        description="Reason over content",
+        model_requirements=ModelRequirements(
+            privacy="LOCAL_ONLY",
+            excluded_providers=("vendor-x",),
+            maximum_input_cost_per_million=Decimal("1.00"),
+            premium_allowed=False,
+        ),
+    )
+
+    resolved = resolve_runtime_model_requirements(
+        operation=operation,
+        domain_policies=(
+            DomainModelPolicy(
+                domain_id="domain:health",
+                require_structured_output=True,
+            ),
+        ),
+    )
+
+    assert resolved.effective.privacy == "LOCAL_ONLY"
+    assert resolved.effective.excluded_providers == ("vendor-x",)
+    assert resolved.effective.maximum_input_cost_per_million == Decimal("1.00")
+    assert resolved.effective.premium_allowed is False
+    assert resolved.effective.structured_output is True
+
+
+def test_runtime_resolution_rejects_invalid_domain_policy_values() -> None:
+    from cmm.agent_runtime.model_requirements_resolver import (
+        resolve_runtime_model_requirements,
+    )
+
+    with pytest.raises(ModelRequirementsResolutionError):
+        resolve_runtime_model_requirements(domain_policies=(object(),))
+
+
+def test_phase_10_46_adapter_exports() -> None:
+    import cmm.agent_runtime as runtime
+
+    expected = (
+        "domain_model_fallback_policy",
+        "domain_model_requirement_source",
+        "domain_model_validation_requirements",
+    )
+
+    for name in expected:
+        assert hasattr(runtime, name)
+        assert name in runtime.__all__
+
+
+# ── Phase 10.46 remediation V1 – premium participation neutrality ─────────────
+
+
+def _neutral_domain_source() -> ModelRequirementsSource:
+    return ModelRequirementsSource(
+        source_kind="domain",
+        source_id="domain:health",
+        requirements=ModelRequirements(),
+        contributes_premium_permission=False,
+    )
+
+
+def test_neutral_domain_source_does_not_cancel_premium_allow() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+
+    resolved = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is True
+
+
+def test_neutral_domain_source_does_not_cancel_premium_deny() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=False),
+    )
+
+    resolved = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is False
+
+
+def test_only_neutral_domain_source_keeps_premium_fail_closed() -> None:
+    resolved = resolve_model_requirements((_neutral_domain_source(),))
+
+    assert resolved.effective.premium_allowed is False
+
+
+def test_adding_neutral_domain_source_does_not_change_premium_authority() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+
+    without_domain = resolve_model_requirements((operation,))
+    with_domain = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert (
+        with_domain.effective.premium_allowed
+        == without_domain.effective.premium_allowed
+    )
+    assert with_domain.effective.premium_allowed is True
+
+
+def test_participating_deny_still_wins_over_participating_allow() -> None:
+    allow = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:allow",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+    deny = ModelRequirementsSource(
+        source_kind="goal",
+        source_id="goal:deny",
+        requirements=ModelRequirements(premium_allowed=False),
+    )
+
+    resolved = resolve_model_requirements((allow, deny, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is False

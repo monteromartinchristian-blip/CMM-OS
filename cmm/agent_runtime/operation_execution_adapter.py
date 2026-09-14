@@ -7,7 +7,7 @@ to registered transformation operations without allowing arbitrary execution.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,8 +19,11 @@ from cmm.agent_runtime.enums import (
 from cmm.agent_runtime.errors import (
     AgentOperationCapabilityError,
     AgentOperationCapabilityExceededError,
+    AgentOperationError,
     AgentOperationIdempotencyConflictError,
     AgentOperationRequestNotFoundError,
+    CheckpointError,
+    ControlledOperationExecutionError,
     DuplicateAgentOperationRequestError,
     ValidationAdapterError,
 )
@@ -189,7 +192,7 @@ class AgentExecutionAdapter:
             desc, cap = self._resolver.resolve(
                 request.operation_name, request.operation_version, uses_count
             )
-        except Exception as exc:  # noqa: BLE001
+        except AgentOperationError:
             res_id = f"op-res-{uuid.uuid4().hex[:8]}"
             res = AgentOperationExecutionResult(
                 id=res_id,
@@ -202,7 +205,7 @@ class AgentExecutionAdapter:
                 idempotency_key=request.idempotency_key,
                 status=AgentOperationExecutionStatus.BLOCKED,
                 success=False,
-                reason_codes=("operation.capability_error", str(exc)),
+                reason_codes=("operation.capability_error",),
                 started_at=started_at,
                 completed_at=_now_iso(),
             )
@@ -214,6 +217,15 @@ class AgentExecutionAdapter:
         if requires_val and self._validation_adapter is None:
             raise ValidationAdapterError(
                 f"Operation '{request.operation_name}' mandates validation, but no AgentValidationAdapter was injected."
+            )
+        # Fail-safe runtime requirement materialization: a validation-mandated
+        # operation with no materialized requirement has no validation to run,
+        # so it can never be treated as validated. This is a defense-in-depth
+        # guard at the canonical Agent execution boundary; operations without a
+        # validation mandate keep full backward compatibility with empty sets.
+        if requires_val and not request.validation_requirements:
+            raise ValidationAdapterError(
+                f"Operation '{request.operation_name}' mandates validation, but no validation requirements were materialized."
             )
 
         # Step 2b: Checkpoint Creation (if required or manager present)
@@ -238,7 +250,7 @@ class AgentExecutionAdapter:
                 )
                 cp_res = self._checkpoint_manager.create_checkpoint(cp_req)
                 checkpoint_id = cp_res.checkpoint_id
-            except Exception as exc:  # noqa: BLE001
+            except CheckpointError:
                 res_id = f"op-res-{uuid.uuid4().hex[:8]}"
                 res = AgentOperationExecutionResult(
                     id=res_id,
@@ -251,7 +263,7 @@ class AgentExecutionAdapter:
                     idempotency_key=request.idempotency_key,
                     status=AgentOperationExecutionStatus.BLOCKED,
                     success=False,
-                    reason_codes=("operation.checkpoint_creation_failed", str(exc)),
+                    reason_codes=("operation.checkpoint_creation_failed",),
                     started_at=started_at,
                     completed_at=_now_iso(),
                 )
@@ -291,15 +303,24 @@ class AgentExecutionAdapter:
         # Step 3b: Pre-Validation Check
         val_result_ids: list[str] = []
         if self._validation_adapter is not None:
+            pre_context_data: dict[str, Any] = {}
+            if request.validation_project_root:
+                pre_context_data["project_root"] = request.validation_project_root
             pre_req = AgentValidationRequest(
                 id=f"val-req-pre-{uuid.uuid4().hex[:8]}",
                 run_id=request.agent_run_id,
                 iteration_id=request.task_id,
                 operation_request_id=request.id,
                 stage=AgentValidationStage.PRE_EXECUTION,
+                requirements=tuple(
+                    req
+                    for req in request.validation_requirements
+                    if req.stage == AgentValidationStage.PRE_EXECUTION
+                ),
                 idempotency_key=f"pre-{request.idempotency_key}"
                 if request.idempotency_key
                 else "",
+                context_data=pre_context_data,
             )
             pre_res = self._validation_adapter.validate(
                 pre_req,
@@ -359,7 +380,7 @@ class AgentExecutionAdapter:
 
         try:
             exec_output = self._execution_delegate(request)
-        except Exception as exc:  # noqa: BLE001
+        except ControlledOperationExecutionError as exc:
             res_id = f"op-res-{uuid.uuid4().hex[:8]}"
             res = AgentOperationExecutionResult(
                 id=res_id,
@@ -373,26 +394,64 @@ class AgentExecutionAdapter:
                 status=AgentOperationExecutionStatus.FAILED,
                 success=False,
                 validation_result_ids=tuple(val_result_ids),
-                reason_codes=("operation.execution_failed", str(exc)),
+                reason_codes=("operation.execution_failed",),
+                error=exc.to_dict(),
+                started_at=started_at,
+                completed_at=_now_iso(),
+            )
+            self._repository.add_result(res)
+            return res
+        except RuntimeError:
+            res_id = f"op-res-{uuid.uuid4().hex[:8]}"
+            res = AgentOperationExecutionResult(
+                id=res_id,
+                request_id=request.id,
+                agent_run_id=request.agent_run_id,
+                workflow_id=request.workflow_id,
+                task_id=request.task_id,
+                operation_name=request.operation_name,
+                operation_version=request.operation_version,
+                idempotency_key=request.idempotency_key,
+                status=AgentOperationExecutionStatus.FAILED,
+                success=False,
+                validation_result_ids=tuple(val_result_ids),
+                reason_codes=("operation.execution_failed",),
+                error={
+                    "code": "OPERATION_EXECUTION_FAILED",
+                    "message": "Operation execution failed",
+                    "details": {},
+                },
                 started_at=started_at,
                 completed_at=_now_iso(),
             )
             self._repository.add_result(res)
             return res
 
+        if not isinstance(exec_output, Mapping):
+            raise TypeError("execution delegate must return a mapping")
+
         # Step 4b: Post-Validation Check
         success = exec_output.get("success", True)
         validation_failed = False
         if self._validation_adapter is not None and success:
+            post_context_data: dict[str, Any] = {}
+            if request.validation_project_root:
+                post_context_data["project_root"] = request.validation_project_root
             post_req = AgentValidationRequest(
                 id=f"val-req-post-{uuid.uuid4().hex[:8]}",
                 run_id=request.agent_run_id,
                 iteration_id=request.task_id,
                 operation_request_id=request.id,
                 stage=AgentValidationStage.POST_EXECUTION,
+                requirements=tuple(
+                    req
+                    for req in request.validation_requirements
+                    if req.stage == AgentValidationStage.POST_EXECUTION
+                ),
                 idempotency_key=f"post-{request.idempotency_key}"
                 if request.idempotency_key
                 else "",
+                context_data=post_context_data,
             )
             post_res = self._validation_adapter.validate(
                 post_req,
@@ -449,6 +508,8 @@ class AgentExecutionAdapter:
             resource_versions_before=exec_output.get("resource_versions_before", {}),
             resource_versions_after=exec_output.get("resource_versions_after", {}),
             reason_codes=("operation.execution_completed",),
+            output=exec_output.get("output", {}),
+            error=exec_output.get("error"),
             started_at=started_at,
             completed_at=_now_iso(),
         )

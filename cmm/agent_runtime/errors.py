@@ -5,13 +5,64 @@ Defines the error hierarchy for the Autonomous Agent Runtime contracts.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any
+
+
+def _freeze_operation_error_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                str(key): _freeze_operation_error_value(item)
+                for key, item in value.items()
+            }
+        )
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_operation_error_value(item) for item in value)
+    return value
+
 
 class AgentRuntimeError(Exception):
     """Base error for all Agent Runtime operations."""
 
 
+class ControlledOperationExecutionError(AgentRuntimeError, RuntimeError):
+    """Expected operational failure safe to normalize at an execution boundary."""
+
+    def __init__(
+        self, *, code: str, message: str, details: Mapping[str, Any] | None = None
+    ) -> None:
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError("code must be non-empty")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("message must be non-empty")
+        super().__init__(message)
+        self.code = code.strip()
+        self.safe_message = message.strip()
+        self.details = _freeze_operation_error_value(details or {})
+
+    def to_dict(self) -> dict[str, Any]:
+        def thaw(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {key: thaw(item) for key, item in value.items()}
+            if isinstance(value, tuple):
+                return [thaw(item) for item in value]
+            return value
+
+        return {
+            "code": self.code,
+            "message": self.safe_message,
+            "details": thaw(self.details),
+        }
+
+
 class InvalidAgentContractError(AgentRuntimeError, ValueError):
     """Raised when an Agent Runtime contract is invalid, malformed, or violates invariants."""
+
+
+class InvalidPermissionRestrictionError(InvalidAgentContractError):
+    """Raised when a closed declarative permission restriction is invalid."""
 
 
 class InvalidAgentIdentifierError(AgentRuntimeError, ValueError):
@@ -331,6 +382,10 @@ class ApprovalError(AgentRuntimeError):
 
 class InvalidApprovalContractError(ApprovalError, InvalidAgentContractError):
     """Raised when an Approval contract is invalid, malformed, or violates invariants."""
+
+
+class ApprovalAtomicityUnavailableError(ApprovalError, RuntimeError):
+    """Raised when a repository cannot guarantee atomic approval consumption."""
 
 
 class ApprovalRequestNotFoundError(ApprovalError, KeyError):

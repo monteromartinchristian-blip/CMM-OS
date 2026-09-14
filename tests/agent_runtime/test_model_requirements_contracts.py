@@ -338,3 +338,59 @@ def test_agent_descriptor_rejects_untyped_model_requirements() -> None:
             factory_id="factory.invalid",
             model_requirements={},  # type: ignore[arg-type]
         )
+
+
+# ── Phase 10.46 remediation V1 – premium participation provenance ─────────────
+
+
+def test_model_requirements_source_defaults_to_premium_participation() -> None:
+    source = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(),
+    )
+
+    assert source.contributes_premium_permission is True
+
+
+def test_model_requirements_source_round_trips_non_participation() -> None:
+    source = ModelRequirementsSource(
+        source_kind="domain",
+        source_id="domain:health",
+        requirements=ModelRequirements(),
+        contributes_premium_permission=False,
+    )
+
+    payload = source.to_dict()
+    restored = ModelRequirementsSource.from_dict(payload)
+
+    assert payload["contributes_premium_permission"] is False
+    assert restored == source
+    assert restored.contributes_premium_permission is False
+
+
+def test_model_requirements_source_old_payload_defaults_participation_true() -> None:
+    payload = {
+        "source_kind": "operation",
+        "source_id": "operation:test",
+        "requirements": model_requirements_to_dict(ModelRequirements()),
+        "priority": 0,
+        "metadata": {},
+    }
+
+    restored = ModelRequirementsSource.from_dict(payload)
+
+    assert restored.contributes_premium_permission is True
+
+
+@pytest.mark.parametrize("value", (0, 1, "true", "false", None, [], {}))
+def test_model_requirements_source_rejects_invalid_premium_participation(
+    value: object,
+) -> None:
+    with pytest.raises(InvalidModelRequirementsContractError):
+        ModelRequirementsSource(
+            source_kind="operation",
+            source_id="operation:test",
+            requirements=ModelRequirements(),
+            contributes_premium_permission=value,  # type: ignore[arg-type]
+        )

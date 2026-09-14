@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cmm.validation.impact import ChangeSetBuilder, ChangeType, FileChangeKind
+from cmm.validation.impact.snapshots import scan_project_snapshot
 
 
 def _write(path: Path, content: str) -> None:
@@ -58,3 +59,37 @@ def test_change_set_builder_from_explicit_changed_files(tmp_path: Path) -> None:
     )
     assert change_set.source == "explicit"
     assert change_set.change_type == ChangeType.STRUCTURAL_CHANGE
+
+
+def test_scan_project_snapshot_captures_nested_python_content(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "src" / "pkg" / "module.py", "def add(a, b):\n    return a + b\n")
+
+    snapshot = scan_project_snapshot(tmp_path, source="before")
+
+    paths = sorted(str(item.path) for item in snapshot.files)
+    assert "src/pkg/module.py" in paths
+    before_item = next(
+        item for item in snapshot.files if str(item.path) == "src/pkg/module.py"
+    )
+    assert before_item.exists is True
+    assert before_item.content is not None
+    assert "return a + b" in before_item.content
+
+
+def test_build_from_snapshots_detects_nested_mutation(tmp_path: Path) -> None:
+    _write(tmp_path / "src" / "pkg" / "module.py", "def add(a, b):\n    return a + b\n")
+    before = scan_project_snapshot(tmp_path, source="before")
+    _write(tmp_path / "src" / "pkg" / "module.py", "def add(a, b):\n    return a - b\n")
+    after = scan_project_snapshot(tmp_path, source="after")
+
+    change_set = ChangeSetBuilder().build_from_snapshots(
+        project_root=tmp_path,
+        before=before,
+        after=after,
+    )
+
+    assert tuple(str(path) for path in change_set.changed_files) == (
+        "src/pkg/module.py",
+    )

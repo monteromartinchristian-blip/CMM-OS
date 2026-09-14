@@ -1,0 +1,861 @@
+"""Canonical Cognitive Layer integration for resolved Domain resources."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Any, Protocol, runtime_checkable
+
+from cmm.cognitive import (
+    AdaptationContext,
+    AuthoritativeSourceClaim,
+    CognitiveValidationContext,
+    CognitiveValidationDecision,
+    CognitiveValidationResult,
+    CognitiveValidator,
+    Confidence,
+    ExtractionContext,
+    ExtractionStatus,
+    KnowledgeBundle,
+    KnowledgeExtractorRegistry,
+    KnowledgeItem,
+    KnowledgeKind,
+    KnowledgePackage,
+    KnowledgePackageBuilder,
+    KnowledgePackageRequest,
+    KnowledgeStoreProtocol,
+    ReasoningAuthorityContext,
+    ReasoningEscalation,
+    ReasoningFinding,
+    ReasoningGap,
+    ReasoningRecommendation,
+    ReasoningRuleContext,
+    ReasoningRuleContractError,
+    ReasoningRuleRegistry,
+    Resource,
+    ResourceAdapterRegistry,
+    SensitivityLevel,
+    materialise_result,
+)
+from cmm.domains.cognitive_integration_contracts import (
+    DomainCognitiveIntegrationRequest,
+    DomainCognitiveIntegrationResult,
+    DomainCognitiveResourceInput,
+)
+from cmm.domains.errors import (
+    DomainCognitiveIntegrationBlockedError,
+    DomainCognitiveIntegrationContractError,
+)
+from cmm.domains.knowledge_package_validation import (
+    validate_domain_knowledge_package,
+)
+from cmm.domains.permission_gate import (
+    PermissionCapability,
+    PermissionGateResult,
+)
+from cmm.domains.presentation_contracts import (
+    DomainPresentationEpistemicKind,
+    DomainPresentationItemRef,
+    DomainPresentationItemType,
+)
+from cmm.domains.rule_contracts import DomainRuleExecutionResult
+from cmm.domains.rule_execution import DefaultDomainRuleExecutor, DomainRuleExecutor
+from cmm.domains.rule_selection import DefaultDomainRuleSelector, DomainRuleSelector
+from cmm.domains.trace_contracts import DomainTraceReferences
+
+_BLOCKING_COGNITIVE_VALIDATION_DECISIONS = {
+    CognitiveValidationDecision.BLOCK,
+    CognitiveValidationDecision.INVALIDATE,
+    CognitiveValidationDecision.REPAIR,
+    CognitiveValidationDecision.REBUILD,
+    CognitiveValidationDecision.REQUEST_APPROVAL,
+}
+
+
+@runtime_checkable
+class DomainCognitiveIntegrator(Protocol):
+    """Protocol for the Domain-to-Cognitive orchestration boundary."""
+
+    def integrate(
+        self,
+        request: DomainCognitiveIntegrationRequest,
+        *,
+        authority_context: ReasoningAuthorityContext | None = None,
+    ) -> DomainCognitiveIntegrationResult: ...
+
+
+class DefaultDomainCognitiveIntegrator:
+    """Thin orchestration boundary over canonical Cognitive and Domain owners."""
+
+    def __init__(
+        self,
+        *,
+        adapter_registry: ResourceAdapterRegistry,
+        extractor_registry: KnowledgeExtractorRegistry,
+        knowledge_store: KnowledgeStoreProtocol,
+        rule_registry: ReasoningRuleRegistry,
+        cognitive_validator: CognitiveValidator | None = None,
+        rule_selector: DomainRuleSelector | None = None,
+        rule_executor: DomainRuleExecutor | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if not isinstance(adapter_registry, ResourceAdapterRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "adapter_registry must be a ResourceAdapterRegistry",
+                field="adapter_registry",
+            )
+        if not isinstance(extractor_registry, KnowledgeExtractorRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "extractor_registry must be a KnowledgeExtractorRegistry",
+                field="extractor_registry",
+            )
+        if not isinstance(knowledge_store, KnowledgeStoreProtocol):
+            raise DomainCognitiveIntegrationContractError(
+                "knowledge_store must satisfy KnowledgeStoreProtocol",
+                field="knowledge_store",
+            )
+        if not isinstance(rule_registry, ReasoningRuleRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_registry must satisfy ReasoningRuleRegistry",
+                field="rule_registry",
+            )
+        if cognitive_validator is not None and not isinstance(
+            cognitive_validator, CognitiveValidator
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "cognitive_validator must be a CognitiveValidator",
+                field="cognitive_validator",
+            )
+        if rule_selector is not None and not isinstance(
+            rule_selector, DomainRuleSelector
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_selector must satisfy DomainRuleSelector",
+                field="rule_selector",
+            )
+        if rule_executor is not None and not isinstance(
+            rule_executor, DomainRuleExecutor
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_executor must satisfy DomainRuleExecutor",
+                field="rule_executor",
+            )
+        if clock is not None and not callable(clock):
+            raise DomainCognitiveIntegrationContractError(
+                "clock must be callable",
+                field="clock",
+            )
+
+        self._adapter_registry = adapter_registry
+        self._extractor_registry = extractor_registry
+        self._knowledge_store = knowledge_store
+        self._rule_registry = rule_registry
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
+        self._cognitive_validator = (
+            cognitive_validator
+            if cognitive_validator is not None
+            else CognitiveValidator()
+        )
+        self._rule_selector = (
+            rule_selector
+            if rule_selector is not None
+            else DefaultDomainRuleSelector(clock=self._clock)
+        )
+        self._rule_executor = (
+            rule_executor
+            if rule_executor is not None
+            else DefaultDomainRuleExecutor(clock=self._clock)
+        )
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        if (
+            not isinstance(value, datetime)
+            or value.tzinfo is None
+            or value.utcoffset() is None
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "clock must return a timezone-aware datetime",
+                field="clock",
+            )
+        return value
+
+    def integrate(
+        self,
+        request: DomainCognitiveIntegrationRequest,
+        *,
+        authority_context: ReasoningAuthorityContext | None = None,
+    ) -> DomainCognitiveIntegrationResult:
+        if type(request) is not DomainCognitiveIntegrationRequest:
+            raise DomainCognitiveIntegrationContractError(
+                "request must be a DomainCognitiveIntegrationRequest",
+                field="request",
+            )
+        if authority_context is not None:
+            _validate_authority_binding(request, authority_context)
+
+        for resource_input in request.resources:
+            missing = tuple(
+                permission
+                for permission in resource_input.binding.permissions
+                if permission not in request.effective_permissions
+            )
+            if missing:
+                raise DomainCognitiveIntegrationBlockedError(
+                    f"Domain resource binding '{resource_input.binding.id}' required permissions "
+                    f"not satisfied: absent from effective_permissions",
+                    details={
+                        "request_id": request.request_id,
+                        "binding_id": resource_input.binding.id,
+                        "missing_permissions": missing,
+                    },
+                )
+
+        timestamp = self._now()
+        adapted = tuple(
+            _adapt_domain_resource(
+                resource_input,
+                adapter_registry=self._adapter_registry,
+                extractor_registry=self._extractor_registry,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                effective_permissions=request.effective_permissions,
+            )
+            for resource_input in request.resources
+        )
+        adapted_resources = tuple(resource for resource, _ in adapted)
+        extracted_bundles = tuple(bundle for _, bundle in adapted)
+        package = _build_knowledge_package(
+            store=self._knowledge_store,
+            request=request,
+            adapted_resources=adapted_resources,
+        )
+        if request.knowledge_package_schema is not None:
+            package = validate_domain_knowledge_package(
+                package, request.knowledge_package_schema
+            )
+        reasoning_context = _build_reasoning_context(
+            request=request,
+            package=package,
+            extracted_bundles=extracted_bundles,
+            adapted_resources=adapted_resources,
+            timestamp=timestamp,
+            authority_context=authority_context,
+        )
+        validation_results = _validate_cognitive_inputs(
+            validator=self._cognitive_validator,
+            request=request,
+            package=package,
+            resources=adapted_resources,
+            bundles=extracted_bundles,
+            now=timestamp,
+        )
+        plan = self._rule_selector.select(
+            registry=self._rule_registry,
+            profile=request.profile,
+            composition=request.composition,
+            global_mandatory_rules=request.global_mandatory_rules,
+            security_rules=request.security_rules,
+            effective_permissions=request.effective_permissions,
+            requested_rule_ids=request.requested_rule_ids,
+        )
+        rule_result = self._rule_executor.execute(
+            plan=plan,
+            context=reasoning_context,
+            registry=self._rule_registry,
+        )
+        presentation_items = _presentation_items(
+            request=request,
+            package=package,
+            validation_results=validation_results,
+            bundles=extracted_bundles,
+            rule_result=rule_result,
+        )
+        trace_references = _build_trace_references(request=request, package=package)
+        return DomainCognitiveIntegrationResult(
+            request_id=request.request_id,
+            knowledge_package=package,
+            validation_results=validation_results,
+            reasoning_context=reasoning_context,
+            rule_plan=plan,
+            rule_result=rule_result,
+            adapted_resources=adapted_resources,
+            extracted_bundles=extracted_bundles,
+            presentation_items=presentation_items,
+            trace_references=trace_references,
+        )
+
+
+def build_reasoning_authority_context(
+    gate_result: PermissionGateResult,
+    *,
+    authoritative_claims: tuple[AuthoritativeSourceClaim, ...] = (),
+) -> ReasoningAuthorityContext | None:
+    """Derive trusted reasoning authority from a real permission gate result.
+
+    This is the only approved way to obtain a ``ReasoningAuthorityContext``
+    from cross-domain permission evaluation.  It consumes a live typed
+    ``PermissionGateResult`` produced by ``DomainPermissionGate`` — it must
+    never be called with a ``PermissionGateResult.from_dict()``
+    reconstruction of caller-authored JSON, and it never accepts a free-form
+    mapping.  It returns ``None`` unless the gate result represents
+    *effective* cross-domain authority (``allow`` or ``approval_consumed``)
+    with canonical cross-domain request evidence attached; a ``deny`` or
+    ``approval_required`` result can never produce trusted authority.
+
+    ``authoritative_claims`` is the only extra trusted input: provenance-bound
+    :class:`~cmm.cognitive.AuthoritativeSourceClaim` projections supplied by
+    trusted source-owner code (for example, after the Health domain has itself
+    established a definitive diagnostic status for its own artifact) and never
+    derived from the gate result or from caller request data.  Only a claim
+    that binds to *this* gate result is promoted — matching source domain,
+    canonical cross-domain purpose and a requested resource id.  Anything else
+    (a mapping, a naked id, an unbound claim) is simply not promoted into the
+    trusted channel, and this function never raises for it.
+    """
+    if not isinstance(gate_result, PermissionGateResult):
+        return None
+    if not gate_result.allowed:
+        return None
+    if gate_result.action != PermissionCapability.DOMAIN_CROSS_ACCESS.value:
+        return None
+    if gate_result.outcome not in {"allow", "approval_consumed"}:
+        return None
+
+    metadata = gate_result.metadata
+    if not isinstance(metadata, Mapping):
+        return None
+    cross_domain_request = metadata.get("cross_domain_request")
+    if not isinstance(cross_domain_request, Mapping):
+        return None
+
+    target_domain = metadata.get("target_domain")
+    resource_ids = metadata.get("resource_ids")
+    purpose = cross_domain_request.get("reason")
+
+    try:
+        return ReasoningAuthorityContext(
+            actor_id=gate_result.actor_id,
+            session_id=gate_result.session_id,
+            source_domain=gate_result.domain_id,
+            target_domain=target_domain,
+            resource_ids=tuple(resource_ids)
+            if isinstance(resource_ids, (list, tuple))
+            else (),
+            purpose=purpose,
+            permission_decision_id=gate_result.decision_id,
+            permission_outcome=gate_result.outcome,
+            approval_consumed=(gate_result.outcome == "approval_consumed"),
+            authoritative_claims=_bound_authoritative_claims(
+                authoritative_claims,
+                source_domain=gate_result.domain_id,
+                purpose=purpose,
+                resource_ids=resource_ids,
+            ),
+        )
+    except ReasoningRuleContractError:
+        return None
+
+
+def _bound_authoritative_claims(
+    claims: Any,
+    *,
+    source_domain: str,
+    purpose: Any,
+    resource_ids: Any,
+) -> tuple[AuthoritativeSourceClaim, ...]:
+    """Return only the trusted claims that bind to this gate result, fail-closed.
+
+    Binding means the claim is an exact ``AuthoritativeSourceClaim`` carrying
+    canonical provenance, it is owned by the same source domain as the gate
+    result, it was established for the canonical cross-domain purpose, and it
+    names one of the requested resources.  Unbound or untrusted entries are
+    dropped rather than promoted, and nothing here raises: authority is simply
+    never granted from a shape.
+    """
+    allowed_resource_ids = (
+        tuple(resource_ids) if isinstance(resource_ids, (list, tuple)) else ()
+    )
+    if not isinstance(purpose, str) or not purpose.strip():
+        return ()
+    bound: list[AuthoritativeSourceClaim] = []
+    for claim in claims or ():
+        if not isinstance(claim, AuthoritativeSourceClaim):
+            continue
+        if claim.source_domain != source_domain:
+            continue
+        if claim.purpose != purpose:
+            continue
+        if claim.claim_id not in allowed_resource_ids:
+            continue
+        bound.append(claim)
+    return tuple(bound)
+
+
+def _validate_authority_binding(
+    request: DomainCognitiveIntegrationRequest,
+    authority_context: ReasoningAuthorityContext,
+) -> None:
+    """Reject a trusted authority context that does not bind to this request.
+
+    The integrator must never derive ``authority_context`` from
+    ``request.metadata``, ``request.effective_permissions`` or caller JSON —
+    it is only ever accepted as an explicit trusted keyword argument, and even
+    then it must describe *this* actor, session and cross-domain pairing.
+    """
+    supporting_domains = tuple(
+        str(domain) for domain in request.profile.supporting_domains
+    )
+    mismatched = (
+        request.actor_id != authority_context.actor_id
+        or request.session_id != authority_context.session_id
+        or authority_context.target_domain != str(request.profile.primary_domain)
+        or authority_context.source_domain not in supporting_domains
+    )
+    if mismatched:
+        raise DomainCognitiveIntegrationContractError(
+            "authority_context is not bound to this integration request "
+            "(actor_id/session_id/source_domain/target_domain must match)",
+            field="authority_context",
+        )
+
+
+def _build_knowledge_package(
+    *,
+    store: KnowledgeStoreProtocol,
+    request: DomainCognitiveIntegrationRequest,
+    adapted_resources: tuple[Resource, ...],
+) -> KnowledgePackage:
+    return KnowledgePackageBuilder(
+        store,
+        resources=adapted_resources,
+    ).build(
+        KnowledgePackageRequest(
+            objective=request.objective,
+            profile=request.profile.id,
+            domain=str(request.profile.primary_domain),
+            session_id=request.session_id,
+            permission_context={
+                "actor_id": request.actor_id,
+                "effective_permissions": request.effective_permissions,
+            },
+            temporal_scope={
+                "require_current_information": (
+                    request.profile.temporal_policy.require_current_information
+                ),
+                "maximum_age_seconds": (
+                    request.profile.temporal_policy.maximum_age_seconds
+                ),
+            },
+            metadata={
+                "domain_composition_id": request.composition.id,
+            },
+        )
+    )
+
+
+def _build_trace_references(
+    *,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage,
+) -> DomainTraceReferences:
+    return DomainTraceReferences(
+        resolution_context_id=request.resolution_context_id,
+        resolution_result_id=request.resolution_result_id,
+        composition_id=request.composition.id,
+        knowledge_package_ids=(package.id,),
+    )
+
+
+def _presentation_items(
+    *,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage | None = None,
+    validation_results: tuple[CognitiveValidationResult, ...] = (),
+    bundles: tuple[KnowledgeBundle, ...] = (),
+    rule_result: DomainRuleExecutionResult,
+) -> tuple[DomainPresentationItemRef, ...]:
+    items: list[DomainPresentationItemRef] = []
+    seen_knowledge_ids: set[str] = set()
+
+    def add_message(
+        *,
+        ref_id: str,
+        item_type: DomainPresentationItemType,
+        message: (
+            ReasoningFinding
+            | ReasoningGap
+            | ReasoningRecommendation
+            | ReasoningEscalation
+        ),
+        epistemic_kind: DomainPresentationEpistemicKind | None = None,
+    ) -> None:
+        metadata = message.metadata
+        domain_id = message.domain_id
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=ref_id,
+                item_type=item_type,
+                source_order=len(items),
+                domain_ids=(domain_id,) if domain_id is not None else (),
+                epistemic_kind=epistemic_kind,
+                requires_provenance=metadata.get("requires_provenance") is True,
+                pending=metadata.get("pending") is True,
+                requires_user_interaction=(
+                    metadata.get("requires_user_interaction") is True
+                ),
+                requires_approval=metadata.get("requires_approval") is True,
+                requires_confirmation=(metadata.get("requires_confirmation") is True),
+                explicitly_visible=metadata.get("explicitly_visible") is True,
+            )
+        )
+
+    def add_knowledge_item(
+        knowledge_item: KnowledgeItem,
+        *,
+        domain_ids: tuple[str, ...] = (),
+    ) -> None:
+        if knowledge_item.id in seen_knowledge_ids:
+            return
+        confidence_value = (
+            knowledge_item.confidence.value
+            if hasattr(knowledge_item.confidence, "value")
+            else float(knowledge_item.confidence)
+        )
+        if knowledge_item.kind is KnowledgeKind.QUESTION:
+            seen_knowledge_ids.add(knowledge_item.id)
+            items.append(
+                DomainPresentationItemRef(
+                    ref_id=knowledge_item.id,
+                    item_type=DomainPresentationItemType.QUESTION,
+                    source_order=len(items),
+                    domain_ids=domain_ids,
+                    confidence=confidence_value,
+                    requires_provenance=True,
+                    pending=True,
+                    requires_user_interaction=True,
+                )
+            )
+            return
+
+        epistemic_kind: DomainPresentationEpistemicKind | None = None
+        if knowledge_item.kind is KnowledgeKind.FACT:
+            epistemic_kind = DomainPresentationEpistemicKind.FACT
+        elif knowledge_item.kind is KnowledgeKind.INFERENCE:
+            epistemic_kind = DomainPresentationEpistemicKind.INFERENCE
+        elif knowledge_item.kind is KnowledgeKind.HYPOTHESIS:
+            epistemic_kind = DomainPresentationEpistemicKind.HYPOTHESIS
+        else:
+            return
+
+        seen_knowledge_ids.add(knowledge_item.id)
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=knowledge_item.id,
+                item_type=DomainPresentationItemType.FINDING,
+                source_order=len(items),
+                domain_ids=domain_ids,
+                epistemic_kind=epistemic_kind,
+                confidence=confidence_value,
+                requires_provenance=True,
+            )
+        )
+
+    for index, finding in enumerate(rule_result.findings):
+        add_message(
+            ref_id=f"{rule_result.id}:finding:{index}",
+            item_type=DomainPresentationItemType.FINDING,
+            message=finding,
+        )
+    for index, gap in enumerate(rule_result.gaps):
+        add_message(
+            ref_id=f"{rule_result.id}:gap:{index}",
+            item_type=DomainPresentationItemType.GAP,
+            message=gap,
+        )
+
+    seen_contradiction_ids: set[str] = set()
+    all_contradictions = (
+        *(package.contradictions if package is not None else ()),
+        *rule_result.contradictions,
+    )
+    for contradiction in all_contradictions:
+        if contradiction.id in seen_contradiction_ids:
+            continue
+        seen_contradiction_ids.add(contradiction.id)
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=contradiction.id,
+                item_type=DomainPresentationItemType.CONTRADICTION,
+                source_order=len(items),
+                requires_provenance=True,
+            )
+        )
+
+    for index, recommendation in enumerate(rule_result.recommendations):
+        add_message(
+            ref_id=f"{rule_result.id}:recommendation:{index}",
+            item_type=DomainPresentationItemType.RECOMMENDATION,
+            message=recommendation,
+            epistemic_kind=DomainPresentationEpistemicKind.RECOMMENDATION,
+        )
+    for index, escalation in enumerate(rule_result.escalations):
+        add_message(
+            ref_id=f"{rule_result.id}:escalation:{index}",
+            item_type=DomainPresentationItemType.ESCALATION,
+            message=escalation,
+        )
+
+    seen_warning_ids: set[str] = set()
+    for val_result in validation_results:
+        for w_index, warning in enumerate(val_result.warnings):
+            warning_ref_id = f"{val_result.id}:warning:{w_index}"
+            if warning_ref_id in seen_warning_ids:
+                continue
+            seen_warning_ids.add(warning_ref_id)
+            items.append(
+                DomainPresentationItemRef(
+                    ref_id=warning_ref_id,
+                    item_type=DomainPresentationItemType.WARNING,
+                    source_order=len(items),
+                    requires_provenance=True,
+                )
+            )
+
+    if package is not None:
+        for pkg_items in (
+            package.facts,
+            package.observations,
+            package.inferences,
+            package.hypotheses,
+            package.other_knowledge,
+        ):
+            for knowledge_item in pkg_items:
+                add_knowledge_item(knowledge_item)
+
+    for bundle_index, bundle in enumerate(bundles):
+        domain_ids = (
+            (str(request.resources[bundle_index].binding.domain_id),)
+            if bundle_index < len(request.resources)
+            else ()
+        )
+        for knowledge_item in bundle.items:
+            add_knowledge_item(knowledge_item, domain_ids=domain_ids)
+    for knowledge_item in rule_result.produced_knowledge:
+        add_knowledge_item(knowledge_item)
+
+    return tuple(items)
+
+
+def _validate_cognitive_inputs(
+    *,
+    validator: CognitiveValidator,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage,
+    resources: tuple[Resource, ...],
+    bundles: tuple[KnowledgeBundle, ...],
+    now: datetime,
+) -> tuple[CognitiveValidationResult, ...]:
+    context = CognitiveValidationContext(
+        actor_id=request.actor_id,
+        domain=str(request.profile.primary_domain),
+        permission_context={
+            "effective_permissions": request.effective_permissions,
+        },
+        require_current_information=bool(
+            request.profile.temporal_policy.require_current_information
+        ),
+        now=now,
+        metadata={
+            "domain_profile_id": request.profile.id,
+            "domain_composition_id": request.composition.id,
+        },
+    )
+    targets = (
+        package,
+        *resources,
+        *(item for bundle in bundles for item in bundle.items),
+    )
+    results = tuple(validator.validate(target, context) for target in targets)
+
+    blocked = next(
+        (
+            result
+            for result in results
+            if result.decision in _BLOCKING_COGNITIVE_VALIDATION_DECISIONS
+        ),
+        None,
+    )
+    if blocked is not None:
+        raise DomainCognitiveIntegrationBlockedError(
+            "Cognitive validation blocked Domain rule execution",
+            details={
+                "request_id": request.request_id,
+                "validation_result_id": blocked.id,
+                "target_id": blocked.target_id,
+                "decision": blocked.decision.value,
+                "blocking_finding_codes": tuple(
+                    finding.code for finding in blocked.blocking_findings
+                ),
+            },
+        )
+
+    return results
+
+
+_SENSITIVITY_RANK = {
+    SensitivityLevel.PUBLIC: 0,
+    SensitivityLevel.INTERNAL: 1,
+    SensitivityLevel.PERSONAL: 2,
+    SensitivityLevel.SENSITIVE: 3,
+    SensitivityLevel.HIGHLY_SENSITIVE: 4,
+    SensitivityLevel.RESTRICTED: 5,
+}
+
+
+def _effective_sensitivity(resources: tuple[Resource, ...]) -> str | None:
+    if not resources:
+        return None
+    return max(
+        (resource.sensitivity for resource in resources),
+        key=_SENSITIVITY_RANK.__getitem__,
+    ).value
+
+
+def _build_reasoning_context(
+    *,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage,
+    extracted_bundles: tuple[KnowledgeBundle, ...],
+    adapted_resources: tuple[Resource, ...],
+    timestamp: datetime,
+    authority_context: ReasoningAuthorityContext | None = None,
+) -> ReasoningRuleContext:
+    ordered_items = (
+        *package.facts,
+        *package.observations,
+        *package.inferences,
+        *package.hypotheses,
+        *package.other_knowledge,
+        *(item for bundle in extracted_bundles for item in bundle.items),
+    )
+    seen_item_ids: set[str] = set()
+    unique_items = []
+    for item in ordered_items:
+        if item.id in seen_item_ids:
+            continue
+        seen_item_ids.add(item.id)
+        unique_items.append(item)
+    knowledge_items = tuple(unique_items)
+    return ReasoningRuleContext(
+        reasoning_id=f"domain-cognitive:{request.request_id}",
+        timestamp=timestamp,
+        session_id=request.session_id,
+        knowledge_items=knowledge_items,
+        contradictions=package.contradictions,
+        active_domains=(
+            str(request.profile.primary_domain),
+            *(str(domain) for domain in request.profile.supporting_domains),
+        ),
+        primary_domain=str(request.profile.primary_domain),
+        supporting_domains=tuple(
+            str(domain) for domain in request.profile.supporting_domains
+        ),
+        effective_permissions=request.effective_permissions,
+        effective_sensitivity=_effective_sensitivity(adapted_resources),
+        metadata={
+            "domain_composition_id": request.composition.id,
+            "domain_profile_id": request.profile.id,
+            "minimum_confidence": request.profile.minimum_confidence,
+            "reasoning_depth": request.profile.reasoning_depth.value,
+            "maximum_questions": request.profile.maximum_questions,
+        },
+        authority_context=authority_context,
+    )
+
+
+def _adapt_domain_resource(
+    resource_input: DomainCognitiveResourceInput,
+    *,
+    adapter_registry: ResourceAdapterRegistry,
+    extractor_registry: KnowledgeExtractorRegistry,
+    actor_id: str | None,
+    session_id: str | None,
+    effective_permissions: tuple[str, ...],
+) -> tuple[Resource, KnowledgeBundle]:
+    binding = resource_input.binding
+    resolution = resource_input.resolution
+    adapter = adapter_registry.get(binding.adapter)
+    adaptation = adapter.adapt(
+        resource_input.source,
+        context=AdaptationContext(
+            actor_id=actor_id,
+            target_domain=str(binding.domain_id),
+            permissions=effective_permissions,
+            trace_id=binding.id,
+            session_id=session_id,
+            timestamp=resolution.resolved_at,
+            metadata={"domain_resolution_id": resolution.id},
+        ),
+    )
+    if not adaptation.successful or adaptation.resource is None:
+        raise DomainCognitiveIntegrationBlockedError(
+            "Domain resource adaptation did not produce a canonical Resource",
+            details={
+                "binding_id": binding.id,
+                "adapter": binding.adapter,
+                "status": adaptation.status.value,
+            },
+        )
+
+    resource = adaptation.resource
+    resource = replace(
+        resource,
+        sensitivity=binding.sensitivity,
+        reliability=Confidence(
+            value=binding.reliability,
+            source="domain_resource_binding",
+            reasons=(binding.id,),
+        ),
+        temporal_scope=replace(
+            resource.temporal_scope,
+            **dict(binding.temporal_scope),
+        ),
+        provenance=replace(
+            resource.provenance,
+            metadata={
+                **resource.provenance.metadata,
+                "domain_binding_id": binding.id,
+                "domain_definition_id": binding.definition_id,
+                "domain_provenance": binding.provenance,
+                "domain_source_priority": binding.source_priority,
+            },
+        ),
+    )
+    extraction = extractor_registry.extract(
+        resource,
+        context=ExtractionContext(
+            actor_id=actor_id,
+            domain=str(binding.domain_id),
+            trace_id=binding.id,
+            session_id=session_id,
+        ),
+        extractor_name=resource_input.extractor_name,
+    )
+    if extraction.status in {ExtractionStatus.FAILED, ExtractionStatus.UNSUPPORTED}:
+        raise DomainCognitiveIntegrationBlockedError(
+            "Mandatory Domain resource extraction did not succeed",
+            details={
+                "binding_id": binding.id,
+                "extractor": extraction.extractor_name,
+                "status": extraction.status.value,
+            },
+        )
+
+    bundle = materialise_result(
+        extraction,
+        actor_id=actor_id,
+        resource_provenance_id=resource.provenance.source_id,
+    )
+    return resource, bundle

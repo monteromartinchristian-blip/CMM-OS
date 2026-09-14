@@ -1,6 +1,6 @@
 # CMM OS Roadmap
 
-This roadmap describes the evolution of **CMM OS (Code Management Machine Operating System)** from a semantic software-engineering runtime into a controlled, persistent, and extensible AI operating platform.
+This roadmap describes the evolution of **CMM OS** from its origin as **Code Management Machine Operating System**, a semantic software-engineering runtime, into a local-first, provider-independent personal AI operating system. The original software-engineering runtime remains a foundational capability, but the current architecture extends beyond code into structured knowledge, cognition, persistent goals, controlled agency, domain intelligence, and an integrated personal platform.
 
 The roadmap distinguishes clearly between:
 
@@ -9,10 +9,20 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–9<br>
-> **Implemented and audited:** Phases 0–9<br>
-> **Current test baseline:** 5409 passing tests<br>
-> **Next milestone:** Begin Phase 10 — Domain Intelligence
+> **Implemented:** Phases 0–9 plus Phase 10 through **10.53**; Phases 10.52 and **10.53 — Neurodivergence Domain** are independently re-audited and closed after final Re-audit **V4** `PASS` (`PHASE10_52=CLOSED`; `PHASE10_53=CLOSED`)<br>
+> **Implemented and audited:** Phases 0–9 plus Phase 10 through **10.52**<br>
+> **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
+> **Phase 10.44:** complete, independently audited and closed after final independent re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`<br>
+> **Phase 10.45:** complete, independently audited and closed after final Independent Re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`<br>
+> **Phase 10.46:** complete, independently re-audited and closed after Re-audit **V2** `PASS`; historical V1 `FAIL` preserved; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `DP-046=VERIFIED_EXISTING`; `AT-DP-046=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`; bundle SHA-256 `8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`; final report `docs/audits/phase-10.46-independent-reaudit-v2.md`<br>
+> **Phase 10.47:** complete, independently re-audited and closure-eligible after Re-audit **V5** `PASS`; historical V1/V2/V3/V4 `FAIL` preserved; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MINOR_01=VERIFIED_REMEDIATED`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=VERIFIED_REMEDIATED`; `MAJOR_04=WITHDRAWN_FALSE_POSITIVE`; `DP-047=VERIFIED_EXISTING`; `AT-DP-047=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `5babd930c9aa01d2a92ab6bd48f70f8a20ed71a0`; bundle SHA-256 `2544e6d9e737e7a50dde5c9745df1865b2143ba1f7b2fbfdccec6ed4785b5396`; final report `docs/audits/phase-10.47-independent-reaudit-v5.md`<br>
+> **Phase 10.48:** complete, independently re-audited and closed after final Re-audit **V4** `PASS`; historical Audit V1 and Re-audits V2/V3 `FAIL` preserved; `PHASE10_48=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `INDEPENDENT_REAUDIT_V3=FAIL`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `MINOR_02=VERIFIED_REMEDIATED`; `MINOR_03=VERIFIED_REMEDIATED`; `MINOR_04=VERIFIED_REMEDIATED`; `DP-048=VERIFIED_EXISTING`; `AT-DP-048=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `dc94090147daaaaaee71250bb411d903666f6b13`; bundle SHA-256 `00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085`; final report `docs/audits/phase-10.48-independent-reaudit-v4.md`; audit-report commit `3e652884062dc5adc0a56859efd7f3ab5b9dfbd5`<br>
+> **Phase 10.49:** implemented and remediated, closed after independent re-audit V3 PASS; `PHASE10_49=CLOSED`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `MINOR_02=VERIFIED_REMEDIATED`; `MINOR_03=VERIFIED_REMEDIATED`; `FIRST_PARTY_REQUIRED_FIELD_REACHABILITY=PASS`; `DP-049=VERIFIED_EXISTING`; `AT-DP-049=PASS`; `CLOSURE_ELIGIBLE=YES`; `FIRST_PARTY_SCHEMAS=12`; `UNIQUE_FIRST_PARTY_POLICY_SHAPES=11`; `PARALLEL_BUILDER=NONE`; reference `docs/reference/domain-knowledge-packages.md`<br>
+> **Phase 10.50:** implemented, remediated, independently re-audited and closed after Re-audit **V2** `PASS`; historical Independent Audit V1 `FAIL` preserved; `PHASE10_50=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=WITHDRAWN_FALSE_POSITIVE`; `DP-050=VERIFIED_EXISTING`; `AT-DP-050=PASS`; `CLOSURE_ELIGIBLE=YES`; audited remediation HEAD `45dd5550635d56956b3ae073ddac60568ba8aac6`; bundle SHA-256 `e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace`; final report `docs/audits/phase-10.50-independent-reaudit-v2.md`; audit-report commit `526650d382c69b81d01064f28d69d1bcbda7bed9`; reference `docs/reference/domain-privacy-policies.md`<br>
+> **Phase 10.51:** complete, independently re-audited and closed after Re-audit **V2** `PASS`; historical Audit V1 `FAIL` preserved; `PHASE10_51=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `DP-051=VERIFIED_EXISTING`; `AT-DP-051=PASS`; `CLOSURE_ELIGIBLE=YES`; `HISTORICAL_BLOCKS=28`; `UNMAPPED_REQUIRED_BLOCKS=0`; `PARALLEL_OWNER_REQUIRED=0`; `FIRST_PARTY_PRE_10_52_DOMAINS=12`; `DEFERRED_DOMAIN_PACKS=2`; `PHASE11_PLATFORM_DEFERRED=YES`; `NEW_PRODUCTION_FILES=0`; `PRODUCTION_CHANGES=NONE`; `GAP_RED_COUNT=0`; audited remediation HEAD `9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report `docs/audits/phase-10.51-independent-reaudit-v2.md`; audit-report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`; reference `docs/reference/domain-core-conformance.md`<br>
+> **Phase 10.52:** complete, independently re-audited and closed after final Re-audit **V4** `PASS`; historical Audit V1 and Re-audits V2/V3 `FAIL` preserved; `PHASE10_52=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `INDEPENDENT_REAUDIT_V3=FAIL`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=CLOSED`; `MAJOR_02=CLOSED`; `MAJOR_03=CLOSED`; `MINOR_01=CLOSED`; `DP-052=VERIFIED_EXISTING`; `AT-DP-052=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`; Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; final report `docs/audits/phase-10.52-independent-reaudit-v4.md`; audit-report commit `78842087e7a52795c217ed7ca4b4a7f3a2112969`; `FIRST_PARTY_DOMAIN_PACKS=13`; `HEALTH_AUTHORITY_PRESERVED=YES`; `MENTAL_HEALTH_CLINICAL_OVERRIDE=NO`; `CLINICAL_PRESENTATION_DEFAULT=NO`; `PERSISTENCE_IS_NEVER_IMPLICIT=YES`; `PHASE10_53=NOT_STARTED`; reference `docs/reference/mental-health-domain.md`<br>
+> **Phase 10.53:** complete, independently re-audited and closed after final Re-audit **V4** `PASS`; `PHASE10_53=CLOSED`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`; `EXPLORATORY_MODEL_INFERENCE=ALLOWED`; `MODEL_INFERENCE_TO_CONFIRMED_DIAGNOSIS=BLOCKED`; `DIFFERENTIAL_REASONING=BALANCED_NOT_ADVERSARIAL`; `HEALTH_CLINICAL_AUTHORITY=PRESERVED`; `SENSITIVE_PERSISTENCE=PROPOSAL_FIRST`; `CROSS_DOMAIN_PERMISSION_DENY=FAIL_CLOSED`; `APPROVAL_REQUIRED_IS_NOT_AUTHORIZATION=PASS`; audited implementation HEAD `54a46da5770ed9da05a6369995683919d70a08bf`; Re-audit V4 bundle SHA-256 `2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f`; final report `docs/audits/phase-10.53-independent-reaudit-v4.md`; audit-report commit `c59251b929c0ebe314f12d100169ea952d510d74`; reference `docs/reference/neurodivergence-domain.md`<br>
+> **Next action:** verify the Phase 10.53 docs-only closure commit and clean repository state before beginning Phase 11; `PHASE11=NOT_STARTED`<br>
 
 ---
 
@@ -50,7 +60,7 @@ Integrate everything into a stable local platform
 | 7 | Continuous Validation | Complete |
 | 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Complete and audited |
-| 10 | Domain Intelligence | Planned |
+| 10 | Domain Intelligence | In progress |
 | 11 | Stable Integrated Platform | Planned |
 
 ---
@@ -460,7 +470,33 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 ## Phase 10 — Domain Intelligence
 
-**Status:** Planned.
+**Status:** In progress.
+
+**Current progress:** Phase 10.19–10.53 are complete, independently audited and closed. **Phase 10.53 — Neurodivergence Domain** closed after final Independent Re-audit **V4** `PASS` (`PHASE10_53=CLOSED`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `54a46da5770ed9da05a6369995683919d70a08bf`; Re-audit V4 bundle SHA-256 `2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f`; final report `docs/audits/phase-10.53-independent-reaudit-v4.md`; audit-report commit `c59251b929c0ebe314f12d100169ea952d510d74`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`; reference `docs/reference/neurodivergence-domain.md`). **Phase 10.50 — Domain Privacy Policies** closed after Independent Re-audit **V2** `PASS`; historical Independent Audit V1 `FAIL` preserved; `PHASE10_50=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=WITHDRAWN_FALSE_POSITIVE`; `DP-050=VERIFIED_EXISTING`; `AT-DP-050=PASS`; `CLOSURE_ELIGIBLE=YES`; audited remediation HEAD `45dd5550635d56956b3ae073ddac60568ba8aac6`; bundle SHA-256 `e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace`; final report `docs/audits/phase-10.50-independent-reaudit-v2.md`; audit-report commit `526650d382c69b81d01064f28d69d1bcbda7bed9`.
+The Phase 10.37 — Domain Observability closure stands at audited implementation HEAD `a17326421daa2479f58d7ab45b6a66b1bef75936`; audit V6 bundle SHA-256 `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
+
+**Implemented and audited through:** **Phase 10.52 — Mental Health Domain** (complete, independently re-audited and closed after final Re-audit **V4** `PASS`; historical Audit V1 and Re-audits V2/V3 `FAIL` preserved; `PHASE10_52=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `INDEPENDENT_REAUDIT_V3=FAIL`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=CLOSED`; `MAJOR_02=CLOSED`; `MAJOR_03=CLOSED`; `MINOR_01=CLOSED`; `DP-052=VERIFIED_EXISTING`; `AT-DP-052=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`; Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; final report `docs/audits/phase-10.52-independent-reaudit-v4.md`; audit-report commit `78842087e7a52795c217ed7ca4b4a7f3a2112969`; `FIRST_PARTY_DOMAIN_PACKS=13`; `HEALTH_AUTHORITY_PRESERVED=YES`; `MENTAL_HEALTH_CLINICAL_OVERRIDE=NO`; `CLINICAL_PRESENTATION_DEFAULT=NO`; `PERSISTENCE_IS_NEVER_IMPLICIT=YES`; `PHASE10_53=NOT_STARTED`; reference `docs/reference/mental-health-domain.md`).
+**Phase 10.44 — Integration with Memory and Knowledge Graph:** complete, independently audited and closed; V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` remain preserved as historical evidence; final independent re-audit **V4** `PASS` (`docs/audits/phase-10.44-independent-final-reaudit-v4.md`) with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-044=VERIFIED_EXISTING`, `AT-DP-044=PASS`, and `CLOSURE_ELIGIBLE=YES`.
+**Phase 10.45 — Integration with Interfaces:** complete, independently audited and closed. Audit history preserved: V1 `FAIL` (4 MAJOR), V2 `FAIL` (3 MAJOR), V3 `FAIL` (1 MAJOR), final V4 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`; final report `docs/audits/phase-10.45-independent-final-reaudit-v4.md`; audit-report commit `8122cc3398dce05cbc69dcb11d97f1b080ec5e59`.
+**Phase 10.46 — Domain Model Policies:** complete, independently re-audited and closed after V2 `PASS`. Model-agnostic `DomainModelPolicy` over canonical Agent Runtime/Kernel requirements with no concrete model/provider identifiers; historical Independent Audit V1 `FAIL` (`MAJORS=2`) preserved; both findings independently verified remediated in V2; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `DP-046=VERIFIED_EXISTING`; `AT-DP-046=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`; bundle SHA-256 `8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`; final report `docs/audits/phase-10.46-independent-reaudit-v2.md`; reference `docs/reference/domain-model-policies.md`.
+**Phase 10.48 — Domain Quality Metrics:** complete, independently re-audited and closed after final Re-audit V4 `PASS`; historical Audit V1 and Re-audits V2/V3 `FAIL` preserved; `PHASE10_48=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `INDEPENDENT_REAUDIT_V3=FAIL`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `MINOR_02=VERIFIED_REMEDIATED`; `MINOR_03=VERIFIED_REMEDIATED`; `MINOR_04=VERIFIED_REMEDIATED`; `DP-048=VERIFIED_EXISTING`; `AT-DP-048=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `dc94090147daaaaaee71250bb411d903666f6b13`; bundle SHA-256 `00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085`; final report `docs/audits/phase-10.48-independent-reaudit-v4.md`; audit-report commit `3e652884062dc5adc0a56859efd7f3ab5b9dfbd5`; reference `docs/reference/domain-quality-metrics.md`.
+**Phase 10.50 — Domain Privacy Policies:** implemented, remediated, independently re-audited and closed after Re-audit V2 `PASS`; historical Independent Audit V1 `FAIL` preserved; `PHASE10_50=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=WITHDRAWN_FALSE_POSITIVE`; `DP-050=VERIFIED_EXISTING`; `AT-DP-050=PASS`; `CLOSURE_ELIGIBLE=YES`; audited remediation HEAD `45dd5550635d56956b3ae073ddac60568ba8aac6`; bundle SHA-256 `e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace`; final report `docs/audits/phase-10.50-independent-reaudit-v2.md`; audit-report commit `526650d382c69b81d01064f28d69d1bcbda7bed9`; reference `docs/reference/domain-privacy-policies.md`.
+**Phase 10.51 — Domain Intelligence Core Conformance & Closure:** complete, independently re-audited and closed after Re-audit V2 `PASS`; historical Audit V1 `FAIL` preserved; `PHASE10_51=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `DP-051=VERIFIED_EXISTING`; `AT-DP-051=PASS`; `CLOSURE_ELIGIBLE=YES`; `HISTORICAL_BLOCKS=28`; `UNMAPPED_REQUIRED_BLOCKS=0`; `PARALLEL_OWNER_REQUIRED=0`; `FIRST_PARTY_PRE_10_52_DOMAINS=12`; `DEFERRED_DOMAIN_PACKS=2`; `PHASE11_PLATFORM_DEFERRED=YES`; `NEW_PRODUCTION_FILES=0`; `PRODUCTION_CHANGES=NONE`; `GAP_RED_COUNT=0`; audited remediation HEAD `9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report `docs/audits/phase-10.51-independent-reaudit-v2.md`; audit-report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`; reference `docs/reference/domain-core-conformance.md`.
+**Phase 10.52 — Mental Health Domain:** complete, independently re-audited and closed after final Re-audit **V4** `PASS`; historical Audit V1 and Re-audits V2/V3 `FAIL` preserved; `PHASE10_52=CLOSED`; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `INDEPENDENT_REAUDIT_V3=FAIL`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=CLOSED`; `MAJOR_02=CLOSED`; `MAJOR_03=CLOSED`; `MINOR_01=CLOSED`; `DP-052=VERIFIED_EXISTING`; `AT-DP-052=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `1b21e48717cfabdade2375d438413849d54b164f`; Re-audit V4 bundle SHA-256 `04bbfd2771645f59c908dbc4339dc5e10b5d31f802b8ec14a83e01b18872e44f`; final report `docs/audits/phase-10.52-independent-reaudit-v4.md`; audit-report commit `78842087e7a52795c217ed7ca4b4a7f3a2112969`; `FIRST_PARTY_DOMAIN_PACKS=13`; `HEALTH_AUTHORITY_PRESERVED=YES`; `MENTAL_HEALTH_CLINICAL_OVERRIDE=NO`; `CLINICAL_PRESENTATION_DEFAULT=NO`; `PERSISTENCE_IS_NEVER_IMPLICIT=YES`; `PHASE10_53=NOT_STARTED`; reference `docs/reference/mental-health-domain.md`.
+**Phase 10.53 — Neurodivergence Domain:** complete, independently re-audited and closed after final Re-audit **V4** `PASS`; historical Independent Audit V1, Re-audit V2 and Re-audit V3 redo `FAIL` preserved; `PHASE10_53=CLOSED`; `INDEPENDENT_REAUDIT_V4=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `DP-053=VERIFIED_EXISTING`; `AT-DP-053=PASS`; `CLOSURE_ELIGIBLE=YES`; `FIRST_PARTY_DOMAIN_PACKS=14`; `CURRENT_DEFERRED_DOMAIN_PACKS=0`; audited implementation HEAD `54a46da5770ed9da05a6369995683919d70a08bf`; Re-audit V4 bundle SHA-256 `2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f`; final report `docs/audits/phase-10.53-independent-reaudit-v4.md`; audit-report commit `c59251b929c0ebe314f12d100169ea952d510d74`; reference `docs/reference/neurodivergence-domain.md`.
+**Next action:** verify the Phase 10.53 docs-only closure commit and clean repository state before beginning Phase 11; `PHASE11=NOT_STARTED`.
+**Phase 10.47 — Domain Benchmark Suites:** complete, independently re-audited and closed after final Re-audit V5 `PASS`; audit history preserved: V1 `FAIL`, corrected V2 `FAIL`, V3 `FAIL`, V4 `FAIL`, final V5 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MINOR_01=VERIFIED_REMEDIATED`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=VERIFIED_REMEDIATED`; `MAJOR_04=WITHDRAWN_FALSE_POSITIVE`; `DP-047=VERIFIED_EXISTING`; `AT-DP-047=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `5babd930c9aa01d2a92ab6bd48f70f8a20ed71a0`; bundle SHA-256 `2544e6d9e737e7a50dde5c9745df1865b2143ba1f7b2fbfdccec6ed4785b5396`; final report `docs/audits/phase-10.47-independent-reaudit-v5.md`; audit-report commit `a4d542a2561ee986129f0e34713c6fb6065e3d8b`; portable, model-agnostic benchmark assets remain declarative; reference `docs/reference/domain-benchmark-suites.md`.
+**Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, and **Phase 10.39 — Preventing Fragmentation** are independently audited and closed. Phase 10.39 final independent re-audit **V4** = `PASS`.
+The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
+The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
+
+The **canonical requirements matrix records** the consolidated Phase 10 requirements through 10.53, with Phase 10.52 and **Phase 10.53 — Neurodivergence Domain** independently re-audited and closed after final Re-audit V4 `PASS`; Phase 10.53 records `PHASE10_53=CLOSED`, `DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS`, `CLOSURE_ELIGIBLE=YES`, `FIRST_PARTY_DOMAIN_PACKS=14`, and `CURRENT_DEFERRED_DOMAIN_PACKS=0`. **Phase 10.42 — Integration with Planner and Workflow Engine** is independently audited and closed after final re-audit **V12** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-042=VERIFIED_EXISTING`, and `AT-DP-042=PASS`. The matrix is the
+[Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
+supported by the
+[Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
+The Phase 10.16 implementation boundary is documented in
+[Domain Presentation](docs/reference/domain-presentation.md). Phase 10.15
+remains closed. Phases 10.33–10.39 are independently audited and closed; **Phase 10.39 — Preventing Fragmentation** closed after final independent re-audit **V4** `PASS`; Phase 10.52 and **Phase 10.53 — Neurodivergence Domain** are closed after final independent Re-audit V4 `PASS`. Phase 10.53 is the final planned Domain Pack; Phase 11 remains not started.
 
 ### Objective
 
@@ -517,11 +553,15 @@ oppositions
 reflection
 concerns
 languages
-nil
+parenthood
 sport
 life-plan
 project
+mental-health
+neurodivergence
 ```
+
+Health, Mental Health, and Neurodivergence are independent sibling Domain Packs with explicit, purpose-minimized cross-domain projections. Health retains authority for clinical medical facts, diagnosis status, treatment, medication, and clinical documentation.
 
 ### Completion outcome
 
@@ -550,6 +590,13 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - configuration and secrets management;
 - authentication and authorization;
 - conversational interface;
+- first-class configurable Bots with explicit Bot/Agent separation;
+- provider-independent Platform Capability Catalog with restrictive effective-capability resolution;
+- canonical tool binding through existing operations, adapters, permissions, approvals, validation, autonomy, and budgets;
+- independently authorized Web Search, Browser, authenticated-browser, and Computer Use capabilities;
+- human-in-the-loop Computer Use with explicit scope, cancellation, takeover, authority revalidation, and audit;
+- Bot and Tools / Capabilities product workspaces;
+- CMMChat as the first-party conversational client/UI, already under active interface development and consuming versioned CMM OS contracts;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
 - external audio ingestion and Plaud synchronization through a replaceable MCP adapter;
@@ -560,8 +607,9 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - conversation import from Claude, ChatGPT, and compatible Markdown formats;
 - continuation of imported conversations inside CMM OS;
 - supervised extraction of memory and knowledge from imported chats;
-- provider-independent Model Gateway with an optional experimental `ClineCliProvider` for ClinePass-backed models such as Kimi K3;
-- isolated `repository_worker` and tool-free `personal_assistant` execution profiles for the Cline CLI adapter;
+- provider-independent Model Gateway with `OpenCodeGoProvider` as the preferred low-cost multimodel subscription adapter for direct CMM OS use;
+- optional experimental `ClineCliProvider` retained as a secondary external-worker integration for Cline-specific agent workflows;
+- provider routing that keeps CMM OS in control of prompts, context, tools, permissions, memory, validation, privacy, and cost policies;
 - goals, workflows, approvals, agents, and memory UI;
 - artifacts and trace inspection;
 - real-time updates;
@@ -571,10 +619,12 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - complete end-to-end validation;
 - release and operational documentation.
 
+CMMChat is a client of CMM OS, not an authority owner. CMM OS remains authoritative for intelligence, capabilities, tools, permissions, Agents, data, validation, privacy, approvals, autonomy, budgets, and execution; Core/Runtime must not depend on the CMMChat implementation.
+
 ### Platform flow
 
 ```text
-User / UI / API / CLI
+User / CMMChat / UI / API / CLI
         ↓
 Orchestrator
         ↓
@@ -592,12 +642,6 @@ Storage, Memory and Knowledge
         ↓
 Communication Profile and Response Rendering
         ↓
-External Audio Ingestion and Transcription
-        ↓
-Conversation Files and Global Artifact Library
-        ↓
-Conversation Import, Export and Memory Review
-        ↓
 Observability, Recovery and UI
 ```
 
@@ -609,7 +653,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The implementation and audit baseline now covers Phases 0–9, while Phase 10 is the next engineering milestone.
+The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through **10.53**. **Phase 10.52 — Mental Health Domain** is complete, independently re-audited and closed after final Re-audit **V4** `PASS`. **Phase 10.53 — Neurodivergence Domain** is complete, independently re-audited and closed after final Re-audit **V4** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-053=VERIFIED_EXISTING`, `AT-DP-053=PASS`, `CLOSURE_ELIGIBLE=YES`, audited implementation HEAD `54a46da5770ed9da05a6369995683919d70a08bf`, Re-audit V4 bundle SHA-256 `2caed1043589639311de10c9f343e1f89bc70f4fa4e0fe8f72aebc76ca1d7c0f`, and final report `docs/audits/phase-10.53-independent-reaudit-v4.md`.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 
@@ -677,3 +721,17 @@ The detailed specifications are organized by phase:
 - [`Phase 11 — Stable Integrated Platform`](docs/roadmap/phase-11-stable-integrated-platform.md)
 
 This separation keeps the public roadmap readable while preserving the complete engineering design of each phase.
+
+<!-- PHASE10_49_FINAL_AUDIT_PROVENANCE -->
+```text
+INDEPENDENT_REAUDIT_V3=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+DP-049=VERIFIED_EXISTING
+AT-DP-049=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=b5688b9d686f7cf52ab02f4f911818656370b39d
+REAUDIT_V3_BUNDLE_SHA256=c179ba16bc99e2bea4b7bccb755f8e958839bc617fa08a3cd2efa5a939f5912a
+PHASE10_49=CLOSED
+```

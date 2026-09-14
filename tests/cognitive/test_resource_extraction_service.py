@@ -128,7 +128,7 @@ class TestAdaptAndExtractResultContract:
 
     def test_is_frozen(self) -> None:
         result = self._result()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             result.extraction = None  # type: ignore[misc]
 
     def test_requires_tz_aware_created_at(self) -> None:
@@ -145,7 +145,7 @@ class TestAdaptAndExtractResultContract:
             AdaptAndExtractResult(
                 adaptation=adaptation,
                 extraction=None,
-                created_at=datetime(2026, 1, 1),  # naive
+                created_at=datetime(2026, 1, 1),  # naive  # noqa: DTZ001
             )
 
     def test_to_dict_has_expected_keys(self) -> None:

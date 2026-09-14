@@ -240,6 +240,14 @@ def full_suite_step(context: ValidationContext) -> ValidationStep | None:
     escalation = decide_test_escalation(context, selection)
     if not escalation.requires_full_suite and not context.requested_steps:
         return None
+    discovered = discover_tests(context.project_root)
+    if not discovered and _is_required_or_requested(context, "full_suite"):
+        return _make_not_applicable_step(
+            name="full_suite",
+            context=context,
+            scope="full",
+            reason="no_tests_discovered",
+        )
     return _make_pytest_step(
         name="full_suite",
         context=context,

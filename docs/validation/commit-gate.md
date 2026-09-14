@@ -1,5 +1,11 @@
 # Commit Gate (Subphase 7.10)
 
+**Scope: CMM product runtime.** The rules below govern `ProvisionalCommitService`
+and retain its mandatory `CommitAuthorization` contract. They are not Git
+permissions or installed hooks for an assistant developing this repository.
+That assistant follows [AGENTS.md](../../AGENTS.md) and its host controls;
+using this product service still requires all of the service's checks.
+
 The **Commit Gate** provides a structured, observable, and safe barrier between continuous validation results and repository modifications (Git commits).
 
 ## Core Architecture

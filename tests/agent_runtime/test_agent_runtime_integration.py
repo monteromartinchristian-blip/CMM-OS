@@ -1379,6 +1379,156 @@ def test_service_approval_pause_and_resume_revalidates_before_execution() -> Non
     assert len(harness.execution_adapter.repository.list_results("run-exec-1")) == 1
 
 
+def test_service_reuses_canonical_local_approval() -> None:
+    harness = _IntegrationHarness()
+    supplied = harness.approval_service.create_request(
+        title="Valid local approval",
+        description="Matches current run and goal",
+        agent_run_id="run-exec-1",
+        goal_id="goal-1",
+        operation_id="op-1",
+        required_approvers=("actor-1",),
+    )
+
+    paused = harness.service.execute(
+        _service_request(
+            available_approval_ids=(supplied.id,),
+            metadata={"requires_approval": True},
+        )
+    )
+
+    assert paused.final_state is IntegrationExecutionState.WAITING_APPROVAL
+    assert paused.approval_ids == (supplied.id,)
+    assert harness.store.get("exec-1").pending_approval_ids == (supplied.id,)
+
+    harness.approval_service.approve(supplied.id, actor_id="actor-1")
+    resumed = harness.service.resume("exec-1", approval_id=supplied.id)
+
+    assert resumed.final_state is IntegrationExecutionState.COMPLETED
+    assert len(harness.execution_adapter.repository.list_results("run-exec-1")) == 1
+
+
+def test_service_handles_external_only_approval_ids_compatibly() -> None:
+    harness = _IntegrationHarness()
+
+    paused = harness.service.execute(
+        _service_request(
+            available_approval_ids=("ext-approval-1", "ext-approval-2"),
+            metadata={"requires_approval": True},
+        )
+    )
+
+    assert paused.final_state is IntegrationExecutionState.WAITING_APPROVAL
+    assert len(paused.approval_ids) == 1
+    minted_id = paused.approval_ids[0]
+    assert minted_id not in ("ext-approval-1", "ext-approval-2")
+    assert harness.approval_service.repository.get_request(minted_id) is not None
+
+    harness.approval_service.approve(minted_id, actor_id="actor-1")
+    resumed = harness.service.resume("exec-1", approval_id=minted_id)
+
+    assert resumed.final_state is IntegrationExecutionState.COMPLETED
+    assert len(harness.execution_adapter.repository.list_results("run-exec-1")) == 1
+
+
+def test_service_rejects_mixed_local_and_external_approval_ids() -> None:
+    harness = _IntegrationHarness()
+    supplied = harness.approval_service.create_request(
+        title="Valid local approval",
+        description="Local approval mixed with external",
+        agent_run_id="run-exec-1",
+        goal_id="goal-1",
+        operation_id="op-1",
+        required_approvers=("actor-1",),
+    )
+
+    with pytest.raises(
+        AgentRuntimeIntegrationError, match="mix local and external authority"
+    ):
+        harness.service.execute(
+            _service_request(
+                available_approval_ids=(supplied.id, "ext-approval-missing"),
+                metadata={"requires_approval": True},
+            )
+        )
+
+    assert harness.execution_adapter.repository.list_results("run-exec-1") == []
+
+
+def test_service_rejects_mismatched_supplied_approval() -> None:
+    harness = _IntegrationHarness()
+    supplied = harness.approval_service.create_request(
+        title="Mismatched approval",
+        description="Belongs to another goal",
+        agent_run_id="run-exec-1",
+        goal_id="goal-other",
+        operation_id="op-1",
+        required_approvers=("actor-1",),
+    )
+
+    with pytest.raises(AgentRuntimeIntegrationError, match="goal does not match"):
+        harness.service.execute(
+            _service_request(
+                available_approval_ids=(supplied.id,),
+                metadata={"requires_approval": True},
+            )
+        )
+
+    assert harness.execution_adapter.repository.list_results("run-exec-1") == []
+
+
+def test_service_rejects_expired_supplied_approval() -> None:
+    harness = _IntegrationHarness()
+    supplied = harness.approval_service.create_request(
+        title="Expired approval",
+        description="Expired before the pause",
+        agent_run_id="run-exec-1",
+        goal_id="goal-1",
+        operation_id="op-1",
+        required_approvers=("actor-1",),
+        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+
+    with pytest.raises(AgentRuntimeIntegrationError, match="expired"):
+        harness.service.execute(
+            _service_request(
+                available_approval_ids=(supplied.id,),
+                metadata={"requires_approval": True},
+            )
+        )
+
+    assert harness.execution_adapter.repository.list_results("run-exec-1") == []
+
+
+def test_service_rejects_consumed_supplied_approval() -> None:
+    harness = _IntegrationHarness()
+    supplied = harness.approval_service.create_request(
+        title="Consumed approval",
+        description="Already used by an earlier dispatch",
+        agent_run_id="run-exec-1",
+        goal_id="goal-1",
+        operation_id="op-1",
+        required_approvers=("actor-1",),
+    )
+    harness.approval_service.approve(supplied.id, actor_id="actor-1")
+    evidence = harness.approval_service.validate_and_consume(
+        supplied.id,
+        actor_id="actor-1",
+        session_id="session-1",
+    )
+    assert evidence.consumed is True
+
+    with pytest.raises(AgentRuntimeIntegrationError, match="consumed"):
+        harness.service.execute(
+            _service_request(
+                available_approval_ids=(supplied.id,),
+                metadata={"requires_approval": True},
+            )
+        )
+
+    assert harness.execution_adapter.repository.list_results("run-exec-1") == []
+
+
 def test_service_resume_revalidates_kill_switch_before_execution() -> None:
     harness = _IntegrationHarness()
     paused = harness.service.execute(

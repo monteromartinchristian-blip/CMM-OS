@@ -53,5 +53,10 @@ Thumbs.db
 # CMM OS local runtime state
 .cmm/
 
-# Local TokenSave state
+# Claude Code local/session state
+.claude/settings.local.json
+.claude/.headroom_wrap_marker.json
+
+# tokensave local cache
 .tokensave/
+.worktrees/

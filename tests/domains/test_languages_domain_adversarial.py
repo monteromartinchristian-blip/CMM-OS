@@ -1,0 +1,2001 @@
+"""Phase 10.26 — Languages Domain Adversarial & Failure-Mode Suite."""
+
+from __future__ import annotations
+
+import copy
+import json
+from collections.abc import Callable
+from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Any
+
+import pytest
+
+from cmm.agent_runtime.approval_contracts import ApprovalRequest
+from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+)
+from cmm.agent_runtime.enums import PolicyRiskLevel
+from cmm.agent_runtime.operation_schema import validate_operation_schema
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.contracts import DomainResult
+from cmm.domains.enums import DomainOperationType
+from cmm.domains.languages.catalog import CANONICAL_LANGUAGES_OPERATION_IDS
+from cmm.domains.languages.memory import build_languages_memory_proposal
+from cmm.domains.languages.operations import (
+    assess_sample_result,
+    build_languages_operation_definitions,
+    create_learning_plan_result,
+    generate_conversation_turn_result,
+    generate_exercises_result,
+    generate_lesson_result,
+    generate_progress_review_result,
+    generate_roleplay_turn_result,
+    plan_review_schedule_result,
+    prepare_certification_result,
+    review_errors_result,
+    review_exercise_result,
+    review_speaking_result,
+    review_writing_result,
+    track_vocabulary_result,
+    update_level_evidence_result,
+)
+from cmm.domains.languages.permissions import (
+    build_languages_permission_policy,
+    permission_authorization_allows,
+)
+from cmm.domains.languages.rules import (
+    adapt_difficulty,
+    classify_language_variety,
+    classify_proficiency_record,
+    evaluate_certification_source,
+    evaluate_error_pattern,
+    evaluate_framework_mapping,
+    evaluate_language_memory_consent,
+    evaluate_level_update,
+    evaluate_progression,
+)
+from cmm.domains.languages.workflows import build_languages_workflow_definitions
+from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.permission_contracts import (
+    DomainPermissionPolicy,
+    DomainPermissionRequest,
+)
+from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.workflow_contracts import DomainWorkflowContext
+from cmm.domains.workflow_execution import DomainWorkflowExecutor
+from cmm.workflows.engine import NodeExecution
+from cmm.workflows.enums import WorkflowRunStatus
+
+NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
+
+
+def test_adversarial_certified_level_overwrite_attempt() -> None:
+    """A higher observed sample must NEVER overwrite a certified proficiency record."""
+    cert = {
+        "kind": "CERTIFIED",
+        "level_or_score": "B1",
+        "framework": "CEFR",
+        "evidence": [{"id": "c1"}],
+    }
+    ass = {"observed_performance": "C2", "skill": "writing"}
+    res = update_level_evidence_result(
+        existing_record=cert, assessment=ass, target_skill="writing"
+    )
+    assert res["is_certified"] is True
+    assert res["stable_update_supported"] is False
+    assert res["proposed_level"] == "B1"
+
+
+def test_adversarial_malformed_consent_strings() -> None:
+    """String 'true', 'yes', 1, dicts must never authorize persistence."""
+    for bad_consent in ("true", "TRUE", "yes", 1, 0, 1.0, {"consent": True}, [True]):
+        eval_res = evaluate_language_memory_consent(
+            content_kind="profile", session_only=False, consent=bad_consent
+        )
+        assert eval_res["persistence_authorized"] is False
+        assert permission_authorization_allows(bad_consent) is False
+
+
+def test_adversarial_audio_transcript_hallucination_prevention() -> None:
+    """Text transcript alone must NEVER claim to have assessed pronunciation."""
+    res = review_speaking_result(
+        audio_transcript={"transcript": "Every sound was pronounced perfectly."},
+        target_language="English",
+        pronunciation_evidence=None,
+    )
+    assert res["pronunciation_assessed"] is False
+    assert res["pronunciation_feedback"] is None
+
+
+def test_adversarial_variety_difference_as_error_rejection() -> None:
+    """A valid regional variety difference must never be classified as an error."""
+    var_res = classify_language_variety(
+        preferred_variety="Mexican Spanish",
+        observed_variety="Peninsular Spanish",
+        form_status="valid",
+    )
+    assert var_res["is_valid_alternative"] is True
+    assert var_res["error_rejected"] is True
+
+
+def test_adversarial_one_session_regression_not_stable() -> None:
+    """A single bad session must not downgrade stable proficiency."""
+    diff_res = adapt_difficulty(
+        current_difficulty=3, performance=[{"score": 0.1}], stable_proficiency="B2"
+    )
+    assert diff_res["stable_proficiency_changed"] is False
+    assert diff_res["action"] != "stable_regression"
+
+
+def test_adversarial_certification_auto_registration_prevention() -> None:
+    """Certification prep must never perform external registration or payment."""
+    res = prepare_certification_result(target_certification="DELE C1")
+    assert res["registration_performed"] is False
+    assert res["payment_performed"] is False
+    assert res["submission_performed"] is False
+
+
+def test_adversarial_unsupported_framework_mapping() -> None:
+    """Mapping between unknown or uncalibrated frameworks must return unsupported_framework."""
+    res = evaluate_framework_mapping(
+        source_framework="UNKNOWN_FRAMEWORK",
+        source_value="Level 5",
+        target_framework="CEFR",
+    )
+    assert res["mapping_status"] == "unsupported_framework"
+    assert res["calibrated"] is False
+
+
+def test_certification_requires_grounded_official_credential_evidence() -> None:
+    invalid_evidence = (
+        {"id": "generic-id"},
+        {"provenance_id": "user-sample", "source_kind": "user_sample"},
+        {"source_kind": "official_certificate", "certificate_id": "C1"},
+    )
+    for evidence in invalid_evidence:
+        result = classify_proficiency_record(
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="C1",
+            skill_scope="writing",
+            evidence=(evidence,),
+        )
+        assert result["is_certified"] is False
+
+    grounded = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "certificate_id": "C1",
+                "source_id": "official-record",
+                "framework": "CEFR",
+                "result": "C1",
+                "valid_at": "2026-01-01",
+                "skill": "writing",
+            },
+        ),
+    )
+    assert grounded["is_certified"] is True
+
+
+def test_certification_requires_certification_specific_provenance() -> None:
+    for alias in ("context_id", "sample_id", "assessment_id"):
+        result = classify_proficiency_record(
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="C1",
+            skill_scope="writing",
+            evidence=(
+                {
+                    "source_kind": "official_certificate",
+                    "certificate_id": "C1",
+                    alias: "caller-controlled-context",
+                },
+            ),
+        )
+        assert result["is_certified"] is False
+
+    official = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "certificate_id": "C1",
+                "official_source_id": "official-record",
+                "framework": "CEFR",
+                "result": "C1",
+                "valid_at": "2026-01-01",
+                "skill": "writing",
+            },
+        ),
+    )
+    assert official["is_certified"] is True
+
+
+def test_nested_malformed_evidence_fails_closed_without_type_error() -> None:
+    result = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B2",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "nested",
+                "score": {"unexpected": ["nested", "value"]},
+            },
+        ),
+    )
+    assert result["is_certified"] is False
+
+
+def test_invalid_confidence_cannot_create_certainty_or_non_json_numbers() -> None:
+    for confidence in (True, -0.1, 1.1, float("inf"), float("-inf"), float("nan")):
+        result = classify_proficiency_record(
+            kind="OBSERVED_PERFORMANCE",
+            framework="CEFR",
+            level_or_score="B2",
+            skill_scope="writing",
+            evidence=(
+                {
+                    "provenance_id": "observed-sample",
+                    "framework": "CEFR",
+                    "skill": "writing",
+                    "observed": "B2",
+                },
+            ),
+            confidence=confidence,
+        )
+        assert result["confidence"] == 0.5
+
+
+def test_schema_valid_empty_operation_inputs_never_invent_evidence() -> None:
+    assessment = assess_sample_result(sample={})
+    writing = review_writing_result(writing_sample={})
+    speaking = review_speaking_result(audio_transcript={})
+    certification = prepare_certification_result(target_certification="C1")
+
+    assert assessment["observed_performance"] == "unknown"
+    assert not assessment["strengths"]
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert not writing["strengths"]
+    assert speaking["fluency_score"] == 0.0
+    assert certification["readiness_score"] == 0.0
+    assert not certification["skill_gaps"]
+
+    progress = generate_progress_review_result(language="English", period="month")
+    assert progress["overall_progression"] == "insufficient_evidence"
+    assert progress["skill_progress"] == {}
+    assert progress["active_patterns_count"] == 0
+    assert progress["certification_readiness"] == "not_assessed"
+    assert progress["recommended_next_focus"] == "not_assessed"
+
+
+def test_exercise_numeric_inputs_never_escape_fail_closed_json_boundary() -> None:
+    for score in (float("nan"), float("inf"), float("-inf"), True, "bad", {}, []):
+        result = review_exercise_result(exercise_result={"score": score})
+        assert result["score"] is None
+        assert result["is_correct"] is None
+        assert result["observed_errors"] == []
+        json.dumps(result, allow_nan=False)
+
+
+def test_empty_vocabulary_never_reports_impossible_mastery() -> None:
+    """Catches the hard-coded five-mastered-items summary."""
+    result = track_vocabulary_result(vocabulary_list={"items": []})
+    assert result["total_items"] == 0
+    assert result["mastery_summary"]["mastered"] == 0
+    assert result["mastery_summary"]["learning"] == 0
+    assert result["candidate_updates"] == []
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"] + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_learning_vocabulary_item_is_not_counted_as_mastered() -> None:
+    """Catches a fixed mastery count that ignores an item's candidate state."""
+    result = track_vocabulary_result(
+        vocabulary_list={"items": [{"id": "v1", "term": "hello", "state": "learning"}]}
+    )
+    assert result["total_items"] == 1
+    assert result["mastery_summary"]["mastered"] == 0
+    assert result["mastery_summary"]["learning"] == 1
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"] + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_vocabulary_normalization_deduplicates_and_ignores_unknown_reviews() -> None:
+    """Malformed or duplicate input cannot inflate candidates or invent vocabulary."""
+    result = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "kept", "state": "consolidated"},
+                {"item_id": "kept", "state": "new"},
+                {"id": "malformed-state", "state": "mastered"},
+                "not-a-vocabulary-item",
+            ]
+        },
+        new_items=[
+            {"id": "kept", "state": "learning"},
+            ["also-not-a-vocabulary-item"],
+        ],
+        review_results=[
+            {"id": "unknown", "state": "consolidated"},
+            {"id": "malformed-state", "correct": "yes"},
+        ],
+    )
+
+    assert result["candidate_updates"] == [
+        {"id": "kept", "state": "consolidated"},
+        {"id": "malformed-state", "state": "new"},
+    ]
+    assert result["total_items"] == 2
+    assert result["mastery_summary"] == {"mastered": 1, "learning": 1}
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"] + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_vocabulary_candidates_are_json_safe_and_do_not_mutate_inputs() -> None:
+    """Candidate normalization must leave source records untouched and strict-JSON safe."""
+    vocabulary_list = {
+        "items": [
+            {
+                "id": 4,
+                "state": " LEARNING ",
+                "metadata": {"non_finite": float("inf")},
+            }
+        ]
+    }
+    new_items = [{"id": 5, "state": "not-a-frozen-state"}]
+    review_results = [{"id": 4, "correct": True}]
+    original_vocabulary_list = copy.deepcopy(vocabulary_list)
+    original_new_items = copy.deepcopy(new_items)
+    original_review_results = copy.deepcopy(review_results)
+
+    result = track_vocabulary_result(
+        vocabulary_list=vocabulary_list,
+        new_items=new_items,
+        review_results=review_results,
+    )
+
+    assert vocabulary_list == original_vocabulary_list
+    assert new_items == original_new_items
+    assert review_results == original_review_results
+    assert result["candidate_updates"] == [
+        {"id": "4", "state": "review", "metadata": {"non_finite": None}},
+        {"id": "5", "state": "new"},
+    ]
+    assert result["mastery_summary"] == {"mastered": 0, "learning": 2}
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"] + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+    json.dumps(result, allow_nan=False)
+
+
+def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
+    existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
+    base = {
+        "observed": "B2",
+        "skill": "writing",
+        "comparable": True,
+        "comparison_key": "essay",
+    }
+    duplicated = evaluate_level_update(
+        existing=existing,
+        target_skill="writing",
+        evidence=(
+            {**base, "id": "one", "provenance_id": "same"},
+            {**base, "id": "two", "provenance_id": "same"},
+        ),
+    )
+    assert duplicated["stable_update_supported"] is False
+
+    aliased = evaluate_level_update(
+        existing=existing,
+        target_skill="writing",
+        evidence=(
+            {**base, "provenance_id": "same"},
+            {**base, "source_id": "same"},
+        ),
+    )
+    assert aliased["stable_update_supported"] is False
+
+    non_comparable = evaluate_level_update(
+        existing=existing,
+        target_skill="writing",
+        evidence=(
+            {**base, "provenance_id": "one"},
+            {**base, "provenance_id": "two", "comparable": False},
+        ),
+    )
+    assert non_comparable["stable_update_supported"] is False
+    for wrong_skill in ("grammar", "speaking"):
+        cross_skill = evaluate_level_update(
+            existing=existing,
+            target_skill="writing",
+            evidence=(
+                {**base, "provenance_id": "one", "skill": wrong_skill},
+                {**base, "provenance_id": "two", "skill": wrong_skill},
+            ),
+        )
+        assert cross_skill["stable_update_supported"] is False
+
+
+def test_error_patterns_require_independence_and_comparability() -> None:
+    one = {
+        "provenance_id": "one",
+        "error_type": "inversion",
+        "comparable": True,
+        "comparison_key": "essay",
+    }
+    assert evaluate_error_pattern(observations=(one,))["eligible"] is False
+    copied = ({**one, "id": "a"}, {**one, "id": "b"})
+    assert evaluate_error_pattern(observations=copied)["eligible"] is False
+    aliased = (
+        {**one, "provenance_id": "same"},
+        {
+            "source_id": "same",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    assert evaluate_error_pattern(observations=aliased)["eligible"] is False
+    non_comparable = (
+        one,
+        {**one, "provenance_id": "two", "comparable": False},
+    )
+    assert evaluate_error_pattern(observations=non_comparable)["eligible"] is False
+    valid = (one, {**one, "provenance_id": "two"})
+    assert evaluate_error_pattern(observations=valid)["pattern_state"] == "candidate"
+
+    unrelated = (
+        one,
+        {
+            **one,
+            "provenance_id": "two",
+            "error_type": "spelling",
+        },
+    )
+    assert evaluate_error_pattern(observations=unrelated)["eligible"] is False
+
+
+def test_progression_requires_real_comparable_baseline_and_repetition() -> None:
+    baseline = (
+        {
+            "provenance_id": "baseline",
+            "score": 0.6,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    current = (
+        {
+            "provenance_id": "one",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "score": 0.88,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    assert (
+        evaluate_progression(
+            previous_evidence=(), current_evidence=current, skill="writing"
+        )["stable_progression"]
+        is False
+    )
+    assert (
+        evaluate_progression(
+            previous_evidence=baseline, current_evidence=current[:1], skill="writing"
+        )["stable_progression"]
+        is False
+    )
+    incomparable = tuple({**item, "comparable": False} for item in current)
+    assert (
+        evaluate_progression(
+            previous_evidence=baseline, current_evidence=incomparable, skill="writing"
+        )["stable_progression"]
+        is False
+    )
+    assert (
+        evaluate_progression(
+            previous_evidence=baseline, current_evidence=current, skill="writing"
+        )["stable_progression"]
+        is True
+    )
+    same_provenance = (
+        {**current[0], "provenance_id": "same", "score": 0.8},
+        {**current[1], "provenance_id": "same", "score": 0.9},
+    )
+    assert (
+        evaluate_progression(
+            previous_evidence=baseline,
+            current_evidence=same_provenance,
+            skill="writing",
+        )["stable_progression"]
+        is False
+    )
+    poor = (
+        {
+            "provenance_id": "poor",
+            "score": 0.2,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    assert (
+        evaluate_progression(
+            previous_evidence=baseline, current_evidence=poor, skill="writing"
+        )["progression_outcome"]
+        != "stable_regression"
+    )
+
+
+def test_certification_temporality_and_readiness_never_upgrade_proficiency() -> None:
+    ranked = evaluate_certification_source(
+        sources=(
+            {
+                "id": "stale",
+                "source_type": "official",
+                "date_valid": False,
+                "official_source_id": "stale-src-1",
+            },
+            {
+                "id": "current",
+                "source_type": "official",
+                "date_valid": True,
+                "official_source_id": "current-src-1",
+            },
+        ),
+        decision_critical=True,
+    )
+    assert ranked["selected_source"]["id"] == "current"
+    for source in (
+        {"id": "stale", "source_type": "official", "date_valid": False},
+        {"id": "unknown", "source_type": "official"},
+    ):
+        assert (
+            evaluate_certification_source(sources=(source,), decision_critical=True)[
+                "needs_verification"
+            ]
+            is True
+        )
+    conflict = evaluate_certification_source(
+        sources=(
+            {
+                "id": "a",
+                "source_type": "official",
+                "date_valid": True,
+                "task_count": 3,
+                "official_source_id": "off-a",
+            },
+            {
+                "id": "b",
+                "source_type": "official",
+                "date_valid": True,
+                "task_count": 4,
+                "official_source_id": "off-b",
+            },
+        ),
+        decision_critical=True,
+    )
+    assert conflict["selected_source"] is None
+    assert conflict["needs_verification"] is True
+    structured_conflict = evaluate_certification_source(
+        sources=(
+            {
+                "id": "structured-a",
+                "source_type": "official",
+                "date_valid": True,
+                "requirements": ["writing", {"speaking": "oral"}],
+                "official_source_id": "struct-a",
+            },
+            {
+                "id": "structured-b",
+                "source_type": "official",
+                "date_valid": True,
+                "requirements": ["writing", {"speaking": "interview"}],
+                "official_source_id": "struct-b",
+            },
+        ),
+        decision_critical=True,
+    )
+    assert structured_conflict["selected_source"] is None
+    assert structured_conflict["unresolved_conflict"] is True
+    assert structured_conflict["needs_verification"] is True
+    assert (
+        prepare_certification_result(target_certification="C1")[
+            "readiness_promoted_to_proficiency"
+        ]
+        is False
+    )
+
+
+class _Ids:
+    def __init__(self) -> None:
+        self.value = 0
+
+    def __call__(self) -> str:
+        self.value += 1
+        return f"adversarial-workflow-{self.value}"
+
+
+def _execute_workflow(workflow_id: str, outputs: dict[str, dict]):
+    workflow = next(
+        item
+        for item in build_languages_workflow_definitions()
+        if item.workflow_id == workflow_id
+    )
+
+    def adapter(node, run):
+        if node.operation_id:
+            result = outputs[node.operation_id]
+            return NodeExecution.complete(result, operation_result=result)
+        return NodeExecution.complete({"ok": True})
+
+    operations = build_languages_operation_definitions()
+    context = DomainWorkflowContext(
+        primary_domain_id="domain:languages",
+        known_domain_ids=frozenset({"domain:languages", "domain:general"}),
+        authorized_domain_ids=frozenset({"domain:languages"}),
+        available_resources=frozenset(workflow.required_resources),
+        available_operations=frozenset(item.operation_id for item in operations),
+    )
+    return DomainWorkflowExecutor(id_factory=_Ids(), operation_adapter=adapter).execute(
+        workflow, context, {"language": "English"}
+    )
+
+
+def test_workflows_accept_legitimate_variable_outcomes_and_reject_mutations() -> None:
+    wrong_exercise = review_exercise_result(
+        exercise_result={"is_correct": False, "score": 0.0}
+    )
+    lesson_run = _execute_workflow(
+        "languages.adaptive_language_lesson",
+        {
+            "languages.generate_lesson": generate_lesson_result(
+                language="English",
+                target_skill="writing",
+                current_level="B1",
+                topic="inversion",
+            ),
+            "languages.generate_exercises": generate_exercises_result(
+                language="English",
+                skill="grammar",
+                difficulty=2,
+                target_topic="inversion",
+            ),
+            "languages.review_exercise": wrong_exercise,
+        },
+    )
+    assert lesson_run.status is WorkflowRunStatus.COMPLETED
+
+    a2_writing = review_writing_result(writing_sample={"text": "Short text."})
+    assert a2_writing["estimated_level"] == "A2"
+    assert (
+        _execute_workflow(
+            "languages.writing_review", {"languages.review_writing": a2_writing}
+        ).status
+        is WorkflowRunStatus.COMPLETED
+    )
+
+    recurrent = (
+        {
+            "provenance_id": "one",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    error_review = review_errors_result(observed_errors=recurrent)
+    error_run = _execute_workflow(
+        "languages.error_remediation",
+        {
+            "languages.review_errors": error_review,
+            "languages.generate_exercises": generate_exercises_result(
+                language="English",
+                skill="grammar",
+                difficulty=2,
+                target_topic="inversion",
+            ),
+            "languages.review_exercise": review_exercise_result(
+                exercise_result={"is_correct": True}
+            ),
+        },
+    )
+    assert error_review["error_patterns"]
+    assert error_run.status is WorkflowRunStatus.COMPLETED
+
+    speaking = review_speaking_result(
+        audio_transcript={"transcript": "Hello"},
+        pronunciation_evidence=(
+            {
+                "source_id": "audio-1",
+                "finding": "Phoneme /h/ needs additional practice.",
+            },
+        ),
+    )
+    practice_run = _execute_workflow(
+        "languages.conversation_roleplay_practice",
+        {
+            "languages.generate_conversation_turn": generate_conversation_turn_result(
+                conversation={"turns": ()}
+            ),
+            "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+                conversation={"turns": ()}
+            ),
+            "languages.review_speaking": speaking,
+        },
+    )
+    assert speaking["pronunciation_assessed"] is True
+    assert practice_run.status is WorkflowRunStatus.COMPLETED
+
+    certification = prepare_certification_result(
+        target_certification="C1",
+        official_source={"source_type": "official", "date_valid": False},
+    )
+    assert certification["needs_verification"] is True
+    assert (
+        _execute_workflow(
+            "languages.certification_preparation",
+            {"languages.prepare_certification": certification},
+        ).status
+        is WorkflowRunStatus.COMPLETED
+    )
+
+    baseline = (
+        {
+            "provenance_id": "baseline",
+            "score": 0.6,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    current = (
+        {
+            "provenance_id": "one",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "score": 0.88,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    progress = generate_progress_review_result(
+        language="English",
+        period="month",
+        previous_evidence=baseline,
+        evidence=current,
+        skill="writing",
+    )
+    assert progress["stable_progression"] is True
+    assert (
+        _execute_workflow(
+            "languages.progress_checkpoint",
+            {"languages.generate_progress_review": progress},
+        ).status
+        is WorkflowRunStatus.COMPLETED
+    )
+
+    schedule = plan_review_schedule_result(review_items=())
+    malicious_schedule = {**schedule, "calendar_modified": True}
+    vocab = track_vocabulary_result(vocabulary_list={"items": ()})
+    failed_schedule = _execute_workflow(
+        "languages.vocabulary_spaced_review",
+        {
+            "languages.track_vocabulary": vocab,
+            "languages.plan_review_schedule": malicious_schedule,
+        },
+    )
+    assert failed_schedule.status is WorkflowRunStatus.FAILED
+
+    malicious_certification = {
+        **certification,
+        "registration_performed": True,
+        "payment_performed": True,
+        "submission_performed": True,
+    }
+    failed_certification = _execute_workflow(
+        "languages.certification_preparation",
+        {"languages.prepare_certification": malicious_certification},
+    )
+    assert failed_certification.status is WorkflowRunStatus.FAILED
+
+
+def _permission_stack():
+    registry = DomainPermissionRegistry()
+    registry.register(build_languages_permission_policy())
+    service = ApprovalService(InMemoryApprovalRepository())
+    gate = DomainPermissionGate(
+        DomainPermissionResolver(registry), service, clock=lambda: NOW
+    )
+    operation = DomainOperationDefinition(
+        operation_id="languages.test_adversarial_memory_write",
+        domain_id="domain:languages",
+        version="1.0.0",
+        name="Adversarial memory boundary",
+        description="Test-only shared permission lifecycle operation.",
+        operation_type=DomainOperationType.ANALYSIS,
+        required_permissions=(PermissionCapability.MEMORY_WRITE.value,),
+        risk_level=PolicyRiskLevel.LOW,
+        reversible=True,
+    )
+    return registry, service, gate, operation
+
+
+def test_memory_write_requires_exact_one_shot_approval_and_proposal_does_not_consume() -> (
+    None
+):
+    _, service, gate, operation = _permission_stack()
+    kwargs = {
+        "request_id": "adversarial-memory",
+        "actor_id": "actor",
+        "session_id": "session",
+    }
+    pending = gate.evaluate_operation_definition(operation, **kwargs)
+    assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    requirement = PermissionApprovalRequirement.from_dict(
+        pending.approval_requirements[0]
+    )
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement, agent_run_id="run-adversarial"),
+        requested_by="agent-runtime",
+    )
+    service.approve(approval.id, "human")
+
+    proposal = build_languages_memory_proposal(proposal_id="proposal-adversarial")
+    assert proposal.requires_confirmation is True
+    assert service.repository.is_consumed(approval.id) is False
+    for actor, session in (("wrong", "session"), ("actor", "wrong")):
+        denied = gate.evaluate_operation_definition(
+            operation,
+            request_id="adversarial-memory",
+            actor_id=actor,
+            session_id=session,
+            approval_request_id=approval.id,
+        )
+        assert denied.outcome is PermissionGateOutcome.APPROVAL_DENIED
+        assert service.repository.is_consumed(approval.id) is False
+
+    wrong_scope = service.create_request_from_requirement(
+        to_approval_requirement(
+            replace(requirement, scope="wrong-scope"),
+            agent_run_id="run-wrong-scope",
+        ),
+        requested_by="agent-runtime",
+    )
+    service.approve(wrong_scope.id, "human")
+    assert (
+        gate.evaluate_operation_definition(
+            operation, approval_request_id=wrong_scope.id, **kwargs
+        ).outcome
+        is PermissionGateOutcome.APPROVAL_DENIED
+    )
+    assert service.repository.is_consumed(approval.id) is False
+
+    consumed = gate.evaluate_operation_definition(
+        operation, approval_request_id=approval.id, **kwargs
+    )
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert (
+        gate.evaluate_operation_definition(
+            operation, approval_request_id=approval.id, **kwargs
+        ).outcome
+        is PermissionGateOutcome.APPROVAL_DENIED
+    )
+
+    _, expired_service, expired_gate, expired_operation = _permission_stack()
+    expired_pending = expired_gate.evaluate_operation_definition(
+        expired_operation, **kwargs
+    )
+    expired_requirement = PermissionApprovalRequirement.from_dict(
+        expired_pending.approval_requirements[0]
+    )
+    expired_approval = expired_service.create_request_from_requirement(
+        to_approval_requirement(expired_requirement, agent_run_id="run-expired"),
+        requested_by="agent-runtime",
+    )
+    expired_service.approve(expired_approval.id, "human")
+    stored = expired_service.repository.get_request(expired_approval.id)
+    expired_service.repository.update_request(
+        ApprovalRequest.from_mapping(
+            {**stored.to_dict(), "expires_at": NOW.replace(year=2025).isoformat()}
+        )
+    )
+    assert (
+        expired_gate.evaluate_operation_definition(
+            expired_operation, approval_request_id=expired_approval.id, **kwargs
+        ).outcome
+        is PermissionGateOutcome.APPROVAL_DENIED
+    )
+
+
+def test_supporting_domain_cannot_widen_languages_memory_policy() -> None:
+    registry = DomainPermissionRegistry()
+    registry.register(build_languages_permission_policy())
+    registry.register(
+        DomainPermissionPolicy(
+            "support-allow",
+            "domain:support",
+            "1.0.0",
+            allowed_capabilities=(PermissionCapability.MEMORY_WRITE,),
+            allowed_sensitivity_levels=("internal",),
+            allow_memory_write=True,
+        )
+    )
+    result = DomainPermissionResolver(registry).resolve(
+        DomainPermissionRequest(
+            "support-cannot-widen",
+            PermissionCapability.MEMORY_WRITE,
+            "domain:languages",
+            "actor",
+            "session",
+            sensitivity_level="internal",
+        ),
+        supporting_domains=("domain:support",),
+        now=NOW,
+    )
+    assert result.effective_permissions.decision.value == "approval_required"
+
+
+def test_cross_domain_projection_is_minimal_and_narratives_are_not_level_evidence() -> (
+    None
+):
+    allowed = {
+        "certification_status": "not_certified",
+        "estimated_readiness": "unknown",
+        "relevant_proficiency": {},
+        "progress_toward_shared_goal": "unknown",
+        "recommended_workload": "light",
+        "blocking_language_gap": None,
+    }
+    projection = DomainResult(
+        id="adversarial-minimal-projection",
+        status="completed",
+        objective="Purpose-minimized projection",
+        primary_domain="domain:languages",
+        supporting_domains=("domain:oppositions",),
+        findings=(allowed,),
+    ).to_dict()["findings"][0]
+    assert set(projection) == set(allowed)
+    for provenance_id, source_kind in (
+        ("concern-worry", "concern_narrative"),
+        ("reflection-identity", "identity_narrative"),
+        ("university-requirement", "academic_requirement"),
+    ):
+        result = classify_proficiency_record(
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="C1",
+            skill_scope="writing",
+            evidence=({"provenance_id": provenance_id, "source_kind": source_kind},),
+        )
+        assert result["is_certified"] is False
+
+
+def _representative_outputs() -> dict[str, dict]:
+    return {
+        "languages.assess_sample": assess_sample_result(
+            sample={"text": "A complete writing sample."}
+        ),
+        "languages.update_level_evidence": update_level_evidence_result(
+            existing_record={
+                "kind": "ESTIMATED",
+                "level_or_score": "B1",
+                "skill_scope": "writing",
+            },
+            assessment={
+                "provenance_id": "assessment",
+                "observed": "B2",
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+            target_skill="writing",
+        ),
+        "languages.create_learning_plan": create_learning_plan_result(
+            language="English", goals=({"target": "C1"},), tracking_consent=True
+        ),
+        "languages.generate_lesson": generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="B1",
+            topic="essays",
+        ),
+        "languages.generate_exercises": generate_exercises_result(
+            language="English", skill="grammar", difficulty=2, target_topic="inversion"
+        ),
+        "languages.review_exercise": review_exercise_result(
+            exercise_result={"is_correct": False}
+        ),
+        "languages.review_writing": review_writing_result(
+            writing_sample={"text": "My favourite colour is blue."},
+            preferred_variety="British English",
+        ),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.review_speaking": review_speaking_result(
+            audio_transcript={"transcript": "Hello"}
+        ),
+        "languages.review_errors": review_errors_result(
+            observed_errors=(
+                {
+                    "provenance_id": "sample-1",
+                    "error_type": "inversion",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                {
+                    "provenance_id": "sample-2",
+                    "error_type": "inversion",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+            )
+        ),
+        "languages.track_vocabulary": track_vocabulary_result(
+            vocabulary_list={"items": ()}
+        ),
+        "languages.plan_review_schedule": plan_review_schedule_result(review_items=()),
+        "languages.prepare_certification": prepare_certification_result(
+            target_certification="C1"
+        ),
+        "languages.generate_progress_review": generate_progress_review_result(
+            language="English", period="month"
+        ),
+    }
+
+
+def _minimal_outputs() -> dict[str, dict]:
+    return {
+        "languages.assess_sample": assess_sample_result(
+            sample={},
+            sample_type="writing",
+            target_language="English",
+            skill_scope="writing",
+        ),
+        "languages.update_level_evidence": update_level_evidence_result(
+            existing_record={}, assessment={}, target_skill="writing", evidence=[]
+        ),
+        "languages.create_learning_plan": create_learning_plan_result(
+            language="English", goals=[]
+        ),
+        "languages.generate_lesson": generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="unknown",
+            topic="foundations",
+        ),
+        "languages.generate_exercises": generate_exercises_result(
+            language="English",
+            skill="writing",
+            difficulty=1,
+            target_topic="foundations",
+        ),
+        "languages.review_exercise": review_exercise_result(
+            exercise_result={}, language="English"
+        ),
+        "languages.review_writing": review_writing_result(
+            writing_sample={}, language="English"
+        ),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(
+            conversation={"turns": []}, language="English"
+        ),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+            conversation={"turns": []}, language="English", scenario="General scenario"
+        ),
+        "languages.review_speaking": review_speaking_result(
+            audio_transcript={}, target_language="English"
+        ),
+        "languages.review_errors": review_errors_result(
+            observed_errors=[], language="English"
+        ),
+        "languages.track_vocabulary": track_vocabulary_result(
+            vocabulary_list={"items": []}, language="English"
+        ),
+        "languages.plan_review_schedule": plan_review_schedule_result(review_items=[]),
+        "languages.prepare_certification": prepare_certification_result(
+            target_certification="C1"
+        ),
+        "languages.generate_progress_review": generate_progress_review_result(
+            language="English", period="month"
+        ),
+    }
+
+
+def _malformed_numeric_outputs() -> dict[str, dict]:
+    non_finite = float("nan")
+    return {
+        "languages.assess_sample": assess_sample_result(sample={"text": non_finite}),
+        "languages.update_level_evidence": update_level_evidence_result(
+            existing_record={
+                "kind": "ESTIMATED",
+                "level_or_score": non_finite,
+                "skill_scope": "writing",
+            }
+        ),
+        "languages.create_learning_plan": create_learning_plan_result(
+            language="English", goals=({"score": non_finite},)
+        ),
+        "languages.generate_lesson": generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="unknown",
+            topic="foundations",
+        ),
+        "languages.generate_exercises": generate_exercises_result(
+            language="English",
+            skill="writing",
+            difficulty=float("inf"),
+            target_topic="foundations",
+            count=non_finite,
+        ),
+        "languages.review_exercise": review_exercise_result(
+            exercise_result={"is_correct": True, "score": non_finite}
+        ),
+        "languages.review_writing": review_writing_result(
+            writing_sample={"text": non_finite}
+        ),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.review_speaking": review_speaking_result(
+            audio_transcript={"transcript": non_finite},
+            pronunciation_evidence=({"score": non_finite},),
+        ),
+        "languages.review_errors": review_errors_result(
+            observed_errors=({"score": non_finite},)
+        ),
+        "languages.track_vocabulary": track_vocabulary_result(
+            vocabulary_list={"items": ({"score": non_finite},)}
+        ),
+        "languages.plan_review_schedule": plan_review_schedule_result(
+            review_items=({"score": non_finite},),
+            available_time=float("inf"),
+        ),
+        "languages.prepare_certification": prepare_certification_result(
+            target_certification="C1",
+            official_source={"task_count": non_finite},
+        ),
+        "languages.generate_progress_review": generate_progress_review_result(
+            language="English",
+            period="month",
+            evidence=({"score": non_finite, "skill": "writing"},),
+            certification_profile={"readiness_score": non_finite},
+        ),
+    }
+
+
+def _mutable_helper_call_specs() -> dict[
+    str, tuple[Callable[..., dict[str, Any]], dict[str, Any]]
+]:
+    """Return one representative call with mutable input containers per helper."""
+    return {
+        "languages.assess_sample": (
+            assess_sample_result,
+            {
+                "sample": {"text": "A complete writing sample.", "tags": ["exam"]},
+                "sample_type": "writing",
+                "target_language": "English",
+                "skill_scope": "writing",
+                "preferred_variety": "British English",
+            },
+        ),
+        "languages.update_level_evidence": (
+            update_level_evidence_result,
+            {
+                "existing_record": {
+                    "kind": "ESTIMATED",
+                    "level_or_score": "B1",
+                    "skill_scope": "writing",
+                },
+                "assessment": {
+                    "provenance_id": "assessment-2",
+                    "observed": "B2",
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                "target_skill": "writing",
+                "evidence": [
+                    {
+                        "provenance_id": "assessment-1",
+                        "observed": "B2",
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    }
+                ],
+            },
+        ),
+        "languages.create_learning_plan": (
+            create_learning_plan_result,
+            {
+                "language": "English",
+                "goals": [{"id": "goal-c1", "target": "C1"}],
+                "initial_assessment": {"skill_levels": {"writing": "B1"}},
+                "tracking_consent": True,
+            },
+        ),
+        "languages.generate_lesson": (
+            generate_lesson_result,
+            {
+                "language": "English",
+                "target_skill": "writing",
+                "current_level": "B1",
+                "topic": "essays",
+                "mode": "practice",
+            },
+        ),
+        "languages.generate_exercises": (
+            generate_exercises_result,
+            {
+                "language": "English",
+                "skill": "grammar",
+                "difficulty": 2,
+                "target_topic": "inversion",
+                "count": 2,
+            },
+        ),
+        "languages.review_exercise": (
+            review_exercise_result,
+            {
+                "exercise_result": {"is_correct": False, "user_answer": "I go"},
+                "language": "English",
+                "target_topic": "past tense",
+            },
+        ),
+        "languages.review_writing": (
+            review_writing_result,
+            {
+                "writing_sample": {
+                    "text": "My favourite colour is blue.",
+                    "tags": ["draft"],
+                },
+                "language": "English",
+                "preferred_variety": "British English",
+                "prompt": "Describe a preference.",
+            },
+        ),
+        "languages.generate_conversation_turn": (
+            generate_conversation_turn_result,
+            {
+                "conversation": {"turns": [{"speaker": "learner", "text": "Hello"}]},
+                "language": "English",
+                "role": "tutor",
+                "topic": "travel",
+                "target_level": "B2",
+            },
+        ),
+        "languages.generate_roleplay_turn": (
+            generate_roleplay_turn_result,
+            {
+                "conversation": {"turns": [{"speaker": "learner", "text": "Hello"}]},
+                "language": "English",
+                "scenario": "hotel check-in",
+                "user_role": "guest",
+                "agent_role": "receptionist",
+            },
+        ),
+        "languages.review_speaking": (
+            review_speaking_result,
+            {
+                "audio_transcript": {
+                    "transcript": "Hello there",
+                    "observed_errors": [{"error_type": "pause"}],
+                },
+                "target_language": "English",
+                "pronunciation_evidence": [{"source_id": "audio-1", "score": 0.8}],
+            },
+        ),
+        "languages.review_errors": (
+            review_errors_result,
+            {
+                "observed_errors": [
+                    {
+                        "provenance_id": "sample-1",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                    {
+                        "provenance_id": "sample-2",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                ],
+                "language": "English",
+                "history": [{"session_id": "earlier"}],
+            },
+        ),
+        "languages.track_vocabulary": (
+            track_vocabulary_result,
+            {
+                "vocabulary_list": {
+                    "items": [{"id": "word-1", "state": "learning", "due": True}]
+                },
+                "language": "English",
+                "new_items": [{"id": "word-2", "state": "new"}],
+                "review_results": [{"id": "word-1", "correct": True}],
+            },
+        ),
+        "languages.plan_review_schedule": (
+            plan_review_schedule_result,
+            {
+                "review_items": [{"id": "word-1", "due": True}],
+                "available_time": 20,
+                "energy": "moderate",
+                "active_goals": ["word-1"],
+            },
+        ),
+        "languages.prepare_certification": (
+            prepare_certification_result,
+            {
+                "target_certification": "Cambridge C1",
+                "current_profile": {"skill_levels": {"writing": "B2"}},
+                "official_source": {
+                    "source_type": "official",
+                    "date_valid": True,
+                    "requirements": ["writing"],
+                },
+            },
+        ),
+        "languages.generate_progress_review": (
+            generate_progress_review_result,
+            {
+                "language": "English",
+                "period": "month",
+                "evidence": [
+                    {
+                        "provenance_id": "current-1",
+                        "score": 0.8,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                    {
+                        "provenance_id": "current-2",
+                        "score": 0.82,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                ],
+                "goals": [{"id": "goal-c1", "target": "C1 writing"}],
+                "previous_evidence": [
+                    {
+                        "provenance_id": "baseline",
+                        "score": 0.5,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    }
+                ],
+                "skill": "writing",
+                "patterns": [{"eligible": True, "error_type": "inversion"}],
+                "certification_profile": {"readiness_score": 0.7},
+            },
+        ),
+    }
+
+
+def _without_ids(value: Any) -> Any:
+    """Remove generated result identities while retaining caller-stable IDs."""
+    generated_result_fields = {
+        "assessment_id",
+        "plan_id",
+        "lesson_id",
+        "exercise_batch_id",
+        "review_id",
+        "turn_id",
+        "roleplay_id",
+        "tracking_id",
+        "schedule_id",
+        "prep_id",
+    }
+    generated_result_ids = (
+        {
+            item
+            for key, item in value.items()
+            if key in generated_result_fields and isinstance(item, str)
+        }
+        if isinstance(value, dict)
+        else set()
+    )
+
+    def normalize(
+        item: Any, *, parent_key: str | None = None, root: bool = False
+    ) -> Any:
+        if isinstance(item, dict):
+            references_generated_result = (
+                item.get("provenance_id") in generated_result_ids
+            )
+            return {
+                key: normalize(nested, parent_key=key)
+                for key, nested in item.items()
+                if not (root and key in generated_result_fields)
+                and not (references_generated_result and key in {"id", "provenance_id"})
+                and not (parent_key == "exercises" and key == "exercise_id")
+                and not (parent_key == "valid_alternatives" and key == "id")
+            }
+        if isinstance(item, list):
+            return [normalize(nested, parent_key=parent_key) for nested in item]
+        return item
+
+    return normalize(value, root=True)
+
+
+def test_non_id_normalizer_preserves_caller_stable_identity_associations() -> None:
+    """Catches masking a semantic reassignment by deleting every nested identity."""
+    payload = {
+        "tracking_id": "generated-tracking",
+        "review_id": "generated-review",
+        "candidate_updates": [
+            {"id": "word-1", "item_id": "lexeme-1", "state": "new"},
+            {"id": "word-2", "item_id": "lexeme-2", "state": "review"},
+        ],
+        "review_queue": [{"id": "queue-1", "term": "uno"}],
+        "goals": [{"id": "goal-1", "target": "C1"}],
+        "evidence": [
+            {"provenance_id": "sample-1", "source_id": "source-1", "score": 0.8}
+        ],
+        "observed_errors": [
+            {
+                "id": "generated-error",
+                "provenance_id": "generated-review",
+                "source_id": "source-2",
+                "error_type": "agreement",
+            }
+        ],
+    }
+
+    assert _without_ids(payload) == {
+        "candidate_updates": [
+            {"id": "word-1", "item_id": "lexeme-1", "state": "new"},
+            {"id": "word-2", "item_id": "lexeme-2", "state": "review"},
+        ],
+        "review_queue": [{"id": "queue-1", "term": "uno"}],
+        "goals": [{"id": "goal-1", "target": "C1"}],
+        "evidence": [
+            {"provenance_id": "sample-1", "source_id": "source-1", "score": 0.8}
+        ],
+        "observed_errors": [{"source_id": "source-2", "error_type": "agreement"}],
+    }
+
+    reassigned = copy.deepcopy(payload)
+    reassigned["candidate_updates"][0]["id"] = "word-2"
+    reassigned["candidate_updates"][1]["id"] = "word-1"
+    assert _without_ids(payload) != _without_ids(reassigned)
+
+
+def test_assessment_like_helpers_do_not_invent_state_from_empty_evidence() -> None:
+    """Protect every assessment-like helper's actual no-evidence payload."""
+    assessment = assess_sample_result(sample={})
+    assert assessment["observed_performance"] == "unknown"
+    assert assessment["confidence"] == 0.0
+    assert assessment["strengths"] == []
+    assert assessment["errors"] == []
+    assert assessment["missing_evidence"] == ["writing_sample"]
+
+    level_update = update_level_evidence_result(
+        existing_record={}, assessment={}, evidence=[]
+    )
+    assert level_update["current_level"] is None
+    assert level_update["proposed_level"] is None
+    assert level_update["stable_update_supported"] is False
+    assert level_update["reason"] == "insufficient_comparable_evidence"
+    assert level_update["updated_record"] == {}
+
+    exercise = review_exercise_result(exercise_result={})
+    assert exercise["score"] is None
+    assert exercise["is_correct"] is None
+    assert exercise["observed_errors"] == []
+    assert exercise["feedback"] == "Not assessed: missing exercise outcome."
+    assert exercise["difficulty_adjustment"] == "hold"
+
+    writing = review_writing_result(writing_sample={})
+    assert writing["word_count"] == 0
+    assert writing["strengths"] == []
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert writing["register_feedback"] == "not_assessed"
+    assert writing["missing_evidence"] == ["writing_sample"]
+
+    speaking = review_speaking_result(audio_transcript={}, pronunciation_evidence=[])
+    assert speaking["transcript_text"] == ""
+    assert speaking["fluency_score"] == 0.0
+    assert speaking["pronunciation_assessed"] is False
+    assert speaking["pronunciation_feedback"] is None
+    assert speaking["observed_errors"] == []
+    assert speaking["missing_evidence"] == [
+        "speaking_sample",
+        "pronunciation_evidence",
+    ]
+
+    errors = review_errors_result(observed_errors=[], history=[])
+    assert errors["total_errors"] == 0
+    assert errors["error_patterns"] == []
+    assert errors["prioritized_corrections"] == []
+    assert errors["recommended_focus"] == "not_assessed"
+
+    vocabulary = track_vocabulary_result(
+        vocabulary_list={"items": []}, new_items=[], review_results=[]
+    )
+    assert vocabulary["total_items"] == 0
+    assert vocabulary["due_items"] == 0
+    assert vocabulary["mastery_summary"] == {"mastered": 0, "learning": 0}
+    assert vocabulary["candidate_updates"] == []
+
+    certification = prepare_certification_result(
+        target_certification="C1", current_profile={}
+    )
+    assert certification["readiness_score"] == 0.0
+    assert certification["skill_gaps"] == []
+    assert certification["needs_verification"] is True
+    assert certification["missing_evidence"] == ["current_profile"]
+
+    progress = generate_progress_review_result(
+        language="English",
+        period="month",
+        evidence=[],
+        goals=[],
+        previous_evidence=[],
+        patterns=[],
+        certification_profile={},
+    )
+    assert progress["skill_progress"] == {}
+    assert progress["overall_progression"] == "insufficient_evidence"
+    assert progress["stable_progression"] is False
+    assert progress["active_patterns_count"] == 0
+    assert progress["certification_readiness"] == "not_assessed"
+    assert progress["recommended_next_focus"] == "not_assessed"
+
+
+def test_all_result_helpers_preserve_mutable_inputs() -> None:
+    """Catches in-place mutation of any public helper's nested caller data."""
+    call_specs = _mutable_helper_call_specs()
+    assert set(call_specs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+
+    for operation_id, (helper, kwargs) in call_specs.items():
+        before = copy.deepcopy(kwargs)
+
+        helper(**kwargs)
+
+        assert kwargs == before, f"{operation_id} mutated caller input"
+
+
+def test_all_result_helpers_have_deterministic_non_id_semantics() -> None:
+    """Catches random or stateful semantic output while allowing fresh IDs."""
+    call_specs = _mutable_helper_call_specs()
+    assert set(call_specs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+
+    for operation_id, (helper, kwargs) in call_specs.items():
+        first = helper(**copy.deepcopy(kwargs))
+        second = helper(**copy.deepcopy(kwargs))
+
+        assert _without_ids(first) == _without_ids(second), operation_id
+
+
+def test_operation_payload_counts_are_non_negative_and_bounded() -> None:
+    """Catches impossible counts, oversized subsets, and broken state totals."""
+    writing = review_writing_result(writing_sample={"text": "one two three"})
+    assert writing["word_count"] == 3
+    assert writing["word_count"] >= 0
+
+    exercises = generate_exercises_result(
+        language="English",
+        skill="grammar",
+        difficulty=2,
+        target_topic="inversion",
+        count=4,
+    )
+    assert exercises["exercise_count"] == 4
+    assert exercises["exercise_count"] == len(exercises["exercises"])
+    assert exercises["exercise_count"] >= 0
+
+    turns = [{"speaker": "learner"}, {"speaker": "tutor"}]
+    conversation = generate_conversation_turn_result(conversation={"turns": turns})
+    roleplay = generate_roleplay_turn_result(conversation={"turns": turns})
+    assert conversation["turn_count"] == len(turns) + 1
+    assert roleplay["turn_number"] == len(turns) + 1
+    assert conversation["turn_count"] >= 0
+    assert roleplay["turn_number"] >= 0
+
+    observed_errors = [
+        {
+            "provenance_id": "sample-1",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "sample-2",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    ]
+    errors = review_errors_result(observed_errors=observed_errors)
+    assert errors["total_errors"] == 2
+    assert 0 <= len(errors["error_patterns"]) <= errors["total_errors"]
+    assert 0 <= len(errors["prioritized_corrections"]) <= errors["total_errors"]
+
+    vocabulary = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "mastered", "state": "consolidated"},
+                {"id": "due", "state": "review", "due": True},
+                {"id": "learning", "state": "learning"},
+            ]
+        }
+    )
+    summary = vocabulary["mastery_summary"]
+    assert vocabulary["total_items"] == 3
+    assert 0 <= vocabulary["due_items"] <= vocabulary["total_items"]
+    assert 0 <= summary["mastered"] <= vocabulary["total_items"]
+    assert 0 <= summary["learning"] <= vocabulary["total_items"]
+    assert summary["mastered"] + summary["learning"] == vocabulary["total_items"]
+
+    review_items = [{"id": f"item-{index}", "due": True} for index in range(12)]
+    schedule = plan_review_schedule_result(review_items=review_items, available_time=20)
+    assert 0 <= len(schedule["review_queue"]) <= len(review_items)
+    assert schedule["recommended_duration_minutes"] >= 0
+
+    patterns = [
+        {"eligible": True, "error_type": "inversion"},
+        {"pattern_state": "candidate", "error_type": "agreement"},
+        {"pattern_state": "insufficient_evidence", "error_type": "register"},
+    ]
+    progress = generate_progress_review_result(
+        language="English", period="month", patterns=patterns
+    )
+    assert progress["active_patterns_count"] == 2
+    assert 0 <= progress["active_patterns_count"] <= len(patterns)
+
+
+def test_invariant_flags_are_derived_from_payload_content() -> None:
+    no_evidence_progress = generate_progress_review_result(
+        language="English", period="month"
+    )
+    assert no_evidence_progress["cross_skill_inflation"] is False
+    assert no_evidence_progress["skill_progress"] == {}
+    assert no_evidence_progress["progression_evidence_valid"] is True
+    assert no_evidence_progress["overall_progression"] == "insufficient_evidence"
+    assert not any(
+        value in {"short_term_improvement", "stable_improvement"}
+        for value in no_evidence_progress["skill_progress"].values()
+    )
+
+    writing = review_writing_result(writing_sample={})
+    assert writing["proficiency_upgraded_without_evidence"] is False
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert writing["missing_evidence"] == ["writing_sample"]
+
+    sources = (
+        {
+            "id": "stale",
+            "source_type": "official",
+            "date_valid": False,
+            "official_source_id": "stale-src",
+        },
+        {
+            "id": "current",
+            "source_type": "official",
+            "date_valid": True,
+            "official_source_id": "current-src",
+        },
+    )
+    temporal = evaluate_certification_source(sources=sources, decision_critical=True)
+    certification = prepare_certification_result(
+        target_certification="C1",
+        current_profile={"estimated_level": "B2"},
+        official_source=temporal["selected_source"],
+    )
+    assert certification["temporal_evidence_valid"] is True
+    assert temporal["selected_source"]["id"] == "current"
+    assert certification["official_source_status"] == "verified"
+
+    speaking = review_speaking_result(
+        audio_transcript={"transcript": "Hello"},
+        pronunciation_evidence=({"source_id": "audio-1", "score": 0.8},),
+    )
+    assert speaking["pronunciation_evidence_valid"] is True
+    assert speaking["pronunciation_assessed"] is True
+    assert speaking["pronunciation_feedback"] == "Pronunciation assessment recorded."
+    assert "pronunciation_evidence" not in speaking["missing_evidence"]
+
+    observations = (
+        {
+            "provenance_id": "one",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    errors = review_errors_result(observed_errors=observations)
+    pattern = errors["error_patterns"][0]
+    assert errors["pattern_evidence_valid"] is True
+    assert pattern["independent_occurrences"] == 2
+    assert pattern["comparable_contexts"] == 2
+    assert pattern["pattern_state"] == "candidate"
+
+
+def test_unusable_pronunciation_evidence_never_supports_assessment() -> None:
+    for evidence in (
+        ({},),
+        ({"source_id": "  "},),
+        ({"score": float("inf")},),
+    ):
+        speaking = review_speaking_result(
+            audio_transcript={"transcript": "Hello"},
+            pronunciation_evidence=evidence,
+        )
+
+        assert speaking["pronunciation_assessed"] is False
+        assert speaking["pronunciation_feedback"] is None
+        assert "pronunciation_evidence" in speaking["missing_evidence"]
+
+
+def test_all_result_builders_are_strict_json_safe_across_input_classes() -> None:
+    definitions = {
+        definition.operation_id: definition
+        for definition in build_languages_operation_definitions()
+    }
+    output_sets = (
+        _representative_outputs(),
+        _minimal_outputs(),
+        _malformed_numeric_outputs(),
+    )
+    for outputs in output_sets:
+        assert set(outputs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+        for operation_id, output in outputs.items():
+            json.dumps(output, allow_nan=False)
+            assert (
+                validate_operation_schema(
+                    output, definitions[operation_id].output_schema
+                )
+                == ()
+            )
+
+
+def test_all_operation_schemas_and_workflow_invariant_gates_are_directly_connected() -> (
+    None
+):
+    outputs = _representative_outputs()
+    definitions = build_languages_operation_definitions()
+    assert (
+        tuple(item.operation_id for item in definitions)
+        == CANONICAL_LANGUAGES_OPERATION_IDS
+    )
+    assert set(outputs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+    for definition in definitions:
+        assert (
+            validate_operation_schema(
+                outputs[definition.operation_id], definition.output_schema
+            )
+            == ()
+        )
+
+    forbidden = {
+        "is_correct",
+        "score",
+        "estimated_level",
+        "pattern_candidate",
+        "pronunciation_assessed",
+        "needs_verification",
+        "stable_progression",
+        "is_certified",
+        "stable_update_supported",
+    }
+    operations = {item.operation_id: item for item in definitions}
+    for workflow in build_languages_workflow_definitions():
+        nodes = {item.node_id: item for item in workflow.nodes}
+        for node in workflow.nodes:
+            if not node.wait_condition:
+                continue
+            assert forbidden.isdisjoint(node.wait_condition)
+            for field_name in node.wait_condition:
+                assert any(
+                    dependency.operation_id
+                    and field_name
+                    in operations[dependency.operation_id].output_schema["properties"]
+                    for dependency in (nodes[item] for item in node.dependencies)
+                )
+
+
+def test_semantic_rules_are_order_invariant_non_mutating_finite_and_json_safe() -> None:
+    observations = [
+        {
+            "provenance_id": "one",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    ]
+    original = copy.deepcopy(observations)
+    forward = evaluate_error_pattern(observations=observations)
+    reverse = evaluate_error_pattern(observations=list(reversed(observations)))
+    assert forward == reverse
+    assert observations == original
+
+    baseline = (
+        {
+            "provenance_id": "baseline",
+            "score": 0.5,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    for invalid in (float("nan"), float("inf"), float("-inf")):
+        result = evaluate_progression(
+            previous_evidence=baseline,
+            current_evidence=(
+                {
+                    "provenance_id": "one",
+                    "score": invalid,
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                {
+                    "provenance_id": "two",
+                    "score": invalid,
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+            ),
+            skill="writing",
+        )
+        assert result["stable_progression"] is False
+
+    for output in _representative_outputs().values():
+        json.dumps(output, allow_nan=False)
+
+
+def test_user_answer_without_exercise_outcome_is_not_correctness_evidence() -> None:
+    """Catches treating a submitted answer as a positive correctness outcome."""
+    result = review_exercise_result(exercise_result={"user_answer": "x"})
+
+    assert result["is_correct"] is None
+    assert result["score"] is None
+
+
+def test_adversarial_ungrounded_framework_tag_cannot_label_neutral_evidence() -> None:
+    """An ungrounded framework tag cannot inject framework into neutral samples."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {"framework": "IELTS"},
+            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
+            {"provenance_id": "p2", "skill": "writing", "observed": "C1"},
+        ),
+    )
+    assert res["framework"] is None
+
+
+@pytest.mark.parametrize(
+    "bad_date",
+    ["banana", "not-a-date", "", "2026", "2026-02-31", 12345, True, False],
+)
+def test_adversarial_malformed_certificate_dates_fail_closed(bad_date: Any) -> None:
+    """Malformed date inputs never grant certified status."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": bad_date,
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["certification_evidence_valid"] is False
+    assert res["level_or_score"] == "unassessed"
+
+
+def test_adversarial_scope_pollution_fails_closed() -> None:
+    """Cross-scope injection into general proficiency estimate fails closed."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0

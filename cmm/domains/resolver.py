@@ -1,0 +1,1730 @@
+"""Phase 10.7 – Domain Resolver.
+
+Deterministic resolver that selects a primary domain, supporting domains,
+rejected domains, ambiguous domains, global confidence, and structured
+reasons from a ``DomainResolutionContext``.
+
+Pure function of the context; no live registry, no stores, no filesystem,
+no mutable shared state, no LLM calls.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from typing_extensions import Protocol
+
+from cmm.domains.enums import DomainResolutionStatus, DomainStatus
+from cmm.domains.errors import (
+    DomainResolverConfigurationError,
+    DomainResolverExecutionError,
+)
+from cmm.domains.identifiers import DomainId
+from cmm.domains.resolution_contracts import DomainResolutionContext
+from cmm.domains.resolver_contracts import (
+    DomainCandidateScore,
+    DomainResolutionReason,
+    DomainResolutionResult,
+    DomainScoringPolicy,
+)
+from cmm.domains.resolver_scoring import DomainCandidateScorer
+from cmm.domains.selection import (
+    candidate_selection_confidence,
+    domain_signal_candidates,
+    explicit_candidates,
+)
+from cmm.domains.selection_contracts import DomainSelectionPolicy
+
+# ── Protocol ──────────────────────────────────────────────────────────────────
+
+
+class DomainResolver(Protocol):
+    """Protocol for domain resolution.
+
+    Implementations take a ``DomainResolutionContext`` and return a
+    ``DomainResolutionResult``.
+    """
+
+    def resolve(
+        self,
+        context: DomainResolutionContext,
+    ) -> DomainResolutionResult: ...
+
+
+# ── Default implementation ────────────────────────────────────────────────────
+
+
+class DefaultDomainResolver:
+    """Deterministic domain resolver using structured evidence only.
+
+    The resolver is pure with respect to the context: same context
+    (with fixed clock/id factories) produces same result every time.
+    """
+
+    def __init__(
+        self,
+        *,
+        scorer: DomainCandidateScorer | None = None,
+        scoring_policy: DomainScoringPolicy | None = None,
+        selection_policy: DomainSelectionPolicy | None = None,
+        fallback_domain: DomainId | None = None,
+        clock: Callable[[], datetime] | None = None,
+        id_factory: Callable[[], str] | None = None,
+    ) -> None:
+        if (
+            scorer is not None
+            and scoring_policy is not None
+            and scorer.policy is not scoring_policy
+        ):
+            raise DomainResolverConfigurationError(
+                "scorer.policy and scoring_policy are different objects. "
+                "Provide one or the other, or ensure they are the same instance.",
+                field="scoring_policy",
+            )
+        if scoring_policy is not None:
+            self._scorer = DomainCandidateScorer(policy=scoring_policy)
+        elif scorer is not None:
+            self._scorer = scorer
+        else:
+            self._scorer = DomainCandidateScorer()
+
+        self._policy: DomainScoringPolicy = self._scorer.policy
+
+        if selection_policy is not None and not isinstance(
+            selection_policy,
+            DomainSelectionPolicy,
+        ):
+            raise DomainResolverConfigurationError(
+                "selection_policy must be a DomainSelectionPolicy or None",
+                field="selection_policy",
+            )
+
+        if fallback_domain is not None and not isinstance(
+            fallback_domain,
+            DomainId,
+        ):
+            raise DomainResolverConfigurationError(
+                "fallback_domain must be a DomainId or None",
+                field="fallback_domain",
+            )
+
+        if selection_policy is None:
+            if fallback_domain is None:
+                effective_selection_policy = DomainSelectionPolicy()
+            else:
+                effective_selection_policy = DomainSelectionPolicy(
+                    fallback_domain=fallback_domain,
+                )
+        else:
+            if (
+                fallback_domain is not None
+                and fallback_domain != selection_policy.fallback_domain
+            ):
+                raise DomainResolverConfigurationError(
+                    "fallback_domain conflicts with selection_policy.fallback_domain",
+                    field="fallback_domain",
+                )
+
+            effective_selection_policy = selection_policy
+
+        self._selection_policy = effective_selection_policy
+        self._fallback_domain = effective_selection_policy.fallback_domain
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._id_factory = id_factory or (lambda: uuid4().hex)
+
+    @property
+    def scoring_policy(self) -> DomainScoringPolicy:
+        """The scoring policy in use (immutable)."""
+        return self._policy
+
+    @property
+    def selection_policy(self) -> DomainSelectionPolicy:
+        """The effective domain-selection policy in use (immutable)."""
+        return self._selection_policy
+
+    @property
+    def fallback_domain(self) -> DomainId:
+        """The effective fallback domain from the selection policy."""
+        return self._fallback_domain
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def resolve(
+        self,
+        context: DomainResolutionContext,
+    ) -> DomainResolutionResult:
+        """Resolve domains from a context."""
+        if not isinstance(context, DomainResolutionContext):
+            raise TypeError(
+                f"context must be a DomainResolutionContext, got {type(context).__name__}"
+            )
+
+        return self._resolve_impl(context)
+
+    def _resolve_impl(
+        self,
+        context: DomainResolutionContext,
+    ) -> DomainResolutionResult:
+        """Core resolution logic."""
+        system_policy = context.system_policy
+
+        available = context.available_domains
+        if not available:
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.UNSUPPORTED,
+                primary=None,
+                candidate_scores=(),
+                reasons=(
+                    DomainResolutionReason(
+                        code="DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                        message="No available domains in context",
+                    ),
+                ),
+            )
+
+        candidates, _rejected_scores, all_reasons = self._filter_and_score(
+            context, available
+        )
+
+        eligible_scores = [
+            c
+            for c in candidates
+            if c.eligible
+            and not c.rejected
+            and c.score >= self._policy.minimum_resolution_score
+        ]
+        rejected_list = [c for c in candidates if c.rejected]
+
+        rejected_domains: tuple[DomainId, ...] = tuple(
+            sorted((c.domain_id for c in rejected_list), key=lambda d: d.slug)
+        )
+
+        required_slugs: set[str] = set()
+        if system_policy is not None:
+            required_slugs = {d.slug for d in system_policy.required_domains}
+
+        required_blocked = [
+            c for c in rejected_list if c.domain_id.slug in required_slugs
+        ]
+        if required_blocked:
+            blocking_reasons: list[DomainResolutionReason] = []
+            for rc in required_blocked:
+                for r in rc.reasons:
+                    if r.blocking:
+                        blocking_reasons.append(r)
+                if not any(r.blocking for r in rc.reasons):
+                    blocking_reasons.append(
+                        DomainResolutionReason(
+                            code="DOMAIN_POLICY_DENIED",
+                            message=f"Required domain {rc.domain_id} is rejected",
+                            domain_id=rc.domain_id,
+                            blocking=True,
+                        )
+                    )
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.BLOCKED,
+                primary=None,
+                rejected_domains=rejected_domains,
+                candidate_scores=tuple(candidates),
+                reasons=tuple(blocking_reasons) if blocking_reasons else all_reasons,
+            )
+
+        if not eligible_scores:
+            fallback_result = self._try_fallback(
+                context, candidates, eligible_scores, rejected_list
+            )
+            if fallback_result is not None:
+                return fallback_result
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.UNSUPPORTED,
+                primary=None,
+                rejected_domains=rejected_domains,
+                candidate_scores=tuple(candidates),
+                reasons=all_reasons
+                + (
+                    DomainResolutionReason(
+                        code="DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                        message="No eligible domain candidate found",
+                    ),
+                ),
+                confidence=0.0,
+            )
+
+        eligible_scores = self._sort_eligible(eligible_scores)
+
+        explicit_eligible = list(
+            explicit_candidates(
+                context,
+                eligible_scores,
+            )
+        )
+
+        priority_candidate = self._selection_priority_candidate(
+            context,
+            eligible_scores,
+            explicit_eligible,
+        )
+
+        if priority_candidate is not None:
+            eligible_scores = [
+                priority_candidate,
+                *[
+                    candidate
+                    for candidate in eligible_scores
+                    if candidate.domain_id.slug != priority_candidate.domain_id.slug
+                ],
+            ]
+
+        ambiguity_check = self._check_ambiguity(
+            context,
+            eligible_scores,
+            explicit_eligible,
+            candidates,
+            rejected_domains,
+            all_reasons,
+        )
+        if ambiguity_check is not None:
+            return ambiguity_check
+
+        high_impact_check = self._check_high_impact(
+            context,
+            eligible_scores,
+            candidates,
+            rejected_domains,
+            all_reasons,
+        )
+        if high_impact_check is not None:
+            return high_impact_check
+
+        primary_score = eligible_scores[0]
+        primary = primary_score.domain_id
+
+        explicit_slugs = {domain_id.slug for domain_id in context.explicit_domains}
+
+        if primary.slug not in explicit_slugs:
+            selection_confidence = candidate_selection_confidence(
+                context,
+                primary_score,
+            )
+
+            if (
+                selection_confidence is not None
+                and selection_confidence
+                < self._selection_policy.minimum_primary_confidence
+            ):
+                fallback_result = self._try_fallback(
+                    context,
+                    candidates,
+                    eligible_scores,
+                    rejected_list,
+                )
+
+                if fallback_result is not None:
+                    return fallback_result
+
+                return self._build_result(
+                    context=context,
+                    status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+                    primary=None,
+                    rejected_domains=rejected_domains,
+                    candidate_scores=tuple(candidates),
+                    reasons=all_reasons
+                    + (
+                        DomainResolutionReason(
+                            code=("DOMAIN_SELECTION_PRIMARY_CONFIDENCE_BELOW_MINIMUM"),
+                            message=(
+                                "Selected inferred primary does not satisfy "
+                                "the minimum selection confidence"
+                            ),
+                            domain_id=primary,
+                        ),
+                    ),
+                    confidence=selection_confidence,
+                )
+
+        # Central invariant: a configured fallback domain must never become primary
+        # through this (normal) RESOLVED path when an explicitly signaled
+        # non-fallback domain is ineligible for a fail-closed reason.
+        if self._fallback_domain is not None and primary == self._fallback_domain:
+            blocked_reason = self._fallback_blocked_reason(context)
+            if blocked_reason is not None:
+                return self._blocked_fallback_result(
+                    context,
+                    candidates=candidates,
+                    rejected_domains=rejected_domains,
+                    blocked_reason=blocked_reason,
+                )
+
+        required_limit_conflict = self._check_required_supporting_limit_conflict(
+            context=context,
+            eligible=eligible_scores,
+            primary=primary,
+            candidates=candidates,
+            rejected_domains=rejected_domains,
+            global_reasons=all_reasons,
+        )
+        if required_limit_conflict is not None:
+            return required_limit_conflict
+
+        supporting = self._select_supporting(
+            eligible_scores, primary, primary_score, context, candidates
+        )
+
+        # Build result reasons: primary + supporting + blocking rejected + global
+        resolved_reasons = self._build_resolved_reasons(
+            eligible_scores=eligible_scores,
+            primary=primary,
+            supporting_ids={s.slug for s in supporting},
+            rejected_list=rejected_list,
+            global_reasons=all_reasons,
+            context=context,
+        )
+
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.RESOLVED,
+            primary=primary,
+            supporting_domains=supporting,
+            rejected_domains=rejected_domains,
+            candidate_scores=tuple(candidates),
+            reasons=resolved_reasons,
+            confidence=primary_score.confidence,
+        )
+
+    # ── Filter & Score ────────────────────────────────────────────────────────
+
+    def _filter_and_score(
+        self,
+        context: DomainResolutionContext,
+        available: tuple[DomainId, ...],
+    ) -> tuple[
+        list[DomainCandidateScore],
+        list[DomainCandidateScore],
+        tuple[DomainResolutionReason, ...],
+    ]:
+        system_policy = context.system_policy
+        all_candidates: list[DomainCandidateScore] = []
+        rejected: list[DomainCandidateScore] = []
+        global_reasons: list[DomainResolutionReason] = []
+
+        require_auth = True
+        if system_policy is not None:
+            require_auth = system_policy.require_authorization
+
+        authorized_slugs = {d.slug for d in context.authorized_domains}
+        denied_slugs: set[str] = set()
+        allowed_slugs: set[str] | None = None
+
+        # Status evidence from builder metadata
+        registry_versions: dict[str, list[dict[str, str]]] = {}
+        raw_meta = dict(context.metadata)
+        if "_resolution_registry_versions" in raw_meta:
+            registry_versions = raw_meta["_resolution_registry_versions"]
+
+        allow_disabled = False
+        allow_degraded = True
+        if system_policy is not None:
+            denied_slugs = {d.slug for d in system_policy.denied_domains}
+            allow_disabled = system_policy.allow_disabled
+            allow_degraded = system_policy.allow_degraded
+            if system_policy.allowed_domains:
+                allowed_slugs = {d.slug for d in system_policy.allowed_domains}
+
+        for domain_id in available:
+            slug = domain_id.slug
+            rejection_codes: list[str] = []
+            rejection_reasons: list[DomainResolutionReason] = []
+
+            # ── Allowed domains policy ─────────────────────────────────
+            if allowed_slugs is not None and slug not in allowed_slugs:
+                rejection_codes.append("DOMAIN_POLICY_NOT_ALLOWED")
+                rejection_reasons.append(
+                    DomainResolutionReason(
+                        code="DOMAIN_POLICY_NOT_ALLOWED",
+                        message=f"Domain {domain_id} is not in the allowed list",
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                )
+
+            # ── Denied domains ──────────────────────────────────────────
+            if slug in denied_slugs:
+                rejection_codes.append("DOMAIN_POLICY_DENIED")
+                rejection_reasons.append(
+                    DomainResolutionReason(
+                        code="DOMAIN_POLICY_DENIED",
+                        message=f"Domain {domain_id} is denied by policy",
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                )
+
+            # ── Authorization (fail-closed) ─────────────────────────────
+            if (
+                require_auth
+                and slug not in authorized_slugs
+                and slug not in denied_slugs
+            ):
+                rejection_codes.append("DOMAIN_UNAUTHORIZED_REJECTED")
+                rejection_reasons.append(
+                    DomainResolutionReason(
+                        code="DOMAIN_UNAUTHORIZED_REJECTED",
+                        message=f"Domain {domain_id} is not authorized",
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                )
+
+            # ── Status: disabled / degraded ────────────────────────────
+            domain_statuses = self._get_domain_statuses(slug, registry_versions)
+            if DomainStatus.DISABLED.value in domain_statuses and not allow_disabled:
+                rejection_codes.append("DOMAIN_DISABLED_REJECTED")
+                rejection_reasons.append(
+                    DomainResolutionReason(
+                        code="DOMAIN_DISABLED_REJECTED",
+                        message=f"Domain {domain_id} is disabled",
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                )
+            if DomainStatus.DEGRADED.value in domain_statuses and not allow_degraded:
+                rejection_codes.append("DOMAIN_DEGRADED_REJECTED")
+                rejection_reasons.append(
+                    DomainResolutionReason(
+                        code="DOMAIN_DEGRADED_REJECTED",
+                        message=f"Domain {domain_id} is degraded and policy disallows degraded",
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                )
+
+            scored = self._scorer.score(context, domain_id)
+
+            if rejection_codes:
+                # Apply degraded penalty if degraded and allowed
+                effective_score = scored.score
+                effective_confidence = scored.confidence
+                if (
+                    DomainStatus.DEGRADED.value in domain_statuses
+                    and allow_degraded
+                    and "DOMAIN_DEGRADED_REJECTED" not in rejection_codes
+                ):
+                    effective_score = max(
+                        0.0, effective_score - self._policy.degraded_penalty
+                    )
+                    rejection_reasons.append(
+                        DomainResolutionReason(
+                            code="DOMAIN_DEGRADED_PENALTY_APPLIED",
+                            message=f"Degraded penalty applied to {domain_id}",
+                            domain_id=domain_id,
+                            signal_kind="system_policy",
+                            contribution=-self._policy.degraded_penalty,
+                        )
+                    )
+
+                all_reasons = list(rejection_reasons) + list(scored.reasons)
+                rejected_score = DomainCandidateScore(
+                    domain_id=domain_id,
+                    score=effective_score,
+                    confidence=effective_confidence,
+                    eligible=False,
+                    rejected=True,
+                    rejection_codes=tuple(rejection_codes),
+                    reasons=tuple(all_reasons),
+                    matched_signal_kinds=scored.matched_signal_kinds,
+                )
+                rejected.append(rejected_score)
+                all_candidates.append(rejected_score)
+            else:
+                # Apply degraded penalty for non-rejected degraded domains
+                if DomainStatus.DEGRADED.value in domain_statuses and allow_degraded:
+                    degraded_score = max(
+                        0.0, scored.score - self._policy.degraded_penalty
+                    )
+                    degraded_confidence = scored.confidence
+                    degraded_reasons = tuple(scored.reasons) + (
+                        DomainResolutionReason(
+                            code="DOMAIN_DEGRADED_PENALTY_APPLIED",
+                            message=f"Degraded penalty applied to {domain_id}",
+                            domain_id=domain_id,
+                            signal_kind="system_policy",
+                            contribution=-self._policy.degraded_penalty,
+                        ),
+                    )
+                    degraded_candidate = DomainCandidateScore(
+                        domain_id=domain_id,
+                        score=degraded_score,
+                        confidence=degraded_confidence,
+                        eligible=scored.eligible,
+                        rejected=False,
+                        reasons=degraded_reasons,
+                        matched_signal_kinds=scored.matched_signal_kinds,
+                    )
+                    all_candidates.append(degraded_candidate)
+                else:
+                    all_candidates.append(scored)
+
+        all_candidates = self._sort_candidates(all_candidates)
+        global_reasons.extend(r for c in rejected for r in c.reasons if r.blocking)
+
+        return all_candidates, rejected, tuple(global_reasons)
+
+    @staticmethod
+    def _get_domain_statuses(
+        slug: str, registry_versions: dict[str, list[dict[str, str]]]
+    ) -> set[str]:
+        """Extract status values from builder's version metadata."""
+        entries = registry_versions.get(slug, [])
+        return {entry["status"] for entry in entries if "status" in entry}
+
+    # ── Selection precedence ──────────────────────────────────────────────────
+
+    def _selection_priority_candidate(
+        self,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        explicit_eligible: list[DomainCandidateScore],
+    ) -> DomainCandidateScore | None:
+        """Return a unique policy-priority candidate, if selection is decisive."""
+
+        policy = self._selection_policy
+
+        if policy.explicit_domain_priority and len(explicit_eligible) == 1:
+            return explicit_eligible[0]
+
+        # Multiple explicit domains are special only while explicit priority is on.
+        if policy.explicit_domain_priority and explicit_eligible:
+            return None
+
+        session_candidates = (
+            list(domain_signal_candidates(context, eligible, kind="session"))
+            if policy.session_domain_priority
+            else []
+        )
+        goal_candidates = (
+            list(domain_signal_candidates(context, eligible, kind="goal"))
+            if policy.goal_domain_priority
+            else []
+        )
+
+        session_slugs = {candidate.domain_id.slug for candidate in session_candidates}
+        goal_slugs = {candidate.domain_id.slug for candidate in goal_candidates}
+
+        # When session and goal agree, that shared structured domain is decisive.
+        shared_slugs = session_slugs & goal_slugs
+        if len(shared_slugs) == 1:
+            shared_slug = next(iter(shared_slugs))
+            return next(
+                candidate
+                for candidate in eligible
+                if candidate.domain_id.slug == shared_slug
+            )
+
+        # A session/goal disagreement is intentionally left to the existing
+        # score + ambiguity machinery. Phase 10.32 owns richer conflict policy.
+        if session_slugs and goal_slugs:
+            return None
+
+        if len(session_candidates) == 1:
+            return session_candidates[0]
+
+        if len(goal_candidates) == 1:
+            return goal_candidates[0]
+
+        return None
+
+    # ── Explicit precedence ───────────────────────────────────────────────────
+
+    def _get_explicit_eligible(
+        self,
+        context: DomainResolutionContext,
+        eligible_scores: list[DomainCandidateScore],
+    ) -> list[DomainCandidateScore]:
+        explicit_slugs = {d.slug for d in context.explicit_domains}
+        return [c for c in eligible_scores if c.domain_id.slug in explicit_slugs]
+
+    # ── Ambiguity detection ───────────────────────────────────────────────────
+
+    def _check_ambiguity(
+        self,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        explicit_eligible: list[DomainCandidateScore],
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        global_blocking_reasons: tuple[DomainResolutionReason, ...],
+    ) -> DomainResolutionResult | None:
+        if len(eligible) < 2:
+            return None
+
+        p = self._policy
+
+        if (
+            self._selection_policy.explicit_domain_priority
+            and len(explicit_eligible) >= 2
+        ):
+            ambiguous_domains = tuple(
+                sorted(
+                    (candidate.domain_id for candidate in explicit_eligible),
+                    key=lambda domain_id: domain_id.slug,
+                )
+            )
+            ambiguous_slugs = {domain_id.slug for domain_id in ambiguous_domains}
+            question = self._build_ambiguity_question(ambiguous_domains)
+
+            fallback_primary = None
+            fallback_used = False
+            if self._fallback_domain is not None:
+                fb_candidate, blocked = self._resolve_fallback_primary(
+                    context,
+                    candidates,
+                    excluded_slugs=ambiguous_slugs,
+                )
+                if blocked is not None:
+                    return self._blocked_fallback_result(
+                        context,
+                        candidates=candidates,
+                        rejected_domains=rejected_domains,
+                        blocked_reason=blocked,
+                        ambiguous_domains=ambiguous_domains,
+                    )
+                if fb_candidate is not None:
+                    fallback_primary = fb_candidate.domain_id
+                    fallback_used = True
+
+            reasons = (
+                DomainResolutionReason(
+                    code="DOMAIN_AMBIGUOUS_SCORE",
+                    message="Multiple explicit domains are eligible",
+                    blocking=False,
+                ),
+            ) + global_blocking_reasons
+
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.AMBIGUOUS,
+                primary=fallback_primary,
+                ambiguous_domains=ambiguous_domains,
+                confidence=min(candidate.confidence for candidate in explicit_eligible),
+                reasons=reasons,
+                requires_clarification=True,
+                recommended_question=question,
+                fallback_used=fallback_used,
+                candidate_scores=tuple(candidates),
+                rejected_domains=rejected_domains,
+            )
+
+        top = eligible[0]
+        second = eligible[1]
+        if (
+            abs(top.score - second.score) <= p.ambiguity_margin
+            and top.score >= p.minimum_resolution_score
+            and second.score >= p.minimum_resolution_score
+        ):
+            explicit_slugs = (
+                {c.domain_id.slug for c in explicit_eligible}
+                if self._selection_policy.explicit_domain_priority
+                else set()
+            )
+            if (
+                top.domain_id.slug not in explicit_slugs
+                or second.domain_id.slug in explicit_slugs
+            ):
+                ambiguous_domains = tuple(
+                    sorted([top.domain_id, second.domain_id], key=lambda d: d.slug)
+                )
+                ambiguous_slugs = {d.slug for d in ambiguous_domains}
+                question = self._build_ambiguity_question(ambiguous_domains)
+                fallback_primary = None
+                fallback_used = False
+                if self._fallback_domain is not None:
+                    fb_candidate, blocked = self._resolve_fallback_primary(
+                        context,
+                        candidates,
+                        excluded_slugs=ambiguous_slugs,
+                    )
+                    if blocked is not None:
+                        return self._blocked_fallback_result(
+                            context,
+                            candidates=candidates,
+                            rejected_domains=rejected_domains,
+                            blocked_reason=blocked,
+                            ambiguous_domains=ambiguous_domains,
+                        )
+                    if fb_candidate is not None:
+                        fallback_primary = fb_candidate.domain_id
+                        fallback_used = True
+
+                reasons = (
+                    DomainResolutionReason(
+                        code="DOMAIN_AMBIGUOUS_SCORE",
+                        message=f"Ambiguous: {top.domain_id} vs {second.domain_id}",
+                        blocking=False,
+                    ),
+                ) + global_blocking_reasons
+
+                return self._build_result(
+                    context=context,
+                    status=DomainResolutionStatus.AMBIGUOUS,
+                    primary=fallback_primary,
+                    ambiguous_domains=ambiguous_domains,
+                    confidence=min(top.confidence, second.confidence),
+                    reasons=reasons,
+                    requires_clarification=True,
+                    recommended_question=question,
+                    fallback_used=fallback_used,
+                    candidate_scores=tuple(candidates),
+                    rejected_domains=rejected_domains,
+                )
+
+        return None
+
+    def _build_ambiguity_question(self, domains: tuple[DomainId, ...]) -> str:
+        names = [str(d) for d in domains]
+        if len(names) == 2:
+            return f"Which domain should take priority: {names[0]} or {names[1]}?"
+        return f"Which domain should take priority among: {', '.join(names)}?"
+
+    # ── High-impact protection ────────────────────────────────────────────────
+
+    def _check_high_impact(
+        self,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        global_blocking_reasons: tuple[DomainResolutionReason, ...],
+    ) -> DomainResolutionResult | None:
+        system_policy = context.system_policy
+        if system_policy is None:
+            return None
+
+        high_impact_slugs = {d.slug for d in system_policy.high_impact_domains}
+        if not high_impact_slugs:
+            return None
+
+        system_min_conf = system_policy.minimum_confidence
+        min_conf = max(
+            self._selection_policy.minimum_primary_confidence,
+            self._policy.high_impact_minimum_confidence,
+            system_min_conf if system_min_conf is not None else 0.0,
+        )
+
+        if eligible and high_impact_slugs:
+            top = eligible[0]
+            declared_confidence = candidate_selection_confidence(
+                context,
+                top,
+            )
+            effective_confidence = (
+                declared_confidence
+                if declared_confidence is not None
+                else top.confidence
+            )
+
+            if (
+                top.domain_id.slug in high_impact_slugs
+                and effective_confidence < min_conf
+            ):
+                second = eligible[1] if len(eligible) > 1 else None
+                if second:
+                    ambiguous_domains = tuple(
+                        sorted([top.domain_id, second.domain_id], key=lambda d: d.slug)
+                    )
+                    reasons = global_blocking_reasons + (
+                        DomainResolutionReason(
+                            code="DOMAIN_HIGH_IMPACT_LOW_CONFIDENCE",
+                            message=(
+                                f"High-impact domain {top.domain_id} has "
+                                f"low confidence ({effective_confidence:.2f} < {min_conf:.2f})"
+                            ),
+                            domain_id=top.domain_id,
+                            blocking=False,
+                        ),
+                    )
+                    return self._build_result(
+                        context=context,
+                        status=DomainResolutionStatus.AMBIGUOUS,
+                        ambiguous_domains=ambiguous_domains,
+                        confidence=effective_confidence,
+                        reasons=reasons,
+                        requires_clarification=True,
+                        recommended_question=(
+                            f"The domain {top.domain_id} is high-impact but has "
+                            f"low confidence. Do you want to proceed?"
+                        ),
+                        candidate_scores=tuple(candidates),
+                        rejected_domains=rejected_domains,
+                    )
+                else:
+                    # No second candidate — try fallback
+                    fallback_primary = None
+                    fallback_used = False
+                    fb_candidate, blocked = self._resolve_fallback_primary(
+                        context, candidates
+                    )
+                    if blocked is not None:
+                        return self._blocked_fallback_result(
+                            context,
+                            candidates=candidates,
+                            rejected_domains=rejected_domains,
+                            blocked_reason=blocked,
+                        )
+                    if fb_candidate is not None:
+                        fallback_primary = fb_candidate.domain_id
+                        fallback_used = True
+
+                    reasons = global_blocking_reasons + (
+                        DomainResolutionReason(
+                            code="DOMAIN_HIGH_IMPACT_LOW_CONFIDENCE",
+                            message=(
+                                f"High-impact domain {top.domain_id} has "
+                                f"low confidence ({effective_confidence:.2f} < {min_conf:.2f})"
+                            ),
+                            domain_id=top.domain_id,
+                            blocking=False,
+                        ),
+                    )
+                    return self._build_result(
+                        context=context,
+                        status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+                        primary=fallback_primary,
+                        confidence=effective_confidence,
+                        reasons=reasons,
+                        requires_clarification=True,
+                        recommended_question=(
+                            f"The domain {top.domain_id} is high-impact but has "
+                            f"low confidence. Do you want to proceed?"
+                        ),
+                        fallback_used=fallback_used,
+                        candidate_scores=tuple(candidates),
+                        rejected_domains=rejected_domains,
+                    )
+
+        return None
+
+    # ── Fallback ──────────────────────────────────────────────────────────────
+
+    def _is_fallback_eligible(
+        self,
+        context: DomainResolutionContext,
+        candidates: list[DomainCandidateScore],
+    ) -> DomainCandidateScore | None:
+        """Return the candidate score for the fallback domain if eligible, or None."""
+        if self._fallback_domain is None:
+            return None
+
+        fb_slug = self._fallback_domain.slug
+
+        # Must be present in available_domains
+        available_slugs = {d.slug for d in context.available_domains}
+        if fb_slug not in available_slugs:
+            return None
+
+        # Find the candidate
+        fb_candidate = None
+        for c in candidates:
+            if c.domain_id.slug == fb_slug:
+                fb_candidate = c
+                break
+
+        if fb_candidate is None:
+            # Create a fresh score
+            fb_candidate = self._scorer.score(context, self._fallback_domain)
+
+        # Must be eligible
+        if not fb_candidate.eligible:
+            return None
+        # Must not be rejected
+        if fb_candidate.rejected:
+            return None
+        # Must be authorized
+        authorized_slugs = {d.slug for d in context.authorized_domains}
+        require_auth = True
+        if context.system_policy is not None:
+            require_auth = context.system_policy.require_authorization
+        if require_auth and fb_slug not in authorized_slugs:
+            return None
+        # Must not be denied
+        denied_slugs: set[str] = set()
+        if context.system_policy is not None:
+            denied_slugs = {d.slug for d in context.system_policy.denied_domains}
+        if fb_slug in denied_slugs:
+            return None
+        # Must be allowed by policy if allowed_domains is set
+        if context.system_policy is not None and context.system_policy.allowed_domains:
+            allowed_slugs = {d.slug for d in context.system_policy.allowed_domains}
+            if fb_slug not in allowed_slugs:
+                return None
+        # Must pass status checks
+        if not self._check_status_allowed(context, fb_slug):
+            return None
+
+        return fb_candidate
+
+    def _check_status_allowed(
+        self, context: DomainResolutionContext, slug: str
+    ) -> bool:
+        """Check if a domain's status is allowed by policy."""
+        registry_versions: dict[str, list[dict[str, str]]] = {}
+        raw_meta = dict(context.metadata)
+        if "_resolution_registry_versions" in raw_meta:
+            registry_versions = raw_meta["_resolution_registry_versions"]
+
+        domain_statuses = self._get_domain_statuses(slug, registry_versions)
+
+        allow_disabled = False
+        allow_degraded = True
+        if context.system_policy is not None:
+            allow_disabled = context.system_policy.allow_disabled
+            allow_degraded = context.system_policy.allow_degraded
+
+        return not (
+            DomainStatus.DISABLED.value in domain_statuses
+            and not allow_disabled
+            or DomainStatus.DEGRADED.value in domain_statuses
+            and not allow_degraded
+        )
+
+    def _fallback_blocked_reason(
+        self, context: DomainResolutionContext
+    ) -> DomainResolutionReason | None:
+        """Return a blocking reason when the fallback domain must not be applied.
+
+        Generic, domain-agnostic rule.  If a signal explicitly implicates a
+        domain (other than the configured fallback) that is ineligible for a
+        fail-closed reason — not available, denied by policy, excluded by
+        ``allowed_domains``, missing authorization (when authorization is
+        required), disabled (when policy disallows disabled), or degraded (when
+        policy disallows degraded) — then the fallback domain must NOT silently
+        take over.  Fail-closed.
+
+        Deterministic precedence, aligned with the rejection semantics of
+        ``_filter_and_score``: not available -> denied -> not allowed ->
+        unauthorized -> disabled -> degraded.
+        """
+        if self._fallback_domain is None:
+            return None
+
+        fb_slug = self._fallback_domain.slug
+        available_slugs = {d.slug for d in context.available_domains}
+
+        require_auth = True
+        denied_slugs: set[str] = set()
+        allowed_slugs: set[str] | None = None
+        allow_disabled = False
+        allow_degraded = True
+        if context.system_policy is not None:
+            require_auth = context.system_policy.require_authorization
+            denied_slugs = {d.slug for d in context.system_policy.denied_domains}
+            allow_disabled = context.system_policy.allow_disabled
+            allow_degraded = context.system_policy.allow_degraded
+            if context.system_policy.allowed_domains:
+                allowed_slugs = {d.slug for d in context.system_policy.allowed_domains}
+
+        authorized_slugs = {d.slug for d in context.authorized_domains}
+
+        registry_versions: dict[str, list[dict[str, str]]] = {}
+        raw_meta = dict(context.metadata)
+        if "_resolution_registry_versions" in raw_meta:
+            registry_versions = raw_meta["_resolution_registry_versions"]
+
+        # Explicit requests are fail-closed even when no redundant signal exists.
+        for domain_id in context.explicit_domains:
+            slug = domain_id.slug
+            if slug == fb_slug:
+                continue
+            domain_statuses = self._get_domain_statuses(slug, registry_versions)
+            checks = (
+                (
+                    slug not in available_slugs,
+                    "DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                    "not available",
+                ),
+                (slug in denied_slugs, "DOMAIN_POLICY_DENIED", "denied by policy"),
+                (
+                    allowed_slugs is not None and slug not in allowed_slugs,
+                    "DOMAIN_POLICY_NOT_ALLOWED",
+                    "not in the allowed domains",
+                ),
+                (
+                    require_auth and slug not in authorized_slugs,
+                    "DOMAIN_UNAUTHORIZED_REJECTED",
+                    "not authorized",
+                ),
+                (
+                    DomainStatus.DISABLED.value in domain_statuses
+                    and not allow_disabled,
+                    "DOMAIN_DISABLED_REJECTED",
+                    "disabled",
+                ),
+                (
+                    DomainStatus.DEGRADED.value in domain_statuses
+                    and not allow_degraded,
+                    "DOMAIN_DEGRADED_REJECTED",
+                    "degraded and disallowed by policy",
+                ),
+            )
+            for blocked, code, description in checks:
+                if blocked:
+                    return DomainResolutionReason(
+                        code=code,
+                        message=(
+                            f"Explicit domain {domain_id} is {description}; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+
+        for signal in context.signals:
+            for domain_id in signal.domain_ids:
+                slug = domain_id.slug
+                if slug == fb_slug:
+                    continue
+                # Not available — the signaled domain cannot serve at all.
+                if slug not in available_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                        message=(
+                            f"Signaled domain {domain_id} is not available; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Denied by policy — most specific reason.
+                if slug in denied_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_POLICY_DENIED",
+                        message=(
+                            f"Signaled domain {domain_id} is denied by policy; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Excluded by allowed_domains.
+                if allowed_slugs is not None and slug not in allowed_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_POLICY_NOT_ALLOWED",
+                        message=(
+                            f"Signaled domain {domain_id} is not in the allowed "
+                            f"domains; fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Not authorized (when authorization is required).
+                if require_auth and slug not in authorized_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_UNAUTHORIZED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is not authorized; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Disabled (when policy disallows disabled).
+                domain_statuses = self._get_domain_statuses(slug, registry_versions)
+                if (
+                    DomainStatus.DISABLED.value in domain_statuses
+                    and not allow_disabled
+                ):
+                    return DomainResolutionReason(
+                        code="DOMAIN_DISABLED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is disabled; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Degraded (when policy disallows degraded).
+                if (
+                    DomainStatus.DEGRADED.value in domain_statuses
+                    and not allow_degraded
+                ):
+                    return DomainResolutionReason(
+                        code="DOMAIN_DEGRADED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is degraded and policy "
+                            f"disallows degraded; fallback {self._fallback_domain} "
+                            f"is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+        return None
+
+    def _resolve_fallback_primary(
+        self,
+        context: DomainResolutionContext,
+        candidates: list[DomainCandidateScore],
+        *,
+        excluded_slugs: set[str] | None = None,
+    ) -> tuple[DomainCandidateScore | None, DomainResolutionReason | None]:
+        """Decide whether the configured fallback may become primary in this path.
+
+        Central invariant: a configured fallback domain must never become primary
+        through any resolver path when an explicitly signaled non-fallback domain
+        is ineligible for a fail-closed reason.
+
+        Returns ``(fallback_candidate, blocking_reason)``:
+
+        * ``(None, None)`` — no fallback configured, or the fallback is ineligible
+          (or excluded) for this specific path;
+        * ``(DomainCandidateScore, None)`` — the fallback may be used as primary;
+        * ``(None, blocking_reason)`` — the fallback must NOT become primary
+          (fail-closed).
+        """
+        if self._fallback_domain is None:
+            return None, None
+
+        fb_candidate = self._is_fallback_eligible(context, candidates)
+        if fb_candidate is None:
+            return None, None
+
+        if excluded_slugs is not None and fb_candidate.domain_id.slug in excluded_slugs:
+            return None, None
+
+        blocked_reason = self._fallback_blocked_reason(context)
+        if blocked_reason is not None:
+            return None, blocked_reason
+
+        return fb_candidate, None
+
+    def _blocked_fallback_result(
+        self,
+        context: DomainResolutionContext,
+        *,
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        blocked_reason: DomainResolutionReason,
+        ambiguous_domains: tuple[DomainId, ...] = (),
+    ) -> DomainResolutionResult:
+        """Build a fail-closed BLOCKED result for the fallback guard.
+
+        A BLOCKED result requires at least one rejected domain, so the offending
+        signaled domain carried by ``blocked_reason`` is guaranteed to be present
+        (it may be a signaled domain that was not in ``available_domains`` and
+        therefore never scored as a candidate).
+        """
+        reason_domain = blocked_reason.domain_id
+        final_domains: set[DomainId] = set(rejected_domains)
+        if reason_domain is not None:
+            final_domains.add(reason_domain)
+        final_rejected = tuple(sorted(final_domains, key=lambda d: d.slug))
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.BLOCKED,
+            primary=None,
+            rejected_domains=final_rejected,
+            ambiguous_domains=ambiguous_domains,
+            reasons=(blocked_reason,),
+            candidate_scores=tuple(candidates),
+        )
+
+    def _try_fallback(
+        self,
+        context: DomainResolutionContext,
+        candidates: list[DomainCandidateScore],
+        eligible_scores: list[DomainCandidateScore],
+        rejected_list: list[DomainCandidateScore],
+    ) -> DomainResolutionResult | None:
+        fb_candidate, blocked_reason = self._resolve_fallback_primary(
+            context, candidates
+        )
+        if fb_candidate is None and blocked_reason is None:
+            return None
+
+        if blocked_reason is not None:
+            rejected_tuple = tuple(
+                sorted((c.domain_id for c in rejected_list), key=lambda d: d.slug)
+            )
+            return self._blocked_fallback_result(
+                context,
+                candidates=candidates,
+                rejected_domains=rejected_tuple,
+                blocked_reason=blocked_reason,
+            )
+
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+            primary=fb_candidate.domain_id,
+            rejected_domains=tuple(
+                sorted((c.domain_id for c in rejected_list), key=lambda d: d.slug)
+            ),
+            reasons=(
+                DomainResolutionReason(
+                    code="DOMAIN_FALLBACK_SELECTED",
+                    message=f"No specialized domain found; using fallback {fb_candidate.domain_id}",
+                    domain_id=fb_candidate.domain_id,
+                    contribution=0.0,
+                ),
+            ),
+            confidence=fb_candidate.confidence,
+            fallback_used=True,
+            candidate_scores=tuple(candidates),
+        )
+
+    # ── Supporting domains ────────────────────────────────────────────────────
+
+    def _check_required_supporting_limit_conflict(
+        self,
+        *,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        primary: DomainId,
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        global_reasons: tuple[DomainResolutionReason, ...],
+    ) -> DomainResolutionResult | None:
+        """Fail closed when required supporting domains cannot fit policy limits."""
+
+        system_policy = context.system_policy
+        if system_policy is None or not system_policy.required_domains:
+            return None
+
+        eligible_by_slug = {
+            candidate.domain_id.slug: candidate
+            for candidate in eligible
+            if candidate.eligible and not candidate.rejected
+        }
+
+        required_supporting = tuple(
+            sorted(
+                (
+                    eligible_by_slug[required.slug].domain_id
+                    for required in system_policy.required_domains
+                    if required.slug != primary.slug
+                    and required.slug in eligible_by_slug
+                ),
+                key=lambda domain_id: domain_id.slug,
+            )
+        )
+
+        if not required_supporting:
+            return None
+
+        confidence_conflicts = tuple(
+            domain_id
+            for domain_id in required_supporting
+            if (
+                (
+                    confidence := candidate_selection_confidence(
+                        context, eligible_by_slug[domain_id.slug]
+                    )
+                )
+                is not None
+                and confidence < self._selection_policy.minimum_supporting_confidence
+            )
+        )
+        if confidence_conflicts:
+            reasons = tuple(
+                DomainResolutionReason(
+                    code="DOMAIN_SELECTION_REQUIRED_SUPPORTING_CONFIDENCE_CONFLICT",
+                    message=(
+                        "Required supporting domain does not satisfy the minimum "
+                        "selection confidence"
+                    ),
+                    domain_id=domain_id,
+                    blocking=True,
+                )
+                for domain_id in confidence_conflicts
+            )
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+                primary=None,
+                rejected_domains=rejected_domains,
+                candidate_scores=tuple(candidates),
+                reasons=global_reasons + reasons,
+                confidence=0.0,
+            )
+
+        if self._selection_policy.allow_multi_domain:
+            effective_max = min(
+                self._policy.max_supporting_domains,
+                self._selection_policy.maximum_supporting_domains,
+            )
+        else:
+            effective_max = 0
+
+        if len(required_supporting) <= effective_max:
+            return None
+
+        reason = DomainResolutionReason(
+            code="DOMAIN_SELECTION_REQUIRED_DOMAIN_LIMIT_CONFLICT",
+            message=(
+                "Required supporting domains exceed the effective "
+                "domain-selection supporting limit"
+            ),
+            blocking=True,
+        )
+
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+            primary=None,
+            rejected_domains=rejected_domains,
+            candidate_scores=tuple(candidates),
+            reasons=global_reasons + (reason,),
+            confidence=0.0,
+        )
+
+    def _select_supporting(
+        self,
+        eligible: list[DomainCandidateScore],
+        primary: DomainId,
+        primary_score: DomainCandidateScore,
+        context: DomainResolutionContext,
+        candidates: list[DomainCandidateScore],
+    ) -> tuple[DomainId, ...]:
+        p = self._policy
+        selection_policy = self._selection_policy
+
+        if not selection_policy.allow_multi_domain:
+            return ()
+
+        max_supporting = min(
+            p.max_supporting_domains,
+            selection_policy.maximum_supporting_domains,
+        )
+
+        # Determine required domains from policy
+        required_slugs: set[str] = set()
+        if context.system_policy is not None:
+            required_slugs = {d.slug for d in context.system_policy.required_domains}
+
+        # Collect all eligible supporting candidates
+        optional_candidates: list[DomainCandidateScore] = []
+        for c in eligible:
+            if c.domain_id.slug == primary.slug:
+                continue
+            if c.rejected:
+                continue
+            optional_candidates.append(c)
+
+        optional_candidates.sort(
+            key=lambda c: (-c.score, -c.confidence, c.domain_id.slug)
+        )
+
+        result: list[DomainId] = []
+        seen: set[str] = {primary.slug}
+
+        # First, include all required domains (if eligible and not primary)
+        required_eligible: list[DomainCandidateScore] = []
+        for c in optional_candidates:
+            if c.domain_id.slug in required_slugs:
+                required_eligible.append(c)
+
+        # Required domains always included (regardless of score/margin)
+        for c in required_eligible:
+            if c.domain_id.slug not in seen:
+                seen.add(c.domain_id.slug)
+                result.append(c.domain_id)
+
+        # Choose policy for required overflow: increase supporting to fit all
+        effective_max_for_optional = max(0, max_supporting - len(result))
+
+        # Now fill remaining with optional candidates respecting limits
+        for c in optional_candidates:
+            if c.domain_id.slug in required_slugs:
+                continue  # Already included above
+            if len(result) >= max_supporting and effective_max_for_optional <= 0:
+                break
+            if c.score < p.minimum_resolution_score:
+                continue
+
+            selection_confidence = candidate_selection_confidence(
+                context,
+                c,
+            )
+            if (
+                selection_confidence is not None
+                and selection_confidence
+                < selection_policy.minimum_supporting_confidence
+            ):
+                continue
+
+            if abs(c.score - primary_score.score) > p.supporting_margin:
+                continue
+            if c.domain_id.slug not in seen:
+                seen.add(c.domain_id.slug)
+                result.append(c.domain_id)
+                if len(result) >= max_supporting:
+                    break
+
+        return tuple(result)
+
+    # ── Reasons builder ────────────────────────────────────────────────────────
+
+    def _build_resolved_reasons(
+        self,
+        *,
+        eligible_scores: list[DomainCandidateScore],
+        primary: DomainId,
+        supporting_ids: set[str],
+        rejected_list: list[DomainCandidateScore],
+        global_reasons: tuple[DomainResolutionReason, ...],
+        context: DomainResolutionContext,
+    ) -> tuple[DomainResolutionReason, ...]:
+        """Build ordered, deduplicated reasons for a RESOLVED result."""
+        seen: set[tuple[str, str, str]] = set()
+        result_reasons: list[DomainResolutionReason] = []
+
+        def add(r: DomainResolutionReason) -> None:
+            key = (
+                r.code,
+                str(r.domain_id) if r.domain_id else "",
+                r.signal_kind or "",
+            )
+            if key not in seen:
+                seen.add(key)
+                result_reasons.append(r)
+
+        # Blocking rejected reasons first
+        for rc in rejected_list:
+            for rr in rc.reasons:
+                if rr.blocking:
+                    add(rr)
+
+        # Primary reasons
+        for cs in eligible_scores:
+            if cs.domain_id.slug == primary.slug:
+                for rr in cs.reasons:
+                    add(rr)
+                break
+
+        # Supporting reasons
+        for cs in eligible_scores:
+            if cs.domain_id.slug in supporting_ids:
+                for rr in cs.reasons:
+                    add(rr)
+
+        # Selection-policy decisions not already encoded by candidate scoring.
+        policy = self._selection_policy
+        explicit_eligible = list(explicit_candidates(context, eligible_scores))
+        priority = self._selection_priority_candidate(
+            context, eligible_scores, explicit_eligible
+        )
+        if priority is not None and priority.domain_id.slug == primary.slug:
+            if policy.explicit_domain_priority and len(explicit_eligible) == 1:
+                add(
+                    DomainResolutionReason(
+                        code="DOMAIN_SELECTION_EXPLICIT_PRIORITY",
+                        message="Explicit eligible domain selected by selection policy",
+                        domain_id=primary,
+                    )
+                )
+            else:
+                for kind, enabled, code, message in (
+                    (
+                        "session",
+                        policy.session_domain_priority,
+                        "DOMAIN_SELECTION_SESSION_PRIORITY",
+                        "Session continuity selected by selection policy",
+                    ),
+                    (
+                        "goal",
+                        policy.goal_domain_priority,
+                        "DOMAIN_SELECTION_GOAL_PRIORITY",
+                        "Active goal selected by selection policy",
+                    ),
+                ):
+                    if enabled and any(
+                        candidate.domain_id.slug == primary.slug
+                        for candidate in domain_signal_candidates(
+                            context, eligible_scores, kind=kind
+                        )
+                    ):
+                        add(
+                            DomainResolutionReason(
+                                code=code,
+                                message=message,
+                                domain_id=primary,
+                                signal_kind=kind,
+                            )
+                        )
+
+        non_primary = [
+            candidate
+            for candidate in eligible_scores
+            if candidate.domain_id.slug != primary.slug and not candidate.rejected
+        ]
+        if not policy.allow_multi_domain and non_primary:
+            add(
+                DomainResolutionReason(
+                    code="DOMAIN_SELECTION_MULTI_DOMAIN_DISABLED",
+                    message="Supporting-domain selection disabled by policy",
+                )
+            )
+        elif policy.allow_multi_domain:
+            primary_score = next(
+                candidate.score
+                for candidate in eligible_scores
+                if candidate.domain_id.slug == primary.slug
+            )
+            required_slugs = (
+                {domain_id.slug for domain_id in context.system_policy.required_domains}
+                if context.system_policy is not None
+                else set()
+            )
+            for candidate in non_primary:
+                if candidate.domain_id.slug in supporting_ids | required_slugs:
+                    continue
+                if candidate.score < self._policy.minimum_resolution_score:
+                    continue
+                if (
+                    abs(candidate.score - primary_score)
+                    > self._policy.supporting_margin
+                ):
+                    continue
+                confidence = candidate_selection_confidence(context, candidate)
+                if (
+                    confidence is not None
+                    and confidence < policy.minimum_supporting_confidence
+                ):
+                    add(
+                        DomainResolutionReason(
+                            code="DOMAIN_SELECTION_SUPPORTING_CONFIDENCE_REJECTED",
+                            message=(
+                                "Supporting candidate rejected by minimum selection confidence"
+                            ),
+                            domain_id=candidate.domain_id,
+                        )
+                    )
+
+        # Global blocking reasons (not already covered)
+        for gr in global_reasons:
+            add(gr)
+
+        # Sort: blocking desc, domain slug, code, signal_kind, message
+        result_reasons.sort(
+            key=lambda r: (
+                not r.blocking,
+                str(r.domain_id) if r.domain_id else "",
+                r.code,
+                r.signal_kind or "",
+                r.message,
+            )
+        )
+
+        return tuple(result_reasons)
+
+    # ── Result construction ───────────────────────────────────────────────────
+
+    def _build_result(
+        self,
+        *,
+        context: DomainResolutionContext,
+        status: DomainResolutionStatus,
+        primary: DomainId | None = None,
+        supporting_domains: tuple[DomainId, ...] = (),
+        rejected_domains: tuple[DomainId, ...] = (),
+        ambiguous_domains: tuple[DomainId, ...] = (),
+        candidate_scores: tuple[DomainCandidateScore, ...] = (),
+        reasons: tuple[DomainResolutionReason, ...] = (),
+        confidence: float = 0.0,
+        requires_clarification: bool = False,
+        recommended_question: str | None = None,
+        fallback_used: bool = False,
+    ) -> DomainResolutionResult:
+        # Validate clock and id_factory before constructing any result
+        try:
+            result_id = self._id_factory()
+        except Exception as exc:
+            raise DomainResolverExecutionError(
+                "Domain resolution execution failed",
+                details={"error_code": "ID_FACTORY_FAILED"},
+            ) from exc
+        if not isinstance(result_id, str) or not result_id:
+            raise DomainResolverExecutionError(
+                "Domain resolution execution failed",
+                details={"error_code": "INVALID_ID_FACTORY_RETURN"},
+            )
+
+        try:
+            resolved_time = self._clock()
+        except Exception as exc:
+            raise DomainResolverExecutionError(
+                "Domain resolution execution failed",
+                details={"error_code": "CLOCK_FAILED"},
+            ) from exc
+        if not isinstance(resolved_time, datetime):
+            raise DomainResolverExecutionError(
+                "Domain resolution execution failed",
+                details={"error_code": "INVALID_CLOCK_RETURN_TYPE"},
+            )
+        if resolved_time.tzinfo is None:
+            raise DomainResolverExecutionError(
+                "Domain resolution execution failed",
+                details={"error_code": "NAIVE_CLOCK_RETURN"},
+            )
+
+        requires_clar = requires_clarification
+        rec_question = recommended_question
+
+        if (
+            status == DomainResolutionStatus.INSUFFICIENT_INFORMATION
+            and not fallback_used
+        ):
+            requires_clar = True
+
+        return DomainResolutionResult(
+            id=result_id,
+            context_id=context.id,
+            status=status,
+            primary_domain=primary,
+            supporting_domains=supporting_domains,
+            rejected_domains=rejected_domains,
+            ambiguous_domains=ambiguous_domains,
+            confidence=confidence,
+            reasons=reasons,
+            candidate_scores=candidate_scores,
+            requires_clarification=requires_clar,
+            recommended_question=rec_question,
+            fallback_used=fallback_used,
+            resolved_at=resolved_time,
+        )
+
+    # ── Sorting helpers ───────────────────────────────────────────────────────
+
+    def _sort_candidates(
+        self, candidates: list[DomainCandidateScore]
+    ) -> list[DomainCandidateScore]:
+        candidates.sort(
+            key=lambda c: (
+                0 if c.eligible else 1,
+                -c.score if c.score == c.score else 0,
+                -c.confidence if c.confidence == c.confidence else 0,
+                c.domain_id.slug,
+            )
+        )
+        return candidates
+
+    def _sort_eligible(
+        self, candidates: list[DomainCandidateScore]
+    ) -> list[DomainCandidateScore]:
+        candidates.sort(
+            key=lambda c: (
+                -c.score if c.score == c.score else 0,
+                -c.confidence if c.confidence == c.confidence else 0,
+                c.domain_id.slug,
+            )
+        )
+        return candidates
+
+
+__all__ = [
+    "DefaultDomainResolver",
+    "DomainResolver",
+]

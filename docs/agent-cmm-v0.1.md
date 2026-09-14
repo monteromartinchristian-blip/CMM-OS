@@ -1,5 +1,10 @@
 # CMM Agent v0.1
 
+> Ámbito: diseño histórico del agente del producto CMM. Las restricciones de
+> acceso mediante Kernel describen ese producto, no a Codex/Claude/Copilot
+> desarrollando el repositorio. La política de ingeniería es [AGENTS.md](../AGENTS.md);
+> no modifica ni elimina contratos del producto.
+
 ## Objetivo
 
 CMM Agent es el agente inteligente de CMM OS.

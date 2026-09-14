@@ -19,6 +19,7 @@ from cmm.agent_runtime.enums import (
     OperationEnvironment,
 )
 from cmm.agent_runtime.errors import InvalidAgentOperationContractError
+from cmm.agent_runtime.validation_integration_contracts import ValidationRequirement
 from kernel.llm.model_selection import ModelRequirements
 
 
@@ -48,6 +49,17 @@ def _freeze_mapping(data: Mapping[str, Any]) -> MappingProxyType:
     return MappingProxyType(normalized)
 
 
+def _unfreeze_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
+    def thaw(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: thaw(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return [thaw(item) for item in value]
+        return value
+
+    return {key: thaw(item) for key, item in data.items()}
+
+
 @dataclass(frozen=True)
 class AgentOperationRequest:
     """Immutable request to execute a registered operation."""
@@ -70,6 +82,8 @@ class AgentOperationRequest:
     checkpoint_id: str | None = None
     created_at: str = field(default_factory=_now_iso)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    validation_requirements: tuple[ValidationRequirement, ...] = ()
+    validation_project_root: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id or not isinstance(self.id, str) or not self.id.strip():
@@ -141,6 +155,29 @@ class AgentOperationRequest:
             ),
         )
         object.__setattr__(self, "metadata", _freeze_mapping(dict(self.metadata)))
+        normalized_requirements: list[ValidationRequirement] = []
+        for item in tuple(self.validation_requirements or ()):
+            if isinstance(item, ValidationRequirement):
+                normalized_requirements.append(item)
+            elif isinstance(item, Mapping):
+                normalized_requirements.append(
+                    ValidationRequirement.from_dict(dict(item))
+                )
+            else:
+                raise InvalidAgentOperationContractError(
+                    "validation_requirements must contain ValidationRequirement "
+                    f"entries, got {type(item).__name__}."
+                )
+        object.__setattr__(
+            self, "validation_requirements", tuple(normalized_requirements)
+        )
+        if self.validation_project_root is not None and (
+            not isinstance(self.validation_project_root, str)
+            or not self.validation_project_root.strip()
+        ):
+            raise InvalidAgentOperationContractError(
+                "validation_project_root must be a non-empty string or None."
+            )
 
     def calculate_fingerprint(self) -> str:
         """Calculate a deterministic sha256 fingerprint for this operation request."""
@@ -153,6 +190,10 @@ class AgentOperationRequest:
             "constraints": sorted(self.constraints),
             "permissions": sorted(self.permissions),
             "expected_effects": sorted(self.expected_effects),
+            "validation_requirements": [
+                req.to_dict() for req in self.validation_requirements
+            ],
+            "validation_project_root": self.validation_project_root,
         }
         encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -178,6 +219,10 @@ class AgentOperationRequest:
             "checkpoint_id": self.checkpoint_id,
             "created_at": self.created_at,
             "metadata": dict(self.metadata),
+            "validation_requirements": [
+                req.to_dict() for req in self.validation_requirements
+            ],
+            "validation_project_root": self.validation_project_root,
         }
 
     @classmethod
@@ -202,6 +247,8 @@ class AgentOperationRequest:
             checkpoint_id=data.get("checkpoint_id"),
             created_at=data.get("created_at", _now_iso()),
             metadata=data.get("metadata", {}),
+            validation_requirements=tuple(data.get("validation_requirements", ())),
+            validation_project_root=data.get("validation_project_root"),
         )
 
 
@@ -408,6 +455,8 @@ class AgentOperationExecutionResult:
     reason_codes: tuple[str, ...] = ()
     started_at: str = field(default_factory=_now_iso)
     completed_at: str = field(default_factory=_now_iso)
+    output: Mapping[str, Any] = field(default_factory=dict)
+    error: Mapping[str, Any] | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -468,6 +517,27 @@ class AgentOperationExecutionResult:
             ),
         )
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
+        if not isinstance(self.output, Mapping):
+            raise InvalidAgentOperationContractError("output must be a mapping.")
+        try:
+            json.dumps(self.output, allow_nan=False)
+        except (TypeError, ValueError) as err:
+            raise InvalidAgentOperationContractError(
+                "output must be finite JSON serializable."
+            ) from err
+        object.__setattr__(self, "output", _freeze_mapping(dict(self.output)))
+        if self.error is not None:
+            if not isinstance(self.error, Mapping):
+                raise InvalidAgentOperationContractError(
+                    "error must be a mapping or None."
+                )
+            try:
+                json.dumps(self.error, allow_nan=False)
+            except (TypeError, ValueError) as err:
+                raise InvalidAgentOperationContractError(
+                    "error must be finite JSON serializable."
+                ) from err
+            object.__setattr__(self, "error", _freeze_mapping(dict(self.error)))
         object.__setattr__(self, "metadata", _freeze_mapping(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -489,6 +559,8 @@ class AgentOperationExecutionResult:
             "artifacts": list(self.artifacts),
             "validation_result_ids": list(self.validation_result_ids),
             "budget_consumption_id": self.budget_consumption_id,
+            "checkpoint_id": self.checkpoint_id,
+            "transaction_boundary_id": self.transaction_boundary_id,
             "rollback_available": self.rollback_available,
             "rollback_reference": self.rollback_reference,
             "resource_versions_before": dict(self.resource_versions_before),
@@ -496,5 +568,11 @@ class AgentOperationExecutionResult:
             "reason_codes": list(self.reason_codes),
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "output": _unfreeze_mapping(self.output),
+            "error": _unfreeze_mapping(self.error) if self.error is not None else None,
             "metadata": dict(self.metadata),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AgentOperationExecutionResult:
+        return cls(**data)

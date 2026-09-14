@@ -118,9 +118,7 @@ class TemporalScope:
 
         if self.valid_from is not None and moment < self.valid_from:
             return False
-        if self.valid_until is not None and moment > self.valid_until:
-            return False
-        return True
+        return self.valid_until is None or moment <= self.valid_until
 
     def contains(self, moment: datetime) -> bool:
         """Alias for :meth:`is_valid_at`."""

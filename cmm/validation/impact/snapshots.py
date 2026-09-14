@@ -89,6 +89,30 @@ class ChangeSetBuilder:
             requires_full_suite=False,
         )
 
+    def build_from_snapshots(
+        self,
+        *,
+        project_root: Path,
+        before: ProjectSnapshot,
+        after: ProjectSnapshot,
+        source: str = "snapshots",
+    ) -> ChangeSet:
+        """Compare two in-memory project snapshots into a canonical ChangeSet.
+
+        Public seam for before/after mutation truth (e.g. a code change
+        captured before execution and re-scanned after execution). The
+        public ``build()`` entry point only scans directory trees; it
+        cannot compare snapshots already held in memory.
+        """
+        root = Path(project_root).resolve(strict=False)
+        return self._compare_snapshots(
+            project_root=root,
+            before=before,
+            after=after,
+            source=source,
+            requires_full_suite=False,
+        )
+
     def _compare_explicit_files(
         self,
         *,
@@ -268,6 +292,16 @@ class ChangeSetBuilder:
                 "after_count": len(after.files),
             },
         )
+
+
+def scan_project_snapshot(root: Path | str, *, source: str) -> ProjectSnapshot:
+    """Scan a project tree into a canonical in-memory ``ProjectSnapshot``.
+
+    Public seam over the canonical scanner so host layers (e.g. Domain
+    operation orchestration) can capture before/after mutation state
+    without depending on the private ``_scan_project_snapshot`` helper.
+    """
+    return _scan_project_snapshot(Path(root), source=source)
 
 
 def _scan_project_snapshot(root: Path, *, source: str) -> ProjectSnapshot:
