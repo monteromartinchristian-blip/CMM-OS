@@ -385,3 +385,133 @@ def test_audit_records_serialize_deterministically() -> None:
 
     assert [record["revision"] for record in payload["audit_log"]] == [1, 2]
     assert ProviderRegistryState.from_dict(payload) == state
+
+
+# --- review follow-ups: persistence-boundary secret guard totality ----------
+
+
+def _state_with(
+    *,
+    endpoint: str | None = None,
+    display_name: str | None = None,
+    isolation_profile_ref: str | None = None,
+    base_url: str | None = None,
+    data_policy: str | None = None,
+    model_version: str | None = None,
+) -> ProviderRegistryState:
+    """Build a one-connection aggregate with the given free-text overrides."""
+    connection = ProviderConnection(
+        connection_id="deepseek:main",
+        provider_id="deepseek",
+        display_name=display_name or "DeepSeek API",
+        billing_class=BillingClass.PAYG,
+        credential_ref=_SAFE_REF,
+        endpoint=endpoint or "https://api.deepseek.com/v1",
+        isolation_profile_ref=isolation_profile_ref,
+        status=ConnectionStatus.CONNECTED,
+    )
+    provider = ProviderSpec(
+        id="deepseek",
+        provider_type="remote",
+        api_style="chat_completions",
+        base_url=base_url or "https://api.deepseek.com/v1",
+        data_policy=data_policy,
+    )
+    model = ModelSpec(
+        id="deepseek-chat",
+        provider_id="deepseek",
+        version=model_version,
+    )
+    return ProviderRegistryState(
+        schema_version=SCHEMA_VERSION,
+        revision=1,
+        providers=(provider,),
+        manifests=(),
+        models=(model,),
+        connections=(connection,),
+        routes=(),
+        audit_log=(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "payload_key"),
+    [
+        ("endpoint", "https://api.deepseek.com/v1?token=sk-live-abc123", "endpoint"),
+        ("display_name", "Provider sk-live-abc123", "display_name"),
+        ("isolation_profile_ref", "/tmp/password=hunter2", "isolation_profile_ref"),
+        ("base_url", "https://api.deepseek.com/v1?api-key=x", "base_url"),
+        ("data_policy", "policy token=abc", "data_policy"),
+        ("model_version", "Bearer v1", "version"),
+    ],
+)
+def test_to_dict_rejects_secret_shaped_text_in_any_persisted_field(
+    field: str, value: str, payload_key: str
+) -> None:
+    """The write boundary refuses to emit secret-shaped text, not just refs."""
+    state = _state_with(**{field: value})
+
+    with pytest.raises(
+        ProviderStateSerializationError,
+        match="must not carry plaintext secrets",
+    ) as excinfo:
+        state.to_dict()
+    # The path names the offending field; the secret value is never echoed.
+    assert payload_key in str(excinfo.value)
+    assert value not in str(excinfo.value)
+
+
+def test_from_dict_rejects_secret_shaped_text_in_any_persisted_field() -> None:
+    """The read boundary rejects a hand-edited file smuggling text secrets."""
+    payload = _state_with().to_dict()
+    payload["connections"][0]["endpoint"] = (  # type: ignore[index]
+        "https://api.deepseek.com/v1?token=sk-live-abc123"
+    )
+
+    with pytest.raises(
+        ProviderStateSerializationError, match="must not carry plaintext secrets"
+    ) as excinfo:
+        ProviderRegistryState.from_dict(payload)
+    assert "endpoint" in str(excinfo.value)
+    assert "sk-live-abc123" not in str(excinfo.value)
+
+
+def test_the_bearer_auth_scheme_value_is_the_documented_exemption() -> None:
+    """The only marker-shaped domain value is the pinned auth scheme."""
+    payload = _state().to_dict()
+
+    assert payload["manifests"][0]["auth_scheme"] == "bearer"
+    assert ProviderRegistryState.from_dict(payload) == _state()
+
+
+def test_from_dict_rejects_a_non_finite_cost() -> None:
+    """A NaN cost is corruption and must fail with the typed error."""
+    payload = _state().to_dict()
+    payload["models"][0]["input_cost_per_million"] = "NaN"  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError, match="finite"):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_blank_optional_text_round_trips() -> None:
+    """Constructible blanks (region/version) must survive the round trip."""
+    provider = ProviderSpec(
+        id="deepseek",
+        provider_type="remote",
+        api_style="chat_completions",
+        base_url="https://api.deepseek.com/v1",
+        region="",
+        data_policy="",
+    )
+    model = ModelSpec(id="deepseek-chat", provider_id="deepseek", version="")
+    state = ProviderRegistryState(
+        schema_version=SCHEMA_VERSION,
+        revision=1,
+        providers=(provider,),
+        manifests=(),
+        models=(model,),
+        connections=(),
+        routes=(),
+    )
+
+    assert ProviderRegistryState.from_dict(state.to_dict()) == state

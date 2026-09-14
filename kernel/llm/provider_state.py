@@ -46,7 +46,7 @@ from kernel.llm.provider_connections import (
     ConnectionStatus,
     ProviderConnection,
 )
-from kernel.llm.provider_manifests import ProviderManifest
+from kernel.llm.provider_manifests import FIRST_WAVE_AUTH_SCHEME, ProviderManifest
 from kernel.llm.provider_registry import ProviderSpec
 
 SCHEMA_VERSION: Final[str] = "1"
@@ -113,10 +113,43 @@ def _require_text(value: object, *, label: str) -> str:
 
 
 def _optional_text(value: object, *, label: str) -> str | None:
-    """Require ``None`` or a non-blank string."""
+    """Require ``None`` or a string; blank strings and markers are allowed here.
+
+    Read-side only: the envelope-level secret scan (see
+    :func:`_reject_secret_strings`) rejects marker-shaped strings before any
+    field parser runs, and blank optional strings are legitimate domain values
+    (e.g. ``ProviderSpec(region="")``), so this check stays structural — the
+    value objects themselves validate what matters.
+    """
     if value is None:
         return None
-    return _require_text(value, label=label)
+    if not isinstance(value, str):
+        raise ProviderStateSerializationError(f"{label} must be a string")
+    return value
+
+
+def _reject_secret_strings(value: object, *, label: str = "persisted state") -> None:
+    """Recursively reject secret-shaped strings anywhere in an envelope.
+
+    Applied at the persistence boundary in both directions: ``to_dict()``
+    refuses to emit (and therefore persist) any secret-shaped string in any
+    field — not only credential refs — and ``from_dict()`` refuses to rebuild
+    from one. The single documented exemption is the pinned bearer
+    auth-scheme value, which is part of the domain, not a secret.
+    """
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "auth_scheme" and item == FIRST_WAVE_AUTH_SCHEME:
+                continue
+            _reject_secret_shaped(str(key), label=f"{label} key {key!r}")
+            _reject_secret_strings(item, label=f"{label}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_secret_strings(item, label=f"{label}[{index}]")
+        return
+    if isinstance(value, str):
+        _reject_secret_shaped(value, label=f"{label} value")
 
 
 def _require_bool(value: object, *, label: str) -> bool:
@@ -183,11 +216,16 @@ def _decimal_value(value: object, *, label: str) -> Decimal | None:
         return None
     text = _require_text(value, label=label)
     try:
-        return Decimal(text)
+        parsed = Decimal(text)
     except InvalidOperation:
         raise ProviderStateSerializationError(
             f"{label} must be a decimal number"
         ) from None
+    if not parsed.is_finite():
+        raise ProviderStateSerializationError(
+            f"{label} must be a finite decimal number"
+        )
+    return parsed
 
 
 def _map_to_dict(
@@ -792,8 +830,10 @@ class ProviderRegistryState:
 
         Every collection is already in canonical identity order (normalized at
         construction), so this mapping is byte-stable for equal aggregates.
+        The finished mapping passes the envelope secret scan, so no
+        secret-shaped string can cross the persistence boundary.
         """
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "revision": self.revision,
             "providers": [_provider_to_dict(item) for item in self.providers],
@@ -803,11 +843,14 @@ class ProviderRegistryState:
             "routes": [_route_to_dict(item) for item in self.routes],
             "audit_log": [item.to_dict() for item in self.audit_log],
         }
+        _reject_secret_strings(payload)
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> ProviderRegistryState:
         """Rebuild the envelope, failing closed on any invalid field."""
         mapping = _require_mapping(payload, label="provider registry state")
+        _reject_secret_strings(mapping)
         expected = frozenset(_REQUIRED_KEYS)
         _reject_unknown_keys(mapping, expected, label="provider registry state")
         _require_keys(mapping, expected, label="provider registry state")
