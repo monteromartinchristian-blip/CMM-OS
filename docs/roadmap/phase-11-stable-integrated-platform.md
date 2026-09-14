@@ -3150,6 +3150,61 @@ Stable Release
 
 # 11.34 — Provider Registry
 
+## Status
+
+```text
+PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+AT-DP-134=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
+```
+
+Phase 11 has begun with 11.34 as an intentional out-of-order bootstrap. The
+implementation and its Remediation V1 are complete and committed, but the
+subphase remains pending Independent Re-audit V2 of the new exact-HEAD bundle;
+it is not closed. Historical audit:
+`docs/audits/phase-11.34-provider-registry-independent-audit-v1.md`. Remediation
+design:
+`docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md`;
+remediation plan:
+`docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md`.
+CMM Usage integration remains deferred and not performed; CMMChat integration
+remains deferred by the user.
+
+## Design Point
+
+`DP-134` — Canonical, Persistent and Fail-Closed Provider Registry: CMM OS
+maintains exactly one authoritative provider identity inventory through the
+canonical `ProviderRegistry`, with `ModelCatalog`, accepted provider
+connections and provider-specific model routes referentially bound to that
+authority; Provider Registry state is locally persisted through one versioned,
+deterministic, no-secret repository boundary with atomic restore/save behavior
+and sanitized audit history; provider detection never grants connection
+authority; subscription providers requiring isolation cannot become connected
+without a validated CMM-owned isolation outcome; onboarding is atomic and
+failed operations cannot mutate pre-existing credentials, connection state or
+persisted revision; dynamic discovery remains administrative and performs no
+inference; Qwen Token Plan and Qwen Cloud PAYG remain distinct
+provider/account surfaces; no parallel provider inventory, persistence
+framework, isolation runtime, routing engine or usage catalog is introduced.
+
+**Owners:** `kernel/llm/provider_registry.py` (identity authority);
+`kernel/llm/provider_state.py` + `kernel/llm/provider_state_repository.py`
+(persistence); `kernel/llm/provider_onboarding.py` +
+`kernel/llm/subscription_profiles.py` (isolation/onboarding);
+`kernel/llm/provider_manifests.py` (provider-bound metadata).
+
+## Connected Acceptance
+
+`AT-DP-134` —
+`tests/llm/test_provider_registry_dp134_acceptance.py` (scenarios A–M over the
+real canonical components and their official in-memory implementations).
+Implementation-machine result: `AT-DP-134=PASS_REPORTED`. Independent
+verification of `AT-DP-134=PASS` and `DP-134=VERIFIED_EXISTING` remains
+pending Independent Re-audit V2.
+
 ## Objective
 
 Maintain a dynamic, versioned, and auditable registry of providers and models.
