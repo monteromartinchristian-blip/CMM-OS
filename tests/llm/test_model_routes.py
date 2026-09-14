@@ -649,7 +649,6 @@ def test_restore_rejects_an_unknown_connection() -> None:
 def test_restore_rejects_naive_timestamps() -> None:
     catalog = _route_catalog("openai:main")
     naive = datetime(2026, 9, 13, 10, 0)  # noqa: DTZ001
-
     with pytest.raises(ValueError, match="first_seen_at must be timezone-aware"):
         catalog.restore(
             ModelRoute(
@@ -670,3 +669,39 @@ def test_restore_rejects_naive_timestamps() -> None:
                 last_seen_at=naive,
             )
         )
+
+
+def test_filter_result_order_is_independent_of_insertion_order() -> None:
+    """Canonical identity order, not insertion order, decides the result."""
+    capabilities = (
+        RouteCapabilityState(
+            name="tools",
+            supported=True,
+            confidence=CapabilityConfidence.VERIFIED,
+        ),
+    )
+
+    def route_for(route_id: str) -> ModelRoute:
+        return ModelRoute(
+            route_id=route_id,
+            connection_id="openai:main",
+            provider_model_id=route_id.split(":")[1],
+            canonical_model_id=route_id.split(":")[1],
+            capabilities=capabilities,
+        )
+
+    inserted_b_first = _route_catalog("openai:main")
+    inserted_b_first.register(route_for("openai:b"))
+    inserted_b_first.register(route_for("openai:a"))
+    inserted_a_first = _route_catalog("openai:main")
+    inserted_a_first.register(route_for("openai:a"))
+    inserted_a_first.register(route_for("openai:b"))
+
+    assert [
+        route.route_id
+        for route in inserted_b_first.filter_required_capabilities(("tools",))
+    ] == ["openai:a", "openai:b"]
+    assert [
+        route.route_id
+        for route in inserted_a_first.filter_required_capabilities(("tools",))
+    ] == ["openai:a", "openai:b"]

@@ -239,10 +239,13 @@ class ModelRouteCatalog:
 
         A capability satisfies only when it is present, ``supported`` and not
         ``UNKNOWN`` confidence, so an unknown capability can never back
-        capability-required automation.
+        capability-required automation. The result is in canonical route-id
+        order — never insertion order — so equal catalogs filter
+        deterministically regardless of how their routes were added.
         """
         result: list[ModelRoute] = []
-        for route in self._routes.values():
+        for route_id in sorted(self._routes):
+            route = self._routes[route_id]
             if not route.available:
                 continue
             capability_lookup = {c.name: c for c in route.capabilities}
