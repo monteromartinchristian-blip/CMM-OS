@@ -1,8 +1,8 @@
 # CMM Provider Registry — Hybrid Provider Discovery & CMM Usage Integration
 
-**Status:** Design proposal for review  
-**Date:** 2026-09-13  
-**Scope:** CMMChat, CMM OS, CMM Bots, CMM Usage, CMM Routers  
+**Status:** Design proposal for review
+**Date:** 2026-09-13
+**Scope:** CMMChat, CMM OS, CMM Bots, CMM Usage, CMM Routers
 **Design decision:** Hybrid provider discovery, fail-closed, local-first
 
 ## 1. Purpose
