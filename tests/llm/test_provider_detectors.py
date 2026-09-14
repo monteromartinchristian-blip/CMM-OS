@@ -194,6 +194,58 @@ def test_codex_detector_default_construction_reads_no_real_home() -> None:
     assert candidate.auth_available is False
 
 
+def test_codex_detector_emits_normalized_source_home(tmp_path) -> None:
+    """Detection exposes one normalized isolation input plus its origin."""
+    from kernel.llm.provider_detectors import CodexDetector
+
+    (tmp_path / "auth.json").write_text('{"access_token": "x"}\n')
+
+    metadata = dict(CodexDetector(codex_home=tmp_path).detect().metadata)
+
+    assert metadata["source_home"] == str(tmp_path)
+    assert metadata["source_home_kind"] == "codex_home"
+
+
+def test_claude_code_detector_emits_normalized_source_home(tmp_path) -> None:
+    from kernel.llm.provider_detectors import ClaudeCodeDetector
+
+    (tmp_path / ".claude.json").write_text("{}\n")
+
+    metadata = dict(ClaudeCodeDetector(claude_home=tmp_path).detect().metadata)
+
+    assert metadata["source_home"] == str(tmp_path)
+    assert metadata["source_home_kind"] == "claude_home"
+
+
+def test_antigravity_detector_emits_normalized_source_home(tmp_path) -> None:
+    from kernel.llm.provider_detectors import AntigravityDetector
+
+    (tmp_path / "credentials.json").write_text("{}\n")
+
+    metadata = dict(AntigravityDetector(config_dir=tmp_path).detect().metadata)
+
+    assert metadata["source_home"] == str(tmp_path)
+    assert metadata["source_home_kind"] == "antigravity_home"
+
+
+def test_undetected_isolation_providers_emit_no_source_home(tmp_path) -> None:
+    """Absent evidence must not fabricate a source home."""
+    from kernel.llm.provider_detectors import (
+        AntigravityDetector,
+        ClaudeCodeDetector,
+        CodexDetector,
+    )
+
+    for detector in (
+        CodexDetector(codex_home=tmp_path),
+        ClaudeCodeDetector(claude_home=tmp_path),
+        AntigravityDetector(config_dir=tmp_path),
+    ):
+        candidate = detector.detect()
+        assert candidate.detected is False
+        assert dict(candidate.metadata) == {}
+
+
 @pytest.mark.parametrize(("provider_id", "env_key"), _APPROVED_ENV_PROVIDERS)
 def test_env_detector_present_key_reports_auth_without_secret(
     provider_id: str, env_key: str

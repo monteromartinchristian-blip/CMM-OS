@@ -32,6 +32,12 @@ Credential checks are presence-only (a key/file exists and is non-blank);
 candidate metadata carries evidence *names* (paths, key names), never
 secret or URL values.
 
+Isolation evidence is normalized: every isolation-relevant detector reports
+``source_home`` (the provider home it observed) together with
+``source_home_kind`` (which provider-specific home that was), so onboarding has
+one extraction path instead of a per-provider branch. Origin is retained for
+audit; the path is evidence, never authority.
+
 Error taxonomy: constructors raise :class:`TypeError` for wrongly typed
 inputs and :class:`ValueError` for blank/empty configuration; detection
 itself never raises for missing evidence — it reports ``detected=False``.
@@ -154,6 +160,17 @@ def _config_marks_endpoint_override(text: str) -> bool:
     return "http://" in lowered or "https://" in lowered
 
 
+def source_home_metadata(home: Path, *, kind: str) -> tuple[tuple[str, str], ...]:
+    """Build the normalized isolation-source evidence for one detector.
+
+    Onboarding consumes exactly one normalized key — ``source_home`` — instead
+    of provider-specific ad-hoc extraction, while ``source_home_kind`` keeps the
+    provider-specific origin (``codex_home``, ``claude_home``,
+    ``antigravity_home``) auditable. Carries a path, never a secret value.
+    """
+    return (("source_home", str(home)), ("source_home_kind", kind))
+
+
 def _validate_provider_id(provider_id: str) -> str:
     """Reject blank or non-string provider ids at the detector boundary."""
     if not isinstance(provider_id, str):
@@ -209,7 +226,7 @@ class CodexDetector:
             external_config_present=config_present,
             external_endpoint_override_present=override_present,
             risks=risks,
-            metadata=(("codex_home", str(self._home)),)
+            metadata=source_home_metadata(self._home, kind="codex_home")
             if (auth_available or config_present)
             else (),
         )
@@ -266,7 +283,9 @@ class ClaudeCodeDetector:
             external_config_present=config_present,
             external_endpoint_override_present=False,
             risks=(CandidateRisk.UNTRUSTED_EXTERNAL_CONFIG,) if config_present else (),
-            metadata=(("claude_home", str(self._home)),) if detected else (),
+            metadata=source_home_metadata(self._home, kind="claude_home")
+            if detected
+            else (),
         )
 
     def _undetected(self) -> ProviderCandidate:
@@ -318,7 +337,9 @@ class AntigravityDetector:
             external_config_present=config_present,
             external_endpoint_override_present=False,
             risks=(CandidateRisk.UNTRUSTED_EXTERNAL_CONFIG,) if config_present else (),
-            metadata=(("antigravity_home", str(self._config_dir)),) if detected else (),
+            metadata=source_home_metadata(self._config_dir, kind="antigravity_home")
+            if detected
+            else (),
         )
 
     def _undetected(self) -> ProviderCandidate:

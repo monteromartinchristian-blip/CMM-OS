@@ -33,6 +33,7 @@ from kernel.llm.provider_manifests import (
 )
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
+    ProviderIsolationError,
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
@@ -41,7 +42,18 @@ from kernel.llm.subscription_profiles import SubscriptionProfileManager
 _DECOY_URL = "http://127.0.0.1:9999/v1"
 _MARKER = "17841"
 _CODEX_MANIFEST_URL = "https://api.openai.com/v1"
+_CLAUDE_MANIFEST_URL = "https://api.anthropic.com/v1"
+_ANTIGRAVITY_MANIFEST_URL = "https://cloudcode-pa.googleapis.com/v1"
 _SECRET = "sk-deepseek-test-secret-value"
+
+# Canonical subscription providers and the documented base URL their manifest
+# declares; the connection endpoint always comes from here, never from
+# candidate metadata.
+_SUBSCRIPTION_MANIFESTS: tuple[tuple[str, str], ...] = (
+    ("codex", _CODEX_MANIFEST_URL),
+    ("claude-code", _CLAUDE_MANIFEST_URL),
+    ("antigravity", _ANTIGRAVITY_MANIFEST_URL),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,23 +75,24 @@ def _wiring(
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
-    providers.register(
-        ProviderSpec(
-            id="codex",
-            provider_type="remote",
-            api_style="chat_completions",
-            base_url=_CODEX_MANIFEST_URL,
+    for provider_id, base_url in _SUBSCRIPTION_MANIFESTS:
+        providers.register(
+            ProviderSpec(
+                id=provider_id,
+                provider_type="remote",
+                api_style="chat_completions",
+                base_url=base_url,
+            )
         )
-    )
-    manifests.register(
-        ProviderManifest(
-            provider_id="codex",
-            display_name="Codex",
-            billing_class=BillingClass.SUBSCRIPTION,
-            default_base_url=_CODEX_MANIFEST_URL,
-            auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        manifests.register(
+            ProviderManifest(
+                provider_id=provider_id,
+                display_name=provider_id,
+                billing_class=BillingClass.SUBSCRIPTION,
+                default_base_url=base_url,
+                auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+            )
         )
-    )
     connections = ProviderConnectionRegistry(providers)
     credentials = InMemoryCredentialStore()
     service = ProviderOnboardingService(
@@ -148,8 +161,59 @@ def _codex_candidate(source: Path) -> ProviderCandidate:
         external_config_present=True,
         external_endpoint_override_present=True,
         risks=(CandidateRisk.EXTERNAL_ENDPOINT_OVERRIDE,),
-        metadata=(("codex_home", str(source)),),
+        metadata=_source_home_pair("codex", source),
     )
+
+
+_ISOLATION_PROVIDER_IDS: tuple[str, ...] = ("codex", "claude-code", "antigravity")
+
+# The provider-specific key each detector keeps as origin evidence; the
+# normalized ``source_home`` pair is what onboarding reads.
+_SOURCE_HOME_KINDS: dict[str, str] = {
+    "codex": "codex_home",
+    "claude-code": "claude_home",
+    "antigravity": "antigravity_home",
+}
+
+
+def _source_home_pair(
+    provider_id: str, source: str | Path
+) -> tuple[tuple[str, str], ...]:
+    """Build the normalized isolation-evidence pair for one provider."""
+    return (
+        ("source_home", str(source)),
+        ("source_home_kind", _SOURCE_HOME_KINDS[provider_id]),
+    )
+
+
+def _subscription_candidate(
+    provider_id: str, source: str | Path | None
+) -> ProviderCandidate:
+    """Isolation-required candidate, with or without source evidence."""
+    metadata = _source_home_pair(provider_id, source) if source is not None else ()
+    return ProviderCandidate(
+        provider_id=provider_id,
+        source="subscription-home",
+        detected=True,
+        auth_available=True,
+        external_config_present=True,
+        external_endpoint_override_present=False,
+        risks=(CandidateRisk.UNTRUSTED_EXTERNAL_CONFIG,),
+        metadata=metadata,
+    )
+
+
+def _write_subscription_source(provider_id: str, root: Path) -> Path:
+    """Create a filesystem-safe source home carrying that provider's evidence."""
+    marker = {
+        "codex": "auth.json",
+        "claude-code": ".claude.json",
+        "antigravity": "credentials.json",
+    }[provider_id]
+    source = root / f"{provider_id}-source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / marker).write_text("{}\n", encoding="utf-8")
+    return source
 
 
 def test_proposal_is_frozen() -> None:
@@ -270,6 +334,99 @@ def test_failed_validation_is_never_connected(tmp_path: Path) -> None:
         service.propose(_deepseek_candidate()), credential=_SECRET
     )
     assert connection.status != ConnectionStatus.CONNECTED
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_propose_reads_normalized_source_home_for_every_provider(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """One normalized onboarding input serves all three subscription providers."""
+    source = _write_subscription_source(provider_id, tmp_path)
+    wired = _wiring(tmp_path)
+
+    proposal = wired.service.propose(_subscription_candidate(provider_id, source))
+
+    assert proposal.source_home == str(source)
+    assert proposal.requires_isolation is True
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_missing_source_evidence_can_never_reach_connected(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """A passing validator cannot override a missing isolation prerequisite."""
+    wired = _wiring(tmp_path, validator=lambda proposal: True)
+
+    with pytest.raises(ProviderIsolationError, match="source"):
+        wired.service.accept(
+            wired.service.propose(_subscription_candidate(provider_id, None))
+        )
+
+    assert wired.connections.list() == ()
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_failed_isolation_creation_can_never_reach_connected(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """A source that carries no usable evidence fails closed, not open."""
+    missing = tmp_path / "absent-source"
+    wired = _wiring(tmp_path, validator=lambda proposal: True)
+
+    with pytest.raises(ProviderIsolationError):
+        wired.service.accept(
+            wired.service.propose(_subscription_candidate(provider_id, missing))
+        )
+
+    assert wired.connections.list() == ()
+    assert not (tmp_path / "cmm-profiles" / provider_id).exists()
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_successful_isolation_is_required_before_connected(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """Real evidence flows through the profile manager into a CMM-owned home."""
+    source = _write_subscription_source(provider_id, tmp_path)
+    wired = _wiring(tmp_path, validator=lambda proposal: True)
+
+    connection = wired.service.accept(
+        wired.service.propose(_subscription_candidate(provider_id, source))
+    )
+
+    assert connection.status == ConnectionStatus.CONNECTED
+    assert connection.isolation_profile_ref is not None
+    profile_home = Path(connection.isolation_profile_ref)
+    assert profile_home.is_dir()
+    assert profile_home != source
+    assert tmp_path in profile_home.parents
+    # Evidence is not authority: the external home is never modified.
+    assert (source / _source_marker(provider_id)).is_file()
+
+
+def _source_marker(provider_id: str) -> str:
+    """Return the auth marker filename that provider's detector requires."""
+    return {
+        "codex": "auth.json",
+        "claude-code": ".claude.json",
+        "antigravity": "credentials.json",
+    }[provider_id]
+
+
+def test_isolated_provider_without_validation_stays_out_of_connected(
+    tmp_path: Path,
+) -> None:
+    """Isolation alone is not connection authority; validation still gates it."""
+    source = _write_subscription_source("claude-code", tmp_path)
+    wired = _wiring(tmp_path)
+
+    connection = wired.service.accept(
+        wired.service.propose(_subscription_candidate("claude-code", source))
+    )
+
+    assert connection.status == ConnectionStatus.WARNING
+    assert connection.status != ConnectionStatus.CONNECTED
+    assert connection.isolation_profile_ref is not None
 
 
 def test_propose_requires_canonical_provider_authority(tmp_path: Path) -> None:

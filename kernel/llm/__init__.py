@@ -100,6 +100,7 @@ from kernel.llm.provider_manifests import (
 )
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
+    ProviderIsolationError,
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
@@ -128,6 +129,7 @@ from kernel.llm.subscription_profiles import (
     CodexProfileOutcome,
     SubscriptionProfileDescriptor,
     SubscriptionProfileManager,
+    SubscriptionProfileOutcome,
     create_codex_profile,
 )
 
@@ -198,6 +200,7 @@ __all__ = [
     "ProviderError",
     "ProviderFactory",
     "ProviderInventorySnapshot",
+    "ProviderIsolationError",
     "ProviderManifest",
     "ProviderManifestRegistry",
     "ProviderOnboardingService",
@@ -219,6 +222,7 @@ __all__ = [
     "RoutingDecision",
     "SubscriptionProfileDescriptor",
     "SubscriptionProfileManager",
+    "SubscriptionProfileOutcome",
     "build_inventory_snapshot",
     "capture_provider_registry_state",
     "connection_snapshot_from_connection",

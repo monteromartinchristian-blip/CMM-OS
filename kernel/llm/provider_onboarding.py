@@ -22,6 +22,12 @@ Status rule: no connection becomes ``CONNECTED`` until administrative auth
 validation succeeds. Without a passing validator the status stays
 ``AUTH_REQUIRED``, or ``WARNING`` when the candidate carried an external
 endpoint override.
+
+Isolation rule (MAJOR-03): when the proposal requires isolation, a successful
+CMM-owned isolation outcome is a prerequisite for acceptance. Missing source
+evidence, a failed profile build, or an unusable outcome raises
+:class:`ProviderIsolationError` *before* any connection is registered, so a
+passing validator can never promote an unisolated connection to ``CONNECTED``.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from kernel.llm.credential_store import CredentialStore
+from kernel.llm.exceptions import ProviderError
 from kernel.llm.provider_candidates import ProviderCandidate
 from kernel.llm.provider_connections import (
     BillingClass,
@@ -44,6 +51,14 @@ from kernel.llm.provider_registry import ProviderRegistry
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 Validator = Callable[["ConnectionProposal"], bool]
+
+
+class ProviderIsolationError(ProviderError):
+    """A required CMM-owned isolation outcome could not be produced.
+
+    Raised before registration: an isolation-required provider that cannot be
+    isolated never becomes a connection, let alone ``CONNECTED``.
+    """
 
 
 def _normalize_identifier(value: str, *, label: str) -> str:
@@ -149,9 +164,12 @@ class ProviderOnboardingService:
         manifest = self._manifests.get(candidate.provider_id)
         if manifest is None:
             raise ValueError(f"unknown provider: {candidate.provider_id}")
+        # One normalized isolation input: detectors publish ``source_home``
+        # (with ``source_home_kind`` as origin evidence), so onboarding has no
+        # provider-specific extraction branch (MAJOR-03, spec §6.1).
         source_home: str | None = None
         for key, value in candidate.metadata:
-            if key == "codex_home":
+            if key == "source_home":
                 source_home = value
         requires_isolation = bool(
             candidate.external_config_present
@@ -169,20 +187,22 @@ class ProviderOnboardingService:
     def accept(
         self, proposal: ConnectionProposal, credential: str | None = None
     ) -> ProviderConnection:
-        """Store secrets, build isolation, and register one connection."""
+        """Prepare isolation, store secrets, and register one connection.
+
+        Isolation is prepared before the credential write and before
+        registration, so a failed isolation prerequisite leaves no side effect
+        and can never be overridden by a passing validator.
+        """
         if not isinstance(proposal, ConnectionProposal):
             raise TypeError("proposal must be a ConnectionProposal")
+        isolation_profile_ref: str | None = None
+        if proposal.requires_isolation:
+            isolation_profile_ref = self._isolate(proposal)
         credential_ref: str | None = None
         if credential is not None:
             credential_ref = self._credentials.put(
                 proposal.provider_id, proposal.account, credential
             )
-        isolation_profile_ref: str | None = None
-        if proposal.requires_isolation and proposal.source_home is not None:
-            target = self._profiles_root / proposal.provider_id
-            outcome = self._profiles.create_codex_profile(proposal.source_home, target)
-            if outcome.status == "ok":
-                isolation_profile_ref = str(target)
         if proposal.requires_isolation:
             status = ConnectionStatus.WARNING
         else:
@@ -200,3 +220,27 @@ class ProviderOnboardingService:
             status=status,
         )
         return self._connections.register(connection)
+
+    def _isolate(self, proposal: ConnectionProposal) -> str:
+        """Produce the CMM-owned isolation reference, or raise.
+
+        Fail-closed rule (MAJOR-03, spec §6.2): missing source evidence, a
+        non-``ok`` profile outcome, or an outcome without a target home all
+        raise before the connection is registered. There is deliberately no
+        path that continues with a warning connection instead.
+        """
+        if proposal.source_home is None:
+            raise ProviderIsolationError(
+                "isolation requires source evidence for provider: "
+                f"{proposal.provider_id}"
+            )
+        target = self._profiles_root / proposal.provider_id
+        outcome = self._profiles.create_profile(
+            proposal.provider_id, proposal.source_home, target
+        )
+        if outcome.status != "ok" or outcome.target_home is None:
+            raise ProviderIsolationError(
+                "isolation profile was not produced for provider "
+                f"{proposal.provider_id}: {outcome.status} ({outcome.detail})"
+            )
+        return str(outcome.target_home)

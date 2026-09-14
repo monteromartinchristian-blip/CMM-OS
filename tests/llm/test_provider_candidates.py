@@ -143,3 +143,32 @@ def test_candidate_risk_includes_external_endpoint_override() -> None:
     assert CandidateRisk.EXTERNAL_ENDPOINT_OVERRIDE.value == (
         "external-endpoint-override"
     )
+
+
+def test_candidate_metadata_carries_normalized_isolation_evidence() -> None:
+    """``source_home`` is the one normalized isolation input onboarding reads."""
+    candidate = _candidate(
+        metadata=(
+            ("source_home", "/Users/someone/.codex"),
+            ("source_home_kind", "codex_home"),
+        )
+    )
+
+    metadata = dict(candidate.metadata)
+    assert metadata["source_home"] == "/Users/someone/.codex"
+    assert metadata["source_home_kind"] == "codex_home"
+
+
+@pytest.mark.parametrize(
+    "home",
+    [
+        "/tmp/sk-live-abc123",
+        "/tmp/password=hunter2",
+    ],
+)
+def test_candidate_metadata_rejects_a_secret_shaped_source_home(
+    home: str,
+) -> None:
+    """Normalized evidence passes the same secret guard as any other metadata."""
+    with pytest.raises(ValueError, match="metadata must not carry secrets"):
+        _candidate(metadata=(("source_home", home),))

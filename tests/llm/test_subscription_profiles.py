@@ -163,3 +163,99 @@ def test_manager_codex_success_returns_ok_outcome(tmp_path: Path) -> None:
     assert outcome.status == "ok"
     assert outcome.target_home == target / "auth.json"
     _assert_no_marker(target)
+
+
+# --- provider-aware isolation seam (MAJOR-03) -------------------------------
+
+
+def test_create_profile_dispatches_codex_to_the_auth_copy(
+    tmp_path: Path,
+) -> None:
+    source, target = tmp_path / "source", tmp_path / "target"
+    _write_source(source)
+
+    outcome = SubscriptionProfileManager().create_profile("codex", source, target)
+
+    assert outcome.status == "ok"
+    assert outcome.provider_id == "codex"
+    # The isolation reference is the CMM-owned home; auth.json is its artifact.
+    assert outcome.target_home == target
+    assert (target / "auth.json").is_file()
+    assert not (target / "config.toml").exists()
+    _assert_no_marker(target)
+
+
+def test_create_profile_codex_without_auth_reports_auth_required(
+    tmp_path: Path,
+) -> None:
+    source, target = tmp_path / "source", tmp_path / "target"
+    _write_source(source, with_auth=False)
+
+    outcome = SubscriptionProfileManager().create_profile("codex", source, target)
+
+    assert outcome.status == "auth_required"
+    assert outcome.target_home is None
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("provider_id", ["claude-code", "antigravity"])
+def test_create_profile_builds_a_cmm_owned_home_for_scoped_providers(
+    tmp_path: Path, provider_id: str
+) -> None:
+    source = tmp_path / f"{provider_id}-source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "credentials.json").write_text("{}\n", encoding="utf-8")
+    before = _snapshot(source)
+    target = tmp_path / f"{provider_id}-profile"
+
+    outcome = SubscriptionProfileManager().create_profile(provider_id, source, target)
+
+    assert outcome.status == "ok"
+    assert outcome.provider_id == provider_id
+    assert outcome.target_home == target
+    assert target.is_dir()
+    assert _snapshot(source) == before
+
+
+@pytest.mark.parametrize("provider_id", ["claude-code", "antigravity"])
+def test_create_profile_rejects_a_missing_source_home(
+    tmp_path: Path, provider_id: str
+) -> None:
+    outcome = SubscriptionProfileManager().create_profile(
+        provider_id, tmp_path / "absent", tmp_path / "profile"
+    )
+
+    assert outcome.status != "ok"
+    assert outcome.target_home is None
+    assert not (tmp_path / "profile").exists()
+
+
+def test_create_profile_fails_closed_for_an_unknown_provider(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+
+    outcome = SubscriptionProfileManager().create_profile(
+        "not-a-subscription", source, tmp_path / "profile"
+    )
+
+    assert outcome.status == "unsupported"
+    assert outcome.target_home is None
+    assert not (tmp_path / "profile").exists()
+
+
+def test_create_profile_rejects_a_blank_provider_id(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="provider"):
+        SubscriptionProfileManager().create_profile(
+            "   ", tmp_path, tmp_path / "profile"
+        )
+
+
+def test_outcome_rejects_an_unknown_status(tmp_path: Path) -> None:
+    from kernel.llm.subscription_profiles import SubscriptionProfileOutcome
+
+    with pytest.raises(ValueError, match="unknown status"):
+        SubscriptionProfileOutcome(status="maybe", provider_id="codex")
+    with pytest.raises(ValueError, match="target home"):
+        SubscriptionProfileOutcome(status="ok", provider_id="codex")
