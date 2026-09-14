@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from datetime import datetime, timezone
 
 import pytest
-from datetime import datetime, timezone
 
 from kernel.llm.model_routes import (
     CapabilityConfidence,
@@ -32,8 +32,8 @@ from kernel.llm.provider_events import (
     PROVIDER_CONNECTED,
     PROVIDER_DETECTED,
     PROVIDER_DISCONNECTED,
-    PROVIDER_VALIDATION_CHANGED,
     PROVIDER_EVENT_NAMES,
+    PROVIDER_VALIDATION_CHANGED,
     ProviderInventorySnapshot,
     build_inventory_snapshot,
     connection_snapshot_from_connection,
@@ -240,7 +240,7 @@ def test_snapshots_are_frozen_and_json_round_trippable() -> None:
         inventory,
     ):
         with pytest.raises(dataclasses.FrozenInstanceError):
-            setattr(snapshot, "provider_id", "mutated")  # type: ignore[misc]
+            snapshot.provider_id = "mutated"  # type: ignore[misc]
     restored = ProviderInventorySnapshot.from_dict(
         json.loads(json.dumps(inventory.to_dict()))
     )
