@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from decimal import Decimal
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from kernel.llm.capabilities import ModelCapabilities
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
+from kernel.llm.model_routes import ModelRoute, ModelRouteCatalog
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 
@@ -154,3 +156,57 @@ def test_catalog_lists_filters_and_removes_models(
     assert [spec.id for spec in catalog.list()] == ["alpha", "zeta"]
     assert catalog.remove("alpha", provider_id="test-provider").id == "alpha"
     assert not catalog.has("alpha", provider_id="test-provider")
+
+
+def test_registering_model_route_does_not_mutate_model_catalog(
+    catalog: ModelCatalog,
+) -> None:
+    catalog.register(
+        ModelSpec(id="model-a", provider_id="test-provider")
+    )
+    route_catalog = ModelRouteCatalog()
+    route_catalog.register(
+        ModelRoute(
+            route_id="test-provider:main:model-a",
+            connection_id="test-provider:main",
+            provider_model_id="model-a",
+            canonical_model_id="model-a",
+        )
+    )
+
+    assert [spec.id for spec in catalog.list()] == ["model-a"]
+    assert not catalog.has("test-provider:main:model-a")
+    with pytest.raises(ProviderError, match="Unknown registered model"):
+        catalog.get("test-provider:main:model-a")
+    assert route_catalog.get("test-provider:main:model-a") is not None
+
+
+def test_model_spec_provider_id_ownership_unchanged_with_route_inventory(
+    catalog: ModelCatalog,
+) -> None:
+    route_catalog = ModelRouteCatalog()
+    route_catalog.register(
+        ModelRoute(
+            route_id="missing:model-a",
+            connection_id="missing:main",
+            provider_model_id="model-a",
+            canonical_model_id="model-a",
+        )
+    )
+
+    catalog.register(
+        ModelSpec(id="model-a", provider_id="test-provider")
+    )
+    with pytest.raises(ProviderError, match="Unknown registered provider"):
+        catalog.register(
+            ModelSpec(id="model-b", provider_id="missing")
+        )
+
+
+def test_model_spec_fields_untouched_by_route_types() -> None:
+    field_names = {f.name for f in dataclasses.fields(ModelSpec)}
+
+    assert "route_id" not in field_names
+    assert "connection_id" not in field_names
+    assert "canonical_model_id" not in field_names
+    assert "available" not in field_names

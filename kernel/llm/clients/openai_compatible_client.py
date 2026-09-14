@@ -65,12 +65,8 @@ class OpenAICompatibleClient:
 
         usage = getattr(response, "usage", None)
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-        completion_tokens = int(
-            getattr(usage, "completion_tokens", 0) or 0
-        )
-        finish_reason = str(
-            getattr(choice, "finish_reason", "stop") or "stop"
-        )
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        finish_reason = str(getattr(choice, "finish_reason", "stop") or "stop")
 
         return (
             content,
@@ -78,6 +74,46 @@ class OpenAICompatibleClient:
             completion_tokens,
             finish_reason,
         )
+
+    def list_models(self) -> tuple[str, ...]:
+        """Discover model IDs via the administrative /models endpoint.
+
+        This performs no inference: it only calls ``models.list()`` on
+        the underlying SDK client built from the existing connection
+        configuration. Provider order is preserved; duplicate IDs are
+        rejected rather than silently collapsed. An empty list is a valid
+        discovery result returned as an empty tuple; it is never an error.
+        """
+
+        client = self._client or self._build_client()
+
+        try:
+            response = client.models.list()
+        except Exception as error:
+            self._raise_provider_error(error)
+
+        data = getattr(response, "data", None)
+        if not isinstance(data, list):
+            raise ProviderError(
+                "OpenAI-compatible model listing response had no data list"
+            )
+
+        model_ids: list[str] = []
+        seen: set[str] = set()
+        for item in data:
+            model_id = getattr(item, "id", None)
+            if not isinstance(model_id, str) or not model_id:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing item lacks a string id: {item!r}"
+                )
+            if model_id in seen:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing returned duplicate id: {model_id}"
+                )
+            seen.add(model_id)
+            model_ids.append(model_id)
+
+        return tuple(model_ids)
 
     def _build_client(self) -> Any:
         try:
@@ -112,26 +148,12 @@ class OpenAICompatibleClient:
         lowered = message.lower()
 
         if "timed out" in lowered or "timeout" in lowered:
-            raise ProviderError(
-                "OpenAI-compatible request timed out"
-            ) from error
+            raise ProviderError("OpenAI-compatible request timed out") from error
         if "insufficient_quota" in lowered or "current quota" in lowered:
-            raise ProviderError(
-                "OpenAI-compatible quota is exhausted"
-            ) from error
-        if (
-            "authentication" in lowered
-            or "api key" in lowered
-            or "401" in lowered
-        ):
-            raise ProviderError(
-                "OpenAI-compatible authentication failed"
-            ) from error
+            raise ProviderError("OpenAI-compatible quota is exhausted") from error
+        if "authentication" in lowered or "api key" in lowered or "401" in lowered:
+            raise ProviderError("OpenAI-compatible authentication failed") from error
         if "rate limit" in lowered or "429" in lowered:
-            raise ProviderError(
-                "OpenAI-compatible rate limit exceeded"
-            ) from error
+            raise ProviderError("OpenAI-compatible rate limit exceeded") from error
 
-        raise ProviderError(
-            f"OpenAI-compatible request failed: {message}"
-        ) from error
+        raise ProviderError(f"OpenAI-compatible request failed: {message}") from error

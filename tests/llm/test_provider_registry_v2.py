@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from kernel.llm.capabilities import ProviderCapabilities
 from kernel.llm.exceptions import ProviderError
+from kernel.llm.model_routes import ModelRoute, ModelRouteCatalog
+from kernel.llm.provider_connections import (
+    BillingClass,
+    ConnectionStatus,
+    ProviderConnection,
+    ProviderConnectionRegistry,
+)
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 
@@ -18,6 +27,22 @@ def make_remote_provider(provider_id: str = "test") -> ProviderSpec:
             chat_completions=True,
             streaming=True,
         ),
+    )
+
+
+def make_connection(
+    connection_id: str,
+    provider_id: str,
+) -> ProviderConnection:
+    return ProviderConnection(
+        connection_id=connection_id,
+        provider_id=provider_id,
+        display_name="Test connection",
+        billing_class=BillingClass.SUBSCRIPTION,
+        credential_ref="keychain://cmm/providers/test/main",
+        endpoint="https://example.test/v1",
+        isolation_profile_ref=None,
+        status=ConnectionStatus.CONNECTED,
     )
 
 
@@ -90,3 +115,49 @@ def test_registry_lists_and_removes_providers() -> None:
     assert [spec.id for spec in registry.list()] == ["alpha", "zeta"]
     assert registry.remove("alpha").id == "alpha"
     assert not registry.has("alpha")
+
+
+def test_provider_spec_duplicate_rules_unchanged_with_new_inventory() -> None:
+    registry = ProviderRegistry()
+    connection_registry = ProviderConnectionRegistry()
+    route_catalog = ModelRouteCatalog()
+
+    registry.register(make_remote_provider())
+    connection_registry.register(make_connection("test:main", "test"))
+    route_catalog.register(
+        ModelRoute(
+            route_id="test:model-x",
+            connection_id="test:main",
+            provider_model_id="model-x",
+            canonical_model_id="model-x",
+        )
+    )
+
+    with pytest.raises(ProviderError, match="already registered"):
+        registry.register(make_remote_provider())
+
+    assert registry.get("test").id == "test"
+
+
+def test_registering_provider_connection_does_not_mutate_provider_registry() -> None:
+    registry = ProviderRegistry()
+    connection_registry = ProviderConnectionRegistry()
+
+    registered = registry.register(make_remote_provider("qwen-token-plan"))
+    connection_registry.register(
+        make_connection("qwen-token-plan:main", "qwen-token-plan")
+    )
+
+    assert registry.get("qwen-token-plan") == registered
+    assert [spec.id for spec in registry.list()] == ["qwen-token-plan"]
+    with pytest.raises(ProviderError, match="Unknown registered provider"):
+        registry.get("qwen-token-plan:main")
+
+
+def test_provider_spec_fields_untouched_by_connection_types() -> None:
+    field_names = {f.name for f in dataclasses.fields(ProviderSpec)}
+
+    assert "connection_id" not in field_names
+    assert "credential_ref" not in field_names
+    assert "status" not in field_names
+    assert "billing_class" not in field_names
