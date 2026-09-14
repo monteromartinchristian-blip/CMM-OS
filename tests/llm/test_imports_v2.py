@@ -12,6 +12,7 @@ from kernel.llm import (
     CLAUDE_PAYG_STRIP_ENV,
     FIRST_WAVE_AUTH_SCHEME,
     KNOWN_API_STYLES,
+    PROVIDER_STATE_SCHEMA_VERSION,
     SERVICE_NAME,
     AntigravityDetector,
     BillingClass,
@@ -39,6 +40,11 @@ from kernel.llm import (
     ProviderManifest,
     ProviderManifestRegistry,
     ProviderOnboardingService,
+    ProviderRegistryAuditRecord,
+    ProviderRegistryState,
+    ProviderStateError,
+    ProviderStateSchemaError,
+    ProviderStateSerializationError,
     QwenTokenPlanDetector,
     RouteCapabilityState,
     SubscriptionProfileDescriptor,
@@ -68,6 +74,7 @@ from kernel.llm.provider_detectors import detect_all as _detect_all
 from kernel.llm.provider_manifests import ProviderManifestRegistry as _Manifests
 from kernel.llm.provider_onboarding import ProviderOnboardingService as _Onboarding
 from kernel.llm.provider_registry import ProviderRegistry as _Providers
+from kernel.llm.provider_state import SCHEMA_VERSION as _STATE_SCHEMA_VERSION
 from kernel.llm.subscription_profiles import SubscriptionProfileManager as _Profiles
 
 REGISTRY_CONTRACTS = {
@@ -145,6 +152,30 @@ HYBRID_CONTRACTS = {
     "ConnectionProposal": ConnectionProposal,
     "ProviderOnboardingService": ProviderOnboardingService,
 }
+
+
+STATE_CONTRACTS = {
+    "PROVIDER_STATE_SCHEMA_VERSION": PROVIDER_STATE_SCHEMA_VERSION,
+    "ProviderRegistryAuditRecord": ProviderRegistryAuditRecord,
+    "ProviderRegistryState": ProviderRegistryState,
+    "ProviderStateError": ProviderStateError,
+    "ProviderStateSchemaError": ProviderStateSchemaError,
+    "ProviderStateSerializationError": ProviderStateSerializationError,
+}
+
+
+def test_state_contracts_are_importable() -> None:
+    for name in STATE_CONTRACTS:
+        assert getattr(llm, name) is not None
+
+
+def test_state_contracts_are_public() -> None:
+    expected = set(STATE_CONTRACTS)
+
+    assert expected <= set(llm.__all__)
+    # The public alias must expose the module's own schema version, so a
+    # consumer can never read a stale copy of the persisted contract.
+    assert PROVIDER_STATE_SCHEMA_VERSION == _STATE_SCHEMA_VERSION
 
 
 def test_hybrid_contracts_are_importable() -> None:

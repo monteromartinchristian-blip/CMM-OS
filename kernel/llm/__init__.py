@@ -103,6 +103,16 @@ from kernel.llm.provider_onboarding import (
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+from kernel.llm.provider_state import (
+    SCHEMA_VERSION as PROVIDER_STATE_SCHEMA_VERSION,
+)
+from kernel.llm.provider_state import (
+    ProviderRegistryAuditRecord,
+    ProviderRegistryState,
+    ProviderStateError,
+    ProviderStateSchemaError,
+    ProviderStateSerializationError,
+)
 from kernel.llm.subscription_profiles import (
     ANTIGRAVITY_PAYG_STRIP_ENV,
     CLAUDE_PAYG_STRIP_ENV,
@@ -131,6 +141,7 @@ __all__ = [
     "PROVIDER_DETECTED",
     "PROVIDER_DISCONNECTED",
     "PROVIDER_EVENT_NAMES",
+    "PROVIDER_STATE_SCHEMA_VERSION",
     "PROVIDER_VALIDATION_CHANGED",
     "SERVICE_NAME",
     "AntigravityDetector",
@@ -181,7 +192,12 @@ __all__ = [
     "ProviderManifestRegistry",
     "ProviderOnboardingService",
     "ProviderRegistry",
+    "ProviderRegistryAuditRecord",
+    "ProviderRegistryState",
     "ProviderSpec",
+    "ProviderStateError",
+    "ProviderStateSchemaError",
+    "ProviderStateSerializationError",
     "QwenTokenPlanDetector",
     "RankingStrategy",
     "RejectedModel",
