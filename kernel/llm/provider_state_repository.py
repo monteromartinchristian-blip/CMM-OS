@@ -213,6 +213,17 @@ def capture_provider_registry_state(
     canonical provider is an error, never a silent omission, and no state
     envelope is produced — so a captured aggregate is always one that
     :func:`restore_provider_registry_state` can rebuild.
+
+    Exact-object graph guard (MAJOR-V3-01): before any enumeration, capture
+    additionally requires every supplied component to be bound to the exact
+    objects passed as ``providers``/``connections`` — the manifest registry,
+    model catalog and connection registry must resolve through *this*
+    ``ProviderRegistry`` and the route catalog through *this* connection
+    registry. A normalized provider id appearing in two different
+    ``ProviderRegistry`` objects is not identity, so a cross-wired graph raises
+    :class:`~kernel.llm.provider_state.ProviderStateCoherenceError` naming the
+    mismatched component before any state envelope can be produced. Nothing is
+    copied, rebound or normalized by id.
     """
     if not isinstance(providers, ProviderRegistry):
         raise TypeError("providers must be a ProviderRegistry")
@@ -224,6 +235,22 @@ def capture_provider_registry_state(
         raise TypeError("connections must be a ProviderConnectionRegistry")
     if not isinstance(routes, ModelRouteCatalog):
         raise TypeError("routes must be a ModelRouteCatalog")
+    if manifests.provider_registry is not providers:
+        raise ProviderStateCoherenceError(
+            "manifest registry is bound to a different ProviderRegistry"
+        )
+    if models.provider_registry is not providers:
+        raise ProviderStateCoherenceError(
+            "model catalog is bound to a different ProviderRegistry"
+        )
+    if connections.provider_registry is not providers:
+        raise ProviderStateCoherenceError(
+            "connection registry is bound to a different ProviderRegistry"
+        )
+    if routes.connections is not connections:
+        raise ProviderStateCoherenceError(
+            "route catalog is bound to a different ProviderConnectionRegistry"
+        )
     provider_specs = providers.list()
     active_manifests = manifests.list()
     canonical_provider_ids = {spec.id for spec in provider_specs}

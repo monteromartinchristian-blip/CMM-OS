@@ -38,9 +38,7 @@ class ModelSpec:
     id: str
     provider_id: str
     context_window: int | None = None
-    capabilities: ModelCapabilities = field(
-        default_factory=ModelCapabilities
-    )
+    capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     aliases: tuple[str, ...] = ()
     input_cost_per_million: Decimal | None = None
     output_cost_per_million: Decimal | None = None
@@ -64,9 +62,7 @@ class ModelSpec:
         )
 
         if self.context_window is not None and self.context_window <= 0:
-            raise ProviderError(
-                "Model context window must be greater than zero"
-            )
+            raise ProviderError("Model context window must be greater than zero")
 
         _validate_cost(
             self.input_cost_per_million,
@@ -104,6 +100,17 @@ class ModelCatalog:
         self._models: dict[str, ModelSpec] = {}
         self._aliases: dict[str, str] = {}
 
+    @property
+    def provider_registry(self) -> ProviderRegistry:
+        """Return the canonical provider authority this catalog is bound to.
+
+        Read-only binding accessor (MAJOR-V3-01): it exposes the existing
+        reference so a composition boundary can prove exact object identity.
+        There is deliberately no setter and no rebinding method — a catalog is
+        bound to one authority for its whole lifetime.
+        """
+        return self._provider_registry
+
     def register(
         self,
         spec: ModelSpec,
@@ -124,17 +131,13 @@ class ModelCatalog:
         qualified_id = normalized.qualified_id
 
         if qualified_id in self._models and not replace_existing:
-            raise ProviderError(
-                f"Model is already registered: {qualified_id}"
-            )
+            raise ProviderError(f"Model is already registered: {qualified_id}")
 
         alias_keys = self._alias_keys(normalized)
         for alias in alias_keys:
             owner = self._aliases.get(alias)
             if owner is not None and owner != qualified_id:
-                raise ProviderError(
-                    f"Model alias is already registered: {alias}"
-                )
+                raise ProviderError(f"Model alias is already registered: {alias}")
 
         if replace_existing and qualified_id in self._models:
             self._drop_aliases(self._models[qualified_id])
@@ -166,9 +169,7 @@ class ModelCatalog:
         try:
             return self._models[qualified_id]
         except KeyError as error:
-            raise ProviderError(
-                f"Unknown registered model: {model_id}"
-            ) from error
+            raise ProviderError(f"Unknown registered model: {model_id}") from error
 
     def has(
         self,
@@ -201,8 +202,7 @@ class ModelCatalog:
             self._models[qualified_id]
             for qualified_id in sorted(self._models)
             if normalized_provider is None
-            or self._models[qualified_id].provider_id
-            == normalized_provider
+            or self._models[qualified_id].provider_id == normalized_provider
         )
 
     def remove(self, model_id: str, *, provider_id: str) -> ModelSpec:

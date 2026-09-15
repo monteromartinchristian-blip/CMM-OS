@@ -915,7 +915,7 @@ def test_v2_manifest_non_divergence_after_provider_removal(tmp_path: Path) -> No
 def test_v2_capture_refuses_manifest_metadata_without_a_canonical_provider(
     tmp_path: Path,
 ) -> None:
-    """An orphan manifest can never reach a persisted, unrestorable aggregate."""
+    """Cross-authority metadata can never reach a persisted, unrestorable aggregate."""
     runtime = _runtime(tmp_path)
     foreign = ProviderRegistry()
     assert foreign.list() == ()
@@ -923,8 +923,12 @@ def test_v2_capture_refuses_manifest_metadata_without_a_canonical_provider(
     connections = ProviderConnectionRegistry(foreign)
     routes = ModelRouteCatalog(connections)
 
+    # The exact-object graph guard (MAJOR-V3-01) refuses the authority mismatch
+    # at the composition boundary, before enumeration: a metadata catalog bound
+    # to another authority is not merely orphaned, it is cross-wired.
     with pytest.raises(
-        ProviderStateCoherenceError, match="without canonical provider identity"
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
     ):
         capture_provider_registry_state(
             foreign,

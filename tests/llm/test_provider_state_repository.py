@@ -489,15 +489,14 @@ def test_capture_omits_a_manifest_after_same_id_provider_reregistration() -> Non
     )
 
 
-def test_capture_rejects_a_manifest_without_a_canonical_provider() -> None:
-    """Defense in depth: an incoherent manifest/provider graph is never saved.
+def test_capture_rejects_a_manifest_registry_wired_to_another_authority() -> None:
+    """The exact-object graph guard fires before the orphan-id guard (V3-01).
 
-    Enumeration already hides stale metadata, so this adversarial wiring — a
-    metadata catalog bound to a *different* authority than the captured one —
-    is the remaining way an orphan manifest could reach the serializer. Capture
-    refuses it with a focused error instead of persisting an unrestorable
-    aggregate (the audited failure: capture accepted a manifest graph that
-    ``restore_provider_registry_state()`` then rejected).
+    This adversarial wiring — a metadata catalog bound to a *different*
+    authority than the captured one — is now refused at the composition
+    boundary itself, before enumeration. The orphan-id guard remains as deeper
+    defense for an enumerated manifest without a canonical provider, but an
+    authority mismatch never gets that far.
     """
     providers, _, models, connections, routes = _capturable_authority()
     other_providers = ProviderRegistry()
@@ -507,7 +506,10 @@ def test_capture_rejects_a_manifest_without_a_canonical_provider() -> None:
         _manifest("ghost", "https://ghost.example.invalid/v1", billing=BillingClass.API)
     )
 
-    with pytest.raises(ProviderStateCoherenceError, match="ghost"):
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
         capture_provider_registry_state(
             providers, other_manifests, models, connections, routes, revision=1
         )
@@ -528,6 +530,103 @@ def test_capture_accepts_a_coherent_graph_from_a_matching_authority() -> None:
     assert restore_provider_registry_state(state).revision == 2
 
 
+def _authority(
+    base_url: str,
+) -> tuple[
+    ProviderRegistry,
+    ProviderManifestRegistry,
+    ModelCatalog,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    """One live authority plus every catalog bound to it (MAJOR-V3-01).
+
+    Two of these share the normalized provider id ``deepseek`` while holding
+    different ``ProviderSpec`` objects and different base URLs, so provider-id
+    equality alone can never satisfy the exact-object graph guards.
+    """
+    providers = ProviderRegistry()
+    providers.register(_spec("deepseek", base_url))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(_manifest("deepseek", base_url, billing=BillingClass.PAYG))
+    connections = ProviderConnectionRegistry(providers)
+    return (
+        providers,
+        manifests,
+        ModelCatalog(providers),
+        connections,
+        ModelRouteCatalog(connections),
+    )
+
+
+def test_capture_rejects_a_manifest_registry_bound_to_a_foreign_authority() -> None:
+    """The audited V3 reproduction: same id in two authorities is not identity."""
+    providers_b, _, models_b, connections_b, routes_b = _authority(
+        "https://canonical.example/v1"
+    )
+    _, manifests_a, _, _, _ = _authority("https://foreign.example/v1")
+
+    # Id equality cannot satisfy the guard: both authorities hold "deepseek".
+    assert providers_b.has("deepseek")
+    assert manifests_a.get("deepseek") is not None
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
+        capture_provider_registry_state(
+            providers_b, manifests_a, models_b, connections_b, routes_b, revision=0
+        )
+
+
+def test_capture_rejects_a_model_catalog_bound_to_a_foreign_authority() -> None:
+    """A model catalog resolving through another authority is refused."""
+    providers_b, manifests_b, _, connections_b, routes_b = _authority(
+        "https://canonical.example/v1"
+    )
+    _, _, models_a, _, _ = _authority("https://foreign.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="model catalog is bound to a different ProviderRegistry",
+    ):
+        capture_provider_registry_state(
+            providers_b, manifests_b, models_a, connections_b, routes_b, revision=0
+        )
+
+
+def test_capture_rejects_a_connection_registry_bound_to_a_foreign_authority() -> None:
+    """A connection registry resolving through another authority is refused."""
+    providers_b, manifests_b, models_b, _, routes_b = _authority(
+        "https://canonical.example/v1"
+    )
+    _, _, _, connections_a, _ = _authority("https://foreign.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection registry is bound to a different ProviderRegistry",
+    ):
+        capture_provider_registry_state(
+            providers_b, manifests_b, models_b, connections_a, routes_b, revision=0
+        )
+
+
+def test_capture_rejects_a_route_catalog_bound_to_another_connection_registry() -> None:
+    """A route catalog resolving through another connection registry is refused."""
+    providers_b, manifests_b, models_b, connections_b, _ = _authority(
+        "https://canonical.example/v1"
+    )
+    _, _, _, _, routes_a = _authority("https://canonical.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="route catalog is bound to a different ProviderConnectionRegistry",
+    ):
+        capture_provider_registry_state(
+            providers_b, manifests_b, models_b, connections_b, routes_a, revision=0
+        )
+
+
 # --- restore ----------------------------------------------------------------
 
 
@@ -545,6 +644,7 @@ def test_restore_rebuilds_the_canonical_component_graph() -> None:
     )
     # Every subordinate component is bound to the rebuilt authority.
     assert restored.manifests.provider_registry is restored.providers
+    assert restored.models.provider_registry is restored.providers
     assert restored.connections.provider_registry is restored.providers
     assert restored.routes.connections is restored.connections
     with pytest.raises(ProviderError, match="Unknown registered provider"):

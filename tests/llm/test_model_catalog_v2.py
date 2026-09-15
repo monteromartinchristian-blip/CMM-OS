@@ -65,6 +65,14 @@ def catalog(registry: ProviderRegistry) -> ModelCatalog:
     return ModelCatalog(registry)
 
 
+def test_model_catalog_exposes_bound_provider_registry() -> None:
+    """The catalog publishes the one authority it resolves providers through."""
+    providers = ProviderRegistry()
+    catalog = ModelCatalog(providers)
+
+    assert catalog.provider_registry is providers
+
+
 def test_catalog_is_instance_scoped(
     catalog: ModelCatalog,
     registry: ProviderRegistry,
