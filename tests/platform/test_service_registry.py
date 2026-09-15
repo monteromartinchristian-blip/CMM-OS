@@ -9,6 +9,13 @@ from __future__ import annotations
 
 import pytest
 
+from cmm.platform.contracts import (
+    ContractMetadata,
+    ServiceBinding,
+    ServiceDependency,
+    ServiceDescriptor,
+    ServiceMode,
+)
 from cmm.platform.errors import (
     CircularDependencyError,
     ContainerNotReadyError,
@@ -21,6 +28,7 @@ from cmm.platform.errors import (
     MissingDependencyError,
     PlatformCompositionError,
 )
+from cmm.platform.service_registry import IntegrationServiceRegistry
 
 TYPED_ERRORS = (
     DuplicateServiceError,
@@ -146,3 +154,333 @@ def test_typed_error_accepts_safe_structured_details() -> None:
     assert error.result.code == "MISSING_DEPENDENCY"
     assert error.result.details["service_id"] == "agent.runtime"
     assert error.result.details["dependency_id"] == "validation.application"
+
+
+# ── Registration ─────────────────────────────────────────────────────────────
+
+
+class ValidationPort:
+    """Test-local runtime contract boundary."""
+
+
+class ValidationService(ValidationPort):
+    """Compatible implementation of ``ValidationPort``."""
+
+
+class UnrelatedService:
+    """Implementation that does not satisfy ``ValidationPort``."""
+
+
+class CountingValidationService(ValidationPort):
+    """Implementation carrying observable internal state."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+
+def _contract(
+    contract_name: str,
+    contract_version: str = "1.0.0",
+    schema_version: str = "1",
+    owner: str = "cmm.platform.test",
+) -> ContractMetadata:
+    return ContractMetadata(
+        contract_name=contract_name,
+        contract_version=contract_version,
+        schema_version=schema_version,
+        owner=owner,
+    )
+
+
+def _binding(
+    service_id: str,
+    implementation: object,
+    *,
+    dependencies: tuple[str, ...] = (),
+    authority: str | None = None,
+    mode: ServiceMode = ServiceMode.LOCAL,
+    runtime_contract: type | None = None,
+    contract: ContractMetadata | None = None,
+    implementation_id: str = "test.implementation",
+) -> ServiceBinding:
+    return ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id=service_id,
+            contract=contract if contract is not None else _contract(service_id),
+            implementation_id=implementation_id,
+            dependencies=tuple(
+                ServiceDependency(service_id=name, contract=_contract(name))
+                for name in dependencies
+            ),
+            mode=mode,
+            authority=authority,
+        ),
+        implementation=implementation,
+        runtime_contract=runtime_contract,
+    )
+
+
+def test_registry_registers_and_lists_bindings_deterministically() -> None:
+    registry = IntegrationServiceRegistry()
+
+    registry.register(_binding("z.service", ValidationService()))
+    registry.register(_binding("a.service", ValidationService()))
+
+    assert [binding.descriptor.service_id for binding in registry.list_bindings()] == [
+        "a.service",
+        "z.service",
+    ]
+
+
+def test_registry_is_not_a_global_singleton() -> None:
+    first = IntegrationServiceRegistry()
+    second = IntegrationServiceRegistry()
+
+    first.register(_binding("a.service", ValidationService()))
+
+    assert first is not second
+    assert second.list_bindings() == ()
+    assert second.get("a.service") is None
+
+
+def test_registry_preserves_implementation_object_identity() -> None:
+    registry = IntegrationServiceRegistry()
+    implementation = ValidationService()
+
+    registry.register(_binding("a.service", implementation))
+
+    stored = registry.get("a.service")
+    assert stored is not None
+    assert stored.implementation is implementation
+
+
+def test_registry_lookup_miss_returns_none() -> None:
+    registry = IntegrationServiceRegistry()
+
+    assert registry.get("unknown.service") is None
+
+
+def test_registry_rejects_duplicate_service_id() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+
+    with pytest.raises(DuplicateServiceError) as exc:
+        registry.register(_binding("a.service", ValidationService()))
+
+    assert exc.value.result.code == "DUPLICATE_SERVICE_ID"
+    assert exc.value.result.details["service_id"] == "a.service"
+
+
+def test_registry_rejects_non_binding_registration() -> None:
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(TypeError):
+        registry.register(object())  # type: ignore[arg-type]
+
+
+def test_registry_rejects_implementation_violating_runtime_contract() -> None:
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(
+            _binding("a.service", UnrelatedService(), runtime_contract=ValidationPort)
+        )
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+
+
+def test_registry_accepts_implementation_satisfying_runtime_contract() -> None:
+    registry = IntegrationServiceRegistry()
+    implementation = ValidationService()
+
+    registry.register(
+        _binding("a.service", implementation, runtime_contract=ValidationPort)
+    )
+
+    stored = registry.get("a.service")
+    assert stored is not None
+    assert stored.implementation is implementation
+
+
+def test_registry_skips_runtime_contract_check_when_not_safely_checkable() -> None:
+    registry = IntegrationServiceRegistry()
+
+    registry.register(
+        _binding(
+            "a.service",
+            ValidationService(),
+            runtime_contract="not-a-type",  # type: ignore[arg-type]
+        )
+    )
+
+    assert registry.get("a.service") is not None
+
+
+def test_both_local_and_adapter_modes_satisfy_the_same_contract() -> None:
+    """A stable contract accepts a local and an adapter-backed binding."""
+
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ValidationService(), mode=ServiceMode.LOCAL)
+    )
+    registry.register(
+        _binding("b.service", ValidationService(), mode=ServiceMode.ADAPTER)
+    )
+
+    modes = {
+        binding.descriptor.service_id: binding.descriptor.mode
+        for binding in registry.list_bindings()
+    }
+    assert modes == {"a.service": ServiceMode.LOCAL, "b.service": ServiceMode.ADAPTER}
+
+
+# ── Freeze ───────────────────────────────────────────────────────────────────
+
+
+def test_registry_is_not_frozen_by_default() -> None:
+    assert IntegrationServiceRegistry().frozen is False
+
+
+def test_registry_freeze_is_idempotent() -> None:
+    registry = IntegrationServiceRegistry()
+
+    registry.freeze()
+    registry.freeze()
+
+    assert registry.frozen is True
+
+
+def test_registry_rejects_registration_after_freeze() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+    registry.freeze()
+
+    with pytest.raises(FrozenServiceRegistryError) as exc:
+        registry.register(_binding("b.service", ValidationService()))
+
+    assert exc.value.result.code == "SERVICE_REGISTRY_FROZEN"
+    assert exc.value.result.details["service_id"] == "b.service"
+
+
+def test_registry_rejects_replacement_after_freeze() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+    registry.freeze()
+
+    with pytest.raises(FrozenServiceRegistryError):
+        registry.replace("a.service", _binding("a.service", ValidationService()))
+
+
+# ── Explicit replacement ─────────────────────────────────────────────────────
+
+
+def test_replacement_before_freeze_succeeds_for_compatible_contract() -> None:
+    registry = IntegrationServiceRegistry()
+    original = ValidationService()
+    replacement = CountingValidationService()
+    registry.register(_binding("a.service", original))
+
+    returned = registry.replace("a.service", _binding("a.service", replacement))
+
+    stored = registry.get("a.service")
+    assert stored is not None
+    assert stored.implementation is replacement
+    assert returned.implementation is replacement
+    assert len(registry.list_bindings()) == 1
+
+
+def test_replacement_requires_an_existing_target() -> None:
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(InvalidReplacementError):
+        registry.replace(
+            "missing.service", _binding("missing.service", ValidationService())
+        )
+
+
+def test_replacement_rejects_a_different_service_id() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+
+    with pytest.raises(InvalidReplacementError) as exc:
+        registry.replace("a.service", _binding("other.service", ValidationService()))
+
+    assert exc.value.result.details["service_id"] == "a.service"
+    assert exc.value.result.details["replacement_service_id"] == "other.service"
+
+
+def test_replacement_rejects_incompatible_contract() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.replace(
+            "a.service",
+            _binding(
+                "a.service",
+                ValidationService(),
+                contract=_contract("a.service", contract_version="2.0.0"),
+            ),
+        )
+
+    assert exc.value.result.details["reason_code"] == "CONTRACT_VERSION_MISMATCH"
+
+
+def test_replacement_rejects_schema_version_mismatch() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.replace(
+            "a.service",
+            _binding(
+                "a.service",
+                ValidationService(),
+                contract=_contract("a.service", schema_version="2"),
+            ),
+        )
+
+    assert exc.value.result.details["reason_code"] == "SCHEMA_VERSION_MISMATCH"
+
+
+def test_replacement_rejects_runtime_contract_violation() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ValidationService(), runtime_contract=ValidationPort)
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.replace(
+            "a.service",
+            _binding("a.service", UnrelatedService(), runtime_contract=ValidationPort),
+        )
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+
+
+def test_replacement_leaves_original_implementation_untouched() -> None:
+    """Replacing a binding must not mutate the replaced object's state."""
+
+    registry = IntegrationServiceRegistry()
+    original = CountingValidationService()
+    registry.register(_binding("a.service", original))
+
+    replacement = CountingValidationService()
+    registry.replace("a.service", _binding("a.service", replacement))
+
+    assert original.calls == 0
+    assert replacement.calls == 0
+    assert original is not replacement
+
+
+def test_replacement_preserves_binding_identity_of_other_services() -> None:
+    registry = IntegrationServiceRegistry()
+    untouched = ValidationService()
+    registry.register(_binding("a.service", ValidationService()))
+    registry.register(_binding("b.service", untouched))
+
+    registry.replace("a.service", _binding("a.service", ValidationService()))
+
+    stored = registry.get("b.service")
+    assert stored is not None
+    assert stored.implementation is untouched

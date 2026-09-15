@@ -43,6 +43,7 @@ from cmm.platform.errors import (
     MissingDependencyError,
     PlatformCompositionError,
 )
+from cmm.platform.service_registry import IntegrationServiceRegistry
 
 __all__ = [
     "CircularDependencyError",
@@ -58,6 +59,7 @@ __all__ = [
     "ErrorResult",
     "FrozenServiceRegistryError",
     "IncompatibleContractError",
+    "IntegrationServiceRegistry",
     "InvalidConfigurationError",
     "InvalidReplacementError",
     "MissingDependencyError",
