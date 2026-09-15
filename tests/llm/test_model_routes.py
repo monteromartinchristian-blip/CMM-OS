@@ -1053,3 +1053,122 @@ def test_route_catalog_binding_is_private_to_public_values() -> None:
     assert routes.get("x:main:m") is route
     assert routes.list() == (route,)
     assert routes.routes_for_canonical_model("m") == (route,)
+
+
+def _replace_provider_authority(
+    connections: ProviderConnectionRegistry,
+) -> ProviderSpec:
+    """Remove the canonical provider and re-register a different object."""
+    provider_a = connections.provider_registry.get("x")
+    connections.provider_registry.remove("x")
+    provider_b = connections.provider_registry.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://new.example/v1",
+        )
+    )
+    assert provider_a is not provider_b
+    return provider_b
+
+
+def test_route_registration_rejects_a_stale_provider_bound_connection() -> None:
+    """MAJOR-V5-01: stale parent authority cannot establish a new route binding.
+
+    The connection is still registered and still resolves, so the referential
+    lookup alone would accept the route — but its exact ``ProviderSpec``
+    binding is gone, so it may no longer authorize a new relation.
+    """
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    _replace_provider_authority(connections)
+    stale = connections.get("x:main")
+    assert stale is not None
+    assert connections.is_bound_to_current_provider(stale) is False
+
+    with pytest.raises(
+        ValueError,
+        match="connection x:main is bound to a stale or missing ProviderSpec",
+    ):
+        routes.register(
+            ModelRoute(
+                route_id="x:main:m",
+                connection_id="x:main",
+                provider_model_id="m",
+                canonical_model_id="m",
+            )
+        )
+
+    assert routes.list() == ()
+
+
+def test_route_restore_rejects_a_stale_provider_bound_connection() -> None:
+    """A persisted reconstruction cannot bind a route to stale parent authority."""
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    _replace_provider_authority(connections)
+
+    with pytest.raises(
+        ValueError,
+        match="connection x:main is bound to a stale or missing ProviderSpec",
+    ):
+        routes.restore(
+            ModelRoute(
+                route_id="x:main:m",
+                connection_id="x:main",
+                provider_model_id="m",
+                canonical_model_id="m",
+                available=False,
+                first_seen_at=T0,
+                last_seen_at=T1,
+            )
+        )
+
+    assert routes.list() == ()
+
+
+def test_route_registration_allows_a_status_transition_under_one_registration() -> None:
+    """The guard refuses stale authority only, never a legitimate transition.
+
+    A field-only rewrite of the same accepted connection keeps that
+    registration current, so a new route may still be established under it.
+    """
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    connections.update_status("x:main", ConnectionStatus.WARNING)
+
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+
+    assert routes.get("x:main:m") is route
+    assert routes.is_bound_to_current_connection(route) is True
+
+
+def test_route_restore_all_still_restores_under_a_stale_provider() -> None:
+    """The rollback seam restores its snapshot without re-resolving authority.
+
+    MAJOR-V5-01 guards the boundaries that create a *new* binding. Undoing a
+    failed coordinated mutation must keep putting the exact prior route state
+    back, so it deliberately does not consult parent authority again.
+    """
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+            last_seen_at=T0,
+        )
+    )
+    snapshot = routes.list()
+    _replace_provider_authority(connections)
+
+    routes.restore_all(snapshot)
+
+    assert routes.list() == snapshot
+    assert routes.get("x:main:m") is route

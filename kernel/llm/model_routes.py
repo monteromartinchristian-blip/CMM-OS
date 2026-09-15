@@ -158,12 +158,14 @@ class ModelRouteCatalog:
         and keeps a caller-provided ``first_seen_at`` (defaulting it to now).
         Raises ``ValueError`` for a duplicate id, a naive ``first_seen_at``,
         or a route whose ``connection_id`` was never accepted.
+
+        Creating a route is creating a new relation, so the referenced
+        connection must still be bound to the current ``ProviderSpec``
+        (MAJOR-V5-01, see :meth:`_current_connection_registration`).
         """
         if route.first_seen_at is not None:
             _ensure_aware(route.first_seen_at, "first_seen_at")
-        registration = self._connections.registration(route.connection_id)
-        if registration is None:
-            raise ValueError(f"unknown connection_id: {route.connection_id}")
+        registration = self._current_connection_registration(route.connection_id)
         now = datetime.now(timezone.utc)
         stored = replace(
             route,
@@ -191,14 +193,16 @@ class ModelRouteCatalog:
         A restore establishes a *fresh* binding to the connection registration
         the rebuilt registry holds now (MAJOR-V4-01): a rebuilt runtime is one
         new coherent authority generation, and no object identity is persisted.
+        Reconstructing a binding is still creating one, so the parent connection
+        must be bound to the current ``ProviderSpec`` (MAJOR-V5-01); the
+        rollback seam :meth:`restore_all` is the path that reinstates an
+        already-established binding and deliberately does not re-resolve.
         """
         if route.first_seen_at is not None:
             _ensure_aware(route.first_seen_at, "first_seen_at")
         if route.last_seen_at is not None:
             _ensure_aware(route.last_seen_at, "last_seen_at")
-        registration = self._connections.registration(route.connection_id)
-        if registration is None:
-            raise ValueError(f"unknown connection_id: {route.connection_id}")
+        registration = self._current_connection_registration(route.connection_id)
         key = route.route_id
         if key in self._routes:
             raise ValueError(f"duplicate route_id: {key}")
@@ -362,6 +366,31 @@ class ModelRouteCatalog:
             if ok:
                 result.append(route)
         return tuple(result)
+
+    def _current_connection_registration(self, connection_id: str) -> object:
+        """Resolve the registration a *new* route binding may be created under.
+
+        Authority rule (MAJOR-V5-01): a registered connection can outlive its
+        own provider authority — the provider was removed, or re-registered as a
+        different object with the same id — and then still resolve by id. Such a
+        connection stays visible and its existing routes stay bound to it, but
+        it may no longer authorize the creation of a new relation. The check
+        reuses this module's canonical ``ValueError`` referential taxonomy rather
+        than importing the coordinator's coherence error, and it never mutates,
+        removes or rebinds anything.
+        """
+        connection = self._connections.get(connection_id)
+        if connection is None:
+            raise ValueError(f"unknown connection_id: {connection_id}")
+        if not self._connections.is_bound_to_current_provider(connection):
+            raise ValueError(
+                f"connection {connection.connection_id} is bound to a stale or "
+                "missing ProviderSpec"
+            )
+        registration = self._connections.registration(connection_id)
+        if registration is None:
+            raise ValueError(f"unknown connection_id: {connection_id}")
+        return registration
 
     def _require(self, route_id: str) -> _RouteBinding:
         """Resolve a lookup key to a stored binding or raise ``ValueError``."""
