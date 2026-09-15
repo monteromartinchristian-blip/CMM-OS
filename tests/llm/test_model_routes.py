@@ -847,3 +847,168 @@ def test_restore_all_rejects_a_non_route_entry_without_touching_state() -> None:
         catalog.restore_all((object(),))  # type: ignore[arg-type]
 
     assert catalog.list() == before
+
+
+def _route_catalog_with_connection() -> tuple[
+    ProviderConnectionRegistry, ProviderConnection, ModelRouteCatalog
+]:
+    """Build one provider, one connection, and the route catalog over it."""
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    connections = ProviderConnectionRegistry(providers)
+    connection_a = connections.register(
+        ProviderConnection(
+            connection_id="x:main",
+            provider_id="x",
+            display_name="X",
+            billing_class=BillingClass.API,
+            credential_ref=None,
+            endpoint="https://old.example/v1",
+            isolation_profile_ref=None,
+            status=ConnectionStatus.CONNECTED,
+        )
+    )
+    return connections, connection_a, ModelRouteCatalog(connections)
+
+
+def _replacement_connection() -> ProviderConnection:
+    """Build a different object carrying the same ``connection_id``."""
+    return ProviderConnection(
+        connection_id="x:main",
+        provider_id="x",
+        display_name="X replaced",
+        billing_class=BillingClass.API,
+        credential_ref=None,
+        endpoint="https://new.example/v1",
+        isolation_profile_ref=None,
+        status=ConnectionStatus.CONNECTED,
+    )
+
+
+def test_route_catalog_tracks_exact_connection_authority() -> None:
+    """A route stays bound to the exact ProviderConnection of its registration.
+
+    MAJOR-V4-01: a same-id connection re-registered as a different object is a
+    different authority, so the surviving route must read as stale.
+    """
+    connections, connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+
+    assert routes.is_bound_to_current_connection(route) is True
+
+    connections.remove("x:main")
+    connection_b = connections.register(_replacement_connection())
+
+    assert connection_a is not connection_b
+    assert routes.is_bound_to_current_connection(route) is False
+    # The stale route stays visible; capture, not the catalog, refuses it.
+    assert routes.get("x:main:m") is route
+
+
+def test_route_catalog_binding_is_false_without_canonical_connection() -> None:
+    """A removed connection leaves the route bound to a missing authority."""
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+
+    connections.remove("x:main")
+
+    assert routes.is_bound_to_current_connection(route) is False
+
+
+def test_route_catalog_binding_rejects_unregistered_route() -> None:
+    """A route the catalog does not hold has no binding to report."""
+    _connections, _connection_a, routes = _route_catalog_with_connection()
+    ghost = ModelRoute(
+        route_id="x:main:ghost",
+        connection_id="x:main",
+        provider_model_id="ghost",
+        canonical_model_id="ghost",
+    )
+
+    assert routes.is_bound_to_current_connection(ghost) is False
+
+
+def test_route_catalog_field_only_mutations_preserve_stale_binding() -> None:
+    """Field-only rewrites never re-resolve, so no path silently rebinds."""
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+            last_seen_at=T0,
+        )
+    )
+
+    connections.remove("x:main")
+    connections.register(_replacement_connection())
+
+    seen = routes.mark_seen("x:main:m", T1)
+    unavailable = routes.mark_unavailable("x:main:m")
+
+    assert seen.last_seen_at == T1
+    assert unavailable.available is False
+    assert routes.is_bound_to_current_connection(seen) is False
+    assert routes.is_bound_to_current_connection(unavailable) is False
+    assert routes.is_bound_to_current_connection(route) is False
+
+
+def test_route_catalog_restore_all_preserves_stale_bindings() -> None:
+    """The rollback seam restores records without rebinding them."""
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+            last_seen_at=T0,
+        )
+    )
+    snapshot = routes.list()
+
+    connections.remove("x:main")
+    connections.register(_replacement_connection())
+    routes.restore_all(snapshot)
+
+    assert routes.get("x:main:m") is route
+    assert routes.is_bound_to_current_connection(route) is False
+
+
+def test_route_catalog_binding_is_private_to_public_values() -> None:
+    """Binding metadata never leaks into the public route inventory."""
+    _connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+
+    assert routes.get("x:main:m") is route
+    assert routes.list() == (route,)
+    assert routes.routes_for_canonical_model("m") == (route,)
