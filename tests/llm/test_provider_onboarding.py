@@ -40,6 +40,7 @@ from kernel.llm.provider_onboarding import (
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from kernel.llm.provider_state import ProviderRegistryState
+from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
     ProviderRegistryStateRepository,
@@ -74,16 +75,20 @@ class _Wiring:
     credentials: InMemoryCredentialStore
     models: ModelCatalog
     routes: ModelRouteCatalog
+    coordinator: ProviderRegistryStateCoordinator | None
 
 
 def _wiring(
     tmp_path: Path,
     validator: Callable[[ConnectionProposal], bool] | None = None,
     *,
-    state_repository: ProviderRegistryStateRepository | None = None,
-    revision: int = 0,
+    repository: ProviderRegistryStateRepository | None = None,
 ) -> _Wiring:
-    """Build a service wired to fresh registries and an in-memory store."""
+    """Build a service wired to fresh registries and an in-memory store.
+
+    Durable wiring goes through one coordinator: the repository is owned by the
+    coordinator, never by the service (MAJOR-V2-02).
+    """
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
@@ -109,6 +114,18 @@ def _wiring(
     credentials = InMemoryCredentialStore()
     models = ModelCatalog(providers)
     routes = ModelRouteCatalog(connections)
+    coordinator = (
+        None
+        if repository is None
+        else ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=manifests,
+            models=models,
+            connections=connections,
+            routes=routes,
+            repository=repository,
+        )
+    )
     service = ProviderOnboardingService(
         providers=providers,
         connections=connections,
@@ -117,10 +134,7 @@ def _wiring(
         profiles=SubscriptionProfileManager(),
         profiles_root=tmp_path / "cmm-profiles",
         validator=validator,
-        state_repository=state_repository,
-        models=models,
-        routes=routes,
-        revision=revision,
+        state_coordinator=coordinator,
     )
     return _Wiring(
         service=service,
@@ -130,6 +144,7 @@ def _wiring(
         credentials=credentials,
         models=models,
         routes=routes,
+        coordinator=coordinator,
     )
 
 
@@ -498,12 +513,96 @@ class _ExplodingStateRepository:
 
     def __init__(self, state: ProviderRegistryState | None = None) -> None:
         self._state = state
+        self.save_calls = 0
 
     def load(self) -> ProviderRegistryState | None:
         return self._state
 
     def save(self, state: ProviderRegistryState) -> None:
+        self.save_calls += 1
         raise RuntimeError("persistence failed")
+
+
+class _RecordingStateRepository:
+    """Repository that records every saved state and counts the saves."""
+
+    def __init__(self) -> None:
+        self.save_calls = 0
+        self.saved: list[ProviderRegistryState] = []
+
+    def load(self) -> ProviderRegistryState | None:
+        return self.saved[-1] if self.saved else None
+
+    def save(self, state: ProviderRegistryState) -> None:
+        self.save_calls += 1
+        self.saved.append(state)
+
+
+def test_acceptance_commits_through_the_coordinator(tmp_path: Path) -> None:
+    """The service delegates its revision/audit commit to the coordinator."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    wired = _wiring(tmp_path, repository=repository)
+    coordinator = wired.coordinator
+    assert coordinator is not None
+
+    connection = wired.service.accept(
+        wired.service.propose(_deepseek_candidate()), credential=_SECRET
+    )
+
+    assert coordinator.revision == 1
+    assert wired.service.revision == coordinator.revision
+    assert len(coordinator.audit_log) == 1
+    assert coordinator.audit_log[0].revision == 1
+    assert coordinator.audit_log[0].entity_id == connection.connection_id
+    persisted = repository.load()
+    assert persisted is not None
+    assert persisted.audit_log == coordinator.audit_log
+
+
+def test_acceptance_saves_the_aggregate_exactly_once(tmp_path: Path) -> None:
+    """One acceptance, one repository save: no parallel persistence path."""
+    repository = _RecordingStateRepository()
+    wired = _wiring(tmp_path, repository=repository)
+
+    wired.service.accept(
+        wired.service.propose(_deepseek_candidate()), credential=_SECRET
+    )
+
+    assert repository.save_calls == 1
+    assert len(repository.saved) == 1
+    assert repository.saved[0].revision == 1
+    assert len(repository.saved[0].audit_log) == 1
+
+
+def test_service_revision_is_zero_without_a_coordinator(tmp_path: Path) -> None:
+    """An ephemeral runtime has no durable revision and commits nothing."""
+    wired = _wiring(tmp_path)
+    assert wired.coordinator is None
+
+    wired.service.accept(
+        wired.service.propose(_deepseek_candidate()), credential=_SECRET
+    )
+
+    assert wired.service.revision == 0
+
+
+def test_service_rejects_a_non_coordinator(tmp_path: Path) -> None:
+    """Only the canonical coordinator may own the commit path."""
+    providers = ProviderRegistry()
+    manifests = ProviderManifestRegistry(providers)
+    register_first_wave_manifests(manifests)
+    connections = ProviderConnectionRegistry(providers)
+
+    with pytest.raises(TypeError, match="ProviderRegistryStateCoordinator"):
+        ProviderOnboardingService(
+            providers=providers,
+            connections=connections,
+            manifests=manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=_ExplodingStateRepository(),  # type: ignore[arg-type]
+        )
 
 
 def test_duplicate_accept_does_not_overwrite_existing_secret(
@@ -533,7 +632,7 @@ def test_accept_persists_the_aggregate_and_advances_revision(
 ) -> None:
     """A successful acceptance advances the durable revision by exactly one."""
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
-    wired = _wiring(tmp_path, state_repository=repository)
+    wired = _wiring(tmp_path, repository=repository)
 
     connection = wired.service.accept(
         wired.service.propose(_deepseek_candidate()), credential=_SECRET
@@ -555,7 +654,7 @@ def test_failed_duplicate_accept_does_not_advance_persisted_revision(
 ) -> None:
     """Revision 5 stays revision 5 — bytes included — after a failed accept."""
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
-    wired = _wiring(tmp_path, state_repository=repository)
+    wired = _wiring(tmp_path, repository=repository)
     wired.service.accept(
         wired.service.propose(_deepseek_candidate()), credential="secret-one"
     )
@@ -576,7 +675,7 @@ def test_persistence_failure_compensates_credential_and_connection(
     tmp_path: Path,
 ) -> None:
     """A failed save rolls back this call's credential and connection."""
-    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+    wired = _wiring(tmp_path, repository=_ExplodingStateRepository())
 
     with pytest.raises(RuntimeError, match="persistence failed"):
         wired.service.accept(
@@ -593,7 +692,7 @@ def test_persistence_failure_compensates_the_new_isolation_profile(
 ) -> None:
     """Only the profile this call created is removed; the source is untouched."""
     source = _write_subscription_source("codex", tmp_path)
-    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+    wired = _wiring(tmp_path, repository=_ExplodingStateRepository())
     profile_target = tmp_path / "cmm-profiles" / "codex"
 
     with pytest.raises(RuntimeError, match="persistence failed"):
@@ -615,7 +714,7 @@ def test_persistence_failure_keeps_a_preexisting_profile_directory(
     profile_target.mkdir(parents=True)
     marker = profile_target / "keep-me.txt"
     marker.write_text("preexisting", encoding="utf-8")
-    wired = _wiring(tmp_path, state_repository=_ExplodingStateRepository())
+    wired = _wiring(tmp_path, repository=_ExplodingStateRepository())
 
     with pytest.raises(RuntimeError, match="persistence failed"):
         wired.service.accept(
@@ -625,13 +724,20 @@ def test_persistence_failure_keeps_a_preexisting_profile_directory(
     assert marker.read_text(encoding="utf-8") == "preexisting"
 
 
-def test_state_repository_requires_models_and_routes(tmp_path: Path) -> None:
-    """Persistence wiring without catalogs is a construction error."""
+def test_service_has_no_parallel_persistence_configuration(tmp_path: Path) -> None:
+    """The pre-coordinator wiring surface is gone, not merely deprecated.
+
+    MAJOR-V2-02: ``state_repository``/``models``/``routes``/``revision``/
+    ``audit_log`` are no longer constructor parameters — a caller cannot wire a
+    second commit path next to the coordinator (``models`` and ``routes`` are
+    always required by the coordinator instead of conditionally by the service).
+    """
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
     connections = ProviderConnectionRegistry(providers)
-    with pytest.raises(TypeError, match="models and routes"):
+
+    with pytest.raises(TypeError):
         ProviderOnboardingService(
             providers=providers,
             connections=connections,
@@ -639,5 +745,5 @@ def test_state_repository_requires_models_and_routes(tmp_path: Path) -> None:
             credentials=InMemoryCredentialStore(),
             profiles=SubscriptionProfileManager(),
             profiles_root=tmp_path / "cmm-profiles",
-            state_repository=_ExplodingStateRepository(),
+            state_repository=_ExplodingStateRepository(),  # type: ignore[call-arg]
         )

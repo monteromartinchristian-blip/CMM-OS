@@ -28,6 +28,15 @@ CMM-owned isolation outcome is a prerequisite for acceptance. Missing source
 evidence, a failed profile build, or an unusable outcome raises
 :class:`ProviderIsolationError` *before* any connection is registered, so a
 passing validator can never promote an unisolated connection to ``CONNECTED``.
+
+Commit rule (MAJOR-V2-02): this service owns no persistence of its own. When a
+:class:`~kernel.llm.provider_state_coordinator.ProviderRegistryStateCoordinator`
+is wired, registration is followed by
+``coordinator.persist_connection_acceptance()`` — the one seam that captures,
+saves and publishes the Provider Registry revision and audit log. A failed save
+propagates into the acceptance compensation path below, and the service keeps
+owning proposal creation, isolation preflight, credential creation, connection
+construction/registration and compensation of operation-owned side effects.
 """
 
 from __future__ import annotations
@@ -36,13 +45,10 @@ import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 from kernel.llm.credential_store import CredentialStore
 from kernel.llm.exceptions import ProviderError
-from kernel.llm.model_catalog import ModelCatalog
-from kernel.llm.model_routes import ModelRouteCatalog
 from kernel.llm.provider_candidates import ProviderCandidate
 from kernel.llm.provider_connections import (
     BillingClass,
@@ -52,11 +58,7 @@ from kernel.llm.provider_connections import (
 )
 from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
-from kernel.llm.provider_state import ProviderRegistryAuditRecord
-from kernel.llm.provider_state_repository import (
-    ProviderRegistryStateRepository,
-    capture_provider_registry_state,
-)
+from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 Validator = Callable[["ConnectionProposal"], bool]
@@ -140,18 +142,15 @@ class ProviderOnboardingService:
         profiles: SubscriptionProfileManager,
         profiles_root: str | os.PathLike[str],
         validator: Validator | None = None,
-        state_repository: ProviderRegistryStateRepository | None = None,
-        models: ModelCatalog | None = None,
-        routes: ModelRouteCatalog | None = None,
-        revision: int = 0,
-        audit_log: tuple[ProviderRegistryAuditRecord, ...] = (),
+        state_coordinator: ProviderRegistryStateCoordinator | None = None,
     ) -> None:
-        """Wire the service to registries, storage, and an optional validator.
+        """Wire the service to registries, an optional validator, and the commit seam.
 
-        ``state_repository`` makes acceptance durable: after a successful
-        registration the coherent aggregate is captured and saved with
-        ``revision + 1``. Wiring a repository requires ``models`` and
-        ``routes`` so the captured aggregate is complete.
+        ``state_coordinator`` (MAJOR-V2-02) owns revision/audit persistence:
+        after a successful registration the coordinator captures and saves the
+        coherent aggregate. Wiring one is optional — an ephemeral runtime
+        accepts connections without durable state — but there is deliberately
+        no second, service-local persistence configuration.
         """
         if not isinstance(providers, ProviderRegistry):
             raise TypeError("providers must be a ProviderRegistry")
@@ -163,15 +162,12 @@ class ProviderOnboardingService:
             raise TypeError("profiles must be a SubscriptionProfileManager")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable or None")
-        if state_repository is not None:
-            if models is None or routes is None:
-                raise TypeError(
-                    "models and routes are required when a state repository is wired"
-                )
-            if isinstance(revision, bool) or not isinstance(revision, int):
-                raise TypeError("revision must be an int")
-            if revision < 0:
-                raise ValueError("revision cannot be negative")
+        if state_coordinator is not None and not isinstance(
+            state_coordinator, ProviderRegistryStateCoordinator
+        ):
+            raise TypeError(
+                "state_coordinator must be a ProviderRegistryStateCoordinator"
+            )
         self._providers = providers
         self._connections = connections
         self._manifests = manifests
@@ -179,16 +175,17 @@ class ProviderOnboardingService:
         self._profiles = profiles
         self._profiles_root = _coerce_dir(profiles_root, label="Profiles root")
         self._validator = validator
-        self._state_repository = state_repository
-        self._models = models
-        self._routes = routes
-        self._revision = revision
-        self._audit_log = tuple(audit_log)
+        self._state_coordinator = state_coordinator
 
     @property
     def revision(self) -> int:
-        """Return the current persisted aggregate revision."""
-        return self._revision
+        """Return the durable revision owned by the coordinator, or zero.
+
+        The service keeps no revision of its own: without a coordinator there
+        is no durable state to version, so this reports an ephemeral zero.
+        """
+        coordinator = self._state_coordinator
+        return 0 if coordinator is None else coordinator.revision
 
     def propose(self, candidate: ProviderCandidate) -> ConnectionProposal:
         """Resolve the canonical endpoint; register nothing.
@@ -278,11 +275,14 @@ class ProviderOnboardingService:
                 status=status,
             )
             registered = self._connections.register(connection)
-            self._persist_after_acceptance(registered)
+            if self._state_coordinator is not None:
+                self._state_coordinator.persist_connection_acceptance(registered)
             return registered
         except Exception:
             # Compensation path: undo only what this call created, then let the
-            # original error propagate unchanged.
+            # original error propagate unchanged. A coordinator save failure
+            # lands here too, so a failed commit never leaves runtime state
+            # behind.
             if registered is not None:
                 self._connections.remove(registered.connection_id)
             if credential_ref is not None:
@@ -290,45 +290,6 @@ class ProviderOnboardingService:
             if isolation_target is not None:
                 shutil.rmtree(isolation_target, ignore_errors=True)
             raise
-
-    def _persist_after_acceptance(self, connection: ProviderConnection) -> None:
-        """Persist the coherent aggregate; advance the revision only on success.
-
-        The saved state includes the registered connection and a sanitized
-        audit record, but never secret material. If the repository save fails,
-        the exception propagates to ``accept`` and the runtime side effects are
-        compensated; the stored revision stays where it was.
-        """
-        repository = self._state_repository
-        if repository is None:
-            return
-        next_revision = self._revision + 1
-        event_type = (
-            "provider.connected"
-            if connection.status is ConnectionStatus.CONNECTED
-            else "connection.accepted"
-        )
-        record = ProviderRegistryAuditRecord(
-            revision=next_revision,
-            event_type=event_type,
-            entity_kind="connection",
-            entity_id=connection.connection_id,
-            occurred_at=datetime.now(timezone.utc),
-            detail=(("status", connection.status.value),),
-        )
-        assert self._models is not None and self._routes is not None
-        state = capture_provider_registry_state(
-            self._providers,
-            self._manifests,
-            self._models,
-            self._connections,
-            self._routes,
-            revision=next_revision,
-            audit_log=self._audit_log + (record,),
-        )
-        repository.save(state)
-        self._revision = next_revision
-        self._audit_log = state.audit_log
 
     def _isolate(self, proposal: ConnectionProposal) -> str:
         """Produce the CMM-owned isolation reference, or raise.

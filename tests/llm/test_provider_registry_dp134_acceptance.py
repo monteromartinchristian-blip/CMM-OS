@@ -68,6 +68,7 @@ from kernel.llm.provider_state import (
     ProviderStateSchemaError,
     ProviderStateSerializationError,
 )
+from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
     capture_provider_registry_state,
@@ -149,6 +150,18 @@ def _runtime(
     models = ModelCatalog(providers)
     routes = ModelRouteCatalog(connections)
     credentials = InMemoryCredentialStore()
+    coordinator = (
+        None
+        if repository is None
+        else ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=manifests,
+            models=models,
+            connections=connections,
+            routes=routes,
+            repository=repository,
+        )
+    )
     service = ProviderOnboardingService(
         providers=providers,
         connections=connections,
@@ -157,9 +170,7 @@ def _runtime(
         profiles=SubscriptionProfileManager(),
         profiles_root=tmp_path / "cmm-profiles",
         validator=validator,
-        state_repository=repository,
-        models=models,
-        routes=routes,
+        state_coordinator=coordinator,
     )
     return _Runtime(
         service=service,
