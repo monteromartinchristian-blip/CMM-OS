@@ -43,6 +43,7 @@ from kernel.llm.provider_state import (
     SCHEMA_VERSION,
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderStateCoherenceError,
     ProviderStateSchemaError,
     ProviderStateSerializationError,
 )
@@ -417,6 +418,114 @@ def test_capture_rejects_a_wrong_component_type(position: int) -> None:
 
     with pytest.raises(TypeError):
         capture_provider_registry_state(*components, revision=1)  # type: ignore[arg-type]
+
+
+def _capturable_authority() -> tuple[
+    ProviderRegistry,
+    ProviderManifestRegistry,
+    ModelCatalog,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    """A two-provider authority with both manifests and no dependent state.
+
+    Removing one provider strands nothing here, so the captured aggregate is
+    still exactly restorable — which is what the coherence tests below assert.
+    """
+    providers = ProviderRegistry()
+    providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    providers.register(_spec("qwen-token-plan", _QWEN_URL))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(_manifest("deepseek", _DEEPSEEK_URL, billing=BillingClass.PAYG))
+    manifests.register(
+        _manifest("qwen-token-plan", _QWEN_URL, billing=BillingClass.SUBSCRIPTION)
+    )
+    connections = ProviderConnectionRegistry(providers)
+    return (
+        providers,
+        manifests,
+        ModelCatalog(providers),
+        connections,
+        ModelRouteCatalog(connections),
+    )
+
+
+def test_capture_omits_a_manifest_whose_canonical_provider_was_removed() -> None:
+    """MAJOR-V2-01: no orphan manifest may enter the persisted aggregate."""
+    providers, manifests, models, connections, routes = _capturable_authority()
+
+    providers.remove("deepseek")
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=1
+    )
+
+    assert tuple(item.provider_id for item in state.manifests) == ("qwen-token-plan",)
+    assert all(item.provider_id != "deepseek" for item in state.manifests)
+    # What is captured can always be canonically reconstructed.
+    restored = restore_provider_registry_state(state)
+    assert tuple(item.provider_id for item in restored.manifests.list()) == (
+        "qwen-token-plan",
+    )
+
+
+def test_capture_omits_a_manifest_after_same_id_provider_reregistration() -> None:
+    """A re-created provider identity does not revive the previous metadata."""
+    providers, manifests, models, connections, routes = _capturable_authority()
+
+    providers.remove("deepseek")
+    providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=1
+    )
+
+    assert tuple(spec.id for spec in state.providers) == (
+        "deepseek",
+        "qwen-token-plan",
+    )
+    assert all(item.provider_id != "deepseek" for item in state.manifests)
+    restored = restore_provider_registry_state(state)
+    assert tuple(item.provider_id for item in restored.manifests.list()) == (
+        "qwen-token-plan",
+    )
+
+
+def test_capture_rejects_a_manifest_without_a_canonical_provider() -> None:
+    """Defense in depth: an incoherent manifest/provider graph is never saved.
+
+    Enumeration already hides stale metadata, so this adversarial wiring — a
+    metadata catalog bound to a *different* authority than the captured one —
+    is the remaining way an orphan manifest could reach the serializer. Capture
+    refuses it with a focused error instead of persisting an unrestorable
+    aggregate (the audited failure: capture accepted a manifest graph that
+    ``restore_provider_registry_state()`` then rejected).
+    """
+    providers, _, models, connections, routes = _capturable_authority()
+    other_providers = ProviderRegistry()
+    other_providers.register(_spec("ghost", "https://ghost.example.invalid/v1"))
+    other_manifests = ProviderManifestRegistry(other_providers)
+    other_manifests.register(
+        _manifest("ghost", "https://ghost.example.invalid/v1", billing=BillingClass.API)
+    )
+
+    with pytest.raises(ProviderStateCoherenceError, match="ghost"):
+        capture_provider_registry_state(
+            providers, other_manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_accepts_a_coherent_graph_from_a_matching_authority() -> None:
+    """The coherence guard rejects divergence only, never a valid aggregate."""
+    providers, manifests, models, connections, routes = _capturable_authority()
+
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=2
+    )
+
+    assert tuple(item.provider_id for item in state.manifests) == (
+        "deepseek",
+        "qwen-token-plan",
+    )
+    assert restore_provider_registry_state(state).revision == 2
 
 
 # --- restore ----------------------------------------------------------------

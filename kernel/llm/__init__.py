@@ -110,6 +110,7 @@ from kernel.llm.provider_state import (
 from kernel.llm.provider_state import (
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderStateCoherenceError,
     ProviderStateError,
     ProviderStateSchemaError,
     ProviderStateSerializationError,
@@ -209,6 +210,7 @@ __all__ = [
     "ProviderRegistryState",
     "ProviderRegistryStateRepository",
     "ProviderSpec",
+    "ProviderStateCoherenceError",
     "ProviderStateError",
     "ProviderStateSchemaError",
     "ProviderStateSerializationError",

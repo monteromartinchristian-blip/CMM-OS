@@ -43,6 +43,7 @@ from kernel.llm.provider_state import (
     SCHEMA_VERSION,
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderStateCoherenceError,
     ProviderStateSerializationError,
 )
 
@@ -189,7 +190,19 @@ def capture_provider_registry_state(
 
     Every component is read through its own public enumeration, and every
     component is type-checked first so a caller cannot silently capture a
-    partially wired graph.
+    partially wired graph. Manifest enumeration is active-only
+    (``ProviderManifestRegistry.list()`` drops metadata whose canonical
+    provider identity is gone or was replaced), so an orphan manifest cannot
+    normally reach this function at all.
+
+    Coherence guard (MAJOR-V2-01): because "normally" is not a guarantee,
+    capture then rejects *any* enumerated manifest whose provider id is absent
+    from the providers being captured, raising
+    :class:`~kernel.llm.provider_state.ProviderStateCoherenceError`. The
+    behavior choice is deterministic and documented: metadata without a
+    canonical provider is an error, never a silent omission, and no state
+    envelope is produced — so a captured aggregate is always one that
+    :func:`restore_provider_registry_state` can rebuild.
     """
     if not isinstance(providers, ProviderRegistry):
         raise TypeError("providers must be a ProviderRegistry")
@@ -201,11 +214,23 @@ def capture_provider_registry_state(
         raise TypeError("connections must be a ProviderConnectionRegistry")
     if not isinstance(routes, ModelRouteCatalog):
         raise TypeError("routes must be a ModelRouteCatalog")
+    provider_specs = providers.list()
+    active_manifests = manifests.list()
+    canonical_provider_ids = {spec.id for spec in provider_specs}
+    orphans = sorted(
+        manifest.provider_id
+        for manifest in active_manifests
+        if manifest.provider_id not in canonical_provider_ids
+    )
+    if orphans:
+        raise ProviderStateCoherenceError(
+            "manifest metadata without canonical provider identity: " + orphans[0]
+        )
     return ProviderRegistryState(
         schema_version=SCHEMA_VERSION,
         revision=revision,
-        providers=providers.list(),
-        manifests=manifests.list(),
+        providers=provider_specs,
+        manifests=active_manifests,
         models=models.list(),
         connections=connections.list(),
         routes=routes.list(),

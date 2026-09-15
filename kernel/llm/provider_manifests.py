@@ -43,6 +43,17 @@ This registry does not register providers itself: bootstrapping canonical
 identity is the first-wave bootstrap's job
 (:func:`kernel.llm.first_wave_providers.register_first_wave_providers`), which
 registers the ``ProviderSpec`` *before* its bound manifest.
+
+Non-divergence rule (MAJOR-V2-01): metadata is stored as a binding to the exact
+canonical ``ProviderSpec`` *instance* resolved at registration, and it is active
+only while ``provider_registry.get(provider_id) is bound_spec``. Removing the
+provider — or re-registering the same id as a different ``ProviderSpec`` object,
+including through ``replace_existing=True`` — makes the metadata stale: ``get()``
+returns ``None``, ``list()`` omits it, and the stale binding is purged from the
+internal map on that same lookup. Identity equality by ``provider_id`` alone is
+deliberately insufficient, so a re-created identity can never revive the
+previous metadata. Lookups are the only purge site: there is no callback,
+observer or synchronization path from ``ProviderRegistry`` into this catalog.
 """
 
 from __future__ import annotations
@@ -50,8 +61,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from kernel.llm.exceptions import ProviderError
 from kernel.llm.provider_connections import BillingClass
-from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 # The only auth scheme first-wave OpenAI-compatible providers use; pinned at
 # construction so transport code never sees an unimplementable scheme.
@@ -195,15 +207,26 @@ class ProviderManifest:
         return (scheme + normalized[len(prefix) :]).rstrip("/")
 
 
+@dataclass(frozen=True, slots=True)
+class _ManifestBinding:
+    """One manifest together with the canonical instance it was bound to."""
+
+    provider: ProviderSpec
+    manifest: ProviderManifest
+
+
 class ProviderManifestRegistry:
     """Provider-bound metadata catalog; never a second provider inventory.
 
     The catalog is keyed by normalized provider id, but its authority is the
     canonical :class:`ProviderRegistry` it was constructed with: a manifest
     whose provider is absent there is rejected with the canonical registry's
-    ``ProviderError``. That makes divergence structurally impossible rather
-    than merely discouraged — there is no API here that can create provider
-    identity, and no synchronization path against a second authority.
+    ``ProviderError``. Each entry additionally remembers the exact
+    ``ProviderSpec`` instance it was registered against, and only that instance
+    keeps the entry active (module docstring, MAJOR-V2-01). That makes
+    divergence structurally impossible rather than merely discouraged — there
+    is no API here that can create provider identity, and no synchronization
+    path against a second authority.
     """
 
     def __init__(self, provider_registry: ProviderRegistry) -> None:
@@ -211,7 +234,7 @@ class ProviderManifestRegistry:
         if not isinstance(provider_registry, ProviderRegistry):
             raise TypeError("provider_registry must be a ProviderRegistry")
         self._provider_registry = provider_registry
-        self._items: dict[str, ProviderManifest] = {}
+        self._items: dict[str, _ManifestBinding] = {}
 
     @property
     def provider_registry(self) -> ProviderRegistry:
@@ -219,31 +242,61 @@ class ProviderManifestRegistry:
         return self._provider_registry
 
     def register(self, manifest: ProviderManifest) -> ProviderManifest:
-        """Store ``manifest`` under its normalized id; reject duplicates.
+        """Store ``manifest`` bound to its canonical provider; reject duplicates.
 
         The provider must already exist in the bound canonical registry:
         metadata never creates provider identity (MAJOR-01). Raises the
         canonical ``ProviderError`` for an unregistered provider and
-        ``ValueError`` for a duplicate manifest.
+        ``ValueError`` for a duplicate manifest — where "duplicate" means an
+        entry that is *still active*. A stale entry (its bound provider was
+        removed or replaced) is purged here instead of blocking the id, so a
+        re-created provider identity can take fresh metadata while the previous
+        manifest stays permanently dead.
         """
-        self._provider_registry.get(manifest.provider_id)
+        provider = self._provider_registry.get(manifest.provider_id)
         key = manifest.provider_id
-        if key in self._items:
+        if self._active_manifest(key) is not None:
             raise ValueError(f"duplicate provider_id: {key}")
-        self._items[key] = manifest
+        self._items[key] = _ManifestBinding(provider=provider, manifest=manifest)
         return manifest
 
     def get(self, provider_id: str) -> ProviderManifest | None:
-        """Look up by normalized id; unknown or blank ids return ``None``."""
+        """Look up by normalized id; unknown, blank or stale ids return ``None``."""
         key = _normalize_lookup_key(provider_id)
         if key is None:
             return None
-        return self._items.get(key)
+        return self._active_manifest(key)
 
     def list(self, provider_id: str | None = None) -> tuple[ProviderManifest, ...]:
-        """Return manifests sorted by id, optionally filtered by provider."""
-        values = tuple(self._items[key] for key in sorted(self._items))
+        """Return active manifests sorted by id, optionally filtered by provider."""
+        # Iterating a snapshot of the keys keeps the lazy purge performed by
+        # ``_active_manifest`` safe to run inside this comprehension.
+        values = tuple(
+            manifest
+            for key in sorted(self._items)
+            if (manifest := self._active_manifest(key)) is not None
+        )
         if provider_id is None:
             return values
         wanted = _normalize_lookup_key(provider_id)
         return tuple(m for m in values if m.provider_id == wanted)
+
+    def _active_manifest(self, provider_id: str) -> ProviderManifest | None:
+        """Return the manifest while its bound provider is still canonical.
+
+        ``provider_id`` is already normalized. A missing provider, or a
+        canonical entry that is a different object than the bound one, drops
+        the stale binding and reports ``None``.
+        """
+        binding = self._items.get(provider_id)
+        if binding is None:
+            return None
+        try:
+            current = self._provider_registry.get(provider_id)
+        except ProviderError:
+            self._items.pop(provider_id, None)
+            return None
+        if current is not binding.provider:
+            self._items.pop(provider_id, None)
+            return None
+        return binding.manifest

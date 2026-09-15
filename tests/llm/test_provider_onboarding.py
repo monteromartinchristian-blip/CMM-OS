@@ -457,8 +457,10 @@ def test_propose_requires_canonical_provider_authority(tmp_path: Path) -> None:
     with pytest.raises(ProviderError, match="Unknown registered provider"):
         wired.service.propose(_deepseek_candidate())
 
-    # The metadata is genuinely still present: only authority was withdrawn.
-    assert wired.manifests.get("deepseek") is not None
+    # MAJOR-V2-01: metadata cannot outlive canonical identity — the stale
+    # manifest is not merely unauthorized, it is no longer active at all.
+    assert wired.manifests.get("deepseek") is None
+    assert "deepseek" not in {item.provider_id for item in wired.manifests.list()}
     assert wired.connections.list() == ()
 
 

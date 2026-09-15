@@ -87,6 +87,14 @@ class ProviderStateSerializationError(ProviderStateError):
     """A persisted payload is malformed, incomplete, or carries secrets."""
 
 
+class ProviderStateCoherenceError(ProviderStateError):
+    """Live components do not form one referentially coherent aggregate.
+
+    Raised at capture time when a component carries an entry the canonical
+    authority does not hold, so an unrestorable aggregate is never built.
+    """
+
+
 def _reject_secret_shaped(value: str, *, label: str) -> str:
     """Reject plaintext secret markers; return the value unchanged."""
     lowered = value.lower()

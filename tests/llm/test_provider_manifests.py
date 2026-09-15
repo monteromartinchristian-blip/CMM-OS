@@ -413,3 +413,76 @@ def test_registry_list_filters_by_normalized_provider_id() -> None:
     assert registry.list(provider_id="   ") == ()
     assert registry.list(provider_id="unknown-provider") == ()
     assert set(registry.list()) == {deepseek, other}
+
+
+# --- canonical-identity binding (MAJOR-V2-01) -------------------------------
+
+
+def test_manifest_becomes_invisible_when_bound_provider_is_removed() -> None:
+    """Metadata cannot outlive the canonical identity it was registered with."""
+    providers, manifests = _bound_registry("deepseek")
+    manifest = manifests.register(_manifest())
+
+    providers.remove("deepseek")
+
+    assert manifests.get("deepseek") is None
+    assert manifests.list() == ()
+    assert manifest.provider_id == "deepseek"
+
+
+def test_same_id_provider_reregistration_does_not_revive_old_manifest() -> None:
+    """Identity equality by id alone is not enough: the instance must match."""
+    providers = ProviderRegistry()
+    first = providers.register(_spec("deepseek"))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(_manifest())
+
+    removed = providers.remove("deepseek")
+    assert removed is first
+    providers.register(_spec("deepseek"))
+
+    assert manifests.get("deepseek") is None
+    assert manifests.list() == ()
+
+
+def test_replaced_provider_spec_object_makes_its_manifest_stale() -> None:
+    """A replacement canonical instance — same id, new object — is a new identity."""
+    providers, manifests = _bound_registry("deepseek")
+    manifests.register(_manifest())
+
+    providers.register(_spec("deepseek"), replace_existing=True)
+
+    assert manifests.get("deepseek") is None
+    assert manifests.list() == ()
+
+
+def test_stale_binding_is_purged_for_a_recreated_identity() -> None:
+    """Staleness is absence, not a permanently poisoned provider id."""
+    providers, manifests = _bound_registry("deepseek")
+    manifests.register(_manifest())
+    providers.remove("deepseek")
+
+    assert manifests.get("deepseek") is None
+
+    providers.register(_spec("deepseek"))
+    fresh = manifests.register(_manifest(display_name="DeepSeek Reloaded"))
+
+    assert manifests.get("deepseek") is fresh
+    assert fresh.display_name == "DeepSeek Reloaded"
+
+
+def test_removing_one_provider_leaves_other_manifests_active() -> None:
+    """The binding check is per identity, never a catalog-wide invalidation."""
+    providers, manifests = _bound_registry("deepseek", "openrouter")
+    deepseek = manifests.register(_manifest())
+    other = manifests.register(
+        _manifest(
+            provider_id="openrouter", default_base_url="https://openrouter.ai/api/v1"
+        )
+    )
+
+    providers.remove("deepseek")
+
+    assert manifests.list() == (other,)
+    assert manifests.list(provider_id="deepseek") == ()
+    assert deepseek.provider_id == "deepseek"
