@@ -104,13 +104,16 @@ matrix, and `F11-014` is the next Phase 11 functional identifier
 | Commit seam | `kernel/llm/provider_state_coordinator.py` (`ProviderRegistryStateCoordinator`) — the one revision/audit commit path for connection acceptance, route discovery lifecycle and validation transitions |
 | Historical Audit V1 | `docs/audits/phase-11.34-provider-registry-independent-audit-v1.md` — independent verdict `FAIL` |
 | Historical Re-audit V2 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v2.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; `MAJOR-V2-01`…`MAJOR-V2-05`; audited HEAD `1c54a720c57c6a84d990e8eb8dfc502c7423599e`; bundle SHA-256 `9f186aa51abc2533cfe171363cd760b8b6f7ff618223dc7c1358120e0499fdd4` |
+| Historical Re-audit V3 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v3.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=2`; `MINORS=1`; `MAJOR-V3-01`; `MAJOR-V3-02`; `MINOR-V3-01`; audited HEAD `b0ff1169d022ba821f3a9e777497175bf003f47a`; bundle SHA-256 `37eb5579d19d499b55c73f5eda16afe6052af2832ff58c86f9df4116e7e8c679` |
 | Remediation V1 design | `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md` (historical: implemented, then audited by Independent Re-audit V2 `FAIL`) |
 | Remediation V1 plan | `docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md` (historical) |
-| Remediation V2 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` — freezes the remedy for exactly the five Re-audit V2 findings |
-| Remediation V2 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md` — implements that remedy; `REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
-| Remediated findings | `MAJOR-V2-01`…`MAJOR-V2-05` are remediated and pending Independent Re-audit V3; none of them is independently verified yet |
+| Remediation V2 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` — froze the remedy for the five Re-audit V2 findings |
+| Remediation V2 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md` (historical: implemented, then audited by Independent Re-audit V3 `FAIL`) |
+| Remediation V3 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v3-design.md` — freezes the remedy for exactly the three Re-audit V3 findings |
+| Remediation V3 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v3-implementation-plan.md` — implements that remedy; `REMEDIATION_V3=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
+| Remediated findings | `MAJOR-V3-01` (canonical graph identity), `MAJOR-V3-02` (durable route refresh) and `MINOR-V3-01` (format gate evidence) are remediated and pending Independent Re-audit V4; none of them is independently verified yet |
 | Lifecycle status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
-| Audit status | `PENDING_INDEPENDENT_REAUDIT_V3` |
+| Audit status | `PENDING_INDEPENDENT_REAUDIT_V4` |
 
 Persisted-shape note: the V2 persisted manifest shape carries the explicit
 isolation policy (`requires_isolation`), which is why `SCHEMA_VERSION` is `"2"`.
@@ -124,27 +127,31 @@ values only — never secret material.
 PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
-REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V3=FAIL
+REMEDIATION_V3=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 AT-DP-134=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V3
+AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V4
 ```
 
 This is the complete current state and the maximum documentary state allowed
-before Independent Re-audit V3 (Remediation V2 spec §15). `REMEDIATION_V1` is
-historical context, not a current-state marker: it was implemented and
-committed, then independently audited by Independent Re-audit V2, which
-returned `FAIL` (`BLOCKERS=0`; `MAJORS=5`; `MINORS=0`). Remediation V2
-(design/plan linked in §4.2) closes exactly those five findings —
-`MAJOR-V2-01`…`MAJOR-V2-05` — and they are remediated and pending Independent
-Re-audit V3.
+before Independent Re-audit V4 (Remediation V3 spec §19). `REMEDIATION_V1` and
+`REMEDIATION_V2` are historical context, not current-state markers: each was
+implemented and committed, then independently audited by a later re-audit that
+returned `FAIL` (Re-audit V2: `BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; Re-audit V3:
+`BLOCKERS=0`; `MAJORS=2`; `MINORS=1`). Re-audit V3 verified `MAJOR-V2-03`,
+`MAJOR-V2-04` and `MAJOR-V2-05` as remediated and carried `MAJOR-V2-01` and
+`MAJOR-V2-02` forward as `MAJOR-V3-01` and `MAJOR-V3-02`. Remediation V3
+(design/plan linked in §4.2) closes exactly those three Re-audit V3 findings —
+`MAJOR-V3-01`, `MAJOR-V3-02`, `MINOR-V3-01` — and they are remediated and
+pending Independent Re-audit V4. No audit report was rewritten.
 
 `AT-DP-134=PASS_REPORTED` means the connected
 acceptance was executed on the implementation machine and its evidence is
 recorded; it is **not** an independent verification of the acceptance.
-Therefore, before Independent Re-audit V3:
+Therefore, before Independent Re-audit V4:
 
 - `DP-134`, `AT-DP-134` and `F11-014` are **not** independently verified;
 - no artifact in this repository may claim a verified, passing or
@@ -155,13 +162,13 @@ Therefore, before Independent Re-audit V3:
 ## 6. Future closure criteria
 
 `VERIFIED_EXISTING`, `PASS` and `CLOSURE_ELIGIBLE=YES` are reserved for the
-post-V3 docs-only closure and are reproduced below **only** as unclaimed future
-closure criteria for Independent Re-audit V3. They are not current state. The
+post-V4 docs-only closure and are reproduced below **only** as unclaimed future
+closure criteria for Independent Re-audit V4. They are not current state. The
 line immediately below labels this block; the repository-wide check that no
 current-state claim exists outside such a labelled block lives in
 `tests/llm/test_provider_registry_dp134_acceptance.py`.
 
-**Future closure criteria — post-Independent-Re-audit-V3 only; not current state:**
+**Future closure criteria — post-Independent-Re-audit-V4 only; not current state:**
 
 ```text
 BLOCKERS=0

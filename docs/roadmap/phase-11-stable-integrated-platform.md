@@ -3156,18 +3156,19 @@ Stable Release
 PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
-REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V3=FAIL
+REMEDIATION_V3=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 AT-DP-134=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V3
+AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V4
 ```
 
 Phase 11 has begun with 11.34 as an intentional out-of-order bootstrap. The
-implementation, Remediation V1 and Remediation V2 are complete and committed,
-but the subphase remains pending Independent Re-audit V3 of a new exact-HEAD
-bundle; it is not closed.
+implementation, Remediation V1, Remediation V2 and Remediation V3 are complete
+and committed, but the subphase remains pending Independent Re-audit V4 of a new
+exact-HEAD bundle; it is not closed.
 
 Historical Independent Audit V1 —
 `docs/audits/phase-11.34-provider-registry-independent-audit-v1.md`: verdict
@@ -3179,22 +3180,36 @@ Historical Independent Re-audit V2 —
 `BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; findings `MAJOR-V2-01`…`MAJOR-V2-05`;
 audited HEAD `1c54a720c57c6a84d990e8eb8dfc502c7423599e`; bundle SHA-256
 `9f186aa51abc2533cfe171363cd760b8b6f7ff618223dc7c1358120e0499fdd4`). This
-verdict is historical evidence, not the current V3 result.
+verdict is historical evidence, not a current result.
 
-Remediation V1 is historical context only: it was implemented and committed,
-then independently re-audited by Re-audit V2, which returned `FAIL`. It is no
-longer a current-state marker. Historical artifacts: design
+Historical Independent Re-audit V3 —
+`docs/audits/phase-11.34-provider-registry-independent-reaudit-v3.md`: verdict
+`FAIL` on the exact-HEAD Remediation V2 bundle (`INDEPENDENT_REAUDIT_V3=FAIL`;
+`BLOCKERS=0`; `MAJORS=2`; `MINORS=1`; findings `MAJOR-V3-01`, `MAJOR-V3-02`,
+`MINOR-V3-01`; audited HEAD `b0ff1169d022ba821f3a9e777497175bf003f47a`; bundle
+SHA-256 `37eb5579d19d499b55c73f5eda16afe6052af2832ff58c86f9df4116e7e8c679`).
+That audit verified `MAJOR-V2-03`, `MAJOR-V2-04` and `MAJOR-V2-05` as
+remediated, and carried `MAJOR-V2-01`/`MAJOR-V2-02` forward as `MAJOR-V3-01`/
+`MAJOR-V3-02`. Its verdict is historical evidence, not the current V4 result.
+
+Remediation V1 and Remediation V2 are historical context only: each was
+implemented and committed, then independently re-audited `FAIL`. Neither is a
+current-state marker. Historical artifacts: design
 `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md`;
 plan
-`docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md`.
-
-Remediation V2 closes exactly the five Re-audit V2 findings and is therefore
-`REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; Independent Re-audit
-V3 of its exact-HEAD bundle (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V3`) is
-still pending. Design
+`docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md`;
+design
 `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md`;
 plan
 `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md`.
+
+Remediation V3 closes exactly the three Re-audit V3 findings and is therefore
+`REMEDIATION_V3=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; Independent Re-audit
+V4 of its exact-HEAD bundle (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V4`) is
+still pending. Design
+`docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v3-design.md`;
+plan
+`docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v3-implementation-plan.md`.
 
 CMM Usage integration remains deferred and not performed; CMMChat integration
 remains deferred by the user.
@@ -3234,17 +3249,19 @@ That document is the Phase 11 owner for `F11-014`; the inherited/preassigned
 planning rows `F11-001`…`F11-013` stay normatively owned by the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md)
 (Phase 10). `F11-014` is `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — implemented
-and not independently verified before Independent Re-audit V3.
+and not independently verified before Independent Re-audit V4.
 
 ## Connected Acceptance
 
 `AT-DP-134` —
 `tests/llm/test_provider_registry_dp134_acceptance.py` (scenarios A–M plus the
-Remediation V2 adversaries for `MAJOR-V2-01`…`MAJOR-V2-05`, over the real
-canonical components and their official in-memory implementations).
+Remediation V2 adversaries for `MAJOR-V2-01`…`MAJOR-V2-05` and the Remediation
+V3 adversaries for `MAJOR-V3-01`/`MAJOR-V3-02`, over the real canonical
+components and their official in-memory implementations).
 Implementation-machine result: `AT-DP-134=PASS_REPORTED`. Independent
 verification of the connected acceptance and of `DP-134` is still pending, and
-belongs to Independent Re-audit V3 (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V3`).
+belongs to Independent Re-audit V4
+(`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V4`).
 
 ## Objective
 
