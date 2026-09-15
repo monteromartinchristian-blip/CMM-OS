@@ -30,6 +30,7 @@ from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from kernel.llm.provider_state import (
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderStateCoherenceError,
 )
 from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
@@ -305,6 +306,133 @@ def test_coordinator_rejects_a_non_audit_log_entry(tmp_path: Path) -> None:
             repository=runtime.repository,
             audit_log=(object(),),  # type: ignore[arg-type]
         )
+
+
+# --- cross-authority construction (MAJOR-V3-01) -----------------------------
+
+
+def _graph(
+    base_url: str,
+) -> tuple[
+    ProviderRegistry,
+    ProviderManifestRegistry,
+    ModelCatalog,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    """One live authority with the same ``deepseek`` id and every bound catalog.
+
+    Two of these hold different ``ProviderSpec`` objects and different base
+    URLs under the same normalized provider id, so provider-id equality alone
+    can never satisfy the exact-object graph guards (MAJOR-V3-01).
+    """
+    providers = ProviderRegistry()
+    providers.register(_spec("deepseek", base_url))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(_manifest("deepseek", base_url, BillingClass.PAYG))
+    connections = ProviderConnectionRegistry(providers)
+    return (
+        providers,
+        manifests,
+        ModelCatalog(providers),
+        connections,
+        ModelRouteCatalog(connections),
+    )
+
+
+def test_coordinator_rejects_a_foreign_manifest_registry(tmp_path: Path) -> None:
+    """The audited V3 reproduction: same id in two authorities is not identity."""
+    providers, _, models, connections, routes = _graph("https://canonical.example/v1")
+    _, foreign_manifests, _, _, _ = _graph("https://foreign.example/v1")
+    assert providers.has("deepseek")
+    assert foreign_manifests.get("deepseek") is not None
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
+        ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=foreign_manifests,
+            models=models,
+            connections=connections,
+            routes=routes,
+            repository=InMemoryProviderRegistryStateRepository(),
+        )
+
+
+def test_coordinator_rejects_a_foreign_model_catalog(tmp_path: Path) -> None:
+    providers, manifests, _, connections, routes = _graph(
+        "https://canonical.example/v1"
+    )
+    _, _, foreign_models, _, _ = _graph("https://foreign.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="model catalog is bound to a different ProviderRegistry",
+    ):
+        ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=manifests,
+            models=foreign_models,
+            connections=connections,
+            routes=routes,
+            repository=InMemoryProviderRegistryStateRepository(),
+        )
+
+
+def test_coordinator_rejects_a_foreign_connection_registry(tmp_path: Path) -> None:
+    providers, manifests, models, _, routes = _graph("https://canonical.example/v1")
+    _, _, _, foreign_connections, _ = _graph("https://foreign.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection registry is bound to a different ProviderRegistry",
+    ):
+        ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=manifests,
+            models=models,
+            connections=foreign_connections,
+            routes=routes,
+            repository=InMemoryProviderRegistryStateRepository(),
+        )
+
+
+def test_coordinator_rejects_a_route_catalog_bound_to_another_connection_registry(
+    tmp_path: Path,
+) -> None:
+    providers, manifests, models, connections, _ = _graph(
+        "https://canonical.example/v1"
+    )
+    _, _, _, _, foreign_routes = _graph("https://canonical.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="route catalog is bound to a different ProviderConnectionRegistry",
+    ):
+        ProviderRegistryStateCoordinator(
+            providers=providers,
+            manifests=manifests,
+            models=models,
+            connections=connections,
+            routes=foreign_routes,
+            repository=InMemoryProviderRegistryStateRepository(),
+        )
+
+
+def test_coordinator_exposes_read_only_canonical_component_bindings(
+    tmp_path: Path,
+) -> None:
+    """Onboarding proves exact identity through these, and they never rebind."""
+    runtime = _runtime(tmp_path)
+
+    assert runtime.coordinator.providers is runtime.providers
+    assert runtime.coordinator.manifests is runtime.manifests
+    assert runtime.coordinator.connections is runtime.connections
+    with pytest.raises(AttributeError):
+        runtime.coordinator.providers = ProviderRegistry()  # type: ignore[misc]
+    assert runtime.coordinator.providers is runtime.providers
 
 
 # --- connection acceptance commit -------------------------------------------

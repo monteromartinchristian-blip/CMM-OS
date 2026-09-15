@@ -56,7 +56,10 @@ from kernel.llm.provider_connections import (
 )
 from kernel.llm.provider_manifests import ProviderManifest, ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
-from kernel.llm.provider_state import ProviderRegistryAuditRecord
+from kernel.llm.provider_state import (
+    ProviderRegistryAuditRecord,
+    ProviderStateCoherenceError,
+)
 from kernel.llm.provider_state_repository import (
     ProviderRegistryStateRepository,
     capture_provider_registry_state,
@@ -87,6 +90,13 @@ class ProviderRegistryStateCoordinator:
         ``revision`` and ``audit_log`` are resumed from the loaded aggregate,
         so a restored runtime continues the same history instead of restarting
         it.
+
+        Graph rule (MAJOR-V3-01): construction fails closed — before any field
+        is assigned — unless every component belongs to the exact object graph
+        of ``providers``/``connections``. A cross-wired graph holding the same
+        normalized provider id in two different ``ProviderRegistry`` objects
+        raises :class:`ProviderStateCoherenceError`; nothing is copied, rebound
+        or normalized by id.
         """
         if not isinstance(providers, ProviderRegistry):
             raise TypeError("providers must be a ProviderRegistry")
@@ -109,6 +119,22 @@ class ProviderRegistryStateCoordinator:
             not isinstance(record, ProviderRegistryAuditRecord) for record in records
         ):
             raise TypeError("audit_log must hold ProviderRegistryAuditRecord entries")
+        if manifests.provider_registry is not providers:
+            raise ProviderStateCoherenceError(
+                "manifest registry is bound to a different ProviderRegistry"
+            )
+        if models.provider_registry is not providers:
+            raise ProviderStateCoherenceError(
+                "model catalog is bound to a different ProviderRegistry"
+            )
+        if connections.provider_registry is not providers:
+            raise ProviderStateCoherenceError(
+                "connection registry is bound to a different ProviderRegistry"
+            )
+        if routes.connections is not connections:
+            raise ProviderStateCoherenceError(
+                "route catalog is bound to a different ProviderConnectionRegistry"
+            )
 
         self._providers = providers
         self._manifests = manifests
@@ -128,6 +154,26 @@ class ProviderRegistryStateCoordinator:
     def audit_log(self) -> tuple[ProviderRegistryAuditRecord, ...]:
         """Return the sanitized audit history published with that revision."""
         return self._audit_log
+
+    @property
+    def providers(self) -> ProviderRegistry:
+        """Return the canonical provider authority this coordinator commits.
+
+        Read-only (MAJOR-V3-01): a composition boundary — onboarding, today —
+        proves exact object identity through this accessor. There is
+        deliberately no setter and no rebinding method.
+        """
+        return self._providers
+
+    @property
+    def manifests(self) -> ProviderManifestRegistry:
+        """Return the manifest catalog bound to :attr:`providers` (read-only)."""
+        return self._manifests
+
+    @property
+    def connections(self) -> ProviderConnectionRegistry:
+        """Return the connection registry bound to :attr:`providers` (read-only)."""
+        return self._connections
 
     def persist_connection_acceptance(
         self,
