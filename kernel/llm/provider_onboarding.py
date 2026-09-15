@@ -14,6 +14,14 @@ so neither a candidate nor a leftover manifest can authorize a provider the
 authority does not hold. The manifest (provider-bound metadata) supplies only
 transport/auth/billing defaults.
 
+Graph rule (MAJOR-V3-01): the service is only constructible over one exact
+object graph — the manifest catalog and connection registry must resolve
+through the ``providers`` authority it is given, and a wired coordinator must
+represent those same exact objects. A foreign catalog that happens to carry the
+same provider ids is refused with
+:class:`~kernel.llm.provider_state.ProviderStateCoherenceError` at construction,
+before any operation could use its metadata.
+
 Endpoint rule: the connection endpoint always comes from the canonical
 manifest, never from candidate metadata, so decoy URLs observed during
 detection can never become the connection target.
@@ -70,6 +78,7 @@ from kernel.llm.provider_connections import (
 )
 from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.provider_state import ProviderStateCoherenceError
 from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
@@ -183,6 +192,15 @@ class ProviderOnboardingService:
         coherent aggregate. Wiring one is optional — an ephemeral runtime
         accepts connections without durable state — but there is deliberately
         no second, service-local persistence configuration.
+
+        Graph rule (MAJOR-V3-01): construction fails closed — before any field
+        is assigned and therefore before any operation can mutate state —
+        unless the manifest catalog and connection registry resolve through
+        *this* ``providers`` authority and, when a coordinator is wired, the
+        coordinator represents the same exact objects. A foreign catalog
+        carrying the same provider ids raises
+        :class:`ProviderStateCoherenceError`; no component is adopted,
+        rebound or copied.
         """
         if not isinstance(providers, ProviderRegistry):
             raise TypeError("providers must be a ProviderRegistry")
@@ -200,6 +218,28 @@ class ProviderOnboardingService:
             raise TypeError(
                 "state_coordinator must be a ProviderRegistryStateCoordinator"
             )
+        if manifests.provider_registry is not providers:
+            raise ProviderStateCoherenceError(
+                "manifest registry is bound to a different ProviderRegistry"
+            )
+        if connections.provider_registry is not providers:
+            raise ProviderStateCoherenceError(
+                "connection registry is bound to a different ProviderRegistry"
+            )
+        if state_coordinator is not None:
+            if state_coordinator.providers is not providers:
+                raise ProviderStateCoherenceError(
+                    "state coordinator is bound to a different ProviderRegistry"
+                )
+            if state_coordinator.manifests is not manifests:
+                raise ProviderStateCoherenceError(
+                    "state coordinator is bound to a different ProviderManifestRegistry"
+                )
+            if state_coordinator.connections is not connections:
+                raise ProviderStateCoherenceError(
+                    "state coordinator is bound to a different "
+                    "ProviderConnectionRegistry"
+                )
         self._providers = providers
         self._connections = connections
         self._manifests = manifests

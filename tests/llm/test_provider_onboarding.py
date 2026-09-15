@@ -35,7 +35,7 @@ from kernel.llm.provider_detectors import (
     ClaudeCodeDetector,
     CodexDetector,
 )
-from kernel.llm.provider_manifests import ProviderManifestRegistry
+from kernel.llm.provider_manifests import ProviderManifest, ProviderManifestRegistry
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
     ProviderIsolationError,
@@ -43,7 +43,10 @@ from kernel.llm.provider_onboarding import (
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
-from kernel.llm.provider_state import ProviderRegistryState
+from kernel.llm.provider_state import (
+    ProviderRegistryState,
+    ProviderStateCoherenceError,
+)
 from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
@@ -702,6 +705,189 @@ def test_service_rejects_a_non_coordinator(tmp_path: Path) -> None:
             profiles=SubscriptionProfileManager(),
             profiles_root=tmp_path / "cmm-profiles",
             state_coordinator=_ExplodingStateRepository(),  # type: ignore[arg-type]
+        )
+
+
+# --- cross-authority construction guards (MAJOR-V3-01) ----------------------
+
+
+_FOREIGN_URL = "https://foreign-manifest.example/v1"
+
+
+def _foreign_authority() -> tuple[
+    ProviderRegistry, ProviderManifestRegistry, ProviderConnectionRegistry
+]:
+    """A second live authority carrying the same provider id as the canonical one.
+
+    The audited V3 wiring: two simultaneously live ``ProviderRegistry``
+    instances hold ``deepseek``, so provider-id equality alone can never
+    satisfy the exact-object graph guards.
+    """
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=_FOREIGN_URL,
+        )
+    )
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(
+        ProviderManifest(
+            provider_id="deepseek",
+            display_name="Foreign DeepSeek",
+            billing_class=BillingClass.PAYG,
+            default_base_url=_FOREIGN_URL,
+            auth_scheme="bearer",
+        )
+    )
+    connections = ProviderConnectionRegistry(providers)
+    return providers, manifests, connections
+
+
+def test_service_rejects_a_foreign_manifest_registry(tmp_path: Path) -> None:
+    """Foreign metadata under another authority is refused before any effect."""
+    wired = _wiring(tmp_path)
+    _, foreign_manifests, _ = _foreign_authority()
+    credentials = InMemoryCredentialStore()
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    assert wired.providers.has("deepseek")
+    assert foreign_manifests.get("deepseek") is not None
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=wired.providers,
+            connections=wired.connections,
+            manifests=foreign_manifests,
+            credentials=credentials,
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=wired.coordinator,
+        )
+
+    # Rejected at construction: no service exists, so no proposal could have been
+    # produced from foreign metadata and no side effect was performed.
+    assert wired.connections.list() == ()
+    assert credentials._secrets == {}
+    assert not (tmp_path / "cmm-profiles").exists()
+    assert repository.load() is None
+
+
+def test_service_rejects_a_foreign_connection_registry(tmp_path: Path) -> None:
+    """A connection registry resolving through another authority is refused."""
+    wired = _wiring(tmp_path)
+    _, _, foreign_connections = _foreign_authority()
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection registry is bound to a different ProviderRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=wired.providers,
+            connections=foreign_connections,
+            manifests=wired.manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=wired.coordinator,
+        )
+
+    assert wired.connections.list() == ()
+    assert foreign_connections.list() == ()
+
+
+def test_service_rejects_a_coordinator_for_another_graph(tmp_path: Path) -> None:
+    """A coordinator over a different authority is not the same commit seam."""
+    wired = _wiring(tmp_path)
+    foreign_providers, foreign_manifests, foreign_connections = _foreign_authority()
+    foreign_coordinator = ProviderRegistryStateCoordinator(
+        providers=foreign_providers,
+        manifests=foreign_manifests,
+        models=ModelCatalog(foreign_providers),
+        connections=foreign_connections,
+        routes=ModelRouteCatalog(foreign_connections),
+        repository=FileProviderRegistryStateRepository(tmp_path / "state.json"),
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="state coordinator is bound to a different ProviderRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=wired.providers,
+            connections=wired.connections,
+            manifests=wired.manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=foreign_coordinator,
+        )
+
+    assert wired.connections.list() == ()
+
+
+def test_service_rejects_a_coordinator_over_a_parallel_manifest_catalog(
+    tmp_path: Path,
+) -> None:
+    """Same authority, different component objects is still not one graph."""
+    wired = _wiring(tmp_path)
+    parallel_manifests = ProviderManifestRegistry(wired.providers)
+    parallel_connections = ProviderConnectionRegistry(wired.providers)
+    coordinator = ProviderRegistryStateCoordinator(
+        providers=wired.providers,
+        manifests=parallel_manifests,
+        models=ModelCatalog(wired.providers),
+        connections=parallel_connections,
+        routes=ModelRouteCatalog(parallel_connections),
+        repository=FileProviderRegistryStateRepository(tmp_path / "state.json"),
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="state coordinator is bound to a different ProviderManifestRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=wired.providers,
+            connections=wired.connections,
+            manifests=wired.manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=coordinator,
+        )
+
+
+def test_service_rejects_a_coordinator_over_a_parallel_connection_registry(
+    tmp_path: Path,
+) -> None:
+    """Same authority again: a parallel connection registry is a foreign seam."""
+    wired = _wiring(tmp_path)
+    parallel_connections = ProviderConnectionRegistry(wired.providers)
+    coordinator = ProviderRegistryStateCoordinator(
+        providers=wired.providers,
+        manifests=wired.manifests,
+        models=ModelCatalog(wired.providers),
+        connections=parallel_connections,
+        routes=ModelRouteCatalog(parallel_connections),
+        repository=FileProviderRegistryStateRepository(tmp_path / "state.json"),
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="state coordinator is bound to a different ProviderConnectionRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=wired.providers,
+            connections=wired.connections,
+            manifests=wired.manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=coordinator,
         )
 
 
