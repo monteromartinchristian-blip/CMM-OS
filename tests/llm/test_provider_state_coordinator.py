@@ -668,7 +668,13 @@ def test_discovery_commit_persists_one_route_discovered_record_per_new_route(
 def test_discovery_lifecycle_audit_sequence_is_persisted_in_order(
     tmp_path: Path,
 ) -> None:
-    """Discover → disappear → reappear: one revision per real transition."""
+    """Discover → disappear → reappear: one revision per real mutation batch.
+
+    Each pass commits one batch: the lifecycle transitions it produced plus a
+    ``route.refreshed`` record for every known available route it re-advertised
+    at a newer timestamp. A route with a lifecycle record in the same pass is
+    never also reported as refreshed (MAJOR-V3-02, spec §6.6).
+    """
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
     runtime = _runtime(tmp_path, repository=repository)
     connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
@@ -694,31 +700,52 @@ def test_discovery_lifecycle_audit_sequence_is_persisted_in_order(
     assert state is not None
     assert state.revision == 3
     assert runtime.coordinator.revision == 3
-    assert [record.revision for record in state.audit_log] == [1, 1, 2, 3]
+    assert [record.revision for record in state.audit_log] == [1, 1, 2, 2, 3, 3]
+    # Within one batch the envelope's canonical order applies, so the refresh
+    # record of a batch sorts before that batch's lifecycle record.
     assert [record.event_type for record in state.audit_log] == [
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
+        "route.refreshed",
         "route.restored",
     ]
-    assert state.audit_log[2].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[2].entity_id == "deepseek:main:deepseek-chat"
     assert state.audit_log[2].entity_kind == "route"
     assert state.audit_log[2].occurred_at == T1
     assert state.audit_log[2].detail == (
         ("connection_id", "deepseek:main"),
-        ("available", "false"),
+        ("available", "true"),
     )
     assert state.audit_log[3].entity_id == "deepseek:main:deepseek-reasoner"
-    assert state.audit_log[3].occurred_at == T2
+    assert state.audit_log[3].occurred_at == T1
     assert state.audit_log[3].detail == (
+        ("connection_id", "deepseek:main"),
+        ("available", "false"),
+    )
+    assert state.audit_log[5].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[5].occurred_at == T2
+    assert state.audit_log[5].detail == (
         ("connection_id", "deepseek:main"),
         ("available", "true"),
     )
+    # Restoring is a lifecycle transition: the restored route is never also
+    # reported as refreshed in the same pass.
+    assert [
+        record.entity_id
+        for record in state.audit_log
+        if record.event_type == "route.refreshed"
+    ] == ["deepseek:main:deepseek-chat", "deepseek:main:deepseek-chat"]
     reasoner = runtime.routes.get("deepseek:main:deepseek-reasoner")
     assert reasoner is not None
     assert reasoner.available is True
     assert reasoner.first_seen_at == T0
     assert reasoner.last_seen_at == T2
+    chat = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert chat is not None
+    assert chat.first_seen_at == T0
+    assert chat.last_seen_at == T2
 
 
 def test_discovery_lifecycle_audit_survives_a_restart(tmp_path: Path) -> None:
@@ -748,11 +775,13 @@ def test_discovery_lifecycle_audit_survives_a_restart(tmp_path: Path) -> None:
     restored = restore_provider_registry_state(persisted)
 
     assert restored.revision == 3
-    assert [record.revision for record in restored.audit_log] == [1, 1, 2, 3]
+    assert [record.revision for record in restored.audit_log] == [1, 1, 2, 2, 3, 3]
     assert [record.event_type for record in restored.audit_log] == [
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
+        "route.refreshed",
         "route.restored",
     ]
     restored_reasoner = restored.routes.get("deepseek:main:deepseek-reasoner")
@@ -760,6 +789,10 @@ def test_discovery_lifecycle_audit_survives_a_restart(tmp_path: Path) -> None:
     assert restored_reasoner.available is True
     assert restored_reasoner.first_seen_at == T0
     assert restored_reasoner.last_seen_at == T2
+    restored_chat = restored.routes.get("deepseek:main:deepseek-chat")
+    assert restored_chat is not None
+    assert restored_chat.first_seen_at == T0
+    assert restored_chat.last_seen_at == T2
 
 
 def test_discovery_audit_detail_never_carries_credential_material(
@@ -788,14 +821,75 @@ def test_discovery_audit_detail_never_carries_credential_material(
         assert tuple(key for key, _ in record.detail) == ("connection_id", "available")
 
 
-def test_no_op_discovery_scan_does_not_advance_the_revision(tmp_path: Path) -> None:
-    """Refreshing routes that are already known and available is not a transition.
+def test_refresh_only_discovery_is_a_durable_mutation(tmp_path: Path) -> None:
+    """A successful rediscovery of a known route is durable state (MAJOR-V3-02).
 
-    Contract: a discovery pass commits exactly one revision when it produced at
-    least one route lifecycle transition (discovered / unavailable / restored).
-    A pass that produced none — here, the same models advertised again — marks
-    the routes seen and persists nothing, so the durable revision and the audit
-    log stay exactly where they were.
+    Independent Re-audit V3 reproduced the opposite: ``mark_seen`` advanced the
+    live ``last_seen_at`` without a lifecycle transition, the coordinator
+    persisted nothing, and a restart regressed the route to ``T0``. A newer
+    timestamp is real phase-owned state, so it is one mutation batch: sanitized
+    ``route.refreshed`` audit plus one revision, saved before publishing.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    route_id = "deepseek:main:deepseek-chat"
+
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T0
+    )
+    assert runtime.coordinator.revision == 1
+
+    result = runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+
+    # A refresh-only pass: no new, restored or unavailable route anywhere.
+    assert result.new_route_ids == ()
+    assert result.restored_route_ids == ()
+    assert result.unavailable_route_ids == ()
+    assert runtime.coordinator.revision == 2
+    live = runtime.routes.get(route_id)
+    assert live is not None
+    assert live.last_seen_at == T1
+    persisted = repository.load()
+    assert persisted is not None
+    assert persisted.revision == 2
+    persisted_route = next(
+        route for route in persisted.routes if route.route_id == route_id
+    )
+    assert persisted_route.last_seen_at == T1
+    assert persisted_route.first_seen_at == T0
+    # The lifecycle record is absent; the refresh record carries the batch.
+    assert [record.event_type for record in persisted.audit_log] == [
+        "route.discovered",
+        "route.refreshed",
+    ]
+    refreshed = persisted.audit_log[1]
+    assert refreshed.revision == 2
+    assert refreshed.entity_kind == "route"
+    assert refreshed.entity_id == route_id
+    assert refreshed.occurred_at == T1
+    assert refreshed.detail == (
+        ("connection_id", "deepseek:main"),
+        ("available", "true"),
+    )
+
+    # Process-equivalent restart: the newest successful discovery survives.
+    restored = restore_provider_registry_state(persisted)
+    restored_route = restored.routes.get(route_id)
+    assert restored_route is not None
+    assert restored_route.last_seen_at == T1
+    assert restored_route.first_seen_at == T0
+    assert restored.revision == 2
+
+
+def test_same_timestamp_discovery_is_a_true_no_op(tmp_path: Path) -> None:
+    """Re-running the identical pass at the same instant mutates nothing.
+
+    The valid no-op: every resulting route field is already equal, so no
+    revision, audit record, durable byte or live route changes.
     """
     repository = _SwitchableStateRepository()
     runtime = _runtime(tmp_path, repository=repository)
@@ -803,29 +897,60 @@ def test_no_op_discovery_scan_does_not_advance_the_revision(tmp_path: Path) -> N
     manifest = _active_manifest(runtime)
 
     runtime.coordinator.discover_models(
-        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T0
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
     )
-    assert repository.save_calls == 1
-    first_pass = runtime.routes.get("deepseek:main:deepseek-chat")
-    assert first_pass is not None
-    assert first_pass.last_seen_at == T0
+    revision_before = runtime.coordinator.revision
+    audit_before = runtime.coordinator.audit_log
+    state_before = repository.load()
+    saves_before = repository.save_calls
+    routes_before = runtime.routes.list()
 
     runtime.coordinator.discover_models(
         connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
     )
 
-    assert repository.save_calls == 1
+    assert repository.save_calls == saves_before
+    assert runtime.coordinator.revision == revision_before
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == state_before
+    assert runtime.routes.list() == routes_before
+
+
+def test_failed_refresh_save_restores_the_route_catalog_exactly(
+    tmp_path: Path,
+) -> None:
+    """A refresh-only persistence failure rolls the live route back to T0."""
+    repository = _SwitchableStateRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    route_id = "deepseek:main:deepseek-chat"
+
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T0
+    )
+    committed = repository.load()
+    assert committed is not None
+    routes_before = runtime.routes.list()
+    audit_before = runtime.coordinator.audit_log
+
+    repository.fail = True
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        runtime.coordinator.discover_models(
+            connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+        )
+
+    rolled_back = runtime.routes.get(route_id)
+    assert rolled_back is not None
+    assert rolled_back.last_seen_at == T0
+    assert runtime.routes.list() == routes_before
     assert runtime.coordinator.revision == 1
-    assert [record.revision for record in runtime.coordinator.audit_log] == [1]
-    refreshed = runtime.routes.get("deepseek:main:deepseek-chat")
-    assert refreshed is not None
-    assert refreshed.last_seen_at == T1
-    persisted = repository.load()
-    assert persisted is not None
-    assert persisted.revision == 1
-    persisted_route = persisted.routes[0]
-    assert persisted_route.route_id == "deepseek:main:deepseek-chat"
-    assert persisted_route.last_seen_at == T0
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == committed
+    assert all(
+        record.event_type != "route.refreshed"
+        for record in runtime.coordinator.audit_log
+    )
 
 
 def test_empty_discovery_result_is_a_no_op_scan(tmp_path: Path) -> None:
@@ -880,7 +1005,13 @@ def test_inactive_first_sight_route_is_discovered_and_unavailable(
 
 
 def test_repeated_inactive_scan_reports_no_further_transition(tmp_path: Path) -> None:
-    """An already-inactive route stays inactive without a spurious record."""
+    """An already-inactive route stays inactive without a spurious record.
+
+    The second pass re-advertises the inactive route, but a deferred route is
+    neither stamped by ``mark_seen`` nor re-reported: its only durable effect is
+    the refresh of the still-active route, so no lifecycle record exists for
+    the deferred one (MAJOR-V3-02, spec §6.7).
+    """
     repository = _SwitchableStateRepository()
     runtime = _runtime(tmp_path, repository=repository, allowlist=("deepseek-chat",))
     connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
@@ -899,11 +1030,17 @@ def test_repeated_inactive_scan_reports_no_further_transition(tmp_path: Path) ->
         seen_at=T1,
     )
 
-    assert repository.save_calls == 1
-    assert runtime.coordinator.revision == 1
+    assert repository.save_calls == 2
+    assert runtime.coordinator.revision == 2
+    assert [
+        (record.event_type, record.entity_id)
+        for record in runtime.coordinator.audit_log
+        if record.revision == 2
+    ] == [("route.refreshed", "deepseek:main:deepseek-chat")]
     deferred = runtime.routes.get("deepseek:main:deepseek-reasoner")
     assert deferred is not None
     assert deferred.available is False
+    assert deferred.last_seen_at == T0
 
 
 def test_failed_discovery_save_restores_the_route_catalog(tmp_path: Path) -> None:
@@ -1249,11 +1386,13 @@ def test_route_and_validation_history_survive_a_restart_together(
     restored = restore_provider_registry_state(persisted)
 
     assert restored.revision == 4
-    assert [record.revision for record in restored.audit_log] == [1, 1, 2, 3, 4]
+    assert [record.revision for record in restored.audit_log] == [1, 1, 2, 2, 3, 3, 4]
     assert [record.event_type for record in restored.audit_log] == [
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
+        "route.refreshed",
         "route.restored",
         "provider.validation_changed",
     ]

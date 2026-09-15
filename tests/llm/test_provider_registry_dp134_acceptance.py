@@ -556,7 +556,8 @@ def test_scenario_i_durable_no_secret_restart(tmp_path: Path) -> None:
     # the lifecycle audit. Nothing here captures or saves state by hand, so the
     # acceptance proves discovery itself goes through that seam: the second pass
     # omits deepseek-reasoner, so its route stays in the catalog but unavailable
-    # with its first-sight history.
+    # with its first-sight history, while the re-advertised deepseek-chat route
+    # is durably refreshed (MAJOR-V3-02).
     first_pass = _RecordingClient(("deepseek-chat", "deepseek-reasoner"))
     second_pass = _RecordingClient(("deepseek-chat",))
     coordinator.discover_models(connection, manifest, first_pass, seen_at=T0)
@@ -578,6 +579,7 @@ def test_scenario_i_durable_no_secret_restart(tmp_path: Path) -> None:
         "connection.accepted",
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
     ]
 
@@ -987,20 +989,24 @@ def test_v2_route_lifecycle_audit_is_persisted_and_survives_restart(
         "connection.accepted",
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
+        "route.refreshed",
         "route.restored",
     ]
-    assert [record.revision for record in state.audit_log] == [1, 2, 2, 3, 4]
-    assert state.audit_log[3].entity_kind == "route"
-    assert state.audit_log[3].entity_id == "deepseek:main:deepseek-reasoner"
+    assert [record.revision for record in state.audit_log] == [1, 2, 2, 3, 3, 4, 4]
+    assert state.audit_log[2].entity_kind == "route"
+    assert state.audit_log[3].entity_id == "deepseek:main:deepseek-chat"
     assert state.audit_log[3].occurred_at == T1
-    assert state.audit_log[3].detail == (
+    assert state.audit_log[4].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[4].occurred_at == T1
+    assert state.audit_log[4].detail == (
         ("connection_id", "deepseek:main"),
         ("available", "false"),
     )
-    assert state.audit_log[4].entity_id == "deepseek:main:deepseek-reasoner"
-    assert state.audit_log[4].occurred_at == T2
-    assert state.audit_log[4].detail == (
+    assert state.audit_log[6].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[6].occurred_at == T2
+    assert state.audit_log[6].detail == (
         ("connection_id", "deepseek:main"),
         ("available", "true"),
     )
@@ -1012,15 +1018,21 @@ def test_v2_route_lifecycle_audit_is_persisted_and_survives_restart(
         "connection.accepted",
         "route.discovered",
         "route.discovered",
+        "route.refreshed",
         "route.unavailable",
+        "route.refreshed",
         "route.restored",
     ]
-    assert [record.revision for record in restored.audit_log] == [1, 2, 2, 3, 4]
+    assert [record.revision for record in restored.audit_log] == [1, 2, 2, 3, 3, 4, 4]
     route = restored.routes.get("deepseek:main:deepseek-reasoner")
     assert route is not None
     assert route.available is True
     assert route.first_seen_at == T0
     assert route.last_seen_at == T2
+    refreshed = restored.routes.get("deepseek:main:deepseek-chat")
+    assert refreshed is not None
+    assert refreshed.first_seen_at == T0
+    assert refreshed.last_seen_at == T2
 
 
 def test_v2_validation_transition_audit_is_persisted_and_survives_restart(

@@ -230,24 +230,27 @@ class ProviderRegistryStateCoordinator:
         Reconciliation stays where it was: the pure, inference-free, I/O-free
         :func:`~kernel.llm.model_discovery.discover_models` still owns the
         rules. This operation wraps it — the pass runs against the canonical
-        route catalog, the transitions it produced become sanitized audit
-        records, and the aggregate is committed as exactly one new revision.
+        route catalog, the pre/post route state decides what really changed,
+        and everything that changed becomes sanitized audit records committed
+        as exactly one new revision.
 
-        Commit rule (the documented contract for a no-op scan): exactly one
-        revision is written when the pass produced at least one route lifecycle
-        transition — a route that became known (``route.discovered``), one that
-        became unavailable (``route.unavailable``), or one that became available
-        again (``route.restored``). A pass that produced none of those — an
-        empty administrative result, a refresh of routes that were already known
-        and available, or a repeated allowlist deferral — changes no lifecycle
-        state, so **nothing durable happens and the revision does not advance**.
-        The route catalog stays the live source of truth for ``last_seen_at``;
-        the durable aggregate catches up on the next pass that does transition
-        something.
+        Commit rule (MAJOR-V3-02): one discovery pass is at most one mutation
+        batch and therefore at most one revision, written only after
+        ``repository.save()`` returns. A pass that changed durable route state
+        commits — lifecycle transitions (``route.discovered``,
+        ``route.unavailable``, ``route.restored``) *and* refreshes, where a
+        route that existed before and remains available simply has a newer
+        ``last_seen_at``. A refresh is phase-owned state like any other, so it
+        is escaped as ``route.refreshed`` rather than being left live-only. The
+        pass is a true no-op — nothing durable happens and the revision does
+        not advance — only when canonical state is unchanged: an empty
+        administrative result, a repeated allowlist deferral with no field
+        change, or an identical pass at the same ``seen_at``.
 
         Failure rule: the pre-pass catalog is the whole snapshot, and it is put
-        back verbatim if the pass or the save fails, so a failed discovery
-        leaves routes, revision and audit log exactly as they were.
+        back verbatim if the pass or the save fails — including a refresh-only
+        failure — so a failed discovery leaves routes, revision and audit log
+        exactly as they were.
         """
         if not isinstance(connection, ProviderConnection):
             raise TypeError("connection must be a ProviderConnection")
@@ -268,8 +271,11 @@ class ProviderRegistryStateCoordinator:
             result = discover_models(
                 registered, manifest, client, self._routes, seen_at=seen_at
             )
+            routes_after = self._routes.list()
             records = self._discovery_records(
                 registered.connection_id, result, routes_before, seen_at
+            ) + self._route_refresh_records(
+                registered.connection_id, result, routes_before, routes_after, seen_at
             )
             if records:
                 self._commit(records)
@@ -340,6 +346,65 @@ class ProviderRegistryStateCoordinator:
                     entity_id=route_id,
                     occurred_at=seen_at,
                     detail=(("connection_id", connection_id), ("available", "true")),
+                )
+            )
+        return tuple(records)
+
+    def _route_refresh_records(
+        self,
+        connection_id: str,
+        result: ModelDiscoveryResult,
+        routes_before: tuple[ModelRoute, ...],
+        routes_after: tuple[ModelRoute, ...],
+        seen_at: datetime,
+    ) -> tuple[ProviderRegistryAuditRecord, ...]:
+        """Derive the sanitized ``route.refreshed`` records of one discovery pass.
+
+        A refresh is the mutation the lifecycle tuples cannot express: a route
+        that existed before, still exists, stayed available and was advertised
+        again at a newer ``last_seen_at``. Those routes appear in none of
+        ``new_route_ids``/``restored_route_ids``/``unavailable_route_ids``, so
+        the pre/post snapshots are compared directly, keyed by route id for a
+        deterministic walk in canonical id order.
+
+        Lifecycle semantics take precedence (spec §6.6): a route that received
+        ``route.discovered``/``route.restored``/``route.unavailable`` in this
+        same pass is never also reported as refreshed. Availability on both
+        sides must be true, which excludes a vanished (newly unavailable) or
+        deferred route by construction, and an already-deferred route is never
+        stamped by ``mark_seen`` so it cannot appear here either.
+
+        Detail is sanitized: exactly the connection id and ``available=true``.
+        No provider payload, model-list response, credential material or
+        timestamp is echoed into the audit log.
+        """
+        before = {route.route_id: route for route in routes_before}
+        after = {route.route_id: route for route in routes_after}
+        lifecycle_ids = (
+            frozenset(result.new_route_ids)
+            | frozenset(result.restored_route_ids)
+            | frozenset(result.unavailable_route_ids)
+        )
+        records: list[ProviderRegistryAuditRecord] = []
+        for route_id in sorted(after):
+            previous = before.get(route_id)
+            current = after[route_id]
+            if previous is None or route_id in lifecycle_ids:
+                continue
+            if not (previous.available and current.available):
+                continue
+            if previous.last_seen_at == current.last_seen_at:
+                continue
+            records.append(
+                self._audit_record(
+                    event_type="route.refreshed",
+                    entity_kind="route",
+                    entity_id=route_id,
+                    occurred_at=seen_at,
+                    detail=(
+                        ("connection_id", connection_id),
+                        ("available", "true"),
+                    ),
                 )
             )
         return tuple(records)
