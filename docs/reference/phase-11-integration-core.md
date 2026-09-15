@@ -131,19 +131,54 @@ subsystem.
 | `execution.registry` | `cmm.execution.executor_registry.ExecutorRegistry` | `cmm.execution` |
 | `provider.registry` | `kernel.llm.provider_registry.ProviderRegistry` (canonical Phase 11.34 authority) | `kernel.llm` |
 
+### 6.1 Platform boundary contract metadata
+
+`ContractMetadata` describes the **platform boundary**, not a canonical model's
+own version fields. Where the canonical subsystem already publishes the relevant
+version, that value is reused; otherwise the value is an adapter-level platform
+boundary version owned by `cmm.platform`.
+
+| Service ID | contract_name | contract_version | schema_version | authority |
+| --- | --- | --- | --- | --- |
+| `validation.application` | `validation.application` | `1.0.0` | `1` | — |
+| `cognitive.service` | `cognitive.service` | `1.0.0` | `1` | — |
+| `cognitive.adapter_registry` | `cognitive.adapter_registry` | `1.0.0` | `1` | — |
+| `cognitive.extractor_registry` | `cognitive.extractor_registry` | `1.0.0` | `1` | — |
+| `agent.runtime.integration` | `agent.runtime.integration` | `1.0.0` | `1` | — |
+| `domain.registry` | `domain.registry` | `1.0.0` | `1` | — |
+| `workflow.registry` | `workflow.registry` | `1.0.0` | `1` | — |
+| `execution.registry` | `execution.registry` | `1.0.0` | `1` | — |
+| `provider.registry` | `provider.registry` | `2.0.0` | `2` | `provider-registry` |
+
+The `provider.registry` boundary reuses the canonical Phase 11.34 state schema
+(`kernel.llm.provider_state.SCHEMA_VERSION == "2"`) rather than inventing a
+value; the builder imports that constant, so the platform boundary tracks the
+canonical value automatically. No canonical version field is replaced.
+
 `provider.registry` is bound with authority `provider-registry` and holds **the
 same object instance** as the canonical Phase 11.34 Provider Registry. Phase 11.1
 creates no second provider registry, infers no providers, and stores no parallel
 provider state.
 
-Declared dependencies reflect real construction requirements only. The
-`cognitive.adapter_registry` and `cognitive.extractor_registry` bindings exist
-because `ResourceExtractionService.__init__(adapter_registry, extractor_registry)`
-requires both canonical registries positionally; the dependency edges
+### 6.2 Dependency declarations
+
+Declared dependencies reflect real construction requirements only.
+
+`ResourceExtractionService.__init__(adapter_registry, extractor_registry)`
+requires both canonical registries positionally. Therefore
 `cognitive.service -> cognitive.adapter_registry` and
-`cognitive.service -> cognitive.extractor_registry` are therefore genuine
-composition requirements, not graph decoration. No other dependency is declared
-where no real composition requirement exists.
+`cognitive.service -> cognitive.extractor_registry` are genuine composition
+requirements, and `cognitive.adapter_registry` /
+`cognitive.extractor_registry` are bound as platform services because the
+representative composition includes them.
+
+Every other builder declares **no** dependency. `AgentRuntimeIntegrationService`
+takes Agent Runtime internals (`store`, `goal_manager`, `registry_service`,
+`runtime_loop`, `security_service`, `execution_adapter`), which are owned by
+`cmm.agent_runtime` and are deliberately not re-bound at the platform level, so
+no platform dependency is declared for it. No dependency is fabricated for graph
+coverage; this is asserted by
+`tests/platform/test_architecture.py::test_builders_do_not_declare_fabricated_dependencies`.
 
 ## 7. Configuration scope
 
@@ -222,3 +257,76 @@ Phase state before independent audit: `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`.
 No closure, audit, or verified-existing status is claimed here. Independent audit
 must return `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
 `AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES` before any closure commit exists.
+
+## 13. Implementation decisions and minimal deviations from the committed plan
+
+The committed plan's architecture, scope and acceptance criteria were followed.
+The following minimal adjustments were required by repository reality and are
+recorded here as required:
+
+1. **`tests/__init__.py` added.** The plan specifies `tests/platform/__init__.py`.
+   Under pytest's default `prepend` import mode, that makes the directory
+   importable only as the top-level package `platform`, whose name is already
+   owned by the Python standard library; collection then fails with
+   `ModuleNotFoundError: No module named 'platform.test_...'; 'platform' is not
+   a package`. Omitting `tests/platform/__init__.py` instead makes the modules
+   rootless and collides with the equally rootless
+   `tests/workflows/test_contracts.py` (`import file mismatch`). Adding a single
+   `tests/__init__.py` gives every test module a unique identity
+   (`tests.<directory>.<module>`), preserves every approved test filename
+   verbatim, and leaves the inherited suite green. No production code and no
+   approved test filename changed.
+
+2. **Requirements-matrix path.** The plan names
+   `docs/reference/phase-11-requirements-matrix.md`. That file does not exist;
+   the canonical Phase 11 matrix is
+   `docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`,
+   which was updated instead.
+
+3. **`FrozenServiceRegistryError` added.** The plan lists eight concrete
+   exception classes. Registering into or replacing within an already-frozen
+   registry has no accurate home among them, so one additional typed error was
+   added (`SERVICE_REGISTRY_FROZEN`, category `lifecycle`) to keep diagnostics
+   precise. It is not a new subsystem or registry.
+
+4. **`ApplicationContainer.failed(error)` added.** The approved design declares
+   `ContainerState.FAILED` as part of the lifecycle and lists `container not
+   ready` as an error category. `build()` still fails closed by raising and
+   returns no container, so `failed(...)` is the explicit constructor that makes
+   the `FAILED` state and the `ContainerNotReadyError` category reachable rather
+   than dead. A failed container holds no registry and refuses service lookup.
+
+5. **`CompatibilityStatus` is the stored field.** `CompatibilityResult` stores
+   `status` and `reason_code`, and exposes `compatible` as a derived property, so
+   both the plan's `CompatibilityStatus` output and the plan's
+   `result.compatible is True` usage hold.
+
+6. **Version well-formedness guard.** The spec requires malformed versions to
+   fail closed. A version token must be a dotted numeric core with an optional
+   `-prerelease` / `+build` suffix; anything else fails closed with
+   `MALFORMED_VERSION`. No semver-range negotiation, migration or network lookup
+   exists.
+
+7. **Two cognitive registry services.** Beyond the required identities,
+   `cognitive.adapter_registry` and `cognitive.extractor_registry` are bound
+   because `ResourceExtractionService` requires both canonical registries to
+   exist. They are existing canonical registries bound by reference — not new
+   registries and not graph decoration.
+
+8. **`ROADMAP.md` deliberately unchanged.** The repository's top-level roadmap
+   records subphase status only in closed/audited terms; it contains no pre-audit
+   status convention. Under the assignment's condition ("only if the repository's
+   current pre-audit convention requires a top-level status change"), no change
+   was made; the pre-audit status is recorded in the detailed Phase 11 roadmap
+   §11.1 and in the Phase 11 requirements matrix §8.
+
+9. **Ruff invocation.** `CONTRIBUTING.md` defines the repository's canonical
+   Ruff invocation as scoped to changed Python files
+   (`python -m ruff check <changed-python-paths>`). Bare repository-wide
+   `ruff check .` / `ruff format --check .` are **not** clean at the Phase 11.1
+   starting HEAD for pre-existing reasons unrelated to this subphase. Phase 11.1
+   is therefore validated with the canonical scoped invocation; the
+   repository-wide baseline was measured and reported without being altered.
+
+No deviation changes the architecture, widens the scope, replaces a canonical
+subsystem owner, or pulls Phase 11.2 work forward.

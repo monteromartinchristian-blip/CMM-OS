@@ -281,6 +281,38 @@ ContractMetadata(
 - incompatibility detection;
 - integration documentation.
 
+### 11.1 implementation status
+
+**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+
+Implemented by the `cmm/platform/` integration-core package:
+
+- requirement `F11-015 — Canonical Integration Core`;
+- Design Point `DP-101 — Canonical Application Composition Root`;
+- acceptance test `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`;
+- reference documentation — [`docs/reference/phase-11-integration-core.md`](../reference/phase-11-integration-core.md).
+
+The integration core composes **already-existing** canonical subsystem instances
+through explicit version-aware service bindings. It holds references and owns no
+subsystem state. `IntegrationServiceRegistry` registers platform composition
+bindings only — not providers, agents, domains, workflows, operations, tools,
+validators, rules or models.
+
+Explicitly **not** implemented by 11.1 and reserved to later subphases: the
+Phase 11.2 Orchestrator, `IntentResolver`, `ContextResolver`, `DomainRouter`,
+`AgentRouter`, `OrchestrationRequest`, `OrchestrationResult`, API/backend
+endpoints, conversational flow, plugin lifecycle, Model Gateway, routing policy,
+remote transport, authentication/authorization, secrets management, storage
+migrations and a new Event System.
+
+Phase 11.1 neither reopens nor modifies the closed Phase 11.34 Provider
+Registry (`F11-014` / `DP-134`). The platform binds the canonical registry
+object itself, by reference, and creates no second provider registry.
+
+No closure, audit or verified-existing status is claimed before the independent
+audit returns `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
+`AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES`.
+
 ---
 
 # 11.2 — Orchestration Layer

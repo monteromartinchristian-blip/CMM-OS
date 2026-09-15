@@ -131,6 +131,42 @@ Documents written before that change are rejected rather than silently
 reinterpreted, and the state envelope still carries opaque `credential_ref`
 values only — never secret material.
 
+### 4.3 `F11-015` — Canonical Integration Core
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix and `F11-014` is owned
+by §4.1 of this document. `F11-015` is the next non-colliding Phase 11
+functional identifier, assigned to Phase 11.1 — Integration Core.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-015` | Canonical Integration Core. CMM OS shall compose existing canonical subsystems through one explicit, version-aware application composition root and platform service-binding registry that preserves subsystem ownership, validates configuration and dependency/contract compatibility, prevents circular or duplicate authority, supports explicit implementation replacement/test adapters, exposes safe deterministic inspection, reuses the closed Provider Registry, and fails closed without implementing Phase 11.2 orchestration. | `SRC-R11` (detailed Phase 11 roadmap §11.1); `docs/superpowers/specs/2026-09-15-phase-11.1-integration-core-design.md` §20 | Phase 11.1 | `cmm/platform/__init__.py`; `cmm/platform/contracts.py`; `cmm/platform/compatibility.py`; `cmm/platform/errors.py`; `cmm/platform/service_registry.py`; `cmm/platform/configuration.py`; `cmm/platform/modules.py`; `cmm/platform/inspection.py`; `cmm/platform/container.py`; `cmm/platform/canonical.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` |
+
+### 4.4 `F11-015` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-015 — Canonical Integration Core` |
+| Design Point | `DP-101 — Canonical Application Composition Root` |
+| Acceptance test | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` |
+| Production package | `cmm/platform/` (10 modules) |
+| Focused suite | `tests/platform/` |
+| Architecture gates | `tests/platform/test_architecture.py` |
+| Reference documentation | `docs/reference/phase-11-integration-core.md` |
+| Design specification | `docs/superpowers/specs/2026-09-15-phase-11.1-integration-core-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-15-phase-11.1-integration-core-implementation-plan.md` |
+| Inherited requirement reused | `F11-014` / `DP-134` (Phase 11.34) — reused as a dependency, **not reopened and not modified** |
+| Inherited acceptance regression | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+
+The canonical Provider Registry bound as `provider.registry` **is** the Phase
+11.34 authoritative object. Phase 11.1 creates no second provider registry,
+stores no parallel provider state, infers no providers and weakens no
+fail-closed lifecycle behaviour.
+
+No closure, audit or verified-existing status is claimed for `F11-015` before an
+independent audit returns `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
+`AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES`.
+
 ## 5. Current lifecycle status
 
 ```text
@@ -206,3 +242,53 @@ Audit-report commit:
   implemented here.
 - No parallel provider inventory, persistence framework, isolation runtime,
   validation engine, routing engine, event bus or usage catalog is introduced.
+
+## 8. Phase 11.1 — Integration Core current status
+
+Sections 5 and 6 record the closed Phase 11.34 Provider Registry and are not
+modified by Phase 11.1. The Phase 11.1 integration core is a separate subphase
+and is reported here:
+
+```text
+PHASE11_1=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_015=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_101=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_101=PASS
+AT_DP_134=PASS
+F11_014=VERIFIED_EXISTING
+DP_134=VERIFIED_EXISTING
+PHASE11_34=CLOSED
+INDEPENDENT_AUDIT=NOT_YET_PERFORMED
+CLOSURE_ELIGIBLE=NO
+```
+
+`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` uses the vocabulary defined in §2. It
+records that the implementation exists and that the required independent audit
+has not yet been performed. It is **not** a closure and **not** a verification
+claim: `DP_101` is deliberately not `VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE`
+is deliberately `NO` until the independent audit passes.
+
+Phase 11.1 does not reopen Phase 11.34. `PHASE11_34=CLOSED`,
+`F11-014=VERIFIED_EXISTING`, `DP-134=VERIFIED_EXISTING` and `AT-DP-134=PASS`
+remain exactly as recorded in §4.1, §5 and §6.
+
+Deferred scope recorded with Phase 11.1 (not implemented, not silently pulled
+forward):
+
+- Phase 11.2 Orchestration Layer — `Orchestrator`, `IntentResolver`,
+  `ContextResolver`, `DomainRouter`, `AgentRouter`, `OrchestrationRequest`,
+  `OrchestrationResult`, central user-request processing;
+- application API/backend endpoints and any conversational interface;
+- CMMChat and CMM Bots integration;
+- Model Gateway and the Phase 11.35 Routing Policy Engine;
+- real remote transport, authentication and authorization/RBAC;
+- secrets management, storage migrations and backup/recovery;
+- Phase 11.19 Plugin System lifecycle (discovery, install, enable/disable,
+  sandboxing, permission management, upgrade, uninstall);
+- Docker runtime, UI, search and notifications;
+- a new Event System, audit-trail subsystem or performance/resource-management
+  subsystem.
+
+No parallel provider registry, domain registry, agent runtime, planner, workflow
+engine, validation engine, knowledge/memory store, tool registry or event bus is
+introduced by Phase 11.1.
