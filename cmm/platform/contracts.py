@@ -5,17 +5,68 @@ integration core.  It deliberately does not redefine any canonical subsystem
 contract: roadmap contract names that already have a canonical production owner
 stay owned by that subsystem and are recorded, not cloned.
 
+Service descriptor metadata is a small descriptive boundary, not a storage
+surface.  Values are recursively normalized to immutable representations,
+secret-shaped keys fail closed against a fixed denylist, and opaque runtime
+objects are rejected.  This is a structural boundary; no content heuristics are
+performed.
+
 See ``docs/reference/phase-11-integration-core.md`` for the canonicalization
 matrix that classifies every roadmap contract name.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import Any
+
+#: Normalized metadata key names (``api_key``) that fail closed.
+SENSITIVE_METADATA_KEYS = frozenset(
+    {
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "password",
+        "passwd",
+        "token",
+        "api_key",
+        "apikey",
+        "access_key",
+        "private_key",
+        "auth",
+        "authorization",
+        "cookie",
+        "session_key",
+        "prompt",
+        "reasoning",
+        "provider_payload",
+        "payload",
+    }
+)
+
+#: Normalized metadata key tokens whose presence in any segment fails closed.
+SENSITIVE_METADATA_KEY_TOKENS = frozenset(
+    {
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "password",
+        "passwd",
+        "token",
+        "auth",
+        "authorization",
+        "cookie",
+        "prompt",
+        "reasoning",
+        "payload",
+    }
+)
 
 
 def _non_empty(value: str, field_name: str) -> str:
@@ -24,6 +75,62 @@ def _non_empty(value: str, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
         raise ValueError(f"{field_name} must be non-empty")
+    return normalized
+
+
+def _metadata_key_tokens(key: str) -> tuple[str, ...]:
+    """Split a metadata key into deterministic lowercase tokens."""
+
+    return tuple(token for token in re.split(r"[^a-z0-9]+", key.lower()) if token)
+
+
+def _is_sensitive_metadata_key(key: str) -> bool:
+    """Return whether *key* names secret-bearing content.
+
+    Comparison is exact over the normalized key and its deterministic segments,
+    so it never guesses at arbitrary string content.
+    """
+
+    tokens = _metadata_key_tokens(key)
+    if not tokens:
+        return False
+    if "_".join(tokens) in SENSITIVE_METADATA_KEYS:
+        return True
+    return any(token in SENSITIVE_METADATA_KEY_TOKENS for token in tokens)
+
+
+def _normalize_metadata_value(value: object, key: str) -> object:
+    """Return an immutable descriptive representation of *value*."""
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, bytes | bytearray):
+        raise TypeError(f"metadata '{key}' must not carry binary data")
+    if isinstance(value, Mapping):
+        return MappingProxyType(_normalize_metadata_mapping(value))
+    if isinstance(value, Sequence):
+        return tuple(_normalize_metadata_value(item, key) for item in value)
+
+    raise TypeError(
+        f"metadata '{key}' must be a descriptive immutable value, "
+        f"not {type(value).__name__}"
+    )
+
+
+def _normalize_metadata_mapping(
+    metadata: Mapping[object, object],
+) -> dict[str, object]:
+    """Copy *metadata* into a recursively immutable, secret-free mapping."""
+
+    normalized: dict[str, object] = {}
+    for key, value in metadata.items():
+        if not isinstance(key, str):
+            raise TypeError("metadata keys must be strings")
+        if _is_sensitive_metadata_key(key):
+            raise ValueError(
+                f"metadata key '{key}' is not permitted in a service descriptor"
+            )
+        normalized[key] = _normalize_metadata_value(value, key)
     return normalized
 
 
@@ -130,6 +237,13 @@ class ServiceDescriptor:
     Descriptors carry identifiers and boundary metadata only.  They never carry
     secrets, provider credentials, mutable runtime state, or copied sensitive
     domain content.
+
+    ``metadata`` accepts only descriptive immutable values — ``None``, ``bool``,
+    ``int``, ``float``, ``str``, mappings of those values, and sequences of
+    them.  Mappings are copied and normalized to immutable representations,
+    sequences become tuples, and any other object is rejected.  Keys naming
+    secret-bearing content are rejected recursively, so descriptor metadata can
+    never become a secret or live-state storage surface.
     """
 
     service_id: str
@@ -154,6 +268,9 @@ class ServiceDescriptor:
         if authority == "":
             raise ValueError("authority must be non-empty when provided")
 
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping")
+
         object.__setattr__(self, "service_id", service_id)
         object.__setattr__(self, "implementation_id", implementation_id)
         object.__setattr__(self, "authority", authority)
@@ -162,7 +279,11 @@ class ServiceDescriptor:
             "dependencies",
             tuple(sorted(self.dependencies, key=lambda item: item.service_id)),
         )
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(_normalize_metadata_mapping(self.metadata)),
+        )
 
 
 @dataclass(frozen=True, slots=True)

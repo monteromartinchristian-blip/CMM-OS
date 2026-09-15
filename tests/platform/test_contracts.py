@@ -264,6 +264,133 @@ def test_service_descriptor_defaults_to_local_mode_without_authority() -> None:
     assert descriptor.dependencies == ()
 
 
+# ── ServiceDescriptor.metadata safety (Audit V1 MAJOR-02) ────────────────────
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"token": "sk-secret"},
+        {"password": "secret"},
+        {"api_key": "secret"},
+        {"apikey": "secret"},
+        {"access_key": "secret"},
+        {"private_key": "secret"},
+        {"credential": "secret"},
+        {"credentials": "secret"},
+        {"passwd": "secret"},
+        {"secrets": "secret"},
+        {"auth": "secret"},
+        {"authorization": "secret"},
+        {"cookie": "secret"},
+        {"session_key": "secret"},
+        {"prompt": "internal"},
+        {"reasoning": "internal"},
+        {"payload": {"x": 1}},
+        {"provider_payload": {"x": 1}},
+        {"nested": {"password": "secret"}},
+        {"nested": {"private_key": "secret"}},
+        {"display": {"authorization": "secret"}},
+        {"display": {"client_secret": "secret"}},
+        {"API-Key": "secret"},
+        {"Session Key": "secret"},
+    ],
+)
+def test_service_descriptor_rejects_sensitive_metadata_keys(
+    metadata: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        _descriptor(metadata=metadata)
+
+
+def test_service_descriptor_preserves_permitted_metadata_key_spelling() -> None:
+    descriptor = _descriptor(metadata={"Display": {"Label": "Composition"}})
+
+    assert descriptor.metadata == {"Display": {"Label": "Composition"}}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        object(),
+        b"bytes",
+        bytearray(b"bytes"),
+        {"client": object()},
+        {"nested": {"client": object()}},
+        {"labels": [object()]},
+    ],
+)
+def test_service_descriptor_rejects_opaque_metadata_objects(value: object) -> None:
+    with pytest.raises(TypeError):
+        _descriptor(metadata=value)
+
+
+def test_service_descriptor_rejects_non_string_metadata_keys() -> None:
+    with pytest.raises(TypeError):
+        _descriptor(metadata={1: "value"})
+
+
+def test_service_descriptor_accepts_descriptive_immutable_values() -> None:
+    descriptor = _descriptor(
+        metadata={
+            "display": {
+                "label": "Composition",
+                "order": 3,
+                "ratio": 0.5,
+                "enabled": True,
+                "note": None,
+            },
+            "labels": ["one", "two"],
+        }
+    )
+
+    assert descriptor.metadata["display"]["label"] == "Composition"
+    assert descriptor.metadata["display"]["order"] == 3
+    assert descriptor.metadata["display"]["enabled"] is True
+    assert descriptor.metadata["display"]["note"] is None
+    assert descriptor.metadata["labels"] == ("one", "two")
+    assert isinstance(descriptor.metadata["labels"], tuple)
+
+
+def test_service_descriptor_metadata_is_recursively_immutable() -> None:
+    source = {
+        "display": {
+            "labels": ["one", "two"],
+            "enabled": True,
+        },
+    }
+    descriptor = _descriptor(metadata=source)
+
+    source["display"]["labels"].append("three")
+    source["display"]["enabled"] = False
+    source["display"]["injected"] = "later"
+
+    assert descriptor.metadata["display"]["labels"] == ("one", "two")
+    assert descriptor.metadata["display"]["enabled"] is True
+    assert "injected" not in descriptor.metadata["display"]
+
+    with pytest.raises(TypeError):
+        descriptor.metadata["display"] = {}  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        descriptor.metadata["display"]["enabled"] = False  # type: ignore[index]
+
+    assert not hasattr(descriptor.metadata["display"]["labels"], "append")
+    with pytest.raises(TypeError):
+        descriptor.metadata["display"]["labels"][0] = "three"  # type: ignore[index]
+
+
+def test_service_descriptor_metadata_copy_detaches_nested_containers() -> None:
+    nested = {"labels": ["one"], "enabled": True}
+    descriptor = _descriptor(metadata={"display": nested})
+
+    nested["labels"].append("two")
+    nested["enabled"] = False
+
+    assert descriptor.metadata["display"]["labels"] == ("one",)
+    assert descriptor.metadata["display"]["enabled"] is True
+
+
 # ── ServiceBinding ───────────────────────────────────────────────────────────
 
 
