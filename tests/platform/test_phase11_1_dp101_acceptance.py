@@ -75,6 +75,7 @@ from cmm.platform.errors import (
     InvalidReplacementError,
     MissingDependencyError,
 )
+from cmm.platform.inspection import ServiceInspection
 from cmm.platform.modules import StaticCompositionModule
 from cmm.platform.service_registry import IntegrationServiceRegistry
 from cmm.validation.interfaces.application import ValidationApplicationService
@@ -111,6 +112,22 @@ FORBIDDEN_INSPECTION_KEYS = (
     "reasoning",
     "payload",
 )
+
+
+def _snapshot_keys(value: object) -> set[str]:
+    """Collect every key reachable in a serialized inspection snapshot."""
+
+    if isinstance(value, dict):
+        keys = set(value)
+        for item in value.values():
+            keys |= _snapshot_keys(item)
+        return keys
+    if isinstance(value, list):
+        found: set[str] = set()
+        for item in value:
+            found |= _snapshot_keys(item)
+        return found
+    return set()
 
 
 # ── Representative canonical object graph ────────────────────────────────────
@@ -396,6 +413,24 @@ def test_at_dp_101_deterministic_inspection_snapshot(tmp_path: Path) -> None:
     payload = json.dumps(first, sort_keys=True)
     assert "provider.registry" in payload
     assert "kernel.llm.provider_registry.ProviderRegistry" in payload
+
+
+def test_at_dp_101_ready_snapshot_is_always_serializable(tmp_path: Path) -> None:
+    """READY must always imply a valid, serializable public snapshot."""
+
+    canonical = build_canonical_test_components(tmp_path)
+
+    container = build_phase11_1_test_container(canonical)
+
+    assert container.state is ContainerState.READY
+    serialized = container.snapshot().to_dict()
+
+    assert serialized["state"] == "ready"
+    assert tuple(item["service_id"] for item in serialized["services"]) == (
+        REQUIRED_SERVICE_IDS
+    )
+    assert json.loads(json.dumps(serialized)) == serialized
+    assert all(item["mode"] in {"local", "adapter"} for item in serialized["services"])
 
 
 def test_at_dp_101_dependency_order_is_deterministic(tmp_path: Path) -> None:
@@ -769,7 +804,7 @@ def test_at_dp_101_inspection_contains_no_raw_implementation(tmp_path: Path) -> 
 def test_at_dp_101_inspection_does_not_leak_arbitrary_descriptor_metadata(
     tmp_path: Path,
 ) -> None:
-    """A sensitive marker smuggled into descriptor metadata must never surface."""
+    """Descriptor metadata never reaches the public composition boundary."""
 
     marker = "SENSITIVE-PROVIDER-PAYLOAD-MARKER"
     canonical = build_canonical_test_components(tmp_path)
@@ -777,7 +812,7 @@ def test_at_dp_101_inspection_does_not_leak_arbitrary_descriptor_metadata(
         service_id="diagnostic.carrier",
         contract=provider_registry_binding(ProviderRegistry()).descriptor.contract,
         implementation_id="tests.platform.DiagnosticCarrier",
-        metadata={"provider_payload": marker, "hidden_reasoning": marker},
+        metadata={"display": {"label": marker}},
     )
     module = StaticCompositionModule(
         module_id=CANONICAL_MODULE_ID,
@@ -796,9 +831,10 @@ def test_at_dp_101_inspection_does_not_leak_arbitrary_descriptor_metadata(
     container = ApplicationContainer.build(configuration, modules=(module,))
     payload = json.dumps(container.snapshot().to_dict())
 
+    assert container.state is ContainerState.READY
     assert marker not in payload
-    assert "provider_payload" not in payload
-    assert "hidden_reasoning" not in payload
+    assert "display" not in payload
+    assert "metadata" not in _snapshot_keys(container.snapshot().to_dict())
 
 
 def test_at_dp_101_inspection_exposes_no_forbidden_keys(tmp_path: Path) -> None:
@@ -806,24 +842,192 @@ def test_at_dp_101_inspection_exposes_no_forbidden_keys(tmp_path: Path) -> None:
 
     payload = build_phase11_1_test_container(canonical).snapshot().to_dict()
 
-    def collect_keys(value: object) -> set[str]:
-        if isinstance(value, dict):
-            keys = set(value)
-            for item in value.values():
-                keys |= collect_keys(item)
-            return keys
-        if isinstance(value, list):
-            found: set[str] = set()
-            for item in value:
-                found |= collect_keys(item)
-            return found
-        return set()
-
-    keys = collect_keys(payload)
+    keys = _snapshot_keys(payload)
 
     assert not any(
         token in key.lower() for key in keys for token in FORBIDDEN_INSPECTION_KEYS
     )
+
+
+# ── Audit V1 remediation coverage ────────────────────────────────────────────
+
+
+def test_at_dp_101_rejects_fake_provider_registry_authority() -> None:
+    """Audit V1 MAJOR-01: an unrelated object cannot claim provider authority."""
+
+    with pytest.raises(TypeError):
+        provider_registry_binding(object())
+
+    with pytest.raises(TypeError):
+        provider_registry_binding(ProviderManifestRegistry(ProviderRegistry()))
+
+
+def test_at_dp_101_provider_authority_keeps_canonical_object_and_boundary(
+    tmp_path: Path,
+) -> None:
+    """The canonical Provider Registry is bound with its own runtime boundary."""
+
+    canonical = build_canonical_test_components(tmp_path)
+
+    binding = provider_registry_binding(canonical.provider_registry)
+
+    assert binding.implementation is canonical.provider_registry
+    assert binding.runtime_contract is ProviderRegistry
+    assert isinstance(binding.implementation, binding.runtime_contract)
+
+    container = build_phase11_1_test_container(canonical)
+
+    assert container.get_service("provider.registry") is canonical.provider_registry
+
+
+def test_at_dp_101_every_canonical_binding_enforces_a_runtime_boundary(
+    tmp_path: Path,
+) -> None:
+    """Each canonical service is bound with an enforceable implementation boundary."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    bindings = canonical_bindings(canonical)
+
+    assert (
+        tuple(sorted(binding.descriptor.service_id for binding in bindings))
+        == REQUIRED_SERVICE_IDS
+    )
+
+    for binding in bindings:
+        service_id = binding.descriptor.service_id
+        assert binding.runtime_contract is not None, (
+            f"{service_id} is bound without an enforceable runtime boundary"
+        )
+        assert isinstance(binding.implementation, binding.runtime_contract), (
+            f"{service_id} implementation violates its canonical runtime boundary"
+        )
+
+    container = build_phase11_1_test_container(canonical)
+
+    for binding in bindings:
+        assert container.get_service(binding.descriptor.service_id) is (
+            binding.implementation
+        )
+
+
+def test_at_dp_101_forged_provider_binding_cannot_reach_ready(
+    tmp_path: Path,
+) -> None:
+    """A forged canonical binding is rejected before readiness by its boundary."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    legitimate = provider_registry_binding(canonical.provider_registry)
+    forged = ServiceBinding(
+        descriptor=legitimate.descriptor,
+        implementation=object(),
+        runtime_contract=legitimate.runtime_contract,
+    )
+    module = StaticCompositionModule(
+        module_id=CANONICAL_MODULE_ID,
+        bindings=tuple(
+            binding
+            for binding in canonical_bindings(canonical)
+            if binding.descriptor.service_id != "provider.registry"
+        )
+        + (forged,),
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        ApplicationContainer.build(canonical_configuration(), modules=(module,))
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert exc.value.result.details["service_id"] == "provider.registry"
+
+
+def test_at_dp_101_unsafe_descriptor_metadata_cannot_enter_the_composition(
+    tmp_path: Path,
+) -> None:
+    """Audit V1 MAJOR-02: secret-shaped metadata cannot exist on a descriptor."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    original = validation_application_binding(canonical.validation_application)
+
+    for unsafe in (
+        {"token": "sk-secret"},
+        {"nested": {"password": "p"}},
+        {"display": {"authorization": "Bearer secret"}},
+        {"provider_payload": {"x": 1}},
+        {"prompt": "internal"},
+    ):
+        with pytest.raises(ValueError):
+            ServiceDescriptor(
+                service_id="validation.application",
+                contract=original.descriptor.contract,
+                implementation_id=original.descriptor.implementation_id,
+                metadata=unsafe,
+            )
+
+    with pytest.raises(TypeError):
+        ServiceDescriptor(
+            service_id="validation.application",
+            contract=original.descriptor.contract,
+            implementation_id=original.descriptor.implementation_id,
+            metadata={"client": object()},
+        )
+
+
+def test_at_dp_101_descriptor_metadata_is_detached_and_immutable(
+    tmp_path: Path,
+) -> None:
+    """Permitted metadata is copied and recursively frozen for the real graph."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    original = validation_application_binding(canonical.validation_application)
+    source = {"display": {"labels": ["one", "two"], "enabled": True}}
+
+    descriptor = ServiceDescriptor(
+        service_id="validation.application",
+        contract=original.descriptor.contract,
+        implementation_id=original.descriptor.implementation_id,
+        metadata=source,
+    )
+
+    source["display"]["labels"].append("three")
+    source["display"]["enabled"] = False
+
+    assert descriptor.metadata["display"]["labels"] == ("one", "two")
+    assert descriptor.metadata["display"]["enabled"] is True
+
+    with pytest.raises(TypeError):
+        descriptor.metadata["display"]["enabled"] = False  # type: ignore[index]
+
+
+def test_at_dp_101_malformed_mode_cannot_reach_ready(tmp_path: Path) -> None:
+    """Audit V1 MAJOR-03: a malformed mode must fail before any container is ready."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    original = validation_application_binding(canonical.validation_application)
+
+    with pytest.raises(TypeError):
+        ServiceDescriptor(
+            service_id="validation.application",
+            contract=original.descriptor.contract,
+            implementation_id=original.descriptor.implementation_id,
+            mode="bogus",  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(TypeError):
+        ServiceInspection(
+            service_id="validation.application",
+            implementation_id=original.descriptor.implementation_id,
+            contract_name=original.descriptor.contract.contract_name,
+            contract_version=original.descriptor.contract.contract_version,
+            schema_version=original.descriptor.contract.schema_version,
+            owner=original.descriptor.contract.owner,
+            dependency_ids=(),
+            mode="bogus",  # type: ignore[arg-type]
+            authority=None,
+        )
+
+    container = build_phase11_1_test_container(canonical)
+
+    assert container.state is ContainerState.READY
+    container.snapshot().to_dict()
 
 
 # ── No second provider authority ─────────────────────────────────────────────
