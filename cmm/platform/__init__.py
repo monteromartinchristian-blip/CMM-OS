@@ -15,6 +15,11 @@ packages; only Phase 11.1 platform-boundary values are re-exported here.
 
 from __future__ import annotations
 
+from cmm.platform.compatibility import (
+    CompatibilityResult,
+    CompatibilityStatus,
+    check_contract_compatibility,
+)
 from cmm.platform.contracts import (
     ContainerState,
     ContractCanonicalizationEntry,
@@ -27,6 +32,8 @@ from cmm.platform.contracts import (
 )
 
 __all__ = [
+    "CompatibilityResult",
+    "CompatibilityStatus",
     "ContainerState",
     "ContractCanonicalizationEntry",
     "ContractClassification",
@@ -35,4 +42,5 @@ __all__ = [
     "ServiceDependency",
     "ServiceDescriptor",
     "ServiceMode",
+    "check_contract_compatibility",
 ]
