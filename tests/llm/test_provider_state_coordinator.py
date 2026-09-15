@@ -179,8 +179,10 @@ class _DiscoveryClient:
 
     def __init__(self, models: tuple[str, ...]) -> None:
         self._models = models
+        self.calls = 0
 
     def list_models(self) -> tuple[str, ...]:
+        self.calls += 1
         return self._models
 
 
@@ -1432,3 +1434,143 @@ def test_route_and_validation_history_survive_a_restart_together(
     restored_connection = restored.connections.get("deepseek:main")
     assert restored_connection is not None
     assert restored_connection.status is ConnectionStatus.CONNECTED
+
+
+# --- discovery manifest authority (MAJOR-V4-03) ------------------------------
+
+
+def _foreign_manifest(
+    provider_id: str = "deepseek",
+    *,
+    allowlist: tuple[str, ...] = ("deepseek-chat",),
+) -> ProviderManifest:
+    """Build a same-id manifest that is deliberately not the canonical one."""
+    return ProviderManifest(
+        provider_id=provider_id,
+        display_name=provider_id,
+        billing_class=BillingClass.PAYG,
+        default_base_url="https://foreign.example/v1",
+        auth_scheme="bearer",
+        activation_allowlist=allowlist,
+    )
+
+
+def test_discovery_rejects_a_foreign_same_id_manifest_before_any_effect(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V4-03: a caller-supplied manifest is a claim, never authority."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    assert runtime.manifests.get("deepseek") is not None
+    foreign = _foreign_manifest()
+    client = _DiscoveryClient(("deepseek-chat", "deepseek-reasoner"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        runtime.coordinator.discover_models(connection, foreign, client, seen_at=T0)
+
+    assert client.calls == 0
+    assert runtime.routes.list() == ()
+    assert runtime.coordinator.revision == 0
+    assert runtime.coordinator.audit_log == ()
+    assert repository.load() is None
+
+
+def test_discovery_rejects_a_stale_formerly_active_manifest(
+    tmp_path: Path,
+) -> None:
+    """A manifest that was once canonical is still not the active one."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    previous = _active_manifest(runtime)
+
+    # Replace the provider authority, then register fresh metadata under it.
+    runtime.providers.remove("deepseek")
+    runtime.providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    replacement = runtime.manifests.register(
+        _manifest("deepseek", _DEEPSEEK_URL, BillingClass.PAYG)
+    )
+    assert replacement is not previous
+    assert runtime.manifests.get("deepseek") is replacement
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        runtime.coordinator.discover_models(connection, previous, client, seen_at=T0)
+
+    assert client.calls == 0
+    assert runtime.routes.list() == ()
+    assert runtime.coordinator.revision == 0
+    assert runtime.coordinator.audit_log == ()
+    assert repository.load() is None
+
+
+def test_discovery_rejects_a_manifest_for_another_canonical_provider(
+    tmp_path: Path,
+) -> None:
+    """A manifest of a *different* canonical provider is also not authority."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    other = runtime.manifests.get("qwen-token-plan")
+    assert other is not None
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        runtime.coordinator.discover_models(connection, other, client, seen_at=T0)
+
+    assert client.calls == 0
+    assert runtime.routes.list() == ()
+    assert runtime.coordinator.revision == 0
+    assert repository.load() is None
+
+
+def test_discovery_rejects_a_manifest_whose_provider_has_no_active_metadata(
+    tmp_path: Path,
+) -> None:
+    """With no active canonical manifest for the connection, discovery fails closed."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    canonical = _active_manifest(runtime)
+
+    client = _DiscoveryClient(("deepseek-chat",))
+    runtime.providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        runtime.coordinator.discover_models(connection, canonical, client, seen_at=T0)
+
+    assert client.calls == 0
+    assert runtime.routes.list() == ()
+    assert runtime.coordinator.revision == 0
+    assert repository.load() is None
+
+
+def test_discovery_still_runs_with_the_active_canonical_manifest(
+    tmp_path: Path,
+) -> None:
+    """The identity guard rejects divergence only, never the canonical manifest."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    result = runtime.coordinator.discover_models(
+        connection, _active_manifest(runtime), client, seen_at=T0
+    )
+
+    assert client.calls == 1
+    assert result.new_route_ids == ("deepseek:main:deepseek-chat",)
+    assert runtime.coordinator.revision == 1

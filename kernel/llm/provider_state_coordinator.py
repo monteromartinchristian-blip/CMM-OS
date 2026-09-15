@@ -234,6 +234,19 @@ class ProviderRegistryStateCoordinator:
         and everything that changed becomes sanitized audit records committed
         as exactly one new revision.
 
+        Manifest authority rule (MAJOR-V4-03): the ``manifest`` argument is a
+        claim, not authority. The method canonicalizes the connection through
+        its exact bound connection registry and then requires the caller's
+        manifest to *be* the active canonical manifest for the registered
+        connection's provider — exact object identity, because a same-id
+        manifest with different activation policy would otherwise inject
+        foreign metadata into canonical route state. A foreign or stale
+        manifest, or a provider with no active canonical metadata, raises
+        :class:`ProviderStateCoherenceError` before the client is consulted and
+        before any route, audit, revision or repository state can change. The
+        caller's manifest is never silently ignored in favour of the canonical
+        one: passing the wrong object is a caller composition error.
+
         Commit rule (MAJOR-V3-02): one discovery pass is at most one mutation
         batch and therefore at most one revision, written only after
         ``repository.save()`` returns. A pass that changed durable route state
@@ -264,6 +277,11 @@ class ProviderRegistryStateCoordinator:
         if registered is None:
             raise ValueError(
                 f"connection is not registered: {connection.connection_id}"
+            )
+        canonical_manifest = self._manifests.get(registered.provider_id)
+        if canonical_manifest is None or canonical_manifest is not manifest:
+            raise ProviderStateCoherenceError(
+                "discovery manifest is not the active canonical manifest"
             )
 
         routes_before = self._routes.list()
