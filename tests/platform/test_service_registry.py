@@ -293,6 +293,26 @@ def test_registry_rejects_implementation_violating_runtime_contract() -> None:
     assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
 
 
+def test_registry_revalidates_a_canonical_runtime_contract() -> None:
+    """Defense in depth: a canonical boundary is re-checked at registration."""
+
+    from cmm.platform.canonical import provider_registry_binding
+    from kernel.llm.provider_registry import ProviderRegistry
+
+    canonical = provider_registry_binding(ProviderRegistry())
+    forged = ServiceBinding(
+        descriptor=canonical.descriptor,
+        implementation=object(),
+        runtime_contract=canonical.runtime_contract,
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        IntegrationServiceRegistry().register(forged)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert exc.value.result.details["service_id"] == "provider.registry"
+
+
 def test_registry_accepts_implementation_satisfying_runtime_contract() -> None:
     registry = IntegrationServiceRegistry()
     implementation = ValidationService()

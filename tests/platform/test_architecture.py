@@ -55,6 +55,12 @@ from cmm.platform.canonical import (
     validation_application_binding,
     workflow_registry_binding,
 )
+from cmm.platform.contracts import (
+    ServiceBinding,
+    ServiceDescriptor,
+    ServiceMode,
+)
+from cmm.platform.service_registry import IntegrationServiceRegistry
 from cmm.validation.interfaces.application import ValidationApplicationService
 from cmm.workflows.registry import InMemoryWorkflowRegistry
 from kernel.llm.provider_registry import ProviderRegistry
@@ -515,3 +521,187 @@ def test_platform_modules_hold_no_module_level_registry_instance() -> None:
             continue
         assert isinstance(module, ModuleType)
         check(module_name, module)
+
+
+# ── Remediation V1 / MAJOR-01: canonical runtime boundaries ──────────────────
+
+
+def _real_validation_application(tmp_path: Path) -> ValidationApplicationService:
+    return ValidationApplicationService(project_root=tmp_path)
+
+
+def _real_cognitive_service() -> ResourceExtractionService:
+    adapters, extractors = _real_cognitive_registries()
+    return ResourceExtractionService(adapters, extractors)
+
+
+#: ``(service_id, builder, canonical runtime contract, canonical factory)`` for
+#: every canonical Phase 11.1 binding whose runtime boundary is safely
+#: enforceable with ``isinstance``.
+CANONICAL_RUNTIME_BOUNDARY_CASES = (
+    (
+        "provider.registry",
+        provider_registry_binding,
+        ProviderRegistry,
+        lambda _tmp_path: ProviderRegistry(),
+    ),
+    (
+        "domain.registry",
+        domain_registry_binding,
+        DomainRegistry,
+        lambda _tmp_path: DomainRegistry(),
+    ),
+    (
+        "validation.application",
+        validation_application_binding,
+        ValidationApplicationService,
+        _real_validation_application,
+    ),
+    (
+        "cognitive.adapter_registry",
+        cognitive_adapter_registry_binding,
+        ResourceAdapterRegistry,
+        lambda _tmp_path: ResourceAdapterRegistry(),
+    ),
+    (
+        "cognitive.extractor_registry",
+        cognitive_extractor_registry_binding,
+        KnowledgeExtractorRegistry,
+        lambda _tmp_path: KnowledgeExtractorRegistry(),
+    ),
+    (
+        "cognitive.service",
+        cognitive_service_binding,
+        ResourceExtractionService,
+        lambda _tmp_path: _real_cognitive_service(),
+    ),
+    (
+        "agent.runtime.integration",
+        agent_runtime_integration_binding,
+        AgentRuntimeIntegrationService,
+        lambda _tmp_path: _real_agent_runtime_integration_service(),
+    ),
+    (
+        "workflow.registry",
+        workflow_registry_binding,
+        InMemoryWorkflowRegistry,
+        lambda _tmp_path: InMemoryWorkflowRegistry(),
+    ),
+    (
+        "execution.registry",
+        execution_registry_binding,
+        ExecutorRegistry,
+        lambda _tmp_path: ExecutorRegistry(),
+    ),
+)
+
+
+def _case_ids() -> list[str]:
+    return [case[0] for case in CANONICAL_RUNTIME_BOUNDARY_CASES]
+
+
+@pytest.mark.parametrize(
+    ("service_id", "builder", "_contract", "_factory"),
+    CANONICAL_RUNTIME_BOUNDARY_CASES,
+    ids=_case_ids(),
+)
+def test_canonical_binding_declares_its_enforceable_runtime_contract(
+    service_id: str,
+    builder: object,
+    _contract: type,
+    _factory: object,
+    tmp_path: Path,
+) -> None:
+    """A canonical authority must be bound with a checkable implementation boundary."""
+
+    implementation = _factory(tmp_path)  # type: ignore[operator]
+    binding = builder(implementation)  # type: ignore[operator]
+
+    assert binding.descriptor.service_id == service_id
+    assert binding.implementation is implementation
+    assert binding.runtime_contract is _contract
+    assert isinstance(binding.implementation, binding.runtime_contract)
+
+
+@pytest.mark.parametrize(
+    ("_service_id", "builder", "_contract", "_factory"),
+    CANONICAL_RUNTIME_BOUNDARY_CASES,
+    ids=_case_ids(),
+)
+def test_canonical_binding_rejects_an_unrelated_object(
+    _service_id: str,
+    builder: object,
+    _contract: type,
+    _factory: object,
+) -> None:
+    """Audit V1 MAJOR-01: an arbitrary object must never claim canonical authority."""
+
+    with pytest.raises(TypeError):
+        builder(object())  # type: ignore[operator]
+
+
+@pytest.mark.parametrize(
+    ("service_id", "builder", "_contract", "_factory"),
+    CANONICAL_RUNTIME_BOUNDARY_CASES,
+    ids=_case_ids(),
+)
+def test_canonical_binding_rejects_an_object_from_another_canonical_authority(
+    service_id: str,
+    builder: object,
+    _contract: type,
+    _factory: object,
+) -> None:
+    """A real canonical object must not be able to claim a different authority."""
+
+    foreign: object = (
+        ProviderRegistry() if service_id == "domain.registry" else DomainRegistry()
+    )
+
+    with pytest.raises(TypeError):
+        builder(foreign)  # type: ignore[operator]
+
+
+def test_canonical_binding_accepts_the_real_canonical_object_identity() -> None:
+    providers = ProviderRegistry()
+
+    binding = provider_registry_binding(providers)
+
+    assert binding.implementation is providers
+    assert binding.runtime_contract is ProviderRegistry
+
+
+def test_registry_keeps_supporting_explicit_non_canonical_replacements(
+    tmp_path: Path,
+) -> None:
+    """Runtime enforcement must not disable the replacement/test-adapter feature."""
+
+    class ValidationPort:
+        """Consumer-declared boundary for an alternate implementation."""
+
+    class AlternateValidation(ValidationPort):
+        """Compatible adapter-backed implementation; no transport is involved."""
+
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        validation_application_binding(_real_validation_application(tmp_path))
+    )
+    original = registry.get("validation.application")
+    assert original is not None
+
+    alternate = ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id="validation.application",
+            contract=original.descriptor.contract,
+            implementation_id="tests.platform.AlternateValidation",
+            mode=ServiceMode.ADAPTER,
+        ),
+        implementation=AlternateValidation(),
+        runtime_contract=ValidationPort,
+    )
+
+    registry.replace("validation.application", alternate)
+
+    stored = registry.get("validation.application")
+    assert stored is not None
+    assert isinstance(stored.implementation, AlternateValidation)
+    assert stored.runtime_contract is ValidationPort

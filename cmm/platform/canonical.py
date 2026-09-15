@@ -9,6 +9,20 @@ an authoritative object.  The canonical Phase 11.34 Provider Registry keeps its
 exact identity, and the platform layer never becomes the owner of anything it
 binds.
 
+Runtime boundaries
+------------------
+Descriptor identity alone is not authority.  Every builder therefore also
+declares an enforceable ``runtime_contract`` — the canonical concrete class that
+owns the service — and rejects any implementation that does not satisfy it.  An
+arbitrary object can never claim a canonical service identity, while an
+explicitly declared alternate implementation stays possible through
+``IntegrationServiceRegistry`` replacement with its own boundary.
+
+The canonical classes are imported **inside** each builder rather than at module
+import time.  Importing ``cmm.platform`` therefore stays a thin,
+side-effect-free import, and the boundary type of a canonical service is
+necessarily already loaded by whoever constructs that service.
+
 Contract versions
 -----------------
 ``ContractMetadata`` describes the **platform boundary**.  Where a canonical
@@ -67,11 +81,27 @@ def _implementation_id(implementation: Any) -> str:
     return f"{implementation_type.__module__}.{implementation_type.__qualname__}"
 
 
+def _require_canonical_implementation(
+    implementation: Any,
+    runtime_contract: type[Any],
+    service_id: str,
+) -> None:
+    """Fail closed unless *implementation* satisfies its canonical boundary."""
+
+    if not isinstance(implementation, runtime_contract):
+        raise TypeError(
+            f"{service_id} implementation does not satisfy its canonical "
+            f"runtime contract {runtime_contract.__module__}."
+            f"{runtime_contract.__qualname__}"
+        )
+
+
 def _binding(
     implementation: Any,
     *,
     service_id: str,
     owner: str,
+    runtime_contract: type[Any],
     dependencies: tuple[ServiceDependency, ...] = (),
     authority: str | None = None,
     mode: ServiceMode = ServiceMode.LOCAL,
@@ -79,6 +109,8 @@ def _binding(
     contract_version: str = PLATFORM_CONTRACT_VERSION,
 ) -> ServiceBinding:
     """Bind an existing canonical object without constructing or copying it."""
+
+    _require_canonical_implementation(implementation, runtime_contract, service_id)
 
     return ServiceBinding(
         descriptor=ServiceDescriptor(
@@ -95,6 +127,7 @@ def _binding(
             authority=authority,
         ),
         implementation=implementation,
+        runtime_contract=runtime_contract,
     )
 
 
@@ -108,24 +141,39 @@ def _cognitive_registry_dependency(service_id: str) -> ServiceDependency:
 def validation_application_binding(service: Any) -> ServiceBinding:
     """Bind the canonical Phase 7 validation application service."""
 
+    from cmm.validation.interfaces.application import ValidationApplicationService
+
     return _binding(
-        service, service_id="validation.application", owner="cmm.validation"
+        service,
+        service_id="validation.application",
+        owner="cmm.validation",
+        runtime_contract=ValidationApplicationService,
     )
 
 
 def cognitive_adapter_registry_binding(registry: Any) -> ServiceBinding:
     """Bind the canonical Cognitive Layer resource adapter registry."""
 
+    from cmm.cognitive.registries import ResourceAdapterRegistry
+
     return _binding(
-        registry, service_id="cognitive.adapter_registry", owner="cmm.cognitive"
+        registry,
+        service_id="cognitive.adapter_registry",
+        owner="cmm.cognitive",
+        runtime_contract=ResourceAdapterRegistry,
     )
 
 
 def cognitive_extractor_registry_binding(registry: Any) -> ServiceBinding:
     """Bind the canonical Cognitive Layer knowledge extractor registry."""
 
+    from cmm.cognitive.registries import KnowledgeExtractorRegistry
+
     return _binding(
-        registry, service_id="cognitive.extractor_registry", owner="cmm.cognitive"
+        registry,
+        service_id="cognitive.extractor_registry",
+        owner="cmm.cognitive",
+        runtime_contract=KnowledgeExtractorRegistry,
     )
 
 
@@ -136,10 +184,13 @@ def cognitive_service_binding(service: Any) -> ServiceBinding:
     registries, so those platform services are genuine dependencies.
     """
 
+    from cmm.cognitive.service import ResourceExtractionService
+
     return _binding(
         service,
         service_id="cognitive.service",
         owner="cmm.cognitive",
+        runtime_contract=ResourceExtractionService,
         dependencies=(
             _cognitive_registry_dependency("cognitive.adapter_registry"),
             _cognitive_registry_dependency("cognitive.extractor_registry"),
@@ -155,27 +206,55 @@ def agent_runtime_integration_binding(service: Any) -> ServiceBinding:
     so no platform dependency is declared.
     """
 
+    from cmm.agent_runtime.agent_runtime_integration_service import (
+        AgentRuntimeIntegrationService,
+    )
+
     return _binding(
-        service, service_id="agent.runtime.integration", owner="cmm.agent_runtime"
+        service,
+        service_id="agent.runtime.integration",
+        owner="cmm.agent_runtime",
+        runtime_contract=AgentRuntimeIntegrationService,
     )
 
 
 def domain_registry_binding(registry: Any) -> ServiceBinding:
     """Bind the canonical Phase 10 domain registry."""
 
-    return _binding(registry, service_id="domain.registry", owner="cmm.domains")
+    from cmm.domains.registry import DomainRegistry
+
+    return _binding(
+        registry,
+        service_id="domain.registry",
+        owner="cmm.domains",
+        runtime_contract=DomainRegistry,
+    )
 
 
 def workflow_registry_binding(registry: Any) -> ServiceBinding:
     """Bind the canonical workflow registry."""
 
-    return _binding(registry, service_id="workflow.registry", owner="cmm.workflows")
+    from cmm.workflows.registry import InMemoryWorkflowRegistry
+
+    return _binding(
+        registry,
+        service_id="workflow.registry",
+        owner="cmm.workflows",
+        runtime_contract=InMemoryWorkflowRegistry,
+    )
 
 
 def execution_registry_binding(registry: Any) -> ServiceBinding:
     """Bind the canonical action executor registry."""
 
-    return _binding(registry, service_id="execution.registry", owner="cmm.execution")
+    from cmm.execution.executor_registry import ExecutorRegistry
+
+    return _binding(
+        registry,
+        service_id="execution.registry",
+        owner="cmm.execution",
+        runtime_contract=ExecutorRegistry,
+    )
 
 
 def provider_registry_binding(registry: Any) -> ServiceBinding:
@@ -185,10 +264,13 @@ def provider_registry_binding(registry: Any) -> ServiceBinding:
     creates no second provider registry and stores no parallel provider state.
     """
 
+    from kernel.llm.provider_registry import ProviderRegistry
+
     return _binding(
         registry,
         service_id="provider.registry",
         owner="kernel.llm",
+        runtime_contract=ProviderRegistry,
         authority=PROVIDER_REGISTRY_AUTHORITY,
         schema_version=PROVIDER_STATE_SCHEMA_VERSION,
         contract_version="2.0.0",
