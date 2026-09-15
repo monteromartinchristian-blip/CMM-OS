@@ -180,6 +180,28 @@ class ProviderConnectionRegistry:
         self._items[key] = updated
         return updated
 
+    def replace(self, connection: ProviderConnection) -> ProviderConnection:
+        """Put one previously stored connection record back, verbatim.
+
+        The rollback seam for a coordinated mutation: ``update_status()`` is a
+        forward mutation (it re-derives the record from its current fields), so
+        undoing it exactly — including a ``last_validated_at`` that was ``None``
+        before — needs a seam that stores the record as it was, with no field
+        rebuilt. The record must already exist (this replaces, it does not
+        insert, so it can never resurrect a removed connection), and its
+        provider must still be canonical, mirroring :meth:`register`. Raises
+        ``TypeError`` for a non-connection, ``ValueError`` for an unknown id and
+        the canonical ``ProviderError`` for an unregistered provider.
+        """
+        if not isinstance(connection, ProviderConnection):
+            raise TypeError("connection must be a ProviderConnection")
+        self._provider_registry.get(connection.provider_id)
+        key = connection.connection_id
+        if key not in self._items:
+            raise ValueError(f"unknown connection_id: {key}")
+        self._items[key] = connection
+        return connection
+
     def remove(self, connection_id: str) -> ProviderConnection:
         """Remove and return one accepted connection (rollback/teardown seam).
 

@@ -295,6 +295,57 @@ def test_remove_unknown_or_blank_id_raises() -> None:
         registry.remove("   ")
 
 
+def test_replace_restores_a_previous_record_verbatim() -> None:
+    """Exact-record restoration: no field is rebuilt, so none can drift."""
+    validated_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
+    registry = _registry("x")
+    original = registry.register(_connection(connection_id="x:main"))
+    registry.update_status(
+        "x:main", ConnectionStatus.WARNING, validated_at=validated_at
+    )
+
+    replaced = registry.replace(original)
+
+    assert replaced is original
+    assert registry.get("x:main") is original
+    assert registry.list() == (original,)
+    assert registry.get("x:main").status is ConnectionStatus.CONNECTED
+    assert registry.get("x:main").last_validated_at is None
+
+
+def test_replace_rejects_an_unknown_connection() -> None:
+    registry = _registry("x")
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        registry.replace(_connection(connection_id="x:main"))
+
+
+def test_replace_rejects_a_connection_for_an_unregistered_provider() -> None:
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://example.invalid/v1",
+        )
+    )
+    registry = ProviderConnectionRegistry(providers)
+    connection = registry.register(_connection(connection_id="x:main"))
+    providers.remove("x")
+
+    with pytest.raises(ProviderError):
+        registry.replace(connection)
+
+
+def test_replace_rejects_a_non_connection() -> None:
+    registry = _registry("x")
+    registry.register(_connection(connection_id="x:main"))
+
+    with pytest.raises(TypeError, match="ProviderConnection"):
+        registry.replace("x:main")  # type: ignore[arg-type]
+
+
 def test_construction_rejects_empty_display_name() -> None:
     with pytest.raises(ValueError, match="display_name cannot be empty"):
         _connection(display_name="   ")

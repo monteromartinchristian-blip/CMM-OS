@@ -26,10 +26,12 @@ Failure rule: the in-memory revision and audit log are published only *after*
 nothing committed and the previous durable revision untouched. Domain mutations
 performed by a caller (for example the connection registration in
 :meth:`ProviderOnboardingService.accept`) stay the caller's compensation, and a
-failure propagates unchanged to that caller's compensation path.
-:meth:`ProviderRegistryStateCoordinator.discover_models` mutates a canonical
-component itself, so it restores exactly the state it changed before re-raising,
-using the smallest snapshot that component already exposes.
+failure propagates unchanged to that caller's compensation path. The two
+operations that mutate a canonical component themselves —
+:meth:`ProviderRegistryStateCoordinator.discover_models` and
+:meth:`ProviderRegistryStateCoordinator.update_connection_status` — restore
+exactly the state they changed before re-raising, using the smallest snapshot
+that component already exposes.
 
 Secret boundary: the coordinator never holds, reads or writes secret material.
 Audit records carry sanitized transition facts only, and the persisted aggregate
@@ -295,6 +297,71 @@ class ProviderRegistryStateCoordinator:
                 )
             )
         return tuple(records)
+
+    def update_connection_status(
+        self,
+        connection_id: str,
+        status: ConnectionStatus,
+        *,
+        occurred_at: datetime,
+    ) -> ProviderConnection:
+        """Move one accepted connection to a new status and commit the change.
+
+        This is the one canonical operation for a real status transition, and
+        the connection is replaced through the existing canonical
+        :class:`~kernel.llm.provider_connections.ProviderConnectionRegistry` —
+        no second registry and no validation engine.
+
+        No-op rule: the operation is a *transition* seam, so re-setting the
+        status a connection already has is a caller error, not a silent write.
+        It is rejected before anything is mutated, and the refusal is explicit
+        because a stored no-op would either fabricate an audit record for a
+        transition that never happened or record nothing at all.
+
+        Failure rule: if the commit fails, the exact previous connection record
+        is put back (status *and* validation timestamp), so a failed transition
+        leaves the registry, the revision and the audit log exactly as they
+        were.
+        """
+        if not isinstance(status, ConnectionStatus):
+            raise TypeError("status must be a ConnectionStatus")
+        if not isinstance(occurred_at, datetime):
+            raise TypeError("occurred_at must be a datetime")
+        if occurred_at.tzinfo is None:
+            raise ValueError("occurred_at must be timezone-aware")
+        existing = self._connections.get(connection_id)
+        if existing is None:
+            raise ValueError(f"unknown connection_id: {connection_id}")
+        if existing.status is status:
+            raise ValueError(f"connection status unchanged: {existing.status.value}")
+
+        try:
+            updated = self._connections.update_status(
+                connection_id,
+                status,
+                validated_at=occurred_at,
+            )
+            self._commit(
+                (
+                    self._audit_record(
+                        event_type="provider.validation_changed",
+                        entity_kind="connection",
+                        entity_id=updated.connection_id,
+                        occurred_at=occurred_at,
+                        detail=(
+                            ("old_status", existing.status.value),
+                            ("new_status", updated.status.value),
+                        ),
+                    ),
+                )
+            )
+        except Exception:
+            # Undo only what this call changed: the one connection record,
+            # restored verbatim. The revision and audit log were never published
+            # (``_commit`` publishes last), so they stand unchanged.
+            self._connections.replace(existing)
+            raise
+        return updated
 
     def _next_revision(self) -> int:
         """Return the revision a successful commit publishes."""

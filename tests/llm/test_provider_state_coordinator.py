@@ -898,3 +898,237 @@ def test_discovery_rejects_a_naive_timestamp(tmp_path: Path) -> None:
 
     assert runtime.coordinator.revision == 0
     assert runtime.routes.list() == ()
+
+
+# --- connection validation transition commit (MAJOR-V2-02) ------------------
+
+
+def test_update_connection_status_persists_one_validation_changed_record(
+    tmp_path: Path,
+) -> None:
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    updated = runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T1
+    )
+
+    assert updated.status is ConnectionStatus.CONNECTED
+    assert runtime.connections.get("deepseek:main") == updated
+    state = repository.load()
+    assert state is not None
+    assert state.revision == 1
+    assert runtime.coordinator.revision == 1
+    assert runtime.coordinator.audit_log == state.audit_log
+    record = state.audit_log[-1]
+    assert record.revision == 1
+    assert record.event_type == "provider.validation_changed"
+    assert record.entity_kind == "connection"
+    assert record.entity_id == "deepseek:main"
+    assert record.occurred_at == T1
+    assert record.detail == (
+        ("old_status", "auth_required"),
+        ("new_status", "connected"),
+    )
+    assert tuple(item.status for item in state.connections) == (
+        ConnectionStatus.CONNECTED,
+    )
+
+
+def test_validation_transition_records_the_validation_timestamp(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    updated = runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.WARNING, occurred_at=T1
+    )
+
+    assert updated.last_validated_at == T1
+    assert runtime.connections.get("deepseek:main").last_validated_at == T1
+
+
+def test_update_connection_status_rejects_an_unchanged_status(tmp_path: Path) -> None:
+    """The operation is a transition seam: a no-op is a caller error."""
+    repository = _SwitchableStateRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    with pytest.raises(ValueError, match="status unchanged"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main", connection.status, occurred_at=T1
+        )
+
+    assert repository.save_calls == 0
+    assert repository.load() is None
+    assert runtime.coordinator.revision == 0
+    assert runtime.coordinator.audit_log == ()
+    assert runtime.connections.get("deepseek:main").status is (
+        ConnectionStatus.AUTH_REQUIRED
+    )
+    assert runtime.connections.get("deepseek:main").last_validated_at is None
+
+
+def test_update_connection_status_rejects_an_unknown_connection(tmp_path: Path) -> None:
+    repository = _SwitchableStateRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T1
+        )
+
+    assert repository.save_calls == 0
+    assert runtime.coordinator.revision == 0
+
+
+def test_update_connection_status_rejects_a_non_enum_status(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    with pytest.raises(TypeError, match="ConnectionStatus"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main",
+            "connected",
+            occurred_at=T1,  # type: ignore[arg-type]
+        )
+
+    assert runtime.coordinator.revision == 0
+
+
+def test_update_connection_status_rejects_a_naive_timestamp(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main",
+            ConnectionStatus.CONNECTED,
+            occurred_at=datetime(2026, 9, 15, 12, 0),  # noqa: DTZ001
+        )
+
+    assert runtime.coordinator.revision == 0
+    assert runtime.connections.get("deepseek:main").status is (
+        ConnectionStatus.AUTH_REQUIRED
+    )
+
+
+def test_failed_status_save_restores_the_previous_connection_record(
+    tmp_path: Path,
+) -> None:
+    repository = _SwitchableStateRepository()
+    repository.fail = True
+    runtime = _runtime(tmp_path, repository=repository)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T1
+        )
+
+    assert repository.save_calls == 1
+    restored = runtime.connections.get("deepseek:main")
+    assert restored is not None
+    assert restored.status is ConnectionStatus.AUTH_REQUIRED
+    assert restored.last_validated_at is None
+    assert runtime.coordinator.revision == 0
+    assert runtime.coordinator.audit_log == ()
+    assert repository.load() is None
+
+
+def test_failed_status_save_keeps_the_committed_revision(tmp_path: Path) -> None:
+    repository = _SwitchableStateRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+    runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T0
+    )
+    committed = repository.load()
+    assert committed is not None
+
+    repository.fail = True
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main", ConnectionStatus.WARNING, occurred_at=T1
+        )
+
+    assert runtime.coordinator.revision == 1
+    assert runtime.coordinator.audit_log == committed.audit_log
+    assert repository.load() == committed
+    restored = runtime.connections.get("deepseek:main")
+    assert restored is not None
+    assert restored.status is ConnectionStatus.CONNECTED
+    assert restored.last_validated_at == T0
+
+
+def test_validation_transition_audit_survives_a_restart(tmp_path: Path) -> None:
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+    runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T1
+    )
+
+    persisted = repository.load()
+    assert persisted is not None
+    restored = restore_provider_registry_state(persisted)
+
+    assert restored.revision == 1
+    assert [record.event_type for record in restored.audit_log] == [
+        "provider.validation_changed"
+    ]
+    assert restored.audit_log[0].detail == (
+        ("old_status", "auth_required"),
+        ("new_status", "connected"),
+    )
+    restored_connection = restored.connections.get("deepseek:main")
+    assert restored_connection is not None
+    assert restored_connection.status is ConnectionStatus.CONNECTED
+    assert restored_connection.last_validated_at == T1
+
+
+def test_route_and_validation_history_survive_a_restart_together(
+    tmp_path: Path,
+) -> None:
+    """Discover → disappear → restore plus a validation transition, then restart."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.AUTH_REQUIRED)
+    manifest = _active_manifest(runtime)
+
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T0,
+    )
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T2,
+    )
+    runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T2
+    )
+
+    persisted = repository.load()
+    assert persisted is not None
+    restored = restore_provider_registry_state(persisted)
+
+    assert restored.revision == 4
+    assert [record.revision for record in restored.audit_log] == [1, 1, 2, 3, 4]
+    assert [record.event_type for record in restored.audit_log] == [
+        "route.discovered",
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+        "provider.validation_changed",
+    ]
+    assert [record.entity_kind for record in restored.audit_log][-1] == "connection"
+    restored_connection = restored.connections.get("deepseek:main")
+    assert restored_connection is not None
+    assert restored_connection.status is ConnectionStatus.CONNECTED
