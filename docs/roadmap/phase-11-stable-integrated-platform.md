@@ -283,7 +283,7 @@ ContractMetadata(
 
 ### 11.1 implementation status
 
-**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`
 
 Implemented by the `cmm/platform/` integration-core package:
 
@@ -293,24 +293,30 @@ Implemented by the `cmm/platform/` integration-core package:
 - reference documentation — [`docs/reference/phase-11-integration-core.md`](../reference/phase-11-integration-core.md).
 
 Independent Audit V1 returned `FAIL` (`BLOCKERS=0`; `MAJORS=3`; `MINORS=0`;
-`DP-101=NOT_VERIFIED`; `CLOSURE_ELIGIBLE=NO`) and is recorded immutably at
+`DP-101=NOT_VERIFIED`; `CLOSURE_ELIGIBLE=NO`) and remains immutable historical
+evidence at
 [`docs/audits/phase-11.1-integration-core-independent-audit-v1.md`](../audits/phase-11.1-integration-core-independent-audit-v1.md).
-Remediation V1 fixes exactly those three MAJOR findings inside the Phase 11.1
-boundary, under
-[`docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md`](../superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md)
-and its implementation plan:
+Remediation V1 fixed exactly those three MAJOR findings inside the Phase 11.1
+boundary, and final Independent Re-audit V1 returned `PASS` (`BLOCKERS=0`;
+`MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`;
+`MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=VERIFIED_REMEDIATED`;
+`F11-015=VERIFIED_EXISTING`; `DP-101=VERIFIED_EXISTING`; `AT-DP-101=PASS`;
+`AT-DP-134=PASS`; `CLOSURE_ELIGIBLE=YES`). Final report:
+[`docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md`](../audits/phase-11.1-integration-core-independent-reaudit-v1.md);
+audited HEAD `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`; audited tree `63a69f2f25922695f1e3d1f4b006ae1172b34949`; bundle SHA-256
+`aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`; report commit `54603acf83f06819409601dcd62aae19120c9baf`. The dedicated docs-only closure
+therefore records `PHASE11_1=CLOSED`.
 
-- `MAJOR-01` — every canonical binding now declares and enforces its canonical
-  runtime boundary, so an unrelated object can no longer claim canonical
-  authority while explicit replacement/test adapters stay supported;
-- `MAJOR-02` — descriptor metadata is restricted to a secret-free, recursively
-  immutable descriptive value grammar, and stays excluded from the public
-  inspection snapshot;
-- `MAJOR-03` — `ServiceDescriptor.mode` and `ServiceInspection.mode` require a
-  real `ServiceMode`, so a malformed mode can never reach readiness and every
-  ready snapshot is serializable;
-- `AT-DP-101` permanently carries the three Audit V1 reproducers, and
-  `AT-DP-134` remains green and unchanged.
+Remediation V1 changed only the Phase 11.1 public boundary:
+
+- `MAJOR-01` — every canonical binding declares and enforces its canonical
+  runtime boundary while explicit replacement/test adapters remain supported;
+- `MAJOR-02` — descriptor metadata is secret-free, recursively immutable and
+  still excluded from public inspection snapshots;
+- `MAJOR-03` — descriptor/inspection service modes are strict `ServiceMode`
+  values, so malformed modes fail before readiness and READY snapshots serialize;
+- `AT-DP-101` permanently retains all three Audit V1 reproducers;
+- `AT-DP-134` remains green and unchanged.
 
 The integration core composes **already-existing** canonical subsystem instances
 through explicit version-aware service bindings. It holds references and owns no
@@ -332,9 +338,11 @@ remediation added an enforceable runtime boundary to that binding; the bound
 object is still the exact canonical instance and Phase 11.34 production
 semantics are unchanged.
 
-No closure, audit or verified-existing status is claimed before the independent
-re-audit returns `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
-`AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES`.
+The independent re-audit has now returned the reserved closure state:
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-101=VERIFIED_EXISTING`,
+`AT-DP-101=PASS`, `AT-DP-134=PASS`, `F11-015=VERIFIED_EXISTING` and
+`CLOSURE_ELIGIBLE=YES`. Phase 11.1 is closed by the dedicated docs-only closure
+commit; no production or test code is part of the closure.
 
 ---
 

@@ -139,7 +139,7 @@ functional identifier, assigned to Phase 11.1 — Integration Core.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-015` | Canonical Integration Core. CMM OS shall compose existing canonical subsystems through one explicit, version-aware application composition root and platform service-binding registry that preserves subsystem ownership, validates configuration and dependency/contract compatibility, prevents circular or duplicate authority, enforces the canonical runtime boundary of every bound service, supports explicit implementation replacement/test adapters, exposes safe deterministic inspection, keeps descriptor metadata secret-free and recursively immutable, rejects invalid service modes before readiness, reuses the closed Provider Registry, and fails closed without implementing Phase 11.2 orchestration. | `SRC-R11` (detailed Phase 11 roadmap §11.1); `docs/superpowers/specs/2026-09-15-phase-11.1-integration-core-design.md` §20; `docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md` §4–6 | Phase 11.1 | `cmm/platform/__init__.py`; `cmm/platform/contracts.py`; `cmm/platform/compatibility.py`; `cmm/platform/errors.py`; `cmm/platform/service_registry.py`; `cmm/platform/configuration.py`; `cmm/platform/modules.py`; `cmm/platform/inspection.py`; `cmm/platform/container.py`; `cmm/platform/canonical.py` | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` |
+| `F11-015` | Canonical Integration Core. CMM OS shall compose existing canonical subsystems through one explicit, version-aware application composition root and platform service-binding registry that preserves subsystem ownership, validates configuration and dependency/contract compatibility, prevents circular or duplicate authority, enforces the canonical runtime boundary of every bound service, supports explicit implementation replacement/test adapters, exposes safe deterministic inspection, keeps descriptor metadata secret-free and recursively immutable, rejects invalid service modes before readiness, reuses the closed Provider Registry, and fails closed without implementing Phase 11.2 orchestration. | `SRC-R11` (detailed Phase 11 roadmap §11.1); `docs/superpowers/specs/2026-09-15-phase-11.1-integration-core-design.md` §20; `docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md` §4–6 | Phase 11.1 | `cmm/platform/__init__.py`; `cmm/platform/contracts.py`; `cmm/platform/compatibility.py`; `cmm/platform/errors.py`; `cmm/platform/service_registry.py`; `cmm/platform/configuration.py`; `cmm/platform/modules.py`; `cmm/platform/inspection.py`; `cmm/platform/container.py`; `cmm/platform/canonical.py` | `VERIFIED_EXISTING` | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` |
 
 ### 4.4 `F11-015` traceability
 
@@ -157,10 +157,11 @@ functional identifier, assigned to Phase 11.1 — Integration Core.
 | Independent Audit V1 | `docs/audits/phase-11.1-integration-core-independent-audit-v1.md` — `INDEPENDENT_AUDIT_V1=FAIL`; `BLOCKERS=0`; `MAJORS=3`; `MINORS=0`; `DP-101=NOT_VERIFIED`; `CLOSURE_ELIGIBLE=NO` |
 | Remediation V1 design | `docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md` |
 | Remediation V1 plan | `docs/superpowers/plans/2026-09-15-phase-11.1-remediation-v1-implementation-plan.md` |
-| Remediation V1 findings | `MAJOR-01=CANONICAL_RUNTIME_BOUNDARY_NOT_ENFORCED`; `MAJOR-02=DESCRIPTOR_METADATA_SECRET_AND_MUTABILITY_GAP`; `MAJOR-03=INVALID_SERVICE_MODE_CAN_REACH_READY` — all remediated except independent re-audit verification |
+| Independent Re-audit V1 | `docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md` — `INDEPENDENT_REAUDIT_V1=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MAJOR_03=VERIFIED_REMEDIATED`; `F11-015=VERIFIED_EXISTING`; `DP-101=VERIFIED_EXISTING`; `AT-DP-101=PASS`; `AT-DP-134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`; audited tree `63a69f2f25922695f1e3d1f4b006ae1172b34949`; bundle SHA-256 `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`; report commit `54603acf83f06819409601dcd62aae19120c9baf` |
+| Remediation V1 findings | `MAJOR-01=CANONICAL_RUNTIME_BOUNDARY_NOT_ENFORCED`; `MAJOR-02=DESCRIPTOR_METADATA_SECRET_AND_MUTABILITY_GAP`; `MAJOR-03=INVALID_SERVICE_MODE_CAN_REACH_READY` — all independently verified remediated by Re-audit V1 |
 | Inherited requirement reused | `F11-014` / `DP-134` (Phase 11.34) — reused as a dependency, **not reopened and not modified** |
 | Inherited acceptance regression | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
-| Mapping status | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` |
+| Mapping status | `VERIFIED_EXISTING` |
 
 The canonical Provider Registry bound as `provider.registry` **is** the Phase
 11.34 authoritative object. Phase 11.1 creates no second provider registry,
@@ -170,9 +171,11 @@ boundary to the binding, not a second authority: the bound object is still the
 exact `kernel.llm.provider_registry.ProviderRegistry` instance, and Phase 11.34
 production semantics are unchanged.
 
-No closure, audit or verified-existing status is claimed for `F11-015` before an
-independent re-audit returns `BLOCKERS=0`, `MAJORS=0`,
-`DP-101=VERIFIED_EXISTING`, `AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES`.
+Final Independent Re-audit V1 returned `PASS` with `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `F11-015=VERIFIED_EXISTING`, `DP-101=VERIFIED_EXISTING`,
+`AT-DP-101=PASS`, `AT-DP-134=PASS` and `CLOSURE_ELIGIBLE=YES`. Phase 11.1 is
+therefore closed by the dedicated docs-only closure commit. Final report:
+`docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md`; audited HEAD `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`; bundle SHA-256 `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`.
 
 ## 5. Current lifecycle status
 
@@ -257,19 +260,24 @@ modified by Phase 11.1. The Phase 11.1 integration core is a separate subphase
 and is reported here:
 
 ```text
-PHASE11_1=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-F11_015=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-DP_101=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MAJOR_02=REMEDIATED_PENDING_REAUDIT
-MAJOR_03=REMEDIATED_PENDING_REAUDIT
+PHASE11_1=CLOSED
+F11_015=VERIFIED_EXISTING
+DP_101=VERIFIED_EXISTING
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
 AT_DP_101=PASS
 AT_DP_134=PASS
 F11_014=VERIFIED_EXISTING
 DP_134=VERIFIED_EXISTING
 PHASE11_34=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
-CLOSURE_ELIGIBLE=NO
+INDEPENDENT_REAUDIT_V1=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
 ```
 
 `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` is this matrix's §2 vocabulary

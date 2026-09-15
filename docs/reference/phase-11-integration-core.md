@@ -1,6 +1,6 @@
 # Phase 11 — Integration Core reference
 
-**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`
 **Phase:** 11.1 — Integration Core
 **Requirement:** `F11-015 — Canonical Integration Core`
 **Design Point:** `DP-101 — Canonical Application Composition Root`
@@ -10,17 +10,24 @@
 **Independent Audit V1:** `docs/audits/phase-11.1-integration-core-independent-audit-v1.md` (`INDEPENDENT_AUDIT_V1=FAIL`; `BLOCKERS=0`; `MAJORS=3`; `MINORS=0`)
 **Remediation V1 design:** `docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md`
 **Remediation V1 plan:** `docs/superpowers/plans/2026-09-15-phase-11.1-remediation-v1-implementation-plan.md`
+**Independent Re-audit V1:** `docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md` (`INDEPENDENT_REAUDIT_V1=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-101=VERIFIED_EXISTING`; `AT-DP-101=PASS`; `AT-DP-134=PASS`; `CLOSURE_ELIGIBLE=YES`)
+**Audited implementation HEAD:** `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`
+**Audited tree:** `63a69f2f25922695f1e3d1f4b006ae1172b34949`
+**Re-audit bundle SHA-256:** `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`
+**Re-audit report commit:** `54603acf83f06819409601dcd62aae19120c9baf`
 
 This document records the Phase 11.1 integration-core boundary: the canonical
 contract classification, the platform package responsibility split, the service
 identities bound by the composition root, and the explicit exclusions.
 
-Phase 11.1 is **implemented, remediated against Independent Audit V1 and pending
-independent re-audit**. `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` is the
-Phase 10 matrix vocabulary's `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` state
-(see the matrix §2): a recorded independent audit `FAIL` exists, the findings
-are remediated, and independent re-audit closure is still pending. Nothing in
-this document asserts closure, audit success, or verified-existing status.
+Phase 11.1 is **implemented, independently re-audited and closed**. Historical
+Independent Audit V1 remains a recorded `FAIL`; Remediation V1 fixed its three
+MAJOR findings; final Independent Re-audit V1 returned `PASS` with
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `F11-015=VERIFIED_EXISTING`,
+`DP-101=VERIFIED_EXISTING`, `AT-DP-101=PASS`, `AT-DP-134=PASS` and
+`CLOSURE_ELIGIBLE=YES`. The audited implementation HEAD is `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4` and
+the exact bundle SHA-256 is `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`. This dedicated docs-only closure
+changes no production or test code.
 
 ## 1. Purpose and ownership boundary
 
@@ -263,12 +270,14 @@ reopen it. `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py
 | Production package | `cmm/platform/` |
 | Architecture gates | `tests/platform/test_architecture.py` |
 
-Phase state: `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` (audit `FAIL` recorded,
-findings remediated, independent re-audit pending).
+Phase state: `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`.
 
-No closure, audit, or verified-existing status is claimed here. Independent
-re-audit must return `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
-`AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES` before any closure commit exists.
+Final Independent Re-audit V1 at `docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md` returned `PASS` with
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `F11-015=VERIFIED_EXISTING`,
+`DP-101=VERIFIED_EXISTING`, `AT-DP-101=PASS`, `AT-DP-134=PASS` and
+`CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`, audited
+tree `63a69f2f25922695f1e3d1f4b006ae1172b34949`, bundle SHA-256 `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`; report commit
+`54603acf83f06819409601dcd62aae19120c9baf`.
 
 ## 13. Implementation decisions and minimal deviations from the committed plan
 
@@ -479,18 +488,26 @@ boundary of the real connected graph; ready snapshot serializes with
 ### 14.5 Remediation status
 
 ```text
-PHASE11_1=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MAJOR_02=REMEDIATED_PENDING_REAUDIT
-MAJOR_03=REMEDIATED_PENDING_REAUDIT
-DP_101=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+PHASE11_1=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+F11_015=VERIFIED_EXISTING
+DP_101=VERIFIED_EXISTING
 AT_DP_101=PASS
 AT_DP_134=PASS
-CLOSURE_ELIGIBLE=NO
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
 ```
 
-Only the independent re-audit may conclude `MAJOR_01=VERIFIED_REMEDIATED`,
-`MAJOR_02=VERIFIED_REMEDIATED`, `MAJOR_03=VERIFIED_REMEDIATED`,
-`DP-101=VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE=YES`. The Audit V1 record at
-`docs/audits/phase-11.1-integration-core-independent-audit-v1.md` is historical
-evidence and is deliberately left unedited.
+The Audit V1 record at
+`docs/audits/phase-11.1-integration-core-independent-audit-v1.md` remains
+immutable historical `FAIL` evidence. Final Independent Re-audit V1 at
+`docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md` is the closure evidence for Phase 11.1. Audited implementation HEAD
+`80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`, audited tree `63a69f2f25922695f1e3d1f4b006ae1172b34949`, bundle SHA-256 `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`,
+audit-report commit `54603acf83f06819409601dcd62aae19120c9baf`.
