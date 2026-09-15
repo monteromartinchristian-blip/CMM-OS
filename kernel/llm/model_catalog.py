@@ -8,7 +8,7 @@ from typing import Literal
 
 from kernel.llm.capabilities import ModelCapabilities
 from kernel.llm.exceptions import ProviderError
-from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 ModelAvailability = Literal[
     "unknown",
@@ -92,12 +92,26 @@ class ModelSpec:
         return f"{self.provider_id}:{self.id}"
 
 
+@dataclass(frozen=True, slots=True)
+class _ModelBinding:
+    """One model together with the canonical provider instance it was bound to.
+
+    Private storage detail (MAJOR-V4-01): identity is the exact ``ProviderSpec``
+    object resolved at registration, never the provider id alone, so a removed
+    or same-id replaced provider leaves the model visibly stale instead of
+    silently current.
+    """
+
+    provider: ProviderSpec
+    model: ModelSpec
+
+
 class ModelCatalog:
     """Model catalog bound to an explicit provider registry."""
 
     def __init__(self, provider_registry: ProviderRegistry) -> None:
         self._provider_registry = provider_registry
-        self._models: dict[str, ModelSpec] = {}
+        self._models: dict[str, _ModelBinding] = {}
         self._aliases: dict[str, str] = {}
 
     @property
@@ -117,9 +131,16 @@ class ModelCatalog:
         *,
         replace_existing: bool = False,
     ) -> ModelSpec:
-        """Register one model after validating its provider."""
+        """Register one model after validating its provider.
 
-        self._provider_registry.get(spec.provider_id)
+        The exact ``ProviderSpec`` resolved here is retained privately as this
+        model's authority binding (MAJOR-V4-01): a later removal of that
+        provider — or its same-id replacement by a different object — leaves the
+        model bound to a non-current authority, which capture refuses to
+        persist.
+        """
+
+        provider = self._provider_registry.get(spec.provider_id)
         normalized = replace(
             spec,
             id=_normalize_identifier(spec.id, label="Model id"),
@@ -140,9 +161,9 @@ class ModelCatalog:
                 raise ProviderError(f"Model alias is already registered: {alias}")
 
         if replace_existing and qualified_id in self._models:
-            self._drop_aliases(self._models[qualified_id])
+            self._drop_aliases(self._models[qualified_id].model)
 
-        self._models[qualified_id] = normalized
+        self._models[qualified_id] = _ModelBinding(provider=provider, model=normalized)
         for alias in alias_keys:
             self._aliases[alias] = qualified_id
 
@@ -167,9 +188,29 @@ class ModelCatalog:
 
         qualified_id = self._aliases.get(lookup, lookup)
         try:
-            return self._models[qualified_id]
+            return self._models[qualified_id].model
         except KeyError as error:
             raise ProviderError(f"Unknown registered model: {model_id}") from error
+
+    def is_bound_to_current_provider(self, model: ModelSpec) -> bool:
+        """Return whether ``model`` still belongs to the current provider authority.
+
+        Authority coherence check (MAJOR-V4-01), read-only: it reports whether
+        the model stored under ``model``'s canonical key is that same model and
+        is bound to the exact ``ProviderSpec`` the canonical registry currently
+        resolves for its provider id. It never mutates, rebinds or repairs — a
+        stale entry stays visible and answers ``False``.
+        """
+        stored = self._models.get(model.qualified_id)
+        if stored is None:
+            return False
+        if stored.model is not model and stored.model != model:
+            return False
+        try:
+            current_provider = self._provider_registry.get(model.provider_id)
+        except ProviderError:
+            return False
+        return current_provider is stored.provider
 
     def has(
         self,
@@ -192,17 +233,14 @@ class ModelCatalog:
     ) -> tuple[ModelSpec, ...]:
         """Return models sorted by qualified identifier."""
 
-        normalized_provider = (
-            _normalize_identifier(provider_id, label="Provider id")
-            if provider_id is not None
-            else None
+        models = tuple(
+            self._models[qualified_id].model for qualified_id in sorted(self._models)
         )
-
+        if provider_id is None:
+            return models
+        normalized_provider = _normalize_identifier(provider_id, label="Provider id")
         return tuple(
-            self._models[qualified_id]
-            for qualified_id in sorted(self._models)
-            if normalized_provider is None
-            or self._models[qualified_id].provider_id == normalized_provider
+            model for model in models if model.provider_id == normalized_provider
         )
 
     def remove(self, model_id: str, *, provider_id: str) -> ModelSpec:
@@ -210,7 +248,7 @@ class ModelCatalog:
 
         spec = self.get(model_id, provider_id=provider_id)
         self._drop_aliases(spec)
-        return self._models.pop(spec.qualified_id)
+        return self._models.pop(spec.qualified_id).model
 
     @staticmethod
     def _alias_keys(spec: ModelSpec) -> tuple[str, ...]:

@@ -235,6 +235,124 @@ def test_model_spec_provider_id_ownership_unchanged_with_route_inventory(
         catalog.register(ModelSpec(id="model-b", provider_id="missing"))
 
 
+def test_model_catalog_tracks_exact_provider_authority() -> None:
+    """A model stays bound to the exact ProviderSpec it was registered under.
+
+    MAJOR-V4-01: id equality is not authority identity, so removing a provider
+    and re-registering the same id as a different ``ProviderSpec`` must not
+    revive the dependent model.
+    """
+    providers = ProviderRegistry()
+    provider_a = providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    catalog = ModelCatalog(providers)
+    model = catalog.register(ModelSpec(id="m", provider_id="x"))
+
+    assert catalog.is_bound_to_current_provider(model) is True
+
+    providers.remove("x")
+    provider_b = providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="responses",
+            base_url="https://new.example/v1",
+        )
+    )
+
+    assert provider_a is not provider_b
+    assert catalog.is_bound_to_current_provider(model) is False
+    # The stale model stays visible; capture, not the catalog, refuses it.
+    assert catalog.get("m", provider_id="x") == model
+
+
+def test_model_catalog_binding_is_false_without_canonical_provider() -> None:
+    """A removed provider leaves the model bound to a missing authority."""
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    catalog = ModelCatalog(providers)
+    model = catalog.register(ModelSpec(id="m", provider_id="x"))
+
+    providers.remove("x")
+
+    assert catalog.is_bound_to_current_provider(model) is False
+
+
+def test_model_catalog_binding_rejects_unregistered_model() -> None:
+    """A model the catalog does not hold has no binding to report."""
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    catalog = ModelCatalog(providers)
+
+    unregistered = ModelSpec(id="ghost", provider_id="x")
+
+    assert catalog.is_bound_to_current_provider(unregistered) is False
+
+
+def test_model_catalog_binding_is_private_and_public_values_unchanged(
+    catalog: ModelCatalog,
+) -> None:
+    """Binding metadata never leaks into the public model inventory."""
+    model = catalog.register(ModelSpec(id="m", provider_id="test-provider"))
+
+    assert catalog.get("m", provider_id="test-provider") is model
+    assert catalog.list() == (model,)
+    assert catalog.list(provider_id="test-provider") == (model,)
+    assert catalog.remove("m", provider_id="test-provider") is model
+    assert catalog.list() == ()
+    assert catalog.is_bound_to_current_provider(model) is False
+
+
+def test_model_catalog_replace_existing_rebinds_to_current_provider() -> None:
+    """A deliberate replacement registration binds the new exact authority."""
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    catalog = ModelCatalog(providers)
+    catalog.register(ModelSpec(id="m", provider_id="x"))
+
+    providers.remove("x")
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="responses",
+            base_url="https://new.example/v1",
+        )
+    )
+    replacement = catalog.register(
+        ModelSpec(id="m", provider_id="x"), replace_existing=True
+    )
+
+    assert catalog.is_bound_to_current_provider(replacement) is True
+
+
 def test_model_spec_fields_untouched_by_route_types() -> None:
     field_names = {f.name for f in dataclasses.fields(ModelSpec)}
 
