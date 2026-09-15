@@ -2126,16 +2126,18 @@ def test_v4_03_discovery_rejects_a_foreign_same_id_manifest(
 def test_v4_03_discovery_rejects_a_stale_formerly_active_manifest(
     tmp_path: Path,
 ) -> None:
-    """M: a manifest that was once canonical is no longer authority."""
+    """M: a manifest that was once canonical is no longer authority.
+
+    MAJOR-V5-01 orders the connection-authority guard before manifest
+    resolution, so the connection is accepted *after* the authority
+    replacement: the parent connection is current and only the manifest
+    identity is stale, which keeps the MAJOR-V4-03 contract directly
+    observable.
+    """
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
     runtime = _runtime(tmp_path, repository=repository)
     coordinator = runtime.coordinator
     assert coordinator is not None
-    connection = _connect_deepseek(runtime)
-    committed = repository.load()
-    assert committed is not None
-    revision_before = coordinator.revision
-    audit_before = coordinator.audit_log
     previous = runtime.manifests.get("deepseek")
     assert previous is not None
 
@@ -2158,6 +2160,12 @@ def test_v4_03_discovery_rejects_a_stale_formerly_active_manifest(
         )
     )
     assert replacement is not previous
+    connection = _connect_deepseek(runtime)
+    assert runtime.connections.is_bound_to_current_provider(connection) is True
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
     client = _RecordingClient(("deepseek-chat",))
 
     with pytest.raises(

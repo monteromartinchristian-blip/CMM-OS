@@ -247,6 +247,16 @@ class ProviderRegistryStateCoordinator:
         caller's manifest is never silently ignored in favour of the canonical
         one: passing the wrong object is a caller composition error.
 
+        Connection authority rule (MAJOR-V5-01): an accepted connection can
+        remain registered while its exact ``ProviderSpec`` binding is stale —
+        the provider was removed, or re-registered as a different object with
+        the same id. Such a connection no longer authorizes administrative work,
+        so the canonical registered connection must still be bound to the
+        current provider *before* the manifest is resolved and before the client
+        is consulted. The refusal happens before any external call and before
+        route, audit, revision or repository state can change, which is the same
+        fail-closed boundary capture and status transitions already enforce.
+
         Snapshot monotonicity rule (MINOR-V4-01): a discovery pass is a
         connection-level snapshot, not a single route timestamp — it may create,
         refresh, defer and restore routes at once. An observation older than the
@@ -286,6 +296,11 @@ class ProviderRegistryStateCoordinator:
         if registered is None:
             raise ValueError(
                 f"connection is not registered: {connection.connection_id}"
+            )
+        if not self._connections.is_bound_to_current_provider(registered):
+            raise ProviderStateCoherenceError(
+                f"connection {registered.connection_id} is bound to a stale or "
+                "missing ProviderSpec"
             )
         canonical_manifest = self._manifests.get(registered.provider_id)
         if canonical_manifest is None or canonical_manifest is not manifest:

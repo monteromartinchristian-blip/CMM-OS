@@ -1521,10 +1521,16 @@ def test_discovery_rejects_a_foreign_same_id_manifest_before_any_effect(
 def test_discovery_rejects_a_stale_formerly_active_manifest(
     tmp_path: Path,
 ) -> None:
-    """A manifest that was once canonical is still not the active one."""
+    """A manifest that was once canonical is still not the active one.
+
+    MAJOR-V5-01 orders the connection-authority guard before manifest
+    resolution, so this adversary registers its connection *after* the provider
+    replacement: the parent connection is current and only the manifest
+    identity is stale, which keeps the MAJOR-V4-03 contract directly
+    observable.
+    """
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
     runtime = _runtime(tmp_path, repository=repository)
-    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
     previous = _active_manifest(runtime)
 
     # Replace the provider authority, then register fresh metadata under it.
@@ -1535,6 +1541,8 @@ def test_discovery_rejects_a_stale_formerly_active_manifest(
     )
     assert replacement is not previous
     assert runtime.manifests.get("deepseek") is replacement
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    assert runtime.connections.is_bound_to_current_provider(connection) is True
     client = _DiscoveryClient(("deepseek-chat",))
 
     with pytest.raises(
@@ -1576,14 +1584,21 @@ def test_discovery_rejects_a_manifest_for_another_canonical_provider(
 def test_discovery_rejects_a_manifest_whose_provider_has_no_active_metadata(
     tmp_path: Path,
 ) -> None:
-    """With no active canonical manifest for the connection, discovery fails closed."""
+    """With no active canonical manifest for the connection, discovery fails closed.
+
+    The connection is registered after the provider replacement, so it is
+    current (MAJOR-V5-01) while the provider carries no active canonical
+    metadata — the manifest-identity guard is what refuses the pass.
+    """
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
     runtime = _runtime(tmp_path, repository=repository)
-    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
     canonical = _active_manifest(runtime)
 
     client = _DiscoveryClient(("deepseek-chat",))
     runtime.providers.remove("deepseek")
+    runtime.providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    assert runtime.manifests.get("deepseek") is None
 
     with pytest.raises(
         ProviderStateCoherenceError,
@@ -1765,3 +1780,68 @@ def test_discovery_accepts_the_first_snapshot_for_a_connection(
     )
 
     assert result.new_route_ids == ("deepseek:main:deepseek-chat",)
+
+
+# --- discovery connection authority (MAJOR-V5-01) ----------------------------
+
+
+def _replaced_provider_runtime(
+    tmp_path: Path,
+) -> tuple[_Runtime, ProviderConnection, ProviderManifest, ProviderSpec]:
+    """Replace the provider authority under a surviving accepted connection.
+
+    A canonical provider/manifest/connection graph is built, then the provider
+    is removed and re-registered as a *different* ``ProviderSpec`` with the same
+    id and fresh active metadata. The accepted connection survives by id, so it
+    still resolves — but its exact provider binding is stale.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    provider_a = runtime.providers.get("deepseek")
+    manifest_a = _active_manifest(runtime)
+
+    runtime.providers.remove("deepseek")
+    provider_b = runtime.providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    manifest_b = runtime.manifests.register(
+        _manifest("deepseek", _DEEPSEEK_URL, BillingClass.PAYG)
+    )
+
+    assert provider_a is not provider_b
+    assert manifest_a is not manifest_b
+    assert runtime.manifests.get("deepseek") is manifest_b
+    assert runtime.connections.is_bound_to_current_provider(connection) is False
+    return runtime, connection, manifest_b, provider_b
+
+
+def test_discovery_rejects_a_stale_connection_before_the_client_call(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V5-01: a stale provider-bound connection authorizes no I/O.
+
+    The connection is still registered and still resolves, and a fresh active
+    canonical manifest exists, so every *other* authority input is valid — yet
+    the connection's own provider authority is gone. The refusal must happen
+    before the administrative client is consulted and before any route,
+    revision, audit or durable state can move.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, connection, manifest_b, _provider_b = _replaced_provider_runtime(tmp_path)
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection deepseek:main is bound to a stale or missing ProviderSpec",
+    ):
+        runtime.coordinator.discover_models(
+            connection,
+            manifest_b,
+            client,
+            seen_at=T0,
+        )
+
+    assert client.calls == 0
+    assert runtime.routes.list() == ()
+    assert runtime.coordinator.revision == 0
+    assert runtime.coordinator.audit_log == ()
+    assert repository.load() is None
