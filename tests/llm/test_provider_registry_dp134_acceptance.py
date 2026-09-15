@@ -2283,3 +2283,315 @@ def test_v4_04_mixed_route_timestamps_use_the_connection_maximum(
     assert restored is not None
     assert restored.last_seen_at == T1
     assert restored.available is True
+
+
+# --- Remediation V5 adversaries (Independent Re-audit V5 findings) -----------
+#
+# MAJOR-V5-01: an accepted connection whose exact ProviderSpec binding is stale
+# must not authorize administrative discovery I/O or the creation of a new route
+# relation — even while a fresh active same-id manifest exists.
+#
+# MAJOR-V5-02: the connection-level discovery floor is the newest durable
+# discovery evidence, so it must combine route observations with the persisted
+# discovery route audit history. A state-changing pass that advances no
+# ``last_seen_at`` still raises the floor, and the derivation survives a restart
+# without any new persisted field, event or store.
+#
+# Everything below runs on the canonical runtime: real registries, the canonical
+# first-wave bootstrap, the real repository and coordinator. ``_RecordingClient``
+# is the hermetic boundary fake that proves zero client and inference calls.
+
+_V5_TM = datetime(2026, 9, 14, 11, 0, tzinfo=timezone.utc)
+
+# The exact discovery route events allowed to contribute to the audit floor.
+_V5_ROUTE_EVENTS = frozenset(
+    {
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+        "route.refreshed",
+    }
+)
+
+
+def _v5_route_floor(runtime: _Runtime, connection_id: str = "deepseek:main"):
+    """Newest durable route observation of one connection (visible data)."""
+    timestamps = [
+        route.last_seen_at
+        for route in runtime.routes.list()
+        if route.connection_id == connection_id and route.last_seen_at is not None
+    ]
+    return max(timestamps, default=None)
+
+
+def _v5_audit_floor(runtime: _Runtime, connection_id: str = "deepseek:main"):
+    """Newest persisted discovery route event of one connection."""
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    timestamps = [
+        record.occurred_at
+        for record in coordinator.audit_log
+        if record.event_type in _V5_ROUTE_EVENTS
+        and dict(record.detail).get("connection_id") == connection_id
+    ]
+    return max(timestamps, default=None)
+
+
+def _replace_deepseek_authority(runtime: _Runtime) -> ProviderManifest:
+    """Replace the DeepSeek provider object and install fresh active metadata."""
+    runtime.providers.remove("deepseek")
+    runtime.providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://api.deepseek.com/v1",
+        )
+    )
+    return runtime.manifests.register(
+        ProviderManifest(
+            provider_id="deepseek",
+            display_name="DeepSeek API",
+            billing_class=BillingClass.PAYG,
+            default_base_url="https://api.deepseek.com/v1",
+            auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        )
+    )
+
+
+def test_v5_a_discovery_rejects_a_stale_connection_before_the_client(
+    tmp_path: Path,
+) -> None:
+    """Scenario V5-A: stale connection authority reaches no discovery I/O.
+
+    A same-id provider replacement leaves the accepted connection registered
+    while its exact provider binding is gone; a fresh active same-id manifest
+    exists, so only the connection's own authority is stale. Discovery must
+    refuse before the administrative client is consulted and without touching
+    routes, revision, audit log or the durable document.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    assert committed.revision == 1
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+
+    fresh_manifest = _replace_deepseek_authority(runtime)
+    assert runtime.connections.get("deepseek:main") is connection
+    assert runtime.connections.is_bound_to_current_provider(connection) is False
+    client = _RecordingClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection deepseek:main is bound to a stale or missing ProviderSpec",
+    ):
+        coordinator.discover_models(connection, fresh_manifest, client, seen_at=T0)
+
+    assert client.list_calls == 0
+    assert client.inference_calls == []
+    assert runtime.routes.list() == ()
+    # The stale connection stays visible: no cascading teardown.
+    assert runtime.connections.get("deepseek:main") is connection
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_v5_b_stale_connection_cannot_create_a_route_binding(tmp_path: Path) -> None:
+    """Scenario V5-B: stale parent authority may not establish a new relation."""
+    runtime = _runtime(tmp_path)
+    connection = _connect_deepseek(runtime)
+    _replace_deepseek_authority(runtime)
+    stale = runtime.connections.get("deepseek:main")
+    assert stale is not None
+    assert runtime.connections.is_bound_to_current_provider(stale) is False
+
+    with pytest.raises(
+        ValueError,
+        match="connection deepseek:main is bound to a stale or missing ProviderSpec",
+    ):
+        runtime.routes.register(
+            ModelRoute(
+                route_id="deepseek:main:deepseek-chat",
+                connection_id="deepseek:main",
+                provider_model_id="deepseek-chat",
+                canonical_model_id="deepseek-chat",
+            )
+        )
+
+    assert runtime.routes.list() == ()
+    assert runtime.connections.get("deepseek:main") is connection
+
+
+def _allowlisted_deepseek_runtime(
+    tmp_path: Path,
+    repository: FileProviderRegistryStateRepository,
+) -> tuple[_Runtime, ProviderConnection, ProviderManifest]:
+    """Rebuild the DeepSeek authority with ``activation_allowlist=("a",)``.
+
+    The canonical first-wave declaration carries an empty allowlist, so the
+    T0/T1 adversary rebuilds that one authority through the same canonical
+    provider/manifest/onboarding path and accepts a connection under it.
+    """
+    runtime = _runtime(tmp_path, repository=repository)
+    runtime.providers.remove("deepseek")
+    runtime.providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://api.deepseek.com/v1",
+        )
+    )
+    manifest = runtime.manifests.register(
+        ProviderManifest(
+            provider_id="deepseek",
+            display_name="DeepSeek API",
+            billing_class=BillingClass.PAYG,
+            default_base_url="https://api.deepseek.com/v1",
+            auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+            activation_allowlist=("a",),
+        )
+    )
+    connection = _connect_deepseek(runtime)
+    assert runtime.connections.is_bound_to_current_provider(connection) is True
+    return runtime, connection, manifest
+
+
+def _drive_v5c_passes(
+    tmp_path: Path,
+    repository: FileProviderRegistryStateRepository,
+) -> tuple[_Runtime, ProviderConnection, ProviderManifest, ProviderRegistryState]:
+    """Drive the canonical T0/T1 passes and return the durable T1 aggregate.
+
+    At T0 the provider advertises ``a`` and ``b``; at T1 it advertises only the
+    already-deferred ``b``, so ``a`` disappears and becomes unavailable while no
+    route observation advances past T0.
+
+    Revision 1 is the accepted connection, 2 is the T0 pass and 3 is the
+    state-changing T1 pass.
+    """
+    runtime, connection, manifest = _allowlisted_deepseek_runtime(tmp_path, repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    assert coordinator.revision == 1
+
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("a", "b")), seen_at=T0
+    )
+    first = repository.load()
+    assert first is not None
+    assert first.revision == 2
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("b",)), seen_at=T1
+    )
+
+    state_t1 = repository.load()
+    assert state_t1 is not None
+    assert state_t1.revision == 3
+    route_a = runtime.routes.get("deepseek:main:a")
+    route_b = runtime.routes.get("deepseek:main:b")
+    assert route_a is not None and route_a.available is False
+    assert route_b is not None and route_b.available is False
+    assert _v5_route_floor(runtime) == T0
+    assert _v5_audit_floor(runtime) == T1
+    return runtime, connection, manifest, state_t1
+
+
+def test_v5_c_intermediate_snapshot_is_rejected_before_the_client(
+    tmp_path: Path,
+) -> None:
+    """Scenario V5-C: T0/T1/TM — the newer durable pass gates the older one.
+
+    The route floor is still T0 because nothing was advertised again, but the
+    persisted ``route.unavailable`` at T1 is the newest durable snapshot, so a
+    stale observation between the two may not restore ``a``.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, connection, manifest, state_t1 = _drive_v5c_passes(tmp_path, repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    audit_before = coordinator.audit_log
+    assert T0 < _V5_TM < T1
+    client = _RecordingClient(("a", "b"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        coordinator.discover_models(connection, manifest, client, seen_at=_V5_TM)
+
+    assert client.list_calls == 0
+    assert client.inference_calls == []
+    route_a = runtime.routes.get("deepseek:main:a")
+    assert route_a is not None and route_a.available is False
+    assert route_a.last_seen_at == T0
+    assert coordinator.revision == 3
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == state_t1
+
+
+def test_v5_d_restarted_runtime_rejects_the_intermediate_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Scenario V5-D: the same floors are derivable after a restart.
+
+    The exact T1 aggregate is rebuilt into fresh components and a fresh
+    coordinator seated on the restored revision and audit log, so no additional
+    persisted state carries the watermark.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, _connection, _manifest, state_t1 = _drive_v5c_passes(tmp_path, repository)
+    assert runtime.coordinator is not None
+    assert runtime.coordinator.revision == 3
+
+    restored = restore_provider_registry_state(state_t1)
+    coordinator = ProviderRegistryStateCoordinator(
+        providers=restored.providers,
+        manifests=restored.manifests,
+        models=restored.models,
+        connections=restored.connections,
+        routes=restored.routes,
+        repository=repository,
+        revision=restored.revision,
+        audit_log=restored.audit_log,
+    )
+    restored_runtime = _Runtime(
+        service=runtime.service,
+        providers=restored.providers,
+        manifests=restored.manifests,
+        models=restored.models,
+        connections=restored.connections,
+        routes=restored.routes,
+        credentials=runtime.credentials,
+        profiles_root=runtime.profiles_root,
+        coordinator=coordinator,
+    )
+    connection = restored.connections.get("deepseek:main")
+    assert connection is not None
+    assert restored.connections.is_bound_to_current_provider(connection) is True
+    manifest = restored.manifests.get("deepseek")
+    assert manifest is not None
+
+    assert _v5_route_floor(restored_runtime) == T0
+    assert _v5_audit_floor(restored_runtime) == T1
+    assert coordinator.revision == 3
+    client = _RecordingClient(("a", "b"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        coordinator.discover_models(connection, manifest, client, seen_at=_V5_TM)
+
+    assert client.list_calls == 0
+    assert client.inference_calls == []
+    assert restored.routes.list() == state_t1.routes
+    assert coordinator.revision == 3
+    assert coordinator.audit_log == state_t1.audit_log
+    assert repository.load() == state_t1
