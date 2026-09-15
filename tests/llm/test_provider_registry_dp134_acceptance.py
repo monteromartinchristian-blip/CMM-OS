@@ -1263,6 +1263,39 @@ _FORBIDDEN_CURRENT_CLAIMS = (
     "CLOSURE_ELIGIBLE=YES",
 )
 
+_PENDING_LIFECYCLE_ROW = (
+    "| Lifecycle status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |"
+)
+_CLOSED_LIFECYCLE_ROW = "| Lifecycle status | `CLOSED` |"
+
+_PENDING_LIFECYCLE_MARKERS = (
+    "DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT",
+    "AT-DP-134=PASS_REPORTED",
+    "CLOSURE_ELIGIBLE=NO",
+    "AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7",
+)
+
+_PENDING_EXCLUSIVE_MARKERS = (
+    "DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT",
+    "AT-DP-134=PASS_REPORTED",
+    "AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7",
+)
+
+_CLOSED_LIFECYCLE_MARKERS = (
+    "INDEPENDENT_REAUDIT_V7=PASS",
+    "BLOCKERS=0",
+    "MAJORS=0",
+    "MINORS=0",
+    "MAJOR-V6-01=VERIFIED_REMEDIATED",
+    "MAJOR-V5-01=VERIFIED_REMEDIATED",
+    "MAJOR-V5-02=VERIFIED_REMEDIATED",
+    "F11-014=VERIFIED_EXISTING",
+    "DP-134=VERIFIED_EXISTING",
+    "AT-DP-134=PASS",
+    "CLOSURE_ELIGIBLE=YES",
+    "AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V7_PASS",
+)
+
 # Every artifact the F11-014 row must trace to (spec §8.4).
 _F11_014_TRACEABILITY = (
     "kernel/llm/provider_registry.py",
@@ -1330,38 +1363,57 @@ def _phase11_inherited_rows(text: str) -> dict[str, str]:
     return rows
 
 
-def test_requirements_matrix_traceability_is_canonical_and_pending_reaudit() -> None:
-    """The Phase 11 matrix owns `F11-014` → `DP-134` → `AT-DP-134`, unclosed.
+def test_requirements_matrix_traceability_is_canonical_and_lifecycle_coherent() -> None:
+    """F11-014 → DP-134 → AT-DP-134 stays canonical across lifecycle closure.
 
-    Documentary checkpoint only (spec §9.7): every runtime invariant in this
-    file is proven by the scenarios themselves, never by reading a document.
+    Documentary checkpoint only: runtime invariants are proven by the connected
+    scenarios themselves. The matrix may be in exactly one of two legitimate
+    states: the independently-audited pending state or the later docs-only
+    closed state after Re-audit V7 PASS.
     """
     assert _PHASE11_MATRIX_PATH.is_file(), (
         f"the canonical Phase 11 requirements matrix is missing: {_PHASE11_MATRIX_PATH}"
     )
     text = _PHASE11_MATRIX_PATH.read_text(encoding="utf-8")
 
-    # The row and its full traceable chain exist verbatim.
+    # The row and its full traceable chain exist verbatim in either lifecycle.
     for marker in ("F11-014", "DP-134", "AT-DP-134", "11.34"):
         assert marker in text, f"Phase 11 matrix does not carry {marker}"
     assert _F11_014_STATEMENT in text
     for artifact in _F11_014_TRACEABILITY:
         assert artifact in text, f"F11-014 row does not trace to {artifact}"
 
-    # The lifecycle status is the pending-reaudit maximum, never closure.
-    assert "IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT" in text
-    assert "DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT" in text
-    assert "AT-DP-134=PASS_REPORTED" in text
-    assert "CLOSURE_ELIGIBLE=NO" in text
-    for line, fence_label in _marked_lines(text):
-        if line.strip() not in _FORBIDDEN_CURRENT_CLAIMS:
-            continue
-        assert fence_label is not None and "future closure criteria" in (
-            fence_label.lower()
-        ), f"premature closure claim outside future criteria: {line.strip()!r}"
+    pending = _PENDING_LIFECYCLE_ROW in text
+    closed = _CLOSED_LIFECYCLE_ROW in text
+    assert pending ^ closed, (
+        "Phase 11.34 matrix must describe exactly one lifecycle state: "
+        "pending independent re-audit or closed"
+    )
+
+    if pending:
+        for marker in _PENDING_LIFECYCLE_MARKERS:
+            assert marker in text, f"pending lifecycle is missing {marker}"
+        for line, fence_label in _marked_lines(text):
+            if line.strip() not in _FORBIDDEN_CURRENT_CLAIMS:
+                continue
+            assert fence_label is not None and "future closure criteria" in (
+                fence_label.lower()
+            ), f"premature closure claim outside future criteria: {line.strip()!r}"
+    else:
+        for marker in _CLOSED_LIFECYCLE_MARKERS:
+            assert marker in text, f"closed lifecycle is missing {marker}"
+        for marker in _PENDING_EXCLUSIVE_MARKERS:
+            assert marker not in text, (
+                f"closed lifecycle retains pending marker {marker}"
+            )
+        assert "## 6. Final closure evidence" in text
+        assert (
+            "docs/audits/phase-11.34-provider-registry-independent-reaudit-v7.md"
+            in text
+        )
 
     # The historical Phase 10 matrix stays canonical for `F11-001`…`F11-013`:
-    # the new matrix points back to those rows instead of restating them.
+    # the Phase 11 matrix points back to those rows instead of restating them.
     assert _PHASE10_MATRIX_PATH.name in text
     inherited = _phase11_inherited_rows(_PHASE10_MATRIX_PATH.read_text("utf-8"))
     assert set(_INHERITED_PHASE11_IDS) <= set(inherited)
