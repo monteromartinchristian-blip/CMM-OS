@@ -3159,17 +3159,18 @@ INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
 INDEPENDENT_REAUDIT_V4=FAIL
 INDEPENDENT_REAUDIT_V5=FAIL
-REMEDIATION_V5=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V6=FAIL
+REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 AT-DP-134=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V6
+AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7
 ```
 
 Phase 11 has begun with 11.34 as an intentional out-of-order bootstrap. The
-implementation and Remediations V1–V5 are complete and committed, but the
-subphase remains pending Independent Re-audit V6 of a new exact-HEAD bundle; it
+implementation and Remediations V1–V6 are complete and committed, but the
+subphase remains pending Independent Re-audit V7 of a new exact-HEAD bundle; it
 is not closed.
 
 Historical Independent Audit V1 —
@@ -3221,9 +3222,25 @@ route-only monotonic floor did not cover every state-changing discovery pass, so
 `MINOR-V4-01` was only partially remediated. This verdict is historical
 evidence, not a current result.
 
-Remediation V1, Remediation V2, Remediation V3 and Remediation V4 are
-historical context only: each was implemented and committed, then independently
-re-audited `FAIL`. None is a current-state marker. Historical artifacts: design
+Historical Independent Re-audit V6 —
+`docs/audits/phase-11.34-provider-registry-independent-reaudit-v6.md`: verdict
+`FAIL` on the exact-HEAD Remediation V5 bundle (`INDEPENDENT_REAUDIT_V6=FAIL`;
+`BLOCKERS=0`; `MAJORS=1`; `MINORS=0`; finding `MAJOR-V6-01`; audited HEAD
+`cd780e3b7d74d2054470f277107986769ebb39a4`; audited tree
+`ff534595fdc841bd77f40a271c8e50284c0b40e7`; bundle SHA-256
+`af0e5f141ef865479946f3882cc13597bf06e33db50a90add22c38dc0d729e3a`). That
+audit verified `MAJOR-V5-02` as remediated, held `MAJOR-V5-01` partially
+remediated (the coordinator and `register()`/`restore()` boundaries are fixed;
+`ModelRouteCatalog.restore_all()` remained a fresh-binding/rebinding bypass),
+and opened `MAJOR-V6-01`: `restore_all()` could still create a fresh route
+binding through a stale provider-bound connection and could preserve an old
+connection-registration marker while the incoming route declared a different
+connection id. This verdict is historical evidence, not a current result.
+
+Remediation V1, Remediation V2, Remediation V3, Remediation V4 and Remediation
+V5 are historical context only: each was implemented and committed, then
+independently re-audited `FAIL`. None is a current-state marker. Historical
+artifacts: design
 `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md`;
 plan
 `docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md`;
@@ -3238,16 +3255,21 @@ plan
 design
 `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v4-design.md`;
 plan
-`docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v4-implementation-plan.md`.
-
-Remediation V5 implements the intended remediation for exactly the two Re-audit
-V5 findings and is therefore
-`REMEDIATION_V5=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; Independent Re-audit
-V6 of its exact-HEAD bundle (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V6`) is
-still pending. Design
+`docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v4-implementation-plan.md`;
+design
 `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v5-design.md`;
 plan
 `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v5-implementation-plan.md`.
+
+Remediation V6 implements the intended remediation for exactly the one Re-audit
+V6 finding and is therefore
+`REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; Independent Re-audit
+V7 of its exact-HEAD bundle (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7`) is
+still pending, and `MAJOR-V6-01` stays open as historical audit state until that
+verdict. Design
+`docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v6-design.md`;
+plan
+`docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v6-implementation-plan.md`.
 It changes no design point: `DP-134` is unchanged and remains the single closure
 design point for Phase 11.34, and no new requirement identifier is introduced.
 
@@ -3289,7 +3311,7 @@ That document is the Phase 11 owner for `F11-014`; the inherited/preassigned
 planning rows `F11-001`…`F11-013` stay normatively owned by the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md)
 (Phase 10). `F11-014` is `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — implemented
-and not independently verified before Independent Re-audit V6.
+and not independently verified before Independent Re-audit V7.
 
 ## Connected Acceptance
 
@@ -3297,13 +3319,16 @@ and not independently verified before Independent Re-audit V6.
 `tests/llm/test_provider_registry_dp134_acceptance.py` (scenarios A–M plus the
 Remediation V2 adversaries for `MAJOR-V2-01`…`MAJOR-V2-05`, the Remediation V3
 adversaries for `MAJOR-V3-01`/`MAJOR-V3-02`, the Remediation V4 adversaries
-for `MAJOR-V4-01`…`MAJOR-V4-03`/`MINOR-V4-01` and the Remediation V5 adversaries
-for `MAJOR-V5-01`/`MAJOR-V5-02`, over the real canonical
+for `MAJOR-V4-01`…`MAJOR-V4-03`/`MINOR-V4-01`, the Remediation V5 adversaries
+for `MAJOR-V5-01`/`MAJOR-V5-02` and the Remediation V6 adversaries for
+`MAJOR-V6-01` (`V6-A` fresh route under a stale provider-bound connection,
+`V6-B` coherent same-route-id rebind to a declared current connection, `V6-C`
+exact rollback under a stale parent), over the real canonical
 components and their official in-memory implementations).
 Implementation-machine result: `AT-DP-134=PASS_REPORTED`. Independent
 verification of the connected acceptance and of `DP-134` is still pending, and
-belongs to Independent Re-audit V6
-(`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V6`).
+belongs to Independent Re-audit V7
+(`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7`).
 
 ## Objective
 
