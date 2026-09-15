@@ -15,6 +15,17 @@ packages; only Phase 11.1 platform-boundary values are re-exported here.
 
 from __future__ import annotations
 
+from cmm.platform.canonical import (
+    agent_runtime_integration_binding,
+    cognitive_adapter_registry_binding,
+    cognitive_extractor_registry_binding,
+    cognitive_service_binding,
+    domain_registry_binding,
+    execution_registry_binding,
+    provider_registry_binding,
+    validation_application_binding,
+    workflow_registry_binding,
+)
 from cmm.platform.compatibility import (
     CompatibilityResult,
     CompatibilityStatus,
@@ -86,6 +97,15 @@ __all__ = [
     "ServiceInspection",
     "ServiceMode",
     "StaticCompositionModule",
+    "agent_runtime_integration_binding",
     "build_composition_snapshot",
     "check_contract_compatibility",
+    "cognitive_adapter_registry_binding",
+    "cognitive_extractor_registry_binding",
+    "cognitive_service_binding",
+    "domain_registry_binding",
+    "execution_registry_binding",
+    "provider_registry_binding",
+    "validation_application_binding",
+    "workflow_registry_binding",
 ]
