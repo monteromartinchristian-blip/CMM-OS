@@ -755,3 +755,234 @@ def test_failed_restore_returns_no_partial_aggregate() -> None:
     # rejected attempt left no shared/global state behind.
     clean = restore_provider_registry_state(_state(routes=()))
     assert tuple(item.route_id for item in clean.routes.list()) == ()
+
+
+def _dependent_graph() -> tuple[
+    ProviderRegistry,
+    ProviderManifestRegistry,
+    ModelCatalog,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    """One provider with a manifest plus a dependent model, connection, route.
+
+    This is the MAJOR-V4-01 shape: a correctly wired component graph whose
+    individual items are separately bound to the authority they were registered
+    under.
+    """
+    providers = ProviderRegistry()
+    providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(_manifest("deepseek", _DEEPSEEK_URL, billing=BillingClass.PAYG))
+    models = ModelCatalog(providers)
+    models.register(ModelSpec(id="deepseek-chat", provider_id="deepseek"))
+    connections = ProviderConnectionRegistry(providers)
+    connections.register(_connection("deepseek"))
+    routes = ModelRouteCatalog(connections)
+    routes.register(
+        ModelRoute(
+            route_id="deepseek:main:deepseek-chat",
+            connection_id="deepseek:main",
+            provider_model_id="deepseek-chat",
+            canonical_model_id="deepseek-chat",
+        )
+    )
+    return providers, manifests, models, connections, routes
+
+
+def test_capture_rejects_dependents_of_a_removed_provider() -> None:
+    """MAJOR-V4-01: an unrestorable aggregate is never produced.
+
+    ``ProviderRegistry.remove()`` is a real mutation seam, so capture must fail
+    closed instead of serializing dependents whose authority is gone.
+    """
+    providers, manifests, models, connections, routes = _dependent_graph()
+
+    providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderSpec",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_rejects_a_model_whose_provider_was_removed() -> None:
+    """The model-level check names the stale model and produces no envelope."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+    connections.remove("deepseek:main")
+    routes.restore_all(())
+
+    providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="model deepseek-chat is bound to a stale or missing ProviderSpec",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_rejects_a_connection_whose_provider_was_removed() -> None:
+    """The connection-level check names the stale connection."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+    models.remove("deepseek-chat", provider_id="deepseek")
+
+    providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection deepseek:main is bound to a stale or missing ProviderSpec",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_rejects_dependents_after_same_id_provider_reregistration() -> None:
+    """Id equality is not authority identity (MAJOR-V4-01).
+
+    A same-id replacement can make stale dependents look referentially valid by
+    id while they still belong to an earlier authority object.
+    """
+    providers, manifests, models, connections, routes = _dependent_graph()
+    original = providers.get("deepseek")
+
+    providers.remove("deepseek")
+    replacement = providers.register(
+        _spec("deepseek", "https://new.example.invalid/v1")
+    )
+
+    assert original is not replacement
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderSpec",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_rejects_a_route_after_same_id_connection_reregistration() -> None:
+    """A surviving route must not look current after its connection is replaced."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+    original = connections.get("deepseek:main")
+
+    connections.remove("deepseek:main")
+    replacement = connections.register(_connection("deepseek"))
+
+    assert original is not replacement
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="route deepseek:main:deepseek-chat is bound to a stale or "
+        "missing ProviderConnection",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_capture_rejects_a_route_whose_connection_was_removed() -> None:
+    """A missing connection authority fails capture at the route level."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+
+    connections.remove("deepseek:main")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="route deepseek:main:deepseek-chat is bound to a stale or "
+        "missing ProviderConnection",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=1
+        )
+
+
+def test_restored_graph_establishes_fresh_item_bindings() -> None:
+    """A coherent restore is one new runtime generation (MAJOR-V4-01).
+
+    Object identity is deliberately local to each coherent generation: the
+    rebuilt graph passes every item-level authority check without any persisted
+    generation id.
+    """
+    providers, manifests, models, connections, routes = _dependent_graph()
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=1
+    )
+
+    restored = restore_provider_registry_state(state)
+
+    model = restored.models.get("deepseek-chat", provider_id="deepseek")
+    connection = restored.connections.get("deepseek:main")
+    route = restored.routes.get("deepseek:main:deepseek-chat")
+    assert model is not None and connection is not None and route is not None
+    assert restored.models.is_bound_to_current_provider(model) is True
+    assert restored.connections.is_bound_to_current_provider(connection) is True
+    assert restored.routes.is_bound_to_current_connection(route) is True
+    assert (
+        capture_provider_registry_state(
+            restored.providers,
+            restored.manifests,
+            restored.models,
+            restored.connections,
+            restored.routes,
+            revision=restored.revision,
+            audit_log=restored.audit_log,
+        )
+        == state
+    )
+
+
+def test_capture_accepts_a_dependent_graph_after_a_status_transition() -> None:
+    """A field-only connection rewrite is not a coherence failure (MAJOR-V4-01).
+
+    The status record is replaced by ``update_status()`` but the accepted
+    connection is the same one, so every dependent item stays bound to current
+    authority and the aggregate is still capturable.
+    """
+    providers, manifests, models, connections, routes = _dependent_graph()
+
+    updated = connections.update_status("deepseek:main", ConnectionStatus.WARNING)
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=2
+    )
+
+    captured = tuple(item for item in state.connections)
+    assert captured == (updated,)
+    assert captured[0].status is ConnectionStatus.WARNING
+
+
+def test_capture_rejects_dependents_after_a_transition_and_reregistration() -> None:
+    """A registration replaced after a transition is a different authority."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+    connections.update_status("deepseek:main", ConnectionStatus.WARNING)
+
+    connections.remove("deepseek:main")
+    connections.register(_connection("deepseek"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderConnection",
+    ):
+        capture_provider_registry_state(
+            providers, manifests, models, connections, routes, revision=2
+        )
+
+
+def test_coherent_dependent_graph_still_captures() -> None:
+    """The item-level guards reject divergence only, never a valid aggregate."""
+    providers, manifests, models, connections, routes = _dependent_graph()
+
+    state = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=7
+    )
+
+    assert tuple(item.id for item in state.models) == ("deepseek-chat",)
+    assert tuple(item.connection_id for item in state.connections) == ("deepseek:main",)
+    assert tuple(item.route_id for item in state.routes) == (
+        "deepseek:main:deepseek-chat",
+    )
+    assert state.revision == 7

@@ -590,6 +590,38 @@ def test_failed_repository_save_does_not_advance_coordinator_revision(
     assert repository.load() is None
 
 
+def test_commit_fails_closed_when_item_level_authority_is_stale(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V4-01: a stale graph can never publish the next revision.
+
+    The canonical provider is removed while its dependent connection (and its
+    committed state) remain. The coordinator does not repair that incoherence —
+    capture refuses it, so nothing durable advances.
+    """
+    repository = _SwitchableStateRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    runtime.coordinator.persist_connection_acceptance(connection, occurred_at=T0)
+    committed = repository.load()
+    assert committed is not None
+    assert runtime.coordinator.revision == 1
+    audit_before = runtime.coordinator.audit_log
+
+    runtime.providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError, match="stale or missing ProviderSpec"
+    ):
+        runtime.coordinator.persist_connection_acceptance(connection, occurred_at=T1)
+
+    assert runtime.coordinator.revision == 1
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == committed
+    # The stale connection is still visible: capture refuses it, nothing drops it.
+    assert runtime.connections.get("deepseek:main") is connection
+
+
 def test_failed_save_keeps_the_previous_durable_revision_and_audit_log(
     tmp_path: Path,
 ) -> None:

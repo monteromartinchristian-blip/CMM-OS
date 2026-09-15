@@ -224,6 +224,19 @@ def capture_provider_registry_state(
     :class:`~kernel.llm.provider_state.ProviderStateCoherenceError` naming the
     mismatched component before any state envelope can be produced. Nothing is
     copied, rebound or normalized by id.
+
+    Item-level authority guard (MAJOR-V4-01): a correctly wired graph is not
+    enough, because a component boundary proves the *objects* belong together
+    while saying nothing about the individual items registered inside them. Every
+    active model, connection and route is therefore also checked against the
+    exact authority object it was registered under — the ``ProviderSpec`` for
+    models and connections, the ``ProviderConnection`` for routes. Provider or
+    connection removal, and same-id replacement by a different object, both
+    leave such an item stale and make capture raise
+    :class:`~kernel.llm.provider_state.ProviderStateCoherenceError` naming the
+    stale item. Stale items are never dropped, repaired or rebound: their
+    existence *is* the incoherence, and an aggregate
+    :func:`restore_provider_registry_state` could not rebuild is never produced.
     """
     if not isinstance(providers, ProviderRegistry):
         raise TypeError("providers must be a ProviderRegistry")
@@ -263,14 +276,34 @@ def capture_provider_registry_state(
         raise ProviderStateCoherenceError(
             "manifest metadata without canonical provider identity: " + orphans[0]
         )
+    model_specs = models.list()
+    connection_specs = connections.list()
+    route_specs = routes.list()
+    for model in model_specs:
+        if not models.is_bound_to_current_provider(model):
+            raise ProviderStateCoherenceError(
+                f"model {model.id} is bound to a stale or missing ProviderSpec"
+            )
+    for connection in connection_specs:
+        if not connections.is_bound_to_current_provider(connection):
+            raise ProviderStateCoherenceError(
+                f"connection {connection.connection_id} is bound to a stale or "
+                "missing ProviderSpec"
+            )
+    for route in route_specs:
+        if not routes.is_bound_to_current_connection(route):
+            raise ProviderStateCoherenceError(
+                f"route {route.route_id} is bound to a stale or missing "
+                "ProviderConnection"
+            )
     return ProviderRegistryState(
         schema_version=SCHEMA_VERSION,
         revision=revision,
         providers=provider_specs,
         manifests=active_manifests,
-        models=models.list(),
-        connections=connections.list(),
-        routes=routes.list(),
+        models=model_specs,
+        connections=connection_specs,
+        routes=route_specs,
         audit_log=tuple(audit_log),
     )
 
