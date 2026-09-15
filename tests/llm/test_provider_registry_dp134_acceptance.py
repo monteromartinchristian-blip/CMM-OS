@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pytest
 
-from kernel.llm.credential_store import InMemoryCredentialStore
+from kernel.llm.credential_store import InMemoryCredentialStore, credential_ref
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
     provider_spec_from_manifest,
@@ -533,8 +533,10 @@ class _RecordingClient:
     def __init__(self, models: tuple[str, ...]) -> None:
         self._models = models
         self.inference_calls: list[object] = []
+        self.list_calls = 0
 
     def list_models(self) -> tuple[str, ...]:
+        self.list_calls += 1
         return self._models
 
     def generate(self, **kwargs: object) -> object:
@@ -1725,3 +1727,552 @@ def test_v3_refresh_persistence_failure_rolls_back_exactly(tmp_path: Path) -> No
     assert all(
         record.event_type != "route.refreshed" for record in coordinator.audit_log
     )
+
+
+# --- Remediation V4 adversaries (Independent Re-audit V4 findings) -----------
+#
+# MAJOR-V4-01: a correctly wired component graph is not enough — every active
+# model, connection and route must still belong to the exact authority object it
+# was registered under, or capture refuses to persist the aggregate.
+#
+# MAJOR-V4-02: ``ConnectionProposal`` is public evidence. Every authority field
+# is revalidated against the current canonical provider/manifest at accept time,
+# before the validator or any side effect.
+#
+# MAJOR-V4-03: the caller's discovery manifest is a claim; only the exact active
+# canonical manifest may drive route/audit/durable mutation.
+#
+# MINOR-V4-01: a discovery pass is a connection-level snapshot, so an older
+# observation is refused before the client is consulted and ``last_seen_at``
+# never regresses.
+#
+# Everything below runs on the canonical runtime (real registries, canonical
+# first-wave/subscription bootstrap, real repository and coordinator). Recording
+# fakes are used only to prove zero validator/client calls and zero side effects.
+
+_V4_FOREIGN_MANIFEST_URL = "https://v4-foreign.example/v1"
+_V4_FORGED_ENDPOINT = "https://evil.example/v1"
+
+
+class _RecordingValidator:
+    """Canonical-shape validator that records whether it was consulted."""
+
+    def __init__(self, result: bool = True) -> None:
+        self.result = result
+        self.calls: list[ConnectionProposal] = []
+
+    def __call__(self, proposal: ConnectionProposal) -> bool:
+        self.calls.append(proposal)
+        return self.result
+
+
+def _restored_graph_state(runtime: _Runtime) -> ProviderRegistryState:
+    """Capture the runtime's live canonical graph as one aggregate."""
+    return capture_provider_registry_state(
+        runtime.providers,
+        runtime.manifests,
+        runtime.models,
+        runtime.connections,
+        runtime.routes,
+        revision=7,
+    )
+
+
+def _connect_deepseek_with_dependents(runtime: _Runtime) -> ProviderConnection:
+    """Accept DeepSeek and register one dependent model plus one route."""
+    connection = _connect_deepseek(runtime)
+    runtime.models.register(ModelSpec(id="deepseek-chat", provider_id="deepseek"))
+    runtime.routes.register(
+        ModelRoute(
+            route_id="deepseek:main:deepseek-chat",
+            connection_id="deepseek:main",
+            provider_model_id="deepseek-chat",
+            canonical_model_id="deepseek-chat",
+        )
+    )
+    return connection
+
+
+def _replacement_connection(connection: ProviderConnection) -> ProviderConnection:
+    """Build a different object carrying ``connection``'s id."""
+    return dataclasses.replace(connection, endpoint=_V4_FORGED_ENDPOINT)
+
+
+def test_v4_01_capture_rejects_dependents_of_a_removed_provider(
+    tmp_path: Path,
+) -> None:
+    """A: provider removal with surviving dependents is not capturable."""
+    runtime = _runtime(tmp_path)
+    _connect_deepseek_with_dependents(runtime)
+    assert len(runtime.models.list()) == 1
+    assert len(runtime.connections.list()) == 1
+    assert len(runtime.routes.list()) == 1
+
+    runtime.providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderSpec",
+    ):
+        _restored_graph_state(runtime)
+
+
+def test_v4_01_capture_rejects_dependents_after_same_id_provider_replacement(
+    tmp_path: Path,
+) -> None:
+    """B: id equality never revives stale dependent authority."""
+    runtime = _runtime(tmp_path)
+    _connect_deepseek_with_dependents(runtime)
+    original = runtime.providers.get("deepseek")
+
+    runtime.providers.remove("deepseek")
+    replacement = runtime.providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=_V4_FOREIGN_MANIFEST_URL,
+        )
+    )
+
+    assert original is not replacement
+    # Dependents survive by id and stay visible...
+    assert runtime.connections.get("deepseek:main") is not None
+    assert runtime.models.get("deepseek-chat", provider_id="deepseek") is not None
+    # ...and capture still refuses the aggregate.
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderSpec",
+    ):
+        _restored_graph_state(runtime)
+
+
+def test_v4_01_capture_rejects_a_route_after_same_id_connection_replacement(
+    tmp_path: Path,
+) -> None:
+    """C: a surviving route cannot look current after its connection is replaced."""
+    runtime = _runtime(tmp_path)
+    connection = _connect_deepseek_with_dependents(runtime)
+    runtime.models.remove("deepseek-chat", provider_id="deepseek")
+
+    runtime.connections.remove("deepseek:main")
+    replacement = runtime.connections.register(_replacement_connection(connection))
+
+    assert connection is not replacement
+    assert runtime.routes.get("deepseek:main:deepseek-chat") is not None
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderConnection",
+    ):
+        _restored_graph_state(runtime)
+
+
+def test_v4_01_coherent_restore_recaptures_successfully(tmp_path: Path) -> None:
+    """D: object identity is local to each coherent runtime generation."""
+    runtime = _runtime(tmp_path)
+    _connect_deepseek_with_dependents(runtime)
+    state = _restored_graph_state(runtime)
+
+    restored = restore_provider_registry_state(state)
+
+    assert (
+        capture_provider_registry_state(
+            restored.providers,
+            restored.manifests,
+            restored.models,
+            restored.connections,
+            restored.routes,
+            revision=state.revision,
+            audit_log=state.audit_log,
+        )
+        == state
+    )
+
+
+def test_v4_01_coordinator_commit_cannot_publish_a_stale_graph(
+    tmp_path: Path,
+) -> None:
+    """E: a stale item-level graph can never advance the durable revision."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+
+    runtime.providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="stale or missing ProviderSpec",
+    ):
+        coordinator.persist_connection_acceptance(connection)
+
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def _canonical_codex_proposal(
+    runtime: _Runtime,
+    **overrides: object,
+) -> ConnectionProposal:
+    """Build a Codex proposal from the canonical manifest, with forgeries."""
+    manifest = runtime.manifests.get("codex")
+    assert manifest is not None
+    assert manifest.requires_isolation is True
+    fields: dict[str, object] = {
+        "provider_id": "codex",
+        "display_name": manifest.display_name,
+        "billing_class": manifest.billing_class,
+        "endpoint": manifest.default_base_url,
+        "requires_isolation": True,
+        "source_home": str(Path("/tmp/v4-forged-source-home")),
+    }
+    fields.update(overrides)
+    return ConnectionProposal(**fields)  # type: ignore[arg-type]
+
+
+def _assert_acceptance_untouched(
+    runtime: _Runtime,
+    validator: _RecordingValidator,
+    repository: FileProviderRegistryStateRepository,
+    committed: ProviderRegistryState | None,
+    *,
+    validator_calls_before: int,
+    expected_connections: tuple[ProviderConnection, ...] = (),
+) -> None:
+    """Prove a rejected acceptance consulted and changed nothing.
+
+    ``validator_calls_before`` and ``expected_connections`` describe the state
+    that already existed before the rejected call, so "unchanged" is asserted
+    against real pre-existing state rather than against an empty runtime.
+    """
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    assert len(validator.calls) == validator_calls_before
+    assert runtime.connections.list() == expected_connections
+    assert runtime.connections.get("codex:main") is None
+    assert not runtime.credentials.has(credential_ref("codex", "main"))
+    assert not (runtime.profiles_root / "codex").exists()
+    expected_revision = 0 if committed is None else committed.revision
+    expected_audit = () if committed is None else committed.audit_log
+    assert coordinator.revision == expected_revision
+    assert coordinator.audit_log == expected_audit
+    assert repository.load() == committed
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("requires_isolation", False, "proposal isolation policy contradicts"),
+        ("endpoint", _V4_FORGED_ENDPOINT, "proposal endpoint contradicts"),
+        ("billing_class", BillingClass.PAYG, "proposal billing class contradicts"),
+        ("display_name", "Forged Codex", "proposal display name contradicts"),
+    ],
+)
+def test_v4_02_forged_codex_proposals_are_rejected_before_side_effects(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    """F/G/H/I: no proposal field can override canonical Codex authority.
+
+    A real DeepSeek connection is already committed, so the rejection is proven
+    against live durable state: revision, audit log, repository document,
+    connection inventory, credential store and profile root all stay untouched.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    validator = _RecordingValidator()
+    runtime = _runtime(tmp_path, repository=repository, validator=validator)
+    existing = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    assert committed.revision == 1
+    validator_calls_before = len(validator.calls)
+    proposal = _canonical_codex_proposal(runtime, **{field: value})
+
+    with pytest.raises(ProviderStateCoherenceError, match=message):
+        runtime.service.accept(proposal, credential=_SECRET)
+
+    _assert_acceptance_untouched(
+        runtime,
+        validator,
+        repository,
+        committed,
+        validator_calls_before=validator_calls_before,
+        expected_connections=(existing,),
+    )
+
+
+def test_v4_02_stale_proposal_is_rejected_against_current_authority(
+    tmp_path: Path,
+) -> None:
+    """J: a proposal minted under a replaced authority fails closed."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    validator = _RecordingValidator()
+    runtime = _runtime(tmp_path, repository=repository, validator=validator)
+    existing = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    assert committed.revision == 1
+    validator_calls_before = len(validator.calls)
+    proposal = _canonical_codex_proposal(runtime)
+
+    runtime.providers.remove("codex")
+    runtime.providers.register(
+        ProviderSpec(
+            id="codex",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://api.openai.com/v1",
+        )
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal provider has no active canonical manifest",
+    ):
+        runtime.service.accept(proposal, credential=_SECRET)
+
+    _assert_acceptance_untouched(
+        runtime,
+        validator,
+        repository,
+        committed,
+        validator_calls_before=validator_calls_before,
+        expected_connections=(existing,),
+    )
+
+
+def test_v4_02_isolation_strengthening_is_still_permitted(tmp_path: Path) -> None:
+    """K: canonical policy is a minimum a proposal may strengthen, never weaken."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    validator = _RecordingValidator()
+    runtime = _runtime(tmp_path, repository=repository, validator=validator)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    assert manifest.requires_isolation is False
+    source = _write_subscription_source("codex", tmp_path)
+    stricter = ConnectionProposal(
+        provider_id="deepseek",
+        display_name=manifest.display_name,
+        billing_class=manifest.billing_class,
+        endpoint=manifest.default_base_url,
+        source_home=str(source),
+        requires_isolation=True,
+    )
+
+    with pytest.raises(ProviderIsolationError) as excinfo:
+        runtime.service.accept(stricter, credential=_SECRET)
+
+    # The failure is the pre-existing isolation prerequisite, never the new
+    # canonical-authority gate, and the validator was still not consulted.
+    assert not isinstance(excinfo.value, ProviderStateCoherenceError)
+    assert "contradicts canonical" not in str(excinfo.value)
+    assert validator.calls == []
+    assert runtime.connections.list() == ()
+
+
+def _foreign_deepseek_manifest(runtime: _Runtime) -> ProviderManifest:
+    """Build a same-id DeepSeek manifest that is not the canonical one."""
+    canonical = runtime.manifests.get("deepseek")
+    assert canonical is not None
+    foreign = ProviderManifest(
+        provider_id="deepseek",
+        display_name=canonical.display_name,
+        billing_class=canonical.billing_class,
+        default_base_url=_V4_FOREIGN_MANIFEST_URL,
+        auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        activation_allowlist=("deepseek-chat",),
+    )
+    assert foreign is not canonical
+    return foreign
+
+
+def test_v4_03_discovery_rejects_a_foreign_same_id_manifest(
+    tmp_path: Path,
+) -> None:
+    """L: only the exact active canonical manifest may drive discovery."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    client = _RecordingClient(("deepseek-chat", "deepseek-reasoner"))
+    foreign = _foreign_deepseek_manifest(runtime)
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        coordinator.discover_models(connection, foreign, client, seen_at=T0)
+
+    assert client.list_calls == 0
+    assert client.inference_calls == []
+    assert runtime.routes.list() == ()
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_v4_03_discovery_rejects_a_stale_formerly_active_manifest(
+    tmp_path: Path,
+) -> None:
+    """M: a manifest that was once canonical is no longer authority."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    previous = runtime.manifests.get("deepseek")
+    assert previous is not None
+
+    runtime.providers.remove("deepseek")
+    runtime.providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://api.deepseek.com/v1",
+        )
+    )
+    replacement = runtime.manifests.register(
+        ProviderManifest(
+            provider_id="deepseek",
+            display_name=previous.display_name,
+            billing_class=previous.billing_class,
+            default_base_url=previous.default_base_url,
+            auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        )
+    )
+    assert replacement is not previous
+    client = _RecordingClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery manifest is not the active canonical manifest",
+    ):
+        coordinator.discover_models(connection, previous, client, seen_at=T0)
+
+    assert client.list_calls == 0
+    assert runtime.routes.list() == ()
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_v4_04_older_discovery_snapshot_is_rejected_before_the_client(
+    tmp_path: Path,
+) -> None:
+    """N: T1 persisted, T0 refused, ``last_seen_at`` never regresses."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+    )
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    client = _RecordingClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        coordinator.discover_models(connection, manifest, client, seen_at=T0)
+
+    assert client.list_calls == 0
+    route = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert route is not None
+    assert route.last_seen_at == T1
+    assert route.available is True
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_v4_04_exact_timestamp_repeat_keeps_v3_noop_semantics(
+    tmp_path: Path,
+) -> None:
+    """O: equality stays valid — the same pass remains a true no-op."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+    )
+    committed = repository.load()
+    assert committed is not None
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    client = _RecordingClient(("deepseek-chat",))
+
+    result = coordinator.discover_models(connection, manifest, client, seen_at=T1)
+
+    assert client.list_calls == 1
+    assert result.new_route_ids == ()
+    assert result.restored_route_ids == ()
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_v4_04_mixed_route_timestamps_use_the_connection_maximum(
+    tmp_path: Path,
+) -> None:
+    """P: one route at T1 and another at T0 still admit a T1 snapshot."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    coordinator.discover_models(
+        connection,
+        manifest,
+        _RecordingClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T0,
+    )
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+    )
+    older = runtime.routes.get("deepseek:main:deepseek-reasoner")
+    assert older is not None
+    assert older.last_seen_at == T0
+
+    result = coordinator.discover_models(
+        connection,
+        manifest,
+        _RecordingClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T1,
+    )
+
+    assert result.restored_route_ids == ("deepseek:main:deepseek-reasoner",)
+    restored = runtime.routes.get("deepseek:main:deepseek-reasoner")
+    assert restored is not None
+    assert restored.last_seen_at == T1
+    assert restored.available is True
