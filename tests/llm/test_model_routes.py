@@ -1153,7 +1153,9 @@ def test_route_restore_all_still_restores_under_a_stale_provider() -> None:
 
     MAJOR-V5-01 guards the boundaries that create a *new* binding. Undoing a
     failed coordinated mutation must keep putting the exact prior route state
-    back, so it deliberately does not consult parent authority again.
+    back, so it deliberately does not consult parent authority again — the
+    restored record names the same route id *and* the same connection id, which
+    is exactly the relationship MAJOR-V6-01 lets keep its historical marker.
     """
     connections, _connection_a, routes = _route_catalog_with_connection()
     route = routes.register(
@@ -1166,12 +1168,30 @@ def test_route_restore_all_still_restores_under_a_stale_provider() -> None:
         )
     )
     snapshot = routes.list()
+
+    # The pass mutates the record before it fails, so the rollback has to put a
+    # *changed* value back — and must still not re-resolve authority.
+    routes.mark_seen(route.route_id, T1)
+    mutated = routes.get(route.route_id)
+    assert mutated is not None
+    assert mutated != route
+
     _replace_provider_authority(connections)
+    stale_parent = connections.get("x:main")
+    assert stale_parent is not None
+    assert connections.is_bound_to_current_provider(stale_parent) is False
 
     routes.restore_all(snapshot)
 
+    # Accepting the rollback at all is the proof that it did not re-resolve:
+    # ``_current_connection_registration`` refuses this stale parent authority.
     assert routes.list() == snapshot
-    assert routes.get("x:main:m") is route
+    restored = routes.get("x:main:m")
+    assert restored is route
+    # Route authority is the connection *registration* (MAJOR-V4-01), and only
+    # the parent provider binding is stale here, so the connection-level check
+    # stays true and the aggregate is refused by capture instead (spec §40).
+    assert routes.is_bound_to_current_connection(restored) is True
 
 
 # --- Remediation V6 (MAJOR-V6-01): restore_all() relationship classification -
@@ -1238,3 +1258,133 @@ def test_restore_all_rebinds_same_route_id_to_the_declared_current_connection() 
     assert restored is not None
     assert restored.connection_id == "y:main"
     assert catalog.is_bound_to_current_connection(restored) is True
+
+
+def _two_connection_route_catalog() -> tuple[
+    ProviderRegistry,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    """Build two independent providers/connections and the catalog over them."""
+    providers = ProviderRegistry()
+    connections = ProviderConnectionRegistry(providers)
+
+    for provider_id in ("x", "y"):
+        providers.register(
+            ProviderSpec(
+                id=provider_id,
+                provider_type="remote",
+                api_style="chat_completions",
+                base_url=f"https://{provider_id}.example/v1",
+            )
+        )
+        connections.register(
+            ProviderConnection(
+                connection_id=f"{provider_id}:main",
+                provider_id=provider_id,
+                display_name=provider_id.upper(),
+                billing_class=BillingClass.API,
+                credential_ref=None,
+                endpoint=f"https://{provider_id}.example/v1",
+                isolation_profile_ref=None,
+                status=ConnectionStatus.CONNECTED,
+            )
+        )
+
+    return providers, connections, ModelRouteCatalog(connections)
+
+
+def _replace_provider(providers: ProviderRegistry, provider_id: str) -> ProviderSpec:
+    """Remove one canonical provider and re-register a different object."""
+    provider_a = providers.get(provider_id)
+    providers.remove(provider_id)
+    provider_b = providers.register(
+        ProviderSpec(
+            id=provider_id,
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=f"https://{provider_id}-replacement.example/v1",
+        )
+    )
+    assert provider_a is not provider_b
+    return provider_b
+
+
+def test_restore_all_rejects_rebind_to_a_stale_target_connection_atomically() -> None:
+    """A rebind to a stale target is refused before the catalog is replaced."""
+    providers, connections, routes = _two_connection_route_catalog()
+    original = routes.register(
+        ModelRoute(
+            route_id="logical-route",
+            connection_id="x:main",
+            provider_model_id="m-x",
+            canonical_model_id="m",
+        )
+    )
+    before = routes.list()
+
+    _replace_provider(providers, "y")
+    stale_y = connections.get("y:main")
+    assert stale_y is not None
+    assert connections.is_bound_to_current_provider(stale_y) is False
+
+    incoming = ModelRoute(
+        route_id="logical-route",
+        connection_id="y:main",
+        provider_model_id="m-y",
+        canonical_model_id="m",
+        first_seen_at=T0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="connection y:main is bound to a stale or missing ProviderSpec",
+    ):
+        routes.restore_all((incoming,))
+
+    assert routes.list() == before
+    assert routes.get("logical-route") is original
+    assert routes.is_bound_to_current_connection(original) is True
+
+
+def test_restore_all_rejects_an_invalid_fresh_binding_without_partial_rollback() -> (
+    None
+):
+    """A valid rollback entry is not applied before a later entry fails."""
+    providers, connections, routes = _two_connection_route_catalog()
+    original = routes.register(
+        ModelRoute(
+            route_id="x-route",
+            connection_id="x:main",
+            provider_model_id="x",
+            canonical_model_id="x",
+            last_seen_at=T0,
+        )
+    )
+    routes.mark_seen("x-route", T1)
+    before = routes.list()
+
+    _replace_provider(providers, "y")
+
+    invalid_y = ModelRoute(
+        route_id="y-route",
+        connection_id="y:main",
+        provider_model_id="y",
+        canonical_model_id="y",
+        first_seen_at=T0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="connection y:main is bound to a stale or missing ProviderSpec",
+    ):
+        routes.restore_all((original, invalid_y))
+
+    # The exact rollback candidate was not partially applied before the
+    # invalid second entry failed.
+    assert routes.list() == before
+    assert routes.get("x-route") is not original
+    assert routes.get("y-route") is None
+    current_x = connections.get("x:main")
+    assert current_x is not None
+    assert connections.is_bound_to_current_provider(current_x) is True
