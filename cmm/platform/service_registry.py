@@ -13,13 +13,18 @@ their collaborators through explicit dependency injection.
 
 from __future__ import annotations
 
+import heapq
+
 from cmm.platform.compatibility import check_contract_compatibility
 from cmm.platform.contracts import ServiceBinding
 from cmm.platform.errors import (
+    CircularDependencyError,
+    DuplicateAuthorityError,
     DuplicateServiceError,
     FrozenServiceRegistryError,
     IncompatibleContractError,
     InvalidReplacementError,
+    MissingDependencyError,
 )
 
 RUNTIME_CONTRACT_MISMATCH = "RUNTIME_CONTRACT_MISMATCH"
@@ -177,6 +182,159 @@ class IntegrationServiceRegistry:
 
     def __len__(self) -> int:
         return len(self._bindings)
+
+    # ── Graph validation ─────────────────────────────────────────────────────
+
+    def _dependencies_of(self, service_id: str) -> tuple[str, ...]:
+        return tuple(
+            dependency.service_id
+            for dependency in self._bindings[service_id].descriptor.dependencies
+        )
+
+    def _assert_dependencies_resolve(self) -> None:
+        """Every dependency must exist and satisfy the declared contract."""
+
+        for service_id in sorted(self._bindings):
+            for dependency in self._bindings[service_id].descriptor.dependencies:
+                target = self._bindings.get(dependency.service_id)
+                if target is None:
+                    raise MissingDependencyError(
+                        "Required platform service dependency is not registered",
+                        details={
+                            "service_id": service_id,
+                            "dependency_id": dependency.service_id,
+                        },
+                    )
+
+                compatibility = check_contract_compatibility(
+                    dependency.contract, target.descriptor.contract
+                )
+                if not compatibility.compatible:
+                    raise IncompatibleContractError(
+                        "Dependency contract is incompatible with the "
+                        "registered service contract",
+                        details={
+                            "service_id": service_id,
+                            "dependency_id": dependency.service_id,
+                            "reason_code": compatibility.reason_code,
+                        },
+                    )
+
+    def _find_cycle(self) -> tuple[str, ...] | None:
+        """Return one dependency cycle as a closed path, or ``None``.
+
+        Deterministic: services are visited in sorted order and each node's
+        dependencies are visited in their canonical (sorted) order.
+        """
+
+        unvisited, in_progress, done = 0, 1, 2
+        state = {service_id: unvisited for service_id in self._bindings}
+        path: list[str] = []
+
+        def visit(service_id: str) -> tuple[str, ...] | None:
+            state[service_id] = in_progress
+            path.append(service_id)
+
+            for dependency in self._dependencies_of(service_id):
+                if dependency not in state:
+                    continue
+                if state[dependency] is in_progress:
+                    return tuple(path[path.index(dependency) :]) + (dependency,)
+                if state[dependency] is unvisited:
+                    found = visit(dependency)
+                    if found is not None:
+                        return found
+
+            path.pop()
+            state[service_id] = done
+            return None
+
+        for service_id in sorted(self._bindings):
+            if state[service_id] is unvisited:
+                found = visit(service_id)
+                if found is not None:
+                    return found
+
+        return None
+
+    def _assert_acyclic(self) -> None:
+        cycle = self._find_cycle()
+        if cycle is not None:
+            raise CircularDependencyError(
+                "Platform service graph contains a dependency cycle",
+                details={"cycle": " -> ".join(cycle)},
+            )
+
+    def _assert_authority_unique(self) -> None:
+        """No two distinct services may claim the same platform authority."""
+
+        claims: dict[str, str] = {}
+        for service_id in sorted(self._bindings):
+            authority = self._bindings[service_id].descriptor.authority
+            if authority is None:
+                continue
+
+            claimed_by = claims.get(authority)
+            if claimed_by is not None and claimed_by != service_id:
+                raise DuplicateAuthorityError(
+                    "Two platform services claim the same authority",
+                    details={
+                        "authority": authority,
+                        "service_id": claimed_by,
+                        "conflicting_service_id": service_id,
+                    },
+                )
+            claims[authority] = service_id
+
+    def validate_graph(self) -> None:
+        """Validate the complete platform service graph.
+
+        Read-only and side-effect free: no bound implementation is constructed,
+        called or otherwise executed.  Checks run in a documented, deterministic
+        order: dependency resolution, cycle detection, authority uniqueness.
+        """
+
+        self._assert_dependencies_resolve()
+        self._assert_acyclic()
+        self._assert_authority_unique()
+
+    def dependency_order(self) -> tuple[str, ...]:
+        """Return a deterministic topological order of service IDs.
+
+        Ties are broken by taking the lexically smallest service whose
+        dependencies are all already satisfied, so the result depends only on
+        the graph and never on registration order.
+        """
+
+        self._assert_dependencies_resolve()
+
+        pending = {
+            service_id: len(self._dependencies_of(service_id))
+            for service_id in self._bindings
+        }
+        dependents: dict[str, list[str]] = {
+            service_id: [] for service_id in self._bindings
+        }
+        for service_id in sorted(self._bindings):
+            for dependency in self._dependencies_of(service_id):
+                dependents[dependency].append(service_id)
+
+        ready = [service_id for service_id, count in pending.items() if count == 0]
+        heapq.heapify(ready)
+
+        order: list[str] = []
+        while ready:
+            service_id = heapq.heappop(ready)
+            order.append(service_id)
+            for dependent in sorted(dependents[service_id]):
+                pending[dependent] -= 1
+                if pending[dependent] == 0:
+                    heapq.heappush(ready, dependent)
+
+        if len(order) != len(self._bindings):
+            self._assert_acyclic()
+
+        return tuple(order)
 
 
 __all__ = ["IntegrationServiceRegistry"]

@@ -202,16 +202,20 @@ def _binding(
     runtime_contract: type | None = None,
     contract: ContractMetadata | None = None,
     implementation_id: str = "test.implementation",
+    dependency_contracts: tuple[ServiceDependency, ...] | None = None,
 ) -> ServiceBinding:
+    if dependency_contracts is None:
+        dependency_contracts = tuple(
+            ServiceDependency(service_id=name, contract=_contract(name))
+            for name in dependencies
+        )
+
     return ServiceBinding(
         descriptor=ServiceDescriptor(
             service_id=service_id,
             contract=contract if contract is not None else _contract(service_id),
             implementation_id=implementation_id,
-            dependencies=tuple(
-                ServiceDependency(service_id=name, contract=_contract(name))
-                for name in dependencies
-            ),
+            dependencies=dependency_contracts,
             mode=mode,
             authority=authority,
         ),
@@ -484,3 +488,255 @@ def test_replacement_preserves_binding_identity_of_other_services() -> None:
     stored = registry.get("b.service")
     assert stored is not None
     assert stored.implementation is untouched
+
+
+# ── Dependency graph validation ──────────────────────────────────────────────
+
+
+class ExplodingImplementation:
+    """Fails the test if graph validation touches a bound implementation."""
+
+    def __getattr__(self, name: str) -> object:
+        raise AssertionError(f"graph validation touched implementation.{name}")
+
+
+def test_graph_validation_accepts_a_coherent_graph() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ValidationService(), dependencies=("b.service",))
+    )
+    registry.register(_binding("b.service", ValidationService()))
+
+    registry.validate_graph()
+
+
+def test_graph_validation_rejects_missing_dependency() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ValidationService(), dependencies=("missing.service",))
+    )
+
+    with pytest.raises(MissingDependencyError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["service_id"] == "a.service"
+    assert exc.value.result.details["dependency_id"] == "missing.service"
+
+
+def test_graph_validation_rejects_dependency_contract_mismatch() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("b.service", ValidationService()))
+    registry.register(
+        _binding(
+            "a.service",
+            ValidationService(),
+            dependency_contracts=(
+                ServiceDependency(
+                    service_id="b.service",
+                    contract=_contract("b.service", contract_version="2.0.0"),
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["reason_code"] == "CONTRACT_VERSION_MISMATCH"
+    assert exc.value.result.details["dependency_id"] == "b.service"
+
+
+def test_graph_validation_rejects_dependency_schema_mismatch() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("b.service", ValidationService()))
+    registry.register(
+        _binding(
+            "a.service",
+            ValidationService(),
+            dependency_contracts=(
+                ServiceDependency(
+                    service_id="b.service",
+                    contract=_contract("b.service", schema_version="2"),
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["reason_code"] == "SCHEMA_VERSION_MISMATCH"
+
+
+def test_graph_validation_rejects_dependency_owner_mismatch() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("b.service", ValidationService()))
+    registry.register(
+        _binding(
+            "a.service",
+            ValidationService(),
+            dependency_contracts=(
+                ServiceDependency(
+                    service_id="b.service",
+                    contract=_contract("b.service", owner="cmm.other"),
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["reason_code"] == "OWNER_MISMATCH"
+
+
+def test_registry_rejects_two_node_dependency_cycle_before_readiness() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a", object(), dependencies=("b",)))
+    registry.register(_binding("b", object(), dependencies=("a",)))
+
+    with pytest.raises(CircularDependencyError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["cycle"] == "a -> b -> a"
+
+
+def test_registry_rejects_longer_dependency_cycle() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a", object(), dependencies=("b",)))
+    registry.register(_binding("b", object(), dependencies=("c",)))
+    registry.register(_binding("c", object(), dependencies=("a",)))
+
+    with pytest.raises(CircularDependencyError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["cycle"] == "a -> b -> c -> a"
+
+
+def test_graph_validation_rejects_duplicate_authority() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService(), authority="shared"))
+    registry.register(_binding("b.service", ValidationService(), authority="shared"))
+
+    with pytest.raises(DuplicateAuthorityError) as exc:
+        registry.validate_graph()
+
+    assert exc.value.result.details["authority"] == "shared"
+    assert exc.value.result.details["service_id"] == "a.service"
+    assert exc.value.result.details["conflicting_service_id"] == "b.service"
+
+
+def test_graph_validation_allows_repeated_none_authority() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+    registry.register(_binding("b.service", ValidationService()))
+
+    registry.validate_graph()
+
+
+def test_graph_validation_allows_distinct_authorities() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService(), authority="one"))
+    registry.register(_binding("b.service", ValidationService(), authority="two"))
+
+    registry.validate_graph()
+
+
+def test_graph_validation_does_not_execute_bound_services() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding(
+            "a.service",
+            ExplodingImplementation(),
+            dependencies=("b.service",),
+            authority="one",
+        )
+    )
+    registry.register(_binding("b.service", ExplodingImplementation(), authority="two"))
+
+    registry.validate_graph()
+
+
+# ── Deterministic dependency order ───────────────────────────────────────────
+
+
+def test_dependency_order_places_dependencies_before_dependents() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ValidationService(), dependencies=("b.service",))
+    )
+    registry.register(
+        _binding("b.service", ValidationService(), dependencies=("c.service",))
+    )
+    registry.register(_binding("c.service", ValidationService()))
+
+    assert registry.dependency_order() == ("c.service", "b.service", "a.service")
+
+
+def test_dependency_order_breaks_ties_lexically() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("z.service", ValidationService()))
+    registry.register(_binding("a.service", ValidationService()))
+    registry.register(_binding("m.service", ValidationService()))
+
+    assert registry.dependency_order() == (
+        "a.service",
+        "m.service",
+        "z.service",
+    )
+
+
+def test_dependency_order_is_deterministic_across_registration_orders() -> None:
+    def build(order: tuple[str, ...]) -> IntegrationServiceRegistry:
+        registry = IntegrationServiceRegistry()
+        spec = {
+            "a.service": ("b.service",),
+            "b.service": ("c.service",),
+            "c.service": (),
+            "d.service": (),
+        }
+        for service_id in order:
+            registry.register(
+                _binding(service_id, ValidationService(), dependencies=spec[service_id])
+            )
+        return registry
+
+    forward = build(("a.service", "b.service", "c.service", "d.service"))
+    backward = build(("d.service", "c.service", "b.service", "a.service"))
+
+    assert forward.dependency_order() == backward.dependency_order()
+    assert forward.dependency_order() == (
+        "c.service",
+        "b.service",
+        "a.service",
+        "d.service",
+    )
+
+
+def test_dependency_order_returns_an_immutable_tuple() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a.service", ValidationService()))
+
+    order = registry.dependency_order()
+
+    assert isinstance(order, tuple)
+    assert order == ("a.service",)
+
+
+def test_dependency_order_rejects_a_cyclic_graph() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("a", object(), dependencies=("b",)))
+    registry.register(_binding("b", object(), dependencies=("a",)))
+
+    with pytest.raises(CircularDependencyError):
+        registry.dependency_order()
+
+
+def test_dependency_order_does_not_execute_bound_services() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("a.service", ExplodingImplementation(), dependencies=("b.service",))
+    )
+    registry.register(_binding("b.service", ExplodingImplementation()))
+
+    assert registry.dependency_order() == ("b.service", "a.service")
