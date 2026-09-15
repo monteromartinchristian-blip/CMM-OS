@@ -41,6 +41,14 @@ saves and publishes the Provider Registry revision and audit log. A failed save
 propagates into the acceptance compensation path below, and the service keeps
 owning proposal creation, isolation preflight, credential creation, connection
 construction/registration and compensation of operation-owned side effects.
+
+Ownership rule (MAJOR-V2-04): new-connection acceptance fails *before* any
+mutation rather than backing up and restoring foreign state. Three preflights run
+before the first side effect — the connection id must be free, the credential ref
+this call would write must be absent, and an isolation-required profile target
+must not exist. Everything created after them is operation-owned and is the only
+thing compensation may remove; a cleanup failure is never swallowed but raised as
+:class:`ProviderOnboardingRollbackError` with the original failure preserved.
 """
 
 from __future__ import annotations
@@ -51,7 +59,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from kernel.llm.credential_store import CredentialStore
+from kernel.llm.credential_store import CredentialStore, credential_ref
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.provider_candidates import ProviderCandidate
 from kernel.llm.provider_connections import (
@@ -76,6 +84,16 @@ class ProviderIsolationError(ProviderError):
     """
 
 
+class ProviderOnboardingRollbackError(ProviderError):
+    """Compensation could not undo an operation-owned side effect.
+
+    Raised only when cleanup itself fails, with the original acceptance failure
+    preserved as ``__cause__``. The message identifies the resource that could
+    not be removed — a connection id, an opaque credential ref or a profile
+    path — and never carries secret material.
+    """
+
+
 def _normalize_identifier(value: str, *, label: str) -> str:
     """Strip and lowercase an identifier; reject blank input."""
     normalized = value.strip().lower()
@@ -93,6 +111,16 @@ def _coerce_dir(value: str | os.PathLike[str], *, label: str) -> Path:
     if not text:
         raise ValueError(f"{label} cannot be empty")
     return Path(text)
+
+
+def _path_entry_exists(path: Path) -> bool:
+    """Return whether *any* filesystem entry occupies ``path``.
+
+    ``Path.exists()`` follows symlinks, so a broken symlink at an isolation
+    target would read as "absent" and invite an overwrite. Ownership preflight
+    treats every entry — directory, file or link — as pre-existing state.
+    """
+    return path.exists() or path.is_symlink()
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,37 +262,63 @@ class ProviderOnboardingService:
     ) -> ProviderConnection:
         """Prepare isolation, store secrets, and register one connection.
 
-        Atomic from the caller's perspective (MAJOR-04, spec §7): the
-        connection identity is preflighted *before* any side effect, so a
-        duplicate never overwrites an existing credential. If any step after
-        the first side effect fails, only the side effects this call created
-        are compensated — a newly written credential is deleted, a newly
-        created CMM-owned profile is removed, and a newly registered
-        connection is removed — while pre-existing state stays untouched. The
-        persisted aggregate advances its revision only after every step
-        succeeds.
+        Atomic from the caller's perspective (MAJOR-04, MAJOR-V2-04, spec §7):
+        three ownership preflights run before the first side effect, in order —
+        the connection identity must be free, the credential ref this call would
+        write must not already exist, and an isolation-required profile target
+        must be absent. Each rejection therefore happens *before* any mutation,
+        so a pre-existing credential, profile or connection is never overwritten,
+        merged into, adopted, reused or deleted.
+
+        Everything created after those preflights is operation-owned: if any
+        later step fails (including the coordinator's save), only this call's
+        connection, credential and isolation target are compensated, and the
+        original failure propagates unchanged. When a cleanup step itself fails,
+        the partial cleanup is raised as
+        :class:`ProviderOnboardingRollbackError` with the original failure
+        preserved as its cause. The persisted aggregate advances its revision
+        only after every step succeeds.
         """
         if not isinstance(proposal, ConnectionProposal):
             raise TypeError("proposal must be a ConnectionProposal")
         connection_id = f"{proposal.provider_id}:{proposal.account}"
-        # Preflight before any side effect: an existing identity is rejected
-        # here, never after a credential or profile has been mutated.
+        # Preflight 1 — identity: an existing connection is rejected here, never
+        # after a credential or profile has been mutated.
         if self._connections.get(connection_id) is not None:
             raise ValueError(f"duplicate connection_id: {connection_id}")
-
+        # Preflight 2 — credential ownership (spec §7.2): the exact ref is
+        # derived through the canonical helper, so ``put()`` can never act as an
+        # implicit upsert of a secret this operation does not own — which a later
+        # failure would then delete.
+        if credential is not None and self._credentials.has(
+            credential_ref(proposal.provider_id, proposal.account)
+        ):
+            raise ValueError(
+                f"credential already exists for new connection: {connection_id}"
+            )
+        # Preflight 3 — isolation-target ownership (spec §7.3): a pre-existing
+        # filesystem entry belongs to another flow, so it is never copied into,
+        # merged with, snapshotted or removed by new-connection acceptance.
         isolation_target: Path | None = None
+        if proposal.requires_isolation:
+            target = self._profiles_root / proposal.provider_id
+            if _path_entry_exists(target):
+                raise ValueError(
+                    "isolation profile already exists for new connection: "
+                    f"{connection_id}"
+                )
+            # Absence is now guaranteed: from here the whole target is
+            # operation-owned, so a partially built profile can be compensated.
+            isolation_target = target
+
         isolation_profile_ref: str | None = None
-        credential_ref: str | None = None
+        written_credential_ref: str | None = None
         registered: ProviderConnection | None = None
         try:
             if proposal.requires_isolation:
-                target = self._profiles_root / proposal.provider_id
-                existed_before = target.exists()
                 isolation_profile_ref = self._isolate(proposal)
-                if not existed_before:
-                    isolation_target = target
             if credential is not None:
-                credential_ref = self._credentials.put(
+                written_credential_ref = self._credentials.put(
                     proposal.provider_id, proposal.account, credential
                 )
             if proposal.requires_isolation:
@@ -278,7 +332,7 @@ class ProviderOnboardingService:
                 provider_id=proposal.provider_id,
                 display_name=proposal.display_name,
                 billing_class=proposal.billing_class,
-                credential_ref=credential_ref,
+                credential_ref=written_credential_ref,
                 endpoint=proposal.endpoint,
                 isolation_profile_ref=isolation_profile_ref,
                 status=status,
@@ -287,18 +341,62 @@ class ProviderOnboardingService:
             if self._state_coordinator is not None:
                 self._state_coordinator.persist_connection_acceptance(registered)
             return registered
-        except Exception:
-            # Compensation path: undo only what this call created, then let the
-            # original error propagate unchanged. A coordinator save failure
-            # lands here too, so a failed commit never leaves runtime state
-            # behind.
-            if registered is not None:
-                self._connections.remove(registered.connection_id)
-            if credential_ref is not None:
-                self._credentials.delete(credential_ref)
-            if isolation_target is not None:
-                shutil.rmtree(isolation_target, ignore_errors=True)
+        except Exception as error:
+            # Compensation path: undo only what this call created, then re-raise
+            # the original failure unchanged — unless cleanup itself failed, in
+            # which case ``_compensate`` raises the focused rollback error that
+            # carries this failure as its cause. A coordinator save failure lands
+            # here too, so a failed commit never leaves runtime state behind.
+            self._compensate(
+                registered=registered,
+                written_credential_ref=written_credential_ref,
+                isolation_target=isolation_target,
+                error=error,
+            )
             raise
+
+    def _compensate(
+        self,
+        *,
+        registered: ProviderConnection | None,
+        written_credential_ref: str | None,
+        isolation_target: Path | None,
+        error: Exception,
+    ) -> None:
+        """Undo this call's side effects; never hide a failed cleanup.
+
+        Every resource handled here was created by the failing call — the
+        preflights guarantee they did not exist beforehand — so pre-existing
+        state is never touched. Each cleanup is attempted independently so one
+        failure cannot skip the others, and the collected failures are raised as
+        :class:`ProviderOnboardingRollbackError` naming what could not be
+        removed. Credentials are identified by their opaque ref only; no secret
+        value is ever part of the message.
+        """
+        failures: list[str] = []
+        if registered is not None:
+            try:
+                self._connections.remove(registered.connection_id)
+            except Exception as cleanup_error:  # noqa: BLE001 — reported below
+                failures.append(
+                    f"connection {registered.connection_id}: {cleanup_error}"
+                )
+        if written_credential_ref is not None:
+            try:
+                self._credentials.delete(written_credential_ref)
+            except Exception as cleanup_error:  # noqa: BLE001 — reported below
+                failures.append(f"credential {written_credential_ref}: {cleanup_error}")
+        if isolation_target is not None and _path_entry_exists(isolation_target):
+            try:
+                shutil.rmtree(isolation_target)
+            except OSError as cleanup_error:
+                failures.append(
+                    f"isolation profile {isolation_target}: {cleanup_error}"
+                )
+        if failures:
+            raise ProviderOnboardingRollbackError(
+                "cleanup failed for operation-owned resources: " + "; ".join(failures)
+            ) from error
 
     def _isolate(self, proposal: ConnectionProposal) -> str:
         """Produce the CMM-owned isolation reference, or raise.

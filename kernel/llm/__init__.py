@@ -102,6 +102,7 @@ from kernel.llm.provider_manifests import (
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
     ProviderIsolationError,
+    ProviderOnboardingRollbackError,
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
@@ -206,6 +207,7 @@ __all__ = [
     "ProviderIsolationError",
     "ProviderManifest",
     "ProviderManifestRegistry",
+    "ProviderOnboardingRollbackError",
     "ProviderOnboardingService",
     "ProviderRegistry",
     "ProviderRegistryAuditRecord",

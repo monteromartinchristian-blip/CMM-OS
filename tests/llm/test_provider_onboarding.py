@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from kernel.llm.credential_store import InMemoryCredentialStore
+from kernel.llm.credential_store import InMemoryCredentialStore, credential_ref
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
     DEEPSEEK_BASE_URL,
@@ -39,6 +39,7 @@ from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
     ProviderIsolationError,
+    ProviderOnboardingRollbackError,
     ProviderOnboardingService,
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
@@ -86,6 +87,7 @@ def _wiring(
     validator: Callable[[ConnectionProposal], bool] | None = None,
     *,
     repository: ProviderRegistryStateRepository | None = None,
+    credentials: InMemoryCredentialStore | None = None,
 ) -> _Wiring:
     """Build a service wired to fresh registries and an in-memory store.
 
@@ -93,14 +95,15 @@ def _wiring(
     coordinator, never by the service (MAJOR-V2-02). Provider identity and
     manifest metadata come from the canonical bootstraps — the eight first-wave
     providers plus the three subscription bridges — never from test-local
-    declarations (MAJOR-V2-03).
+    declarations (MAJOR-V2-03). ``credentials`` is injectable so an adversary
+    can pin behaviour of the official in-memory store.
     """
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
     register_subscription_bridge_providers(providers, manifests)
     connections = ProviderConnectionRegistry(providers)
-    credentials = InMemoryCredentialStore()
+    credentials = credentials if credentials is not None else InMemoryCredentialStore()
     models = ModelCatalog(providers)
     routes = ModelRouteCatalog(connections)
     coordinator = (
@@ -802,23 +805,147 @@ def test_persistence_failure_compensates_the_new_isolation_profile(
     assert (source / "auth.json").is_file()
 
 
-def test_persistence_failure_keeps_a_preexisting_profile_directory(
+# --- pre-existing resource ownership (MAJOR-V2-04) --------------------------
+# Each adversary pre-creates exactly the resource new-connection acceptance
+# would write, then proves the write never happens: no overwrite, no adoption,
+# no deletion, no connection and no durable revision.
+
+
+def test_preexisting_credential_rejects_acceptance_before_any_mutation(
     tmp_path: Path,
 ) -> None:
-    """Compensation must never delete a directory this call did not create."""
-    source = _write_subscription_source("codex", tmp_path)
-    profile_target = tmp_path / "cmm-profiles" / "codex"
-    profile_target.mkdir(parents=True)
-    marker = profile_target / "keep-me.txt"
-    marker.write_text("preexisting", encoding="utf-8")
-    wired = _wiring(tmp_path, repository=_ExplodingStateRepository())
+    """The Audit V2 §8.3 adversary: an unowned credential is never adopted.
 
-    with pytest.raises(RuntimeError, match="persistence failed"):
+    A new connection may not take ownership of a credential that already
+    existed, because a later failure would then delete it. Acceptance fails
+    before ``put()``, the stored secret and the connection registry stay as they
+    were, and the durable revision never advances.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    wired = _wiring(tmp_path, repository=repository)
+    existing_ref = wired.credentials.put("deepseek", "main", "secret-old")
+    secrets_before = dict(wired.credentials._secrets)
+    # The adversary occupies the canonical credential namespace, so the ref the
+    # service derives for this connection is exactly the pre-existing one.
+    assert existing_ref == credential_ref("deepseek", "main")
+
+    with pytest.raises(ValueError, match="credential already exists"):
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()), credential="secret-new"
+        )
+
+    assert wired.credentials._secrets == secrets_before
+    assert wired.credentials.has(existing_ref)
+    assert wired.credentials._secrets[existing_ref] == "secret-old"
+    assert wired.connections.list() == ()
+    assert wired.service.revision == 0
+    assert not (tmp_path / "state.json").exists()
+
+
+def test_preexisting_isolation_target_rejects_acceptance_before_mutation(
+    tmp_path: Path,
+) -> None:
+    """The Audit V2 §8.4 adversary: pre-existing profile bytes stay identical.
+
+    The previous acceptance reused any existing target home and overwrote
+    ``auth.json`` inside it. New-connection acceptance now refuses before the
+    profile build: nothing is copied, merged, snapshotted or deleted.
+    """
+    source = _write_subscription_source("codex", tmp_path)
+    target = tmp_path / "cmm-profiles" / "codex"
+    target.mkdir(parents=True)
+    auth = target / "auth.json"
+    auth.write_text("OLD-AUTH", encoding="utf-8")
+    marker = target / "keep-me.txt"
+    marker.write_text("preexisting", encoding="utf-8")
+    auth_before = auth.read_bytes()
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    wired = _wiring(tmp_path, repository=repository)
+
+    with pytest.raises(ValueError, match="isolation profile already exists"):
         wired.service.accept(
             wired.service.propose(_subscription_candidate("codex", source))
         )
 
+    assert auth.read_bytes() == auth_before
     assert marker.read_text(encoding="utf-8") == "preexisting"
+    assert sorted(item.name for item in target.iterdir()) == [
+        "auth.json",
+        "keep-me.txt",
+    ]
+    assert wired.connections.list() == ()
+    assert wired.service.revision == 0
+    assert not (tmp_path / "state.json").exists()
+
+
+@pytest.mark.parametrize("provider_id", ["claude-code", "antigravity"])
+def test_preexisting_isolation_target_file_also_rejects_before_mutation(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """Any entry at the target path is pre-existing state, not just a home."""
+    source = _write_subscription_source(provider_id, tmp_path)
+    target = tmp_path / "cmm-profiles" / provider_id
+    target.parent.mkdir(parents=True)
+    target.write_text("occupied\n", encoding="utf-8")
+    wired = _wiring(tmp_path)
+
+    with pytest.raises(ValueError, match="isolation profile already exists"):
+        wired.service.accept(
+            wired.service.propose(_subscription_candidate(provider_id, source))
+        )
+
+    assert target.read_text(encoding="utf-8") == "occupied\n"
+    assert wired.connections.list() == ()
+
+
+def test_an_owned_credential_is_still_deleted_by_compensation(tmp_path: Path) -> None:
+    """Ownership preflight keeps compensation working for this call's credential."""
+    wired = _wiring(tmp_path, repository=_ExplodingStateRepository())
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()), credential=_SECRET
+        )
+
+    assert wired.credentials._secrets == {}
+    assert not wired.credentials.has("keychain://cmm/providers/deepseek/main")
+
+
+class _FailingDeleteCredentialStore(InMemoryCredentialStore):
+    """Official in-memory store whose cleanup path fails on purpose."""
+
+    def delete(self, ref: str) -> None:
+        """Fail the cleanup to prove a partial rollback is made visible."""
+        raise OSError("keychain delete unavailable")
+
+
+def test_rollback_failure_is_visible_without_masking_the_original_error(
+    tmp_path: Path,
+) -> None:
+    """A failed cleanup raises a focused error with the original failure as cause."""
+    wired = _wiring(
+        tmp_path,
+        repository=_ExplodingStateRepository(),
+        credentials=_FailingDeleteCredentialStore(),
+    )
+
+    with pytest.raises(ProviderOnboardingRollbackError) as excinfo:
+        wired.service.accept(
+            wired.service.propose(_deepseek_candidate()), credential=_SECRET
+        )
+
+    error = excinfo.value
+    assert isinstance(error.__cause__, RuntimeError)
+    assert "persistence failed" in str(error.__cause__)
+    # The failure names what could not be cleaned up...
+    assert "credential" in str(error)
+    assert "keychain delete unavailable" in str(error)
+    # ...and never secret material, only the opaque ref.
+    assert _SECRET not in str(error)
+    assert _SECRET not in repr(error)
+    assert "keychain://cmm/providers/deepseek/main" in str(error)
+    # The connection was still compensated, and no durable state was written.
+    assert wired.connections.list() == ()
 
 
 def test_service_has_no_parallel_persistence_configuration(tmp_path: Path) -> None:

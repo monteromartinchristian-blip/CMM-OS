@@ -42,6 +42,7 @@ from kernel.llm import (
     ProviderIsolationError,
     ProviderManifest,
     ProviderManifestRegistry,
+    ProviderOnboardingRollbackError,
     ProviderOnboardingService,
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
@@ -164,6 +165,7 @@ HYBRID_CONTRACTS = {
     "ANTIGRAVITY_PAYG_STRIP_ENV": ANTIGRAVITY_PAYG_STRIP_ENV,
     "ConnectionProposal": ConnectionProposal,
     "ProviderIsolationError": ProviderIsolationError,
+    "ProviderOnboardingRollbackError": ProviderOnboardingRollbackError,
     "ProviderOnboardingService": ProviderOnboardingService,
 }
 
