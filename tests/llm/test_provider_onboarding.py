@@ -1157,3 +1157,266 @@ def test_service_has_no_parallel_persistence_configuration(tmp_path: Path) -> No
             profiles_root=tmp_path / "cmm-profiles",
             state_repository=_ExplodingStateRepository(),  # type: ignore[call-arg]
         )
+
+
+# --- acceptance-time canonical proposal authority (MAJOR-V4-02) --------------
+
+
+class _RecordingValidator:
+    """Validator that records how often it was consulted."""
+
+    def __init__(self, result: bool = True) -> None:
+        """Pin the verdict the validator reports when it is called."""
+        self.result = result
+        self.calls: list[ConnectionProposal] = []
+
+    def __call__(self, proposal: ConnectionProposal) -> bool:
+        """Record the proposal and return the pinned verdict."""
+        self.calls.append(proposal)
+        return self.result
+
+
+def _codex_authority(wired: _Wiring) -> ProviderManifest:
+    """Return the active canonical Codex manifest, asserting its policy."""
+    manifest = wired.manifests.get("codex")
+    assert manifest is not None
+    assert manifest.requires_isolation is True
+    assert manifest.billing_class is BillingClass.SUBSCRIPTION
+    assert manifest.default_base_url == _CODEX_MANIFEST_URL
+    return manifest
+
+
+def _forged_codex_proposal(
+    canonical: ProviderManifest,
+    **overrides: object,
+) -> ConnectionProposal:
+    """Build a canonical-looking Codex proposal with selected fields forged."""
+    fields: dict[str, object] = {
+        "provider_id": "codex",
+        "display_name": canonical.display_name,
+        "billing_class": canonical.billing_class,
+        "endpoint": canonical.default_base_url,
+        "requires_isolation": True,
+        "source_home": str(Path("/tmp/forged-source-home")),
+    }
+    fields.update(overrides)
+    return ConnectionProposal(**fields)  # type: ignore[arg-type]
+
+
+def _assert_rejected_without_side_effects(
+    wired: _Wiring,
+    validator: _RecordingValidator,
+    profiles_root: Path,
+) -> None:
+    """Prove a rejected proposal consulted nobody and created nothing."""
+    assert validator.calls == []
+    assert wired.connections.list() == ()
+    assert wired.credentials._secrets == {}
+    assert not profiles_root.exists()
+
+
+def test_forged_codex_isolation_downgrade_is_rejected_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V4-02: a caller-created proposal cannot weaken canonical isolation."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, requires_isolation=False)
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal isolation policy contradicts canonical manifest",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_forged_codex_endpoint_is_rejected_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    """A proposal-only endpoint override is not acceptance authority."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, endpoint="https://evil.example/v1")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal endpoint contradicts canonical manifest",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_forged_codex_billing_class_is_rejected_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    """Billing class is canonical metadata, not caller input."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, billing_class=BillingClass.PAYG)
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal billing class contradicts canonical manifest",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_forged_display_name_is_rejected_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    """An accepted proposal is one deterministic canonical representation."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, display_name="Forged Codex")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal display name contradicts canonical manifest",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_stale_proposal_is_rejected_against_current_canonical_authority(
+    tmp_path: Path,
+) -> None:
+    """A proposal minted under an earlier authority is refused at accept time."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    stale = _forged_codex_proposal(canonical)
+
+    # The canonical authority is replaced: same id, different ProviderSpec, so
+    # the previously active manifest is no longer canonical metadata.
+    wired.providers.remove("codex")
+    wired.providers.register(
+        ProviderSpec(
+            id="codex",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=_CODEX_MANIFEST_URL,
+        )
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal provider has no active canonical manifest",
+    ):
+        wired.service.accept(stale)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_proposal_for_an_unregistered_provider_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """No canonical provider means no acceptance authority for the proposal."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, provider_id="ghost-provider")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal provider is not registered canonically",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_proposal_without_an_active_manifest_is_rejected(tmp_path: Path) -> None:
+    """A registered provider with no active manifest cannot authorize acceptance."""
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    canonical = _codex_authority(wired)
+    forged = _forged_codex_proposal(canonical, provider_id="ghost-provider")
+    wired.providers.register(
+        ProviderSpec(
+            id="ghost-provider",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=_CODEX_MANIFEST_URL,
+        )
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="proposal provider has no active canonical manifest",
+    ):
+        wired.service.accept(forged)
+
+    _assert_rejected_without_side_effects(wired, validator, tmp_path / "cmm-profiles")
+
+
+def test_isolation_strengthening_remains_permitted(tmp_path: Path) -> None:
+    """A stricter proposal is allowed: canonical policy is the minimum.
+
+    DeepSeek's manifest declares no isolation requirement, so a proposal that
+    requires it must not be refused for contradicting canonical policy. The
+    existing fail-closed isolation path may still refuse it for the separate
+    reason that no source/profile evidence exists — which is what happens here.
+    """
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    manifest = wired.manifests.get("deepseek")
+    assert manifest is not None
+    assert manifest.requires_isolation is False
+    stricter = ConnectionProposal(
+        provider_id="deepseek",
+        display_name=manifest.display_name,
+        billing_class=manifest.billing_class,
+        endpoint=manifest.default_base_url,
+        requires_isolation=True,
+    )
+
+    with pytest.raises(ProviderIsolationError, match="requires source evidence"):
+        wired.service.accept(stricter)
+
+    assert validator.calls == []
+    assert wired.connections.list() == ()
+
+
+def test_isolation_strengthening_is_not_rejected_as_authority_mismatch(
+    tmp_path: Path,
+) -> None:
+    """A stricter proposal fails only on the pre-existing isolation path.
+
+    DeepSeek's canonical manifest declares ``requires_isolation=False``, so a
+    proposal that strengthens it to ``True`` must not be refused as
+    contradicting canonical authority. It still fails closed on the separate,
+    already-verified isolation prerequisite — no CMM isolation profile exists
+    for that surface — which is never a proposal-authority rejection.
+    """
+    validator = _RecordingValidator()
+    wired = _wiring(tmp_path, validator)
+    manifest = wired.manifests.get("deepseek")
+    assert manifest is not None
+    assert manifest.requires_isolation is False
+    source = _write_subscription_source("codex", tmp_path)
+    stricter = ConnectionProposal(
+        provider_id="deepseek",
+        display_name=manifest.display_name,
+        billing_class=manifest.billing_class,
+        endpoint=manifest.default_base_url,
+        source_home=str(source),
+        requires_isolation=True,
+    )
+
+    with pytest.raises(ProviderIsolationError) as excinfo:
+        wired.service.accept(stricter)
+
+    assert not isinstance(excinfo.value, ProviderStateCoherenceError)
+    assert "contradicts canonical" not in str(excinfo.value)
+    assert validator.calls == []
+    assert wired.connections.list() == ()

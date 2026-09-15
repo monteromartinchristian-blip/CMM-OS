@@ -14,6 +14,14 @@ so neither a candidate nor a leftover manifest can authorize a provider the
 authority does not hold. The manifest (provider-bound metadata) supplies only
 transport/auth/billing defaults.
 
+Proposal authority rule (MAJOR-V4-02): :class:`ConnectionProposal` stays public
+evidence — a caller may construct one directly — so ``accept()`` re-resolves the
+current canonical provider and active manifest for every proposal and proves
+that no proposal-controlled field weakens or contradicts canonical policy
+before a validator runs or any side effect happens. The accepted connection is
+built from that canonical metadata, so endpoint, billing class and display name
+can never be caller-authored.
+
 Graph rule (MAJOR-V3-01): the service is only constructible over one exact
 object graph — the manifest catalog and connection registry must resolve
 through the ``providers`` authority it is given, and a wired coordinator must
@@ -76,7 +84,7 @@ from kernel.llm.provider_connections import (
     ProviderConnection,
     ProviderConnectionRegistry,
 )
-from kernel.llm.provider_manifests import ProviderManifestRegistry
+from kernel.llm.provider_manifests import ProviderManifest, ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
 from kernel.llm.provider_state import ProviderStateCoherenceError
 from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
@@ -310,6 +318,13 @@ class ProviderOnboardingService:
         so a pre-existing credential, profile or connection is never overwritten,
         merged into, adopted, reused or deleted.
 
+        Authority rule (MAJOR-V4-02): the proposal is revalidated against the
+        current canonical provider and manifest immediately after the type
+        check, so a forged or stale proposal is refused before the validator,
+        the credential write, the isolation profile, the connection
+        registration and the coordinator commit. The connection itself is then
+        built from that canonical metadata.
+
         Everything created after those preflights is operation-owned: if any
         later step fails (including the coordinator's save), only this call's
         connection, credential and isolation target are compensated, and the
@@ -321,6 +336,7 @@ class ProviderOnboardingService:
         """
         if not isinstance(proposal, ConnectionProposal):
             raise TypeError("proposal must be a ConnectionProposal")
+        canonical = self._validate_proposal_authority(proposal)
         connection_id = f"{proposal.provider_id}:{proposal.account}"
         # Preflight 1 — identity: an existing connection is rejected here, never
         # after a credential or profile has been mutated.
@@ -369,11 +385,11 @@ class ProviderOnboardingService:
                 status = ConnectionStatus.CONNECTED
             connection = ProviderConnection(
                 connection_id=connection_id,
-                provider_id=proposal.provider_id,
-                display_name=proposal.display_name,
-                billing_class=proposal.billing_class,
+                provider_id=canonical.provider_id,
+                display_name=canonical.display_name,
+                billing_class=canonical.billing_class,
                 credential_ref=written_credential_ref,
-                endpoint=proposal.endpoint,
+                endpoint=canonical.default_base_url,
                 isolation_profile_ref=isolation_profile_ref,
                 status=status,
             )
@@ -394,6 +410,58 @@ class ProviderOnboardingService:
                 error=error,
             )
             raise
+
+    def _validate_proposal_authority(
+        self,
+        proposal: ConnectionProposal,
+    ) -> ProviderManifest:
+        """Re-resolve the canonical authority a proposal claims (MAJOR-V4-02).
+
+        ``ConnectionProposal`` is public evidence a caller may construct
+        directly, so ``accept()`` treats every field as a claim and proves it
+        against the *current* canonical provider and active manifest before any
+        side effect: endpoint, billing class and display name must be exactly the
+        canonical metadata, and canonical isolation policy is a minimum that a
+        proposal may strengthen but never weaken. A stale proposal — minted
+        under an authority that has since been removed or replaced — fails here
+        because the manifest no longer resolves.
+
+        Raises :class:`~kernel.llm.provider_state.ProviderStateCoherenceError`
+        and never echoes provider payloads, credential material or object reprs.
+        """
+        try:
+            provider = self._providers.get(proposal.provider_id)
+        except ProviderError as error:
+            raise ProviderStateCoherenceError(
+                "proposal provider is not registered canonically: "
+                f"{proposal.provider_id}"
+            ) from error
+        manifest = self._manifests.get(proposal.provider_id)
+        if manifest is None:
+            raise ProviderStateCoherenceError(
+                "proposal provider has no active canonical manifest"
+            )
+        if manifest.provider_id != provider.id:
+            raise ProviderStateCoherenceError(
+                "canonical manifest does not match proposal provider"
+            )
+        if proposal.display_name != manifest.display_name:
+            raise ProviderStateCoherenceError(
+                "proposal display name contradicts canonical manifest"
+            )
+        if proposal.billing_class != manifest.billing_class:
+            raise ProviderStateCoherenceError(
+                "proposal billing class contradicts canonical manifest"
+            )
+        if proposal.endpoint != manifest.default_base_url:
+            raise ProviderStateCoherenceError(
+                "proposal endpoint contradicts canonical manifest"
+            )
+        if manifest.requires_isolation and not proposal.requires_isolation:
+            raise ProviderStateCoherenceError(
+                "proposal isolation policy contradicts canonical manifest"
+            )
+        return manifest
 
     def _compensate(
         self,
