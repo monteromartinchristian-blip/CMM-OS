@@ -45,6 +45,7 @@ from kernel.llm import (
     ProviderOnboardingService,
     ProviderRegistryAuditRecord,
     ProviderRegistryState,
+    ProviderRegistryStateCoordinator,
     ProviderRegistryStateRepository,
     ProviderStateCoherenceError,
     ProviderStateError,
@@ -169,6 +170,7 @@ STATE_CONTRACTS = {
     "PROVIDER_STATE_SCHEMA_VERSION": PROVIDER_STATE_SCHEMA_VERSION,
     "ProviderRegistryAuditRecord": ProviderRegistryAuditRecord,
     "ProviderRegistryState": ProviderRegistryState,
+    "ProviderRegistryStateCoordinator": ProviderRegistryStateCoordinator,
     "ProviderStateCoherenceError": ProviderStateCoherenceError,
     "ProviderStateError": ProviderStateError,
     "ProviderStateSchemaError": ProviderStateSchemaError,
@@ -215,6 +217,7 @@ HYBRID_ADMIN_MODULES = (
     "kernel/llm/credential_store.py",
     "kernel/llm/subscription_profiles.py",
     "kernel/llm/provider_onboarding.py",
+    "kernel/llm/provider_state_coordinator.py",
 )
 
 _FORBIDDEN_INFERENCE_CALLS = frozenset(

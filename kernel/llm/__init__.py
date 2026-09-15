@@ -115,6 +115,7 @@ from kernel.llm.provider_state import (
     ProviderStateSchemaError,
     ProviderStateSerializationError,
 )
+from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
     InMemoryProviderRegistryStateRepository,
@@ -208,6 +209,7 @@ __all__ = [
     "ProviderRegistry",
     "ProviderRegistryAuditRecord",
     "ProviderRegistryState",
+    "ProviderRegistryStateCoordinator",
     "ProviderRegistryStateRepository",
     "ProviderSpec",
     "ProviderStateCoherenceError",
