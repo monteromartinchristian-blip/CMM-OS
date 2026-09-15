@@ -65,6 +65,20 @@ from kernel.llm.provider_state_repository import (
     capture_provider_registry_state,
 )
 
+# Discovery-derived route events that carry durable temporal evidence about a
+# connection-level discovery snapshot. The allowlist is explicit rather than
+# prefix-based (MAJOR-V5-02): a future unrelated ``route.*`` event must not
+# silently become a watermark input, and non-discovery events such as
+# ``provider.connected`` or ``provider.validation_changed`` never contribute.
+_DISCOVERY_ROUTE_EVENTS = frozenset(
+    {
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+        "route.refreshed",
+    }
+)
+
 
 class ProviderRegistryStateCoordinator:
     """The single revision/audit commit seam for the Provider Registry.
@@ -257,14 +271,24 @@ class ProviderRegistryStateCoordinator:
         route, audit, revision or repository state can change, which is the same
         fail-closed boundary capture and status transitions already enforce.
 
-        Snapshot monotonicity rule (MINOR-V4-01): a discovery pass is a
-        connection-level snapshot, not a single route timestamp — it may create,
-        refresh, defer and restore routes at once. An observation older than the
-        newest ``last_seen_at`` already recorded for this connection is
-        therefore refused before the client is consulted, so ``last_seen_at``
-        never regresses and no revision can carry an earlier observation time
-        than its predecessor. Equality is valid and preserves the no-op
-        semantics above; with no routes yet, any aware ``seen_at`` is accepted.
+        Snapshot monotonicity rule (MINOR-V4-01, strengthened by MAJOR-V5-02): a
+        discovery pass is a connection-level snapshot, not a single route
+        timestamp — it may create, refresh, defer and restore routes at once.
+        The floor an incoming observation must not precede is therefore the
+        newest durable discovery evidence for the connection: the newest
+        recorded route ``last_seen_at`` *or* the newest allowlisted discovery
+        route event in the persisted audit log, whichever is later. The route
+        timestamp alone is not sufficient, because a state-changing pass that
+        only records a disappearance or a repeated allowlist deferral advances
+        no route observation at all. Deriving the floor from already-persisted
+        state keeps it restart-stable with no new field, event or store, and it
+        is consulted only *after* connection and manifest authority are
+        established — the watermark orders snapshots, it never substitutes for
+        authority. An observation older than the floor is refused before the
+        client is consulted, so no revision can carry an earlier observation
+        time than its predecessor. Equality is valid and preserves the no-op
+        semantics above; with no durable evidence yet, any aware ``seen_at`` is
+        accepted.
 
         Commit rule (MAJOR-V3-02): one discovery pass is at most one mutation
         batch and therefore at most one revision, written only after
@@ -307,8 +331,8 @@ class ProviderRegistryStateCoordinator:
             raise ProviderStateCoherenceError(
                 "discovery manifest is not the active canonical manifest"
             )
-        latest_seen = self._latest_route_seen_at(registered.connection_id)
-        if latest_seen is not None and seen_at < latest_seen:
+        latest = self._latest_discovery_snapshot_at(registered.connection_id)
+        if latest is not None and seen_at < latest:
             raise ProviderStateCoherenceError(
                 "discovery seen_at precedes current route state"
             )
@@ -337,12 +361,12 @@ class ProviderRegistryStateCoordinator:
     def _latest_route_seen_at(self, connection_id: str) -> datetime | None:
         """Return the newest recorded ``last_seen_at`` for one connection.
 
-        The connection-level snapshot bound (MINOR-V4-01): routes of a
-        connection are observed together, so the newest recorded observation is
-        the point an incoming ``seen_at`` must not precede. Returns ``None`` when
-        the connection has no routes (or none carries a timestamp yet), because
-        then nothing can regress. No new time policy is introduced — this reads
-        the canonical route catalog as it stands.
+        The route-observation component of the connection-level snapshot bound:
+        routes of a connection are observed together, so the newest recorded
+        observation is a point an incoming ``seen_at`` must not precede. Returns
+        ``None`` when the connection has no routes (or none carries a timestamp
+        yet), because then nothing can regress. No new time policy is introduced
+        — this reads the canonical route catalog as it stands.
         """
         timestamps = [
             route.last_seen_at
@@ -350,6 +374,53 @@ class ProviderRegistryStateCoordinator:
             if route.connection_id == connection_id and route.last_seen_at is not None
         ]
         return max(timestamps, default=None)
+
+    def _latest_route_audit_at(self, connection_id: str) -> datetime | None:
+        """Return the newest discovery route event recorded for one connection.
+
+        The persisted-audit component of the connection-level snapshot bound
+        (MAJOR-V5-02): ``last_seen_at`` only advances while a provider advertises
+        a model, so a pass that durably records a disappearance — or that
+        re-defers an allowlisted-out model — leaves the route floor behind while
+        still changing durable route state. Those passes *are* escaped into the
+        audit log, which is persisted and restored with the aggregate, so it is
+        the second durable source of the same chronology.
+
+        Exactly :data:`_DISCOVERY_ROUTE_EVENTS` are consulted, filtered by the
+        exact ``connection_id`` carried in the record detail, and only
+        ``event_type``, ``occurred_at`` and that one detail key are read — no
+        payload, credential or provider response can reach the floor. Returns
+        ``None`` when the connection has no such record.
+        """
+        timestamps = [
+            record.occurred_at
+            for record in self._audit_log
+            if record.event_type in _DISCOVERY_ROUTE_EVENTS
+            and dict(record.detail).get("connection_id") == connection_id
+        ]
+        return max(timestamps, default=None)
+
+    def _latest_discovery_snapshot_at(self, connection_id: str) -> datetime | None:
+        """Return the newest durable discovery snapshot time for a connection.
+
+        The combined connection-level watermark (MAJOR-V5-02) is the maximum of
+        the route-observation floor and the persisted-audit floor over the
+        non-null candidates; ``None`` means the connection carries no durable
+        discovery evidence yet, so nothing can be superseded. Both candidates
+        come from state that is already persisted and restored — routes and the
+        sanitized audit log — so an equal value is derivable after a restart
+        with no new field, event, store or in-memory-only cache. It strictly
+        strengthens the route-only bound: the route floor always contributes.
+        """
+        candidates = [
+            value
+            for value in (
+                self._latest_route_seen_at(connection_id),
+                self._latest_route_audit_at(connection_id),
+            )
+            if value is not None
+        ]
+        return max(candidates, default=None)
 
     def _discovery_records(
         self,

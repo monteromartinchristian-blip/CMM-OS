@@ -32,7 +32,10 @@ from kernel.llm.provider_state import (
     ProviderRegistryState,
     ProviderStateCoherenceError,
 )
-from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
+from kernel.llm.provider_state_coordinator import (
+    _DISCOVERY_ROUTE_EVENTS,
+    ProviderRegistryStateCoordinator,
+)
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
     InMemoryProviderRegistryStateRepository,
@@ -1845,3 +1848,225 @@ def test_discovery_rejects_a_stale_connection_before_the_client_call(
     assert runtime.coordinator.revision == 0
     assert runtime.coordinator.audit_log == ()
     assert repository.load() is None
+
+
+# --- durable discovery watermark (MAJOR-V5-02) -------------------------------
+
+# The MAJOR-V5-02 timeline: an intermediate stale snapshot sits strictly between
+# the first pass and the state-changing second pass.
+_WATERMARK_T0 = datetime(2026, 9, 15, 1, 0, tzinfo=timezone.utc)
+_WATERMARK_TM = datetime(2026, 9, 15, 1, 30, tzinfo=timezone.utc)
+_WATERMARK_T1 = datetime(2026, 9, 15, 2, 0, tzinfo=timezone.utc)
+
+_EXPECTED_DISCOVERY_ROUTE_EVENTS = frozenset(
+    {
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+        "route.refreshed",
+    }
+)
+
+
+def _route_floor(runtime: _Runtime, connection_id: str = "deepseek:main"):
+    """Newest recorded route observation of one connection (visible data)."""
+    timestamps = [
+        route.last_seen_at
+        for route in runtime.routes.list()
+        if route.connection_id == connection_id and route.last_seen_at is not None
+    ]
+    return max(timestamps, default=None)
+
+
+def _audit_floor(runtime: _Runtime, connection_id: str = "deepseek:main"):
+    """Newest discovery route event of one connection (visible audit data)."""
+    timestamps = [
+        record.occurred_at
+        for record in runtime.coordinator.audit_log
+        if record.event_type in _EXPECTED_DISCOVERY_ROUTE_EVENTS
+        and dict(record.detail).get("connection_id") == connection_id
+    ]
+    return max(timestamps, default=None)
+
+
+def _three_pass_runtime(
+    tmp_path: Path,
+) -> tuple[_Runtime, ProviderConnection, ProviderManifest]:
+    """Drive the canonical T0/T1 adversary and return the post-T1 runtime.
+
+    ``activation_allowlist=("a",)``: at T0 the provider advertises ``a`` and
+    ``b``; at T1 it advertises only the already-deferred ``b``, so ``a``
+    disappears and becomes unavailable while *no* route observation advances
+    past T0.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository, allowlist=("a",))
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("a", "b")),
+        seen_at=_WATERMARK_T0,
+    )
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("b",)), seen_at=_WATERMARK_T1
+    )
+
+    assert runtime.coordinator.revision == 2
+    route_a = runtime.routes.get("deepseek:main:a")
+    route_b = runtime.routes.get("deepseek:main:b")
+    assert route_a is not None and route_a.available is False
+    assert route_b is not None and route_b.available is False
+    assert _route_floor(runtime) == _WATERMARK_T0
+    assert _audit_floor(runtime) == _WATERMARK_T1
+    return runtime, connection, manifest
+
+
+def test_discovery_rejects_an_intermediate_snapshot_after_a_newer_pass(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V5-02: the durable floor is not only the route timestamp.
+
+    The T1 pass durably recorded a newer snapshot (``route.unavailable`` for
+    ``a``) without advancing any ``last_seen_at``, so the combined floor must
+    come from the persisted audit history too. An intermediate observation may
+    therefore not restore a route a newer pass declared unavailable.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, connection, manifest = _three_pass_runtime(tmp_path)
+    committed = repository.load()
+    assert committed is not None and committed.revision == 2
+    audit_before = runtime.coordinator.audit_log
+    client = _DiscoveryClient(("a", "b"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        runtime.coordinator.discover_models(
+            connection, manifest, client, seen_at=_WATERMARK_TM
+        )
+
+    assert client.calls == 0
+    route_a = runtime.routes.get("deepseek:main:a")
+    assert route_a is not None and route_a.available is False
+    assert route_a.last_seen_at == _WATERMARK_T0
+    assert runtime.coordinator.revision == 2
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_discovery_accepts_a_snapshot_equal_to_the_combined_floor(
+    tmp_path: Path,
+) -> None:
+    """Equality stays valid at the stronger floor and stays a true no-op."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, connection, manifest = _three_pass_runtime(tmp_path)
+    committed = repository.load()
+    assert committed is not None
+    audit_before = runtime.coordinator.audit_log
+    client = _DiscoveryClient(("b",))
+
+    result = runtime.coordinator.discover_models(
+        connection, manifest, client, seen_at=_WATERMARK_T1
+    )
+
+    assert client.calls == 1
+    assert result.new_route_ids == ()
+    assert result.restored_route_ids == ()
+    assert runtime.coordinator.revision == 2
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
+def test_discovery_floor_ignores_an_unrelated_later_audit_event(
+    tmp_path: Path,
+) -> None:
+    """Only the discovery route events contribute to the audit floor.
+
+    A durable non-discovery transition at a later time must not become a
+    temporal gate for discovery.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat",)),
+        seen_at=_WATERMARK_T0,
+    )
+    runtime.coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.WARNING, occurred_at=_WATERMARK_T1
+    )
+    assert runtime.coordinator.audit_log[-1].event_type == "provider.validation_changed"
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    result = runtime.coordinator.discover_models(
+        connection, manifest, client, seen_at=_WATERMARK_TM
+    )
+
+    assert client.calls == 1
+    assert result.new_route_ids == ()
+    assert _audit_floor(runtime) == _WATERMARK_TM
+    route = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert route is not None
+    assert route.last_seen_at == _WATERMARK_TM
+
+
+def test_discovery_floor_ignores_another_connections_route_audit(
+    tmp_path: Path,
+) -> None:
+    """The audit floor is scoped to the exact connection id."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    deepseek_connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    qwen_connection = runtime.connections.register(
+        ProviderConnection(
+            connection_id="qwen-token-plan:main",
+            provider_id="qwen-token-plan",
+            display_name="Qwen Token Plan",
+            billing_class=BillingClass.SUBSCRIPTION,
+            credential_ref=None,
+            endpoint=_QWEN_URL,
+            isolation_profile_ref=None,
+            status=ConnectionStatus.CONNECTED,
+            created_at=T0,
+        )
+    )
+    deepseek_manifest = _active_manifest(runtime)
+    qwen_manifest = runtime.manifests.get("qwen-token-plan")
+    assert qwen_manifest is not None
+    runtime.coordinator.discover_models(
+        deepseek_connection,
+        deepseek_manifest,
+        _DiscoveryClient(("deepseek-chat",)),
+        seen_at=_WATERMARK_T0,
+    )
+    runtime.coordinator.discover_models(
+        qwen_connection,
+        qwen_manifest,
+        _DiscoveryClient(("qwen3-max",)),
+        seen_at=_WATERMARK_T1,
+    )
+    assert _audit_floor(runtime) == _WATERMARK_T0
+    assert _audit_floor(runtime, "qwen-token-plan:main") == _WATERMARK_T1
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    runtime.coordinator.discover_models(
+        deepseek_connection, deepseek_manifest, client, seen_at=_WATERMARK_TM
+    )
+
+    assert client.calls == 1
+
+
+def test_discovery_route_event_allowlist_is_exact() -> None:
+    """The audit floor admits exactly the four discovery route events.
+
+    The allowlist is explicit rather than prefix-based, so a future unrelated
+    route event cannot silently become a temporal authority input.
+    """
+    assert _DISCOVERY_ROUTE_EVENTS == _EXPECTED_DISCOVERY_ROUTE_EVENTS
