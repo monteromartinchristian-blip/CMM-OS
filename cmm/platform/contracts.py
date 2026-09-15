@@ -244,6 +244,10 @@ class ServiceDescriptor:
     sequences become tuples, and any other object is rejected.  Keys naming
     secret-bearing content are rejected recursively, so descriptor metadata can
     never become a secret or live-state storage surface.
+
+    ``mode`` must be a real :class:`ServiceMode`.  Malformed values are rejected
+    here rather than silently coerced, because a ready composition must always
+    produce a valid, serializable inspection snapshot.
     """
 
     service_id: str
@@ -257,6 +261,11 @@ class ServiceDescriptor:
     def __post_init__(self) -> None:
         service_id = _non_empty(self.service_id, "service_id")
         implementation_id = _non_empty(self.implementation_id, "implementation_id")
+
+        if not isinstance(self.mode, ServiceMode):
+            raise TypeError(
+                f"mode must be a ServiceMode, not {type(self.mode).__name__}"
+            )
 
         dependency_ids = tuple(dep.service_id for dep in self.dependencies)
         if service_id in dependency_ids:

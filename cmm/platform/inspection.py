@@ -29,7 +29,12 @@ def _require_identifier(value: object, field_name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class ServiceInspection:
-    """Allowlisted, serialization-safe view of one composed service."""
+    """Allowlisted, serialization-safe view of one composed service.
+
+    ``mode`` must be a real :class:`ServiceMode`, so the public snapshot
+    boundary can never be handed a malformed value by a future caller or by
+    manual construction.
+    """
 
     service_id: str
     implementation_id: str
@@ -50,6 +55,10 @@ class ServiceInspection:
             "implementation_id",
             _require_identifier(self.implementation_id, "implementation_id"),
         )
+        if not isinstance(self.mode, ServiceMode):
+            raise TypeError(
+                f"mode must be a ServiceMode, not {type(self.mode).__name__}"
+            )
         object.__setattr__(
             self,
             "dependency_ids",
@@ -67,7 +76,7 @@ class ServiceInspection:
             "schema_version": self.schema_version,
             "owner": self.owner,
             "dependency_ids": list(self.dependency_ids),
-            "mode": ServiceMode(self.mode).value,
+            "mode": self.mode.value,
             "authority": self.authority,
         }
 

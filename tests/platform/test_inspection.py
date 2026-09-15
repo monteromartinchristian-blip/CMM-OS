@@ -282,3 +282,24 @@ def test_service_inspection_construction_requires_a_service_id() -> None:
             mode=ServiceMode.LOCAL,
             authority=None,
         )
+
+
+# ── ServiceInspection.mode boundary (Audit V1 MAJOR-03) ──────────────────────
+
+
+@pytest.mark.parametrize("mode", ["bogus", "local", "LOCAL", 1, None, object()])
+def test_service_inspection_rejects_an_invalid_mode(mode: object) -> None:
+    """The public snapshot boundary must defensively reject malformed modes."""
+
+    with pytest.raises(TypeError):
+        ServiceInspection(
+            service_id="a.service",
+            implementation_id="impl.a",
+            contract_name="a.service",
+            contract_version="1.0.0",
+            schema_version="1",
+            owner="cmm.platform.test",
+            dependency_ids=(),
+            mode=mode,  # type: ignore[arg-type]
+            authority=None,
+        )

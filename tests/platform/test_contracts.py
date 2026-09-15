@@ -40,13 +40,14 @@ def _descriptor(
     authority: str | None = None,
     metadata: object = None,
     contract: ContractMetadata | None = None,
+    mode: ServiceMode = ServiceMode.LOCAL,
 ) -> ServiceDescriptor:
     return ServiceDescriptor(
         service_id=service_id,
         contract=contract if contract is not None else _metadata(),
         implementation_id="validation.default",
         dependencies=dependencies,
-        mode=ServiceMode.LOCAL,
+        mode=mode,
         authority=authority,
         metadata={} if metadata is None else metadata,  # type: ignore[arg-type]
     )
@@ -389,6 +390,25 @@ def test_service_descriptor_metadata_copy_detaches_nested_containers() -> None:
 
     assert descriptor.metadata["display"]["labels"] == ("one",)
     assert descriptor.metadata["display"]["enabled"] is True
+
+
+# ── ServiceDescriptor.mode boundary (Audit V1 MAJOR-03) ──────────────────────
+
+
+def test_service_descriptor_accepts_real_service_modes() -> None:
+    assert _descriptor(mode=ServiceMode.LOCAL).mode is ServiceMode.LOCAL
+    assert _descriptor(mode=ServiceMode.ADAPTER).mode is ServiceMode.ADAPTER
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["bogus", "local", "LOCAL", "adapter", "", 1, None, object()],
+)
+def test_service_descriptor_rejects_an_invalid_mode(mode: object) -> None:
+    """READY must never be reachable with a malformed public mode value."""
+
+    with pytest.raises(TypeError):
+        _descriptor(mode=mode)  # type: ignore[arg-type]
 
 
 # ── ServiceBinding ───────────────────────────────────────────────────────────

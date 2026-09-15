@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from cmm.platform.configuration import (
@@ -148,6 +150,22 @@ def test_container_registers_validated_bindings_from_the_registry() -> None:
     container = ApplicationContainer.build(_core_config(), modules=(_core_module(),))
 
     assert container.snapshot().services[1].dependency_ids == ("domain.registry",)
+
+
+def test_ready_container_snapshot_is_always_serializable() -> None:
+    """READY must always imply a valid, serializable public snapshot."""
+
+    container = ApplicationContainer.build(_core_config(), modules=(_core_module(),))
+
+    assert container.state is ContainerState.READY
+    serialized = container.snapshot().to_dict()
+
+    assert serialized["state"] == "ready"
+    assert [service["mode"] for service in serialized["services"]] == [
+        ServiceMode.LOCAL.value,
+        ServiceMode.LOCAL.value,
+    ]
+    assert json.loads(json.dumps(serialized)) == serialized
 
 
 def test_container_records_a_deterministic_orderable_composition() -> None:
