@@ -69,6 +69,7 @@ from kernel.llm.provider_connections import (
     ProviderConnectionRegistry,
 )
 
+
 def test_connection_keeps_credential_reference_not_secret() -> None:
     connection = ProviderConnection(
         connection_id="qwen-token-plan:main",
@@ -84,6 +85,7 @@ def test_connection_keeps_credential_reference_not_secret() -> None:
     assert connection.credential_ref.startswith("keychain://")
     assert not hasattr(connection, "api_key")
     assert not hasattr(connection, "secret")
+
 
 def test_registry_rejects_duplicate_connection_id() -> None:
     registry = ProviderConnectionRegistry()
@@ -118,11 +120,13 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
+
 class BillingClass(str, Enum):
     SUBSCRIPTION = "subscription"
     PAYG = "payg"
     API = "api"
     FREE_OR_API = "free_or_api"
+
 
 class ConnectionStatus(str, Enum):
     DETECTED = "detected"
@@ -130,6 +134,7 @@ class ConnectionStatus(str, Enum):
     AUTH_REQUIRED = "auth_required"
     WARNING = "warning"
     UNAVAILABLE = "unavailable"
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderConnection:
@@ -143,6 +148,7 @@ class ProviderConnection:
     status: ConnectionStatus
     created_at: datetime | None = None
     last_validated_at: datetime | None = None
+
 
 class ProviderConnectionRegistry:
     def __init__(self) -> None:
@@ -228,20 +234,25 @@ git commit -m "feat(llm): add provider connection registry"
 ```python
 from kernel.llm.model_routes import ModelRoute, ModelRouteCatalog
 
+
 def test_same_model_can_have_multiple_provider_routes() -> None:
     catalog = ModelRouteCatalog()
-    catalog.register(ModelRoute(
-        route_id="qwen-token-plan:qwen3.8-max",
-        connection_id="qwen-token-plan:main",
-        provider_model_id="qwen3.8-max",
-        canonical_model_id="qwen3.8-max",
-    ))
-    catalog.register(ModelRoute(
-        route_id="qwen-cloud:qwen3.8-max",
-        connection_id="qwen-cloud:main",
-        provider_model_id="qwen3.8-max",
-        canonical_model_id="qwen3.8-max",
-    ))
+    catalog.register(
+        ModelRoute(
+            route_id="qwen-token-plan:qwen3.8-max",
+            connection_id="qwen-token-plan:main",
+            provider_model_id="qwen3.8-max",
+            canonical_model_id="qwen3.8-max",
+        )
+    )
+    catalog.register(
+        ModelRoute(
+            route_id="qwen-cloud:qwen3.8-max",
+            connection_id="qwen-cloud:main",
+            provider_model_id="qwen3.8-max",
+            canonical_model_id="qwen3.8-max",
+        )
+    )
 
     routes = catalog.routes_for_canonical_model("qwen3.8-max")
     assert {route.connection_id for route in routes} == {
@@ -249,14 +260,17 @@ def test_same_model_can_have_multiple_provider_routes() -> None:
         "qwen-cloud:main",
     }
 
+
 def test_missing_route_becomes_unavailable_not_deleted() -> None:
     catalog = ModelRouteCatalog()
-    route = catalog.register(ModelRoute(
-        route_id="kira:glm-5.3-free",
-        connection_id="kira:main",
-        provider_model_id="glm-5.3-free",
-        canonical_model_id="glm-5.3",
-    ))
+    route = catalog.register(
+        ModelRoute(
+            route_id="kira:glm-5.3-free",
+            connection_id="kira:main",
+            provider_model_id="glm-5.3-free",
+            canonical_model_id="glm-5.3",
+        )
+    )
 
     catalog.mark_unavailable(route.route_id)
 
