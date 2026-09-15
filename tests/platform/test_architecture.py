@@ -1,13 +1,21 @@
-"""Phase 11.1 – Task 9 architecture gates for the platform integration core.
+"""Phase 11.1 – Architecture gates for the platform integration core.
 
-The canonical binding builders must accept already-constructed subsystem
-objects and must never reconstruct a canonical subsystem.
+Two responsibilities are covered here:
+
+* Task 9 gates: the canonical binding builders must accept already-constructed
+  subsystem objects and must never reconstruct a canonical subsystem.
+* Task 10 gates: dependency direction, scope (no Phase 11.2 orchestration),
+  duplicate-owner prohibition and import-time side-effect freedom.
 """
 
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_PACKAGE = REPO_ROOT / "cmm" / "platform"
@@ -290,3 +298,220 @@ def test_canonical_module_is_a_pure_binding_layer() -> None:
     ]
 
     assert not assignments, "canonical.py must not hold module-level mutable state"
+
+
+# ── Task 10: dependency direction ────────────────────────────────────────────
+
+
+def _python_files(root: Path, *, exclude: Path | None = None) -> list[Path]:
+    files = []
+    for path in sorted(root.rglob("*.py")):
+        if exclude is not None and exclude in path.parents:
+            continue
+        files.append(path)
+    return files
+
+
+def _imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text())
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module:
+                modules.add(node.module)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                modules.add(alias.name)
+    return modules
+
+
+def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
+    """Dependency direction is one-way: cmm.platform -> canonical subsystems."""
+
+    offenders: list[str] = []
+
+    for root in (REPO_ROOT / "cmm", REPO_ROOT / "kernel"):
+        for path in _python_files(root, exclude=PLATFORM_PACKAGE):
+            for module in _imported_modules(path):
+                if module == "cmm.platform" or module.startswith("cmm.platform."):
+                    offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
+
+    assert not offenders, (
+        "canonical subsystem packages must not import cmm.platform: "
+        f"{sorted(offenders)}"
+    )
+
+
+# ── Task 10: Phase 11.2 scope ────────────────────────────────────────────────
+
+
+def _platform_module_files() -> list[Path]:
+    return sorted(PLATFORM_PACKAGE.glob("*.py"))
+
+
+def test_platform_package_defines_no_orchestration_symbols() -> None:
+    """Phase 11.1 must not pull Phase 11.2 orchestration forward."""
+
+    offenders: list[str] = []
+
+    for path in _platform_module_files():
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in ORCHESTRATION_SYMBOLS
+            ):
+                offenders.append(f"{path.name}:{node.name}")
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Name)
+                        and target.id in ORCHESTRATION_SYMBOLS
+                    ):
+                        offenders.append(f"{path.name}:{target.id}")
+
+    assert not offenders, f"Phase 11.2 orchestration symbols found: {offenders}"
+
+
+def test_platform_package_does_not_export_orchestration_symbols() -> None:
+    import cmm.platform
+
+    leaked = sorted(set(cmm.platform.__all__) & set(ORCHESTRATION_SYMBOLS))
+
+    assert not leaked, f"cmm.platform exports orchestration symbols: {leaked}"
+
+
+def test_platform_package_does_not_import_orchestration_modules() -> None:
+    """No future orchestration module may be imported to satisfy 11.1."""
+
+    tokens = (
+        "orchestrator",
+        "orchestration",
+        "intent_resolver",
+        "context_resolver",
+        "domain_router",
+        "agent_router",
+    )
+
+    offenders: list[str] = []
+
+    for path in _platform_module_files():
+        for module in _imported_modules(path):
+            last = module.rsplit(".", 1)[-1].lower()
+            if any(token in last for token in tokens):
+                offenders.append(f"{path.name} -> {module}")
+
+    assert not offenders, f"orchestration modules imported: {sorted(offenders)}"
+
+
+# ── Task 10: duplicate canonical owners ──────────────────────────────────────
+
+
+@pytest.mark.parametrize("owner", FORBIDDEN_OWNER_CLASSES)
+def test_platform_package_defines_no_duplicate_owner_class(owner: str) -> None:
+    """No class may duplicate a canonical subsystem owner.
+
+    ``IntegrationServiceRegistry`` is explicitly allowed: it is a registry of
+    platform composition bindings, not a second owner of domain, provider,
+    agent, tool or workflow content.
+    """
+
+    offenders: list[str] = []
+
+    for path in _platform_module_files():
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name.endswith(owner):
+                offenders.append(f"{path.name}:{node.name}")
+
+    assert not offenders, f"duplicate canonical owner defined: {offenders}"
+
+
+def test_integration_service_registry_is_explicitly_allowed() -> None:
+    """The one added registry is permitted, and is not a duplicate owner."""
+
+    from cmm.platform import IntegrationServiceRegistry
+
+    assert IntegrationServiceRegistry.__name__ not in FORBIDDEN_OWNER_CLASSES
+    assert IntegrationServiceRegistry.__module__.startswith("cmm.platform")
+    assert not any(
+        IntegrationServiceRegistry.__name__.endswith(owner)
+        for owner in FORBIDDEN_OWNER_CLASSES
+    )
+
+
+def test_integration_service_registry_is_the_only_added_registry() -> None:
+    import cmm.platform
+
+    added = {name for name in cmm.platform.__all__ if name.endswith("Registry")}
+
+    assert added == {"IntegrationServiceRegistry"}, (
+        f"cmm.platform must add exactly one registry, found: {sorted(added)}"
+    )
+
+
+# ── Task 10: import-time side effects ────────────────────────────────────────
+
+
+def test_importing_platform_registers_nothing_globally() -> None:
+    """Importing ``cmm.platform`` must not mutate canonical registries."""
+
+    program = """
+import json
+import cmm.platform  # noqa: F401
+from cmm.domains.registry import DomainRegistry
+from cmm.execution.executor_registry import ExecutorRegistry
+from cmm.platform.service_registry import IntegrationServiceRegistry
+from cmm.workflows.registry import InMemoryWorkflowRegistry
+from kernel.llm.provider_registry import ProviderRegistry
+
+print(json.dumps({
+    "provider": len(ProviderRegistry().list()),
+    "domain": len(DomainRegistry().list()),
+    "workflow": len(InMemoryWorkflowRegistry().list_definitions()),
+    "execution": len(ExecutorRegistry().all()),
+    "integration": len(IntegrationServiceRegistry().list_bindings()),
+}))
+"""
+
+    import json
+    import subprocess
+
+    completed = subprocess.run(
+        [sys.executable, "-c", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "provider": 0,
+        "domain": 0,
+        "workflow": 0,
+        "execution": 0,
+        "integration": 0,
+    }
+
+
+def test_platform_modules_hold_no_module_level_registry_instance() -> None:
+    import cmm.platform  # noqa: F401
+    from cmm.platform.service_registry import IntegrationServiceRegistry
+
+    canonical_owners = (ProviderRegistry, DomainRegistry, InMemoryWorkflowRegistry)
+
+    def check(module_name: str, module: ModuleType) -> None:
+        for attribute, value in vars(module).items():
+            assert not isinstance(value, IntegrationServiceRegistry), (
+                f"{module_name}.{attribute} is a module-level registry singleton"
+            )
+            assert not isinstance(value, canonical_owners), (
+                f"{module_name}.{attribute} caches a canonical registry instance"
+            )
+
+    for module_name, module in list(sys.modules.items()):
+        if module_name != "cmm.platform" and not module_name.startswith(
+            "cmm.platform."
+        ):
+            continue
+        assert isinstance(module, ModuleType)
+        check(module_name, module)
