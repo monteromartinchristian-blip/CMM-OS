@@ -283,7 +283,7 @@ ContractMetadata(
 
 ### 11.1 implementation status
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 
 Implemented by the `cmm/platform/` integration-core package:
 
@@ -291,6 +291,26 @@ Implemented by the `cmm/platform/` integration-core package:
 - Design Point `DP-101 — Canonical Application Composition Root`;
 - acceptance test `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`;
 - reference documentation — [`docs/reference/phase-11-integration-core.md`](../reference/phase-11-integration-core.md).
+
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`; `MAJORS=3`; `MINORS=0`;
+`DP-101=NOT_VERIFIED`; `CLOSURE_ELIGIBLE=NO`) and is recorded immutably at
+[`docs/audits/phase-11.1-integration-core-independent-audit-v1.md`](../audits/phase-11.1-integration-core-independent-audit-v1.md).
+Remediation V1 fixes exactly those three MAJOR findings inside the Phase 11.1
+boundary, under
+[`docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md`](../superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md)
+and its implementation plan:
+
+- `MAJOR-01` — every canonical binding now declares and enforces its canonical
+  runtime boundary, so an unrelated object can no longer claim canonical
+  authority while explicit replacement/test adapters stay supported;
+- `MAJOR-02` — descriptor metadata is restricted to a secret-free, recursively
+  immutable descriptive value grammar, and stays excluded from the public
+  inspection snapshot;
+- `MAJOR-03` — `ServiceDescriptor.mode` and `ServiceInspection.mode` require a
+  real `ServiceMode`, so a malformed mode can never reach readiness and every
+  ready snapshot is serializable;
+- `AT-DP-101` permanently carries the three Audit V1 reproducers, and
+  `AT-DP-134` remains green and unchanged.
 
 The integration core composes **already-existing** canonical subsystem instances
 through explicit version-aware service bindings. It holds references and owns no
@@ -307,10 +327,13 @@ migrations and a new Event System.
 
 Phase 11.1 neither reopens nor modifies the closed Phase 11.34 Provider
 Registry (`F11-014` / `DP-134`). The platform binds the canonical registry
-object itself, by reference, and creates no second provider registry.
+object itself, by reference, and creates no second provider registry. The
+remediation added an enforceable runtime boundary to that binding; the bound
+object is still the exact canonical instance and Phase 11.34 production
+semantics are unchanged.
 
 No closure, audit or verified-existing status is claimed before the independent
-audit returns `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
+re-audit returns `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
 `AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES`.
 
 ---

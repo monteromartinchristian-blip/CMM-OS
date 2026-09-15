@@ -1,19 +1,26 @@
 # Phase 11 — Integration Core reference
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 **Phase:** 11.1 — Integration Core
 **Requirement:** `F11-015 — Canonical Integration Core`
 **Design Point:** `DP-101 — Canonical Application Composition Root`
 **Acceptance Test:** `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-15-phase-11.1-integration-core-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-15-phase-11.1-integration-core-implementation-plan.md`
+**Independent Audit V1:** `docs/audits/phase-11.1-integration-core-independent-audit-v1.md` (`INDEPENDENT_AUDIT_V1=FAIL`; `BLOCKERS=0`; `MAJORS=3`; `MINORS=0`)
+**Remediation V1 design:** `docs/superpowers/specs/2026-09-15-phase-11.1-remediation-v1-design.md`
+**Remediation V1 plan:** `docs/superpowers/plans/2026-09-15-phase-11.1-remediation-v1-implementation-plan.md`
 
 This document records the Phase 11.1 integration-core boundary: the canonical
 contract classification, the platform package responsibility split, the service
 identities bound by the composition root, and the explicit exclusions.
 
-Phase 11.1 is **implemented and pending independent audit**. Nothing in this
-document asserts closure, audit success, or verified-existing status.
+Phase 11.1 is **implemented, remediated against Independent Audit V1 and pending
+independent re-audit**. `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` is the
+Phase 10 matrix vocabulary's `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` state
+(see the matrix §2): a recorded independent audit `FAIL` exists, the findings
+are remediated, and independent re-audit closure is still pending. Nothing in
+this document asserts closure, audit success, or verified-existing status.
 
 ## 1. Purpose and ownership boundary
 
@@ -117,19 +124,20 @@ and for version-aware contract boundaries.
 
 The representative composition binds these canonical service identities. Each
 builder receives an already-created canonical object; no builder constructs a
-subsystem.
+subsystem. Each builder also declares the canonical **runtime boundary** shown
+below and rejects any implementation that does not satisfy it (see §14).
 
-| Service ID | Canonical implementation | Owner package |
-| --- | --- | --- |
-| `validation.application` | `cmm.validation.interfaces.application.ValidationApplicationService` | `cmm.validation` |
-| `cognitive.service` | `cmm.cognitive.service.ResourceExtractionService` | `cmm.cognitive` |
-| `cognitive.adapter_registry` | `cmm.cognitive.registries.ResourceAdapterRegistry` | `cmm.cognitive` |
-| `cognitive.extractor_registry` | `cmm.cognitive.registries.KnowledgeExtractorRegistry` | `cmm.cognitive` |
-| `agent.runtime.integration` | `cmm.agent_runtime.agent_runtime_integration_service.AgentRuntimeIntegrationService` | `cmm.agent_runtime` |
-| `domain.registry` | `cmm.domains.registry.DomainRegistry` | `cmm.domains` |
-| `workflow.registry` | `cmm.workflows.registry.InMemoryWorkflowRegistry` | `cmm.workflows` |
-| `execution.registry` | `cmm.execution.executor_registry.ExecutorRegistry` | `cmm.execution` |
-| `provider.registry` | `kernel.llm.provider_registry.ProviderRegistry` (canonical Phase 11.34 authority) | `kernel.llm` |
+| Service ID | Canonical implementation | Owner package | Runtime boundary |
+| --- | --- | --- | --- |
+| `validation.application` | `cmm.validation.interfaces.application.ValidationApplicationService` | `cmm.validation` | `ValidationApplicationService` |
+| `cognitive.service` | `cmm.cognitive.service.ResourceExtractionService` | `cmm.cognitive` | `ResourceExtractionService` |
+| `cognitive.adapter_registry` | `cmm.cognitive.registries.ResourceAdapterRegistry` | `cmm.cognitive` | `ResourceAdapterRegistry` |
+| `cognitive.extractor_registry` | `cmm.cognitive.registries.KnowledgeExtractorRegistry` | `cmm.cognitive` | `KnowledgeExtractorRegistry` |
+| `agent.runtime.integration` | `cmm.agent_runtime.agent_runtime_integration_service.AgentRuntimeIntegrationService` | `cmm.agent_runtime` | `AgentRuntimeIntegrationService` |
+| `domain.registry` | `cmm.domains.registry.DomainRegistry` | `cmm.domains` | `DomainRegistry` |
+| `workflow.registry` | `cmm.workflows.registry.InMemoryWorkflowRegistry` | `cmm.workflows` | `InMemoryWorkflowRegistry` |
+| `execution.registry` | `cmm.execution.executor_registry.ExecutorRegistry` | `cmm.execution` | `ExecutorRegistry` |
+| `provider.registry` | `kernel.llm.provider_registry.ProviderRegistry` (canonical Phase 11.34 authority) | `kernel.llm` | `ProviderRegistry` |
 
 ### 6.1 Platform boundary contract metadata
 
@@ -218,7 +226,10 @@ Per service the snapshot exposes only `service_id`, `implementation_id`,
 
 Arbitrary descriptor metadata is not serialized. Raw implementation objects,
 runtime contract objects, secrets, credentials, tokens, prompts, hidden
-reasoning, provider payloads and opaque internal state are never exposed.
+reasoning, provider payloads and opaque internal state are never exposed. Since
+Remediation V1, descriptor metadata is additionally restricted at construction
+by the grammar in §14.2, so the inspection allowlist stays exactly as it is and
+the metadata boundary is narrowed rather than widened.
 
 ## 10. Explicit exclusions
 
@@ -252,10 +263,11 @@ reopen it. `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py
 | Production package | `cmm/platform/` |
 | Architecture gates | `tests/platform/test_architecture.py` |
 
-Phase state before independent audit: `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`.
+Phase state: `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` (audit `FAIL` recorded,
+findings remediated, independent re-audit pending).
 
-No closure, audit, or verified-existing status is claimed here. Independent audit
-must return `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
+No closure, audit, or verified-existing status is claimed here. Independent
+re-audit must return `BLOCKERS=0`, `MAJORS=0`, `DP-101=VERIFIED_EXISTING`,
 `AT-DP-101=PASS` and `CLOSURE_ELIGIBLE=YES` before any closure commit exists.
 
 ## 13. Implementation decisions and minimal deviations from the committed plan
@@ -330,3 +342,155 @@ recorded here as required:
 
 No deviation changes the architecture, widens the scope, replaces a canonical
 subsystem owner, or pulls Phase 11.2 work forward.
+
+## 14. Remediation V1 — Independent Audit V1 findings
+
+Independent Audit V1 returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`,
+`MINORS=0` and `DP-101=NOT_VERIFIED`. Remediation V1 fixes exactly those three
+findings inside the Phase 11.1 boundary. It reopens no closed phase, adds no
+platform subsystem, weakens no inherited test and implements no Phase 11.2
+scope.
+
+### 14.1 `MAJOR-01` — canonical runtime boundaries are enforced
+
+Audit V1 reproduced a binding that could claim the authoritative provider
+identity while holding an unrelated object:
+
+```python
+provider_registry_binding(object())   # reached ContainerState.READY before remediation
+```
+
+The builders in `cmm/platform/canonical.py` now declare an enforceable
+`runtime_contract` for every canonical service and fail closed before a binding
+can exist:
+
+```python
+binding = provider_registry_binding(real_provider_registry)
+assert binding.implementation is real_provider_registry
+assert binding.runtime_contract is ProviderRegistry
+
+provider_registry_binding(object())   # TypeError
+```
+
+| Aspect | Result |
+| --- | --- |
+| Boundary kind | canonical concrete class per service (§6); no existing runtime-checkable protocol describes these whole-service boundaries, so the canonical owning class is the strongest available boundary |
+| Builder-level rejection | `_require_canonical_implementation(...)` raises `TypeError` before the `ServiceBinding` is created |
+| Registry-level defense in depth | `IntegrationServiceRegistry.register()` / `replace()` re-check the declared `runtime_contract`; no change was made to that existing enforcement |
+| Canonical identity | the bound object is still the exact canonical instance; Phase 11.34 `ProviderRegistry` keeps its identity, state schema and authority semantics |
+| Replacement / test adapters | unchanged: an explicitly declared alternate implementation is still bound through `ServiceBinding` plus register/replace with its own boundary, gated by contract compatibility and rejected after freeze |
+| Boundary type import | resolved inside each builder, so importing `cmm.platform` stays a thin, side-effect-free import |
+
+Evidence: `tests/platform/test_architecture.py` (per-service runtime contract,
+unrelated-object rejection, foreign-canonicity rejection, replacement
+preservation), `tests/platform/test_service_registry.py`
+(re-registration re-check), `AT-DP-101` (fake authority rejection, forged
+binding rejected before readiness, identity preserved for every canonical
+binding).
+
+### 14.2 `MAJOR-02` — descriptor metadata is secret-free and recursively immutable
+
+Audit V1 reproduced secret-shaped and mutable nested metadata:
+
+```python
+ServiceDescriptor(..., metadata={"token": "sk-secret", "nested": {"password": "p"}})
+```
+
+`ServiceDescriptor.metadata` is now a small descriptive boundary.
+
+Allowed values, recursively: `None`, `bool`, `int`, `float`, `str`, mappings of
+allowed values, and sequences of allowed values. Mappings are copied and
+normalized to immutable mappings (`MappingProxyType`), sequences are normalized
+to tuples, and any other object (a live client, callable, `bytes`, arbitrary
+runtime object) is rejected with `TypeError`. A caller's later mutation of the
+input object cannot reach the descriptor, and no nested value is mutable
+through the descriptor. This is the representation chosen in Remediation V1:
+recursively immutable mappings plus tuples — no new immutable-collection
+framework was added.
+
+Keys are compared against a fixed denylist after deterministic normalization
+(lowercasing and non-alphanumeric characters becoming `_`), both as the whole
+normalized key and per segment, so all of these fail closed with `ValueError`:
+
+```text
+secret  secrets  credential  credentials  password  passwd  token  api_key
+apikey  access_key  private_key  auth  authorization  cookie  session_key
+prompt  reasoning  provider_payload  payload
+```
+
+```python
+ServiceDescriptor(..., metadata={"display": {"authorization": "Bearer ..."}})  # ValueError
+ServiceDescriptor(..., metadata={"provider_payload": {"x": 1}})                 # ValueError
+ServiceDescriptor(..., metadata={"client": object()})                           # TypeError
+```
+
+The check is structural and key-based. No content heuristics, entropy scanning,
+secrets manager, credential vault, sanitizer framework or DLP subsystem was
+introduced, and permitted key spelling is preserved rather than rewritten.
+
+Inspection output is unchanged: descriptor metadata is still excluded from the
+public composition snapshot (`ApplicationCompositionSnapshot.to_dict()`).
+
+Evidence: `tests/platform/test_contracts.py` (denylist, nested denylist,
+normalization, opaque objects, non-string keys, recursive immutability,
+defensive copy), `tests/platform/test_inspection.py` (snapshot still excludes
+metadata), `AT-DP-101` (unsafe metadata cannot enter the connected composition;
+permitted metadata stays out of the public boundary and is detached).
+
+### 14.3 `MAJOR-03` — invalid service modes are rejected before readiness
+
+Audit V1 reproduced a ready container holding a malformed mode:
+
+```python
+ServiceDescriptor(..., mode="bogus")   # reached READY; snapshot().to_dict() then failed
+```
+
+`ServiceDescriptor.mode` and `ServiceInspection.mode` now require a real
+`ServiceMode` and raise `TypeError` at construction. Arbitrary strings are never
+silently coerced, so `mode="bogus"`, `mode="local"` and `mode=None` cannot reach
+a container. `ServiceInspection.to_dict()` emits `self.mode.value` from a value
+that is guaranteed to be a `ServiceMode`.
+
+The readiness invariant is now permanent:
+
+```python
+assert container.state is ContainerState.READY
+container.snapshot().to_dict()   # must succeed, deterministically
+```
+
+Evidence: `tests/platform/test_contracts.py` and
+`tests/platform/test_inspection.py` (strict mode boundary),
+`tests/platform/test_container.py` (ready snapshot always serializable and
+JSON-round-trippable), `AT-DP-101` (malformed mode rejected at the public
+boundary of the real connected graph; ready snapshot serializes with
+`state == "ready"`).
+
+### 14.4 Inherited and unaffected behaviour
+
+- `AT-DP-134` remains green and unchanged: `tests/llm/test_provider_registry_dp134_acceptance.py`.
+- Phase 11.34 production modules were not modified; no second Provider Registry
+  exists and no provider, lifecycle, manifest, connection, model-route or
+  discovery semantics changed.
+- No canonical Phase 0–10 package imports `cmm.platform`; the dependency
+  direction `cmm.platform -> canonical subsystems` is unchanged.
+- `IntegrationServiceRegistry` remains the only Phase 11.1 registry.
+- No Phase 11.2 symbol, routing, transport or orchestration behaviour was added.
+
+### 14.5 Remediation status
+
+```text
+PHASE11_1=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MAJOR_02=REMEDIATED_PENDING_REAUDIT
+MAJOR_03=REMEDIATED_PENDING_REAUDIT
+DP_101=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+AT_DP_101=PASS
+AT_DP_134=PASS
+CLOSURE_ELIGIBLE=NO
+```
+
+Only the independent re-audit may conclude `MAJOR_01=VERIFIED_REMEDIATED`,
+`MAJOR_02=VERIFIED_REMEDIATED`, `MAJOR_03=VERIFIED_REMEDIATED`,
+`DP-101=VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE=YES`. The Audit V1 record at
+`docs/audits/phase-11.1-integration-core-independent-audit-v1.md` is historical
+evidence and is deliberately left unedited.
