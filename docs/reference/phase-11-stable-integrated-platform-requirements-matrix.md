@@ -103,11 +103,12 @@ matrix, and `F11-014` is the next Phase 11 functional identifier
 | Persistence owner | `kernel/llm/provider_state_repository.py` (`ProviderRegistryStateRepository`, `capture_provider_registry_state`, `restore_provider_registry_state`) over the versioned contracts in `kernel/llm/provider_state.py` (`SCHEMA_VERSION="2"`, `ProviderRegistryAuditRecord`) |
 | Commit seam | `kernel/llm/provider_state_coordinator.py` (`ProviderRegistryStateCoordinator`) — the one revision/audit commit path for connection acceptance, route discovery lifecycle and validation transitions |
 | Historical Audit V1 | `docs/audits/phase-11.34-provider-registry-independent-audit-v1.md` — independent verdict `FAIL` |
-| Historical Re-audit V2 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v2.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; `MAJOR-V2-01`…`MAJOR-V2-05` |
-| Remediation V1 design | `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md` |
-| Remediation V1 plan | `docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md` |
-| Remediation V2 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` |
-| Remediation V2 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md` |
+| Historical Re-audit V2 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v2.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; `MAJOR-V2-01`…`MAJOR-V2-05`; audited HEAD `1c54a720c57c6a84d990e8eb8dfc502c7423599e`; bundle SHA-256 `9f186aa51abc2533cfe171363cd760b8b6f7ff618223dc7c1358120e0499fdd4` |
+| Remediation V1 design | `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md` (historical: implemented, then audited by Independent Re-audit V2 `FAIL`) |
+| Remediation V1 plan | `docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md` (historical) |
+| Remediation V2 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` — freezes the remedy for exactly the five Re-audit V2 findings |
+| Remediation V2 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md` — implements that remedy; `REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
+| Remediated findings | `MAJOR-V2-01`…`MAJOR-V2-05` are remediated and pending Independent Re-audit V3; none of them is independently verified yet |
 | Lifecycle status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
 | Audit status | `PENDING_INDEPENDENT_REAUDIT_V3` |
 
@@ -123,23 +124,32 @@ values only — never secret material.
 PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
-REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 AT-DP-134=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V3
 ```
 
-This is the maximum documentary state allowed before Independent Re-audit V3
-(Remediation V2 spec §15). `AT-DP-134=PASS_REPORTED` means the connected
+This is the complete current state and the maximum documentary state allowed
+before Independent Re-audit V3 (Remediation V2 spec §15). `REMEDIATION_V1` is
+historical context, not a current-state marker: it was implemented and
+committed, then independently audited by Independent Re-audit V2, which
+returned `FAIL` (`BLOCKERS=0`; `MAJORS=5`; `MINORS=0`). Remediation V2
+(design/plan linked in §4.2) closes exactly those five findings —
+`MAJOR-V2-01`…`MAJOR-V2-05` — and they are remediated and pending Independent
+Re-audit V3.
+
+`AT-DP-134=PASS_REPORTED` means the connected
 acceptance was executed on the implementation machine and its evidence is
 recorded; it is **not** an independent verification of the acceptance.
 Therefore, before Independent Re-audit V3:
 
 - `DP-134`, `AT-DP-134` and `F11-014` are **not** independently verified;
-- no artifact in this repository may claim `VERIFIED_EXISTING`, `PASS` or
-  `CLOSURE_ELIGIBLE=YES` for them;
+- no artifact in this repository may claim a verified, passing or
+  closure-eligible state for them; the reserved tokens for that state are
+  reproduced in §6 and are unclaimed;
 - Phase 11.34 is not closed, and this matrix is not closure evidence.
 
 ## 6. Future closure criteria
