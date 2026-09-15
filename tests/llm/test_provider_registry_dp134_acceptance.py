@@ -84,6 +84,7 @@ from kernel.llm.provider_state import (
 from kernel.llm.provider_state_coordinator import ProviderRegistryStateCoordinator
 from kernel.llm.provider_state_repository import (
     FileProviderRegistryStateRepository,
+    ProviderRegistryStateRepository,
     capture_provider_registry_state,
     restore_provider_registry_state,
 )
@@ -139,7 +140,7 @@ class _Runtime:
 def _runtime(
     tmp_path: Path,
     *,
-    repository: FileProviderRegistryStateRepository | None = None,
+    repository: ProviderRegistryStateRepository | None = None,
     validator: Callable[[ConnectionProposal], bool] | None = None,
 ) -> _Runtime:
     """Build the full canonical runtime: one authority, one persistence seam.
@@ -1368,3 +1369,359 @@ def test_requirements_matrix_traceability_is_canonical_and_pending_reaudit() -> 
             f"{requirement_id} normative text must stay owned by the Phase 10 "
             "matrix instead of being duplicated"
         )
+
+
+# --- Remediation V3 adversaries (Independent Re-audit V3 findings) ----------
+#
+# MAJOR-V3-01: two simultaneously live ``ProviderRegistry`` authorities holding
+# the same normalized provider id must never be cross-wirable — capture,
+# coordinator construction and onboarding construction each fail closed on the
+# exact-object graph.
+#
+# MAJOR-V3-02: a successful rediscovery of an already-known route is durable
+# Provider Registry state; it survives a restart, is audited as
+# ``route.refreshed``, stays a true no-op at the same timestamp, and rolls back
+# exactly when the save fails.
+#
+# Every component here is canonical (real ``ProviderRegistry``,
+# ``ProviderManifestRegistry``, ``ModelCatalog``, ``ProviderConnectionRegistry``,
+# ``ModelRouteCatalog``, repository and coordinator); no mock stands in for the
+# provider authority or the persistence seam.
+
+_FOREIGN_PROVIDER_URL = "https://foreign-provider.example/v1"
+_FOREIGN_MANIFEST_URL = "https://foreign-manifest.example/v1"
+_CANONICAL_PROVIDER_URL = "https://canonical-provider.example/v1"
+
+
+@dataclass(frozen=True, slots=True)
+class _Authority:
+    """One live provider authority with every catalog bound to it."""
+
+    providers: ProviderRegistry
+    manifests: ProviderManifestRegistry
+    models: ModelCatalog
+    connections: ProviderConnectionRegistry
+    routes: ModelRouteCatalog
+
+
+def _authority(provider_url: str, manifest_url: str) -> _Authority:
+    """Build one live authority carrying the audited ``deepseek`` identity.
+
+    Both authorities built by this helper hold the same normalized provider id
+    with different ``ProviderSpec``/``ProviderManifest`` values, exactly as the
+    independent V3 reproduction did, so provider-id equality can never satisfy
+    an exact-object guard.
+    """
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="deepseek",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url=provider_url,
+        )
+    )
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(
+        ProviderManifest(
+            provider_id="deepseek",
+            display_name="DeepSeek",
+            billing_class=BillingClass.PAYG,
+            default_base_url=manifest_url,
+            auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        )
+    )
+    connections = ProviderConnectionRegistry(providers)
+    return _Authority(
+        providers=providers,
+        manifests=manifests,
+        models=ModelCatalog(providers),
+        connections=connections,
+        routes=ModelRouteCatalog(connections),
+    )
+
+
+def _cross_authority_pair() -> tuple[_Authority, _Authority]:
+    """Return ``(canonical, foreign)``: same id, divergent provider/metadata."""
+    canonical = _authority(_CANONICAL_PROVIDER_URL, _CANONICAL_PROVIDER_URL)
+    foreign = _authority(_FOREIGN_PROVIDER_URL, _FOREIGN_MANIFEST_URL)
+    assert canonical.providers.get("deepseek") is not foreign.providers.get("deepseek")
+    assert foreign.manifests.get("deepseek").default_base_url == _FOREIGN_MANIFEST_URL
+    return canonical, foreign
+
+
+@pytest.mark.parametrize(
+    ("component", "message"),
+    [
+        ("manifests", "manifest registry is bound to a different ProviderRegistry"),
+        ("models", "model catalog is bound to a different ProviderRegistry"),
+        ("connections", "connection registry is bound to a different ProviderRegistry"),
+        (
+            "routes",
+            "route catalog is bound to a different ProviderConnectionRegistry",
+        ),
+    ],
+)
+def test_v3_capture_rejects_every_cross_wired_component(
+    component: str, message: str
+) -> None:
+    """No state envelope is ever produced from a cross-authority graph."""
+    canonical, foreign = _cross_authority_pair()
+    graph: dict[str, object] = {
+        "manifests": canonical.manifests,
+        "models": canonical.models,
+        "connections": canonical.connections,
+        "routes": canonical.routes,
+    }
+    graph[component] = getattr(foreign, component)
+
+    with pytest.raises(ProviderStateCoherenceError, match=message):
+        capture_provider_registry_state(
+            canonical.providers,
+            graph["manifests"],  # type: ignore[arg-type]
+            graph["models"],  # type: ignore[arg-type]
+            graph["connections"],  # type: ignore[arg-type]
+            graph["routes"],  # type: ignore[arg-type]
+            revision=0,
+        )
+
+    # The same graph with the canonical component restores normally, which
+    # proves the refusal is about wiring, not about the components themselves.
+    coherent = capture_provider_registry_state(
+        canonical.providers,
+        canonical.manifests,
+        canonical.models,
+        canonical.connections,
+        canonical.routes,
+        revision=0,
+    )
+    assert [item.provider_id for item in coherent.manifests] == ["deepseek"]
+    assert restore_provider_registry_state(coherent).providers.has("deepseek")
+
+
+def test_v3_coordinator_rejects_a_cross_authority_graph(tmp_path: Path) -> None:
+    """The coordinator is not constructible over a foreign same-id graph."""
+    canonical, foreign = _cross_authority_pair()
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
+        ProviderRegistryStateCoordinator(
+            providers=canonical.providers,
+            manifests=foreign.manifests,
+            models=canonical.models,
+            connections=canonical.connections,
+            routes=canonical.routes,
+            repository=repository,
+        )
+
+    # Construction failed before the coordinator existed: no revision was
+    # produced and the repository was never written.
+    assert repository.load() is None
+
+
+def test_v3_onboarding_rejects_a_cross_authority_graph(tmp_path: Path) -> None:
+    """Foreign metadata can never become an accepted connection endpoint."""
+    runtime = _runtime(tmp_path)
+    _, foreign = _cross_authority_pair()
+    credentials = InMemoryCredentialStore()
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    assert runtime.providers.has("deepseek")
+    assert foreign.manifests.get("deepseek").default_base_url == _FOREIGN_MANIFEST_URL
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="manifest registry is bound to a different ProviderRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=runtime.providers,
+            connections=runtime.connections,
+            manifests=foreign.manifests,
+            credentials=credentials,
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=runtime.coordinator,
+        )
+
+    # No service exists, so no proposal could resolve the foreign endpoint and
+    # nothing was mutated, stored or profiled.
+    assert runtime.connections.list() == ()
+    assert credentials._secrets == {}
+    assert not (tmp_path / "cmm-profiles").exists()
+    assert repository.load() is None
+
+
+def test_v3_onboarding_rejects_a_coordinator_for_another_graph(tmp_path: Path) -> None:
+    """A coordinator over another authority is not onboarding's commit seam."""
+    runtime = _runtime(tmp_path)
+    _, foreign = _cross_authority_pair()
+    foreign_coordinator = ProviderRegistryStateCoordinator(
+        providers=foreign.providers,
+        manifests=foreign.manifests,
+        models=foreign.models,
+        connections=foreign.connections,
+        routes=foreign.routes,
+        repository=FileProviderRegistryStateRepository(tmp_path / "foreign.json"),
+    )
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="state coordinator is bound to a different ProviderRegistry",
+    ):
+        ProviderOnboardingService(
+            providers=runtime.providers,
+            connections=runtime.connections,
+            manifests=runtime.manifests,
+            credentials=InMemoryCredentialStore(),
+            profiles=SubscriptionProfileManager(),
+            profiles_root=tmp_path / "cmm-profiles",
+            state_coordinator=foreign_coordinator,
+        )
+
+    assert runtime.connections.list() == ()
+
+
+class _SwitchableRepository:
+    """Two-method repository whose ``save`` can be armed to fail on demand."""
+
+    def __init__(self) -> None:
+        self.fail = False
+        self.save_calls = 0
+        self._state: ProviderRegistryState | None = None
+
+    def load(self) -> ProviderRegistryState | None:
+        return self._state
+
+    def save(self, state: ProviderRegistryState) -> None:
+        self.save_calls += 1
+        if self.fail:
+            raise RuntimeError("persistence failed")
+        self._state = state
+
+
+def test_v3_route_refresh_is_durable_across_a_restart(tmp_path: Path) -> None:
+    """T0 → T1 rediscovery persists T1 and survives a process-equivalent restart."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    route_id = "deepseek:main:deepseek-chat"
+
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T0
+    )
+    revision_after_t0 = coordinator.revision
+    assert revision_after_t0 == 2
+
+    second = _RecordingClient(("deepseek-chat",))
+    coordinator.discover_models(connection, manifest, second, seen_at=T1)
+
+    assert second.inference_calls == []
+    assert coordinator.revision == revision_after_t0 + 1
+    live = runtime.routes.get(route_id)
+    assert live is not None
+    assert live.last_seen_at == T1
+    state = repository.load()
+    assert state is not None
+    assert state.revision == coordinator.revision
+    assert [record.event_type for record in state.audit_log] == [
+        "connection.accepted",
+        "route.discovered",
+        "route.refreshed",
+    ]
+    refreshed = state.audit_log[2]
+    assert refreshed.revision == 3
+    assert refreshed.entity_kind == "route"
+    assert refreshed.entity_id == route_id
+    assert refreshed.occurred_at == T1
+    assert refreshed.detail == (
+        ("connection_id", "deepseek:main"),
+        ("available", "true"),
+    )
+    persisted_route = next(
+        route for route in state.routes if route.route_id == route_id
+    )
+    assert persisted_route.last_seen_at == T1
+
+    # Process-equivalent restart: the component graph is rebuilt from the
+    # persisted aggregate only and keeps the newest successful discovery.
+    restored = restore_provider_registry_state(state)
+    restored_route = restored.routes.get(route_id)
+    assert restored_route is not None
+    assert restored_route.last_seen_at == T1
+    assert restored_route.first_seen_at == T0
+    assert restored.revision == state.revision
+    assert [record.event_type for record in restored.audit_log][-1] == "route.refreshed"
+
+
+def test_v3_same_timestamp_rediscovery_is_a_true_no_op(tmp_path: Path) -> None:
+    """An identical pass at the exact same instant changes no durable byte."""
+    state_path = tmp_path / "state.json"
+    runtime = _runtime(
+        tmp_path, repository=FileProviderRegistryStateRepository(state_path)
+    )
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+    )
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    bytes_before = state_path.read_bytes()
+
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+    )
+
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert state_path.read_bytes() == bytes_before
+    assert runtime.routes.get("deepseek:main:deepseek-chat").last_seen_at == T1
+
+
+def test_v3_refresh_persistence_failure_rolls_back_exactly(tmp_path: Path) -> None:
+    """A refresh-only pass that cannot be saved leaves runtime and disk at T0."""
+    repository = _SwitchableRepository()
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    route_id = "deepseek:main:deepseek-chat"
+
+    coordinator.discover_models(
+        connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T0
+    )
+    committed = repository.load()
+    assert committed is not None
+    assert committed.revision == 2
+    revision_before = coordinator.revision
+    audit_before = coordinator.audit_log
+    routes_before = runtime.routes.list()
+
+    repository.fail = True
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        coordinator.discover_models(
+            connection, manifest, _RecordingClient(("deepseek-chat",)), seen_at=T1
+        )
+
+    rolled_back = runtime.routes.get(route_id)
+    assert rolled_back is not None
+    assert rolled_back.last_seen_at == T0
+    assert runtime.routes.list() == routes_before
+    assert coordinator.revision == revision_before
+    assert coordinator.audit_log == audit_before
+    assert repository.load() == committed
+    assert all(
+        record.event_type != "route.refreshed" for record in coordinator.audit_log
+    )
