@@ -624,6 +624,45 @@ def test_commit_fails_closed_when_item_level_authority_is_stale(
     assert runtime.connections.get("deepseek:main") is connection
 
 
+def test_status_transition_fails_closed_before_mutating_a_stale_connection(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V4-01: a status transition never rewrites a stale authority.
+
+    The canonical provider is removed while the connection survives. The
+    operation revalidates that authority before mutating, so it fails with the
+    same coherence error capture would raise — and the stored record, the
+    revision, the audit log and the durable document are all unchanged (nothing
+    is left to compensate through an authority that no longer exists).
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    runtime.coordinator.persist_connection_acceptance(connection, occurred_at=T0)
+    committed = repository.load()
+    assert committed is not None
+    revision_before = runtime.coordinator.revision
+    audit_before = runtime.coordinator.audit_log
+
+    runtime.providers.remove("deepseek")
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="connection deepseek:main is bound to a stale or missing ProviderSpec",
+    ):
+        runtime.coordinator.update_connection_status(
+            "deepseek:main", ConnectionStatus.WARNING, occurred_at=T1
+        )
+
+    stored = runtime.connections.get("deepseek:main")
+    assert stored is connection
+    assert stored.status is ConnectionStatus.CONNECTED
+    assert stored.last_validated_at is None
+    assert runtime.coordinator.revision == revision_before
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == committed
+
+
 def test_failed_save_keeps_the_previous_durable_revision_and_audit_log(
     tmp_path: Path,
 ) -> None:

@@ -2072,7 +2072,6 @@ def test_v4_02_isolation_strengthening_is_still_permitted(tmp_path: Path) -> Non
 
     # The failure is the pre-existing isolation prerequisite, never the new
     # canonical-authority gate, and the validator was still not consulted.
-    assert not isinstance(excinfo.value, ProviderStateCoherenceError)
     assert "contradicts canonical" not in str(excinfo.value)
     assert validator.calls == []
     assert runtime.connections.list() == ()

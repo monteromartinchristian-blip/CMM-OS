@@ -478,6 +478,14 @@ class ProviderRegistryStateCoordinator:
         because a stored no-op would either fabricate an audit record for a
         transition that never happened or record nothing at all.
 
+        Authority rule (MAJOR-V4-01): the stored connection must still belong to
+        the current canonical provider before anything is mutated. An operation
+        boundary revalidates the item-level authority it is about to rewrite, so
+        a connection whose provider was removed or replaced fails closed *before*
+        mutation — the same incoherence capture would refuse — instead of leaving
+        a rewritten record that can only be rolled back through an authority that
+        no longer exists.
+
         Failure rule: if the commit fails, the exact previous connection record
         is put back (status *and* validation timestamp), so a failed transition
         leaves the registry, the revision and the audit log exactly as they
@@ -492,6 +500,11 @@ class ProviderRegistryStateCoordinator:
         existing = self._connections.get(connection_id)
         if existing is None:
             raise ValueError(f"unknown connection_id: {connection_id}")
+        if not self._connections.is_bound_to_current_provider(existing):
+            raise ProviderStateCoherenceError(
+                f"connection {existing.connection_id} is bound to a stale or "
+                "missing ProviderSpec"
+            )
         if existing.status is status:
             raise ValueError(f"connection status unchanged: {existing.status.value}")
 

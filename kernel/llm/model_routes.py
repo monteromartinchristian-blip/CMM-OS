@@ -17,10 +17,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 
-from kernel.llm.provider_connections import (
-    ProviderConnectionRegistry,
-    _ConnectionRegistration,
-)
+from kernel.llm.provider_connections import ProviderConnectionRegistry
 
 
 def _normalize_identity(value: str, *, label: str) -> str:
@@ -110,16 +107,17 @@ class ModelRoute:
 class _RouteBinding:
     """One route together with the canonical connection registration it belongs to.
 
-    Private storage detail (MAJOR-V4-01): identity is the exact registration the
-    bound :class:`~kernel.llm.provider_connections.ProviderConnectionRegistry`
-    held when the route was registered, never the ``connection_id`` alone — so a
-    removed or same-id re-registered connection leaves the route visibly stale
-    instead of silently current. Binding to the registration rather than to one
-    of its ``ProviderConnection`` value objects keeps a route current across a
-    field-only rewrite of the same connection (a status transition).
+    Private storage detail (MAJOR-V4-01): identity is the opaque registration
+    marker the bound
+    :class:`~kernel.llm.provider_connections.ProviderConnectionRegistry`
+    published when the route was registered, never the ``connection_id`` alone —
+    so a removed or same-id re-registered connection leaves the route visibly
+    stale instead of silently current. Binding to the registration rather than
+    to one of its ``ProviderConnection`` value objects keeps a route current
+    across a field-only rewrite of the same connection (a status transition).
     """
 
-    registration: _ConnectionRegistration
+    registration: object
     route: ModelRoute
 
 

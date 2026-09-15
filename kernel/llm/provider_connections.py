@@ -120,18 +120,17 @@ class _ConnectionRegistration:
 
     The record keeps the exact ``ProviderSpec`` object resolved at registration,
     so a removed — or same-id re-registered — provider leaves the connection
-    stale instead of silently current. The registration carries no id, counter
-    or persisted token: identity is plain object identity inside one live
-    runtime, and nothing about it is serialized.
-
-    Callers outside this module receive one only as an opaque identity marker
-    (see :meth:`ProviderConnectionRegistry.registration`); its fields are this
-    module's private business and are deliberately underscore-prefixed.
+    stale instead of silently current. ``marker`` is what dependent catalogs
+    bind to: a bare ``object`` created once per registration and published
+    read-only, so "still the same accepted connection" is plain object identity.
+    The registration carries no id, counter, uuid or persisted token, and
+    nothing about it is serialized.
     """
 
-    __slots__ = ("_connection", "_provider")
+    __slots__ = ("_connection", "_provider", "marker")
 
     def __init__(self, provider: ProviderSpec, connection: ProviderConnection) -> None:
+        self.marker = object()
         self._provider = provider
         self._connection = connection
 
@@ -182,23 +181,25 @@ class ProviderConnectionRegistry:
 
     def get(self, connection_id: str) -> ProviderConnection | None:
         """Look up by normalized id; unknown or blank ids return ``None``."""
-        registration = self.registration(connection_id)
+        key = _normalize_lookup_key(connection_id)
+        registration = self._items.get(key) if key is not None else None
         return None if registration is None else registration._connection
 
-    def registration(self, connection_id: str) -> _ConnectionRegistration | None:
-        """Return the stable registration identity held for ``connection_id``.
+    def registration(self, connection_id: str) -> object | None:
+        """Return the opaque registration identity held for ``connection_id``.
 
-        Read-only (MAJOR-V4-01): the returned object *is* the registration the
-        registry currently holds — or ``None`` for an unknown or blank id. A
-        dependent catalog binds to it so a removed or same-id re-registered
-        connection is a different authority, while a field-only rewrite of the
-        same registration (:meth:`update_status`, :meth:`replace`) stays
-        current. No copy is made and nothing is mutated.
+        Read-only (MAJOR-V4-01): a dependent catalog binds to the returned
+        marker so a removed or same-id re-registered connection is a different
+        authority, while a field-only rewrite of the same registration
+        (:meth:`update_status`, :meth:`replace`) stays current. The marker is a
+        bare ``object`` that can be neither read nor mutated, and ``None`` is
+        returned for an unknown or blank id; nothing is copied or changed.
         """
         key = _normalize_lookup_key(connection_id)
         if key is None:
             return None
-        return self._items.get(key)
+        registration = self._items.get(key)
+        return None if registration is None else registration.marker
 
     def is_bound_to_current_provider(self, connection: ProviderConnection) -> bool:
         """Return whether ``connection`` still belongs to the current authority.

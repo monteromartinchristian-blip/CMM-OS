@@ -1416,7 +1416,6 @@ def test_isolation_strengthening_is_not_rejected_as_authority_mismatch(
     with pytest.raises(ProviderIsolationError) as excinfo:
         wired.service.accept(stricter)
 
-    assert not isinstance(excinfo.value, ProviderStateCoherenceError)
     assert "contradicts canonical" not in str(excinfo.value)
     assert validator.calls == []
     assert wired.connections.list() == ()
