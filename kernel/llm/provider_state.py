@@ -510,8 +510,6 @@ def _manifest_from_dict(payload: Mapping[str, object]) -> ProviderManifest:
                     mapping["activation_allowlist"], label="activation_allowlist"
                 )
             ),
-            # Fail closed on a missing or non-bool policy: an isolation-required
-            # bridge must never be reconstructed from an assumed default.
             requires_isolation=requires_isolation,
         )
     except ValueError as error:
