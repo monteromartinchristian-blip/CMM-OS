@@ -247,6 +247,15 @@ class ProviderRegistryStateCoordinator:
         caller's manifest is never silently ignored in favour of the canonical
         one: passing the wrong object is a caller composition error.
 
+        Snapshot monotonicity rule (MINOR-V4-01): a discovery pass is a
+        connection-level snapshot, not a single route timestamp — it may create,
+        refresh, defer and restore routes at once. An observation older than the
+        newest ``last_seen_at`` already recorded for this connection is
+        therefore refused before the client is consulted, so ``last_seen_at``
+        never regresses and no revision can carry an earlier observation time
+        than its predecessor. Equality is valid and preserves the no-op
+        semantics above; with no routes yet, any aware ``seen_at`` is accepted.
+
         Commit rule (MAJOR-V3-02): one discovery pass is at most one mutation
         batch and therefore at most one revision, written only after
         ``repository.save()`` returns. A pass that changed durable route state
@@ -283,6 +292,11 @@ class ProviderRegistryStateCoordinator:
             raise ProviderStateCoherenceError(
                 "discovery manifest is not the active canonical manifest"
             )
+        latest_seen = self._latest_route_seen_at(registered.connection_id)
+        if latest_seen is not None and seen_at < latest_seen:
+            raise ProviderStateCoherenceError(
+                "discovery seen_at precedes current route state"
+            )
 
         routes_before = self._routes.list()
         try:
@@ -304,6 +318,23 @@ class ProviderRegistryStateCoordinator:
             self._routes.restore_all(routes_before)
             raise
         return result
+
+    def _latest_route_seen_at(self, connection_id: str) -> datetime | None:
+        """Return the newest recorded ``last_seen_at`` for one connection.
+
+        The connection-level snapshot bound (MINOR-V4-01): routes of a
+        connection are observed together, so the newest recorded observation is
+        the point an incoming ``seen_at`` must not precede. Returns ``None`` when
+        the connection has no routes (or none carries a timestamp yet), because
+        then nothing can regress. No new time policy is introduced — this reads
+        the canonical route catalog as it stands.
+        """
+        timestamps = [
+            route.last_seen_at
+            for route in self._routes.list()
+            if route.connection_id == connection_id and route.last_seen_at is not None
+        ]
+        return max(timestamps, default=None)
 
     def _discovery_records(
         self,

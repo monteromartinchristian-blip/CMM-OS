@@ -1574,3 +1574,155 @@ def test_discovery_still_runs_with_the_active_canonical_manifest(
     assert client.calls == 1
     assert result.new_route_ids == ("deepseek:main:deepseek-chat",)
     assert runtime.coordinator.revision == 1
+
+
+# --- monotonic discovery snapshots (MINOR-V4-01) -----------------------------
+
+
+def test_discovery_rejects_an_older_snapshot_before_the_client_call(
+    tmp_path: Path,
+) -> None:
+    """MINOR-V4-01: an older observation never regresses ``last_seen_at``."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+    state_before = repository.load()
+    assert state_before is not None
+    audit_before = runtime.coordinator.audit_log
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        runtime.coordinator.discover_models(connection, manifest, client, seen_at=T0)
+
+    assert client.calls == 0
+    route = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert route is not None
+    assert route.last_seen_at == T1
+    assert route.available is True
+    assert runtime.coordinator.revision == state_before.revision
+    assert runtime.coordinator.audit_log == audit_before
+    assert repository.load() == state_before
+
+
+def test_discovery_rejects_an_older_snapshot_without_availability_changes(
+    tmp_path: Path,
+) -> None:
+    """An older snapshot cannot make a route disappear either."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T1,
+    )
+    state_before = repository.load()
+    assert state_before is not None
+    client = _DiscoveryClient(("deepseek-chat",))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        runtime.coordinator.discover_models(connection, manifest, client, seen_at=T0)
+
+    assert client.calls == 0
+    reasoner = runtime.routes.get("deepseek:main:deepseek-reasoner")
+    assert reasoner is not None
+    assert reasoner.available is True
+    assert reasoner.last_seen_at == T1
+    assert runtime.coordinator.revision == state_before.revision
+    assert repository.load() == state_before
+
+
+def test_discovery_accepts_an_equal_snapshot_as_a_v3_noop(tmp_path: Path) -> None:
+    """Equality stays valid: the exact same pass is still a true no-op."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+    state_before = repository.load()
+    assert state_before is not None
+    assert runtime.coordinator.revision == 1
+
+    result = runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+
+    assert result.new_route_ids == ()
+    assert result.restored_route_ids == ()
+    assert runtime.coordinator.revision == 1
+    assert runtime.coordinator.audit_log == state_before.audit_log
+    assert repository.load() == state_before
+    route = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert route is not None
+    assert route.last_seen_at == T1
+
+
+def test_discovery_allows_a_snapshot_matching_the_latest_route_timestamp(
+    tmp_path: Path,
+) -> None:
+    """The policy is the connection-level maximum, not per-route equality.
+
+    One route is at T1 while another still carries T0; a T1 snapshot is the
+    newest observation of that connection and must be accepted.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+    manifest = _active_manifest(runtime)
+    runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T0,
+    )
+    runtime.coordinator.discover_models(
+        connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
+    )
+    older = runtime.routes.get("deepseek:main:deepseek-reasoner")
+    assert older is not None
+    assert older.last_seen_at == T0
+
+    result = runtime.coordinator.discover_models(
+        connection,
+        manifest,
+        _DiscoveryClient(("deepseek-chat", "deepseek-reasoner")),
+        seen_at=T1,
+    )
+
+    assert result.restored_route_ids == ("deepseek:main:deepseek-reasoner",)
+    refreshed = runtime.routes.get("deepseek:main:deepseek-reasoner")
+    assert refreshed is not None
+    assert refreshed.last_seen_at == T1
+    assert refreshed.available is True
+
+
+def test_discovery_accepts_the_first_snapshot_for_a_connection(
+    tmp_path: Path,
+) -> None:
+    """With no routes yet, any otherwise-valid aware timestamp is allowed."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    connection = _connection(runtime, status=ConnectionStatus.CONNECTED)
+
+    result = runtime.coordinator.discover_models(
+        connection,
+        _active_manifest(runtime),
+        _DiscoveryClient(("deepseek-chat",)),
+        seen_at=T0,
+    )
+
+    assert result.new_route_ids == ("deepseek:main:deepseek-chat",)
