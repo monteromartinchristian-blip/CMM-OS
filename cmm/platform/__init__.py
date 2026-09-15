@@ -24,6 +24,7 @@ from cmm.platform.configuration import (
     CompositionConfiguration,
     ServiceExpectation,
 )
+from cmm.platform.container import ApplicationContainer
 from cmm.platform.contracts import (
     ContainerState,
     ContractCanonicalizationEntry,
@@ -57,6 +58,7 @@ from cmm.platform.service_registry import IntegrationServiceRegistry
 
 __all__ = [
     "ApplicationCompositionSnapshot",
+    "ApplicationContainer",
     "CircularDependencyError",
     "CompatibilityResult",
     "CompatibilityStatus",
