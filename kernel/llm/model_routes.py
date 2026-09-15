@@ -12,6 +12,7 @@ for unknown or blank ids, while mutators (``register``, ``mark_seen``,
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -173,6 +174,37 @@ class ModelRouteCatalog:
             raise ValueError(f"duplicate route_id: {key}")
         self._routes[key] = route
         return route
+
+    def restore_all(self, routes: Iterable[ModelRoute]) -> None:
+        """Replace every stored route with ``routes``, verbatim.
+
+        The rollback seam for a coordinated mutation: a pass that fails to
+        persist must leave the catalog *exactly* as it was, which the other
+        mutators cannot express — ``register()`` rejects an existing id and
+        re-stamps availability, ``restore()`` rejects duplicates, and nothing
+        removes what the pass added.
+
+        Every entry is validated with the same referential and timestamp rules
+        as :meth:`restore`, and the catalog is swapped only once the whole input
+        validated, so a rejected input leaves the current catalog untouched.
+        Availability, capabilities and both timestamps are kept exactly as
+        given: this is a state-restoration seam, never a "seen now" seam and
+        never a deletion policy (routes are still only ever marked unavailable).
+        """
+        entries: dict[str, ModelRoute] = {}
+        for route in routes:
+            if not isinstance(route, ModelRoute):
+                raise TypeError("routes must hold ModelRoute entries")
+            if route.first_seen_at is not None:
+                _ensure_aware(route.first_seen_at, "first_seen_at")
+            if route.last_seen_at is not None:
+                _ensure_aware(route.last_seen_at, "last_seen_at")
+            if self._connections.get(route.connection_id) is None:
+                raise ValueError(f"unknown connection_id: {route.connection_id}")
+            if route.route_id in entries:
+                raise ValueError(f"duplicate route_id: {route.route_id}")
+            entries[route.route_id] = route
+        self._routes = entries
 
     def list(self) -> tuple[ModelRoute, ...]:
         """Return every stored route sorted by route id.

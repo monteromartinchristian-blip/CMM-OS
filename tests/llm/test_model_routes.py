@@ -705,3 +705,145 @@ def test_filter_result_order_is_independent_of_insertion_order() -> None:
         route.route_id
         for route in inserted_a_first.filter_required_capabilities(("tools",))
     ] == ["openai:a", "openai:b"]
+
+
+# --- coordinated-mutation seam: whole-catalog verbatim restore -------------
+
+
+def test_restore_all_replaces_the_catalog_with_the_snapshot() -> None:
+    """A failed coordinated mutation is undone by putting the snapshot back."""
+    catalog = _route_catalog("openai:main")
+    catalog.register(
+        ModelRoute(
+            route_id="openai:gpt",
+            connection_id="openai:main",
+            provider_model_id="gpt",
+            canonical_model_id="gpt",
+        )
+    )
+    snapshot = catalog.list()
+
+    catalog.register(
+        ModelRoute(
+            route_id="openai:extra",
+            connection_id="openai:main",
+            provider_model_id="extra",
+            canonical_model_id="extra",
+        )
+    )
+    catalog.mark_unavailable("openai:gpt")
+    catalog.restore_all(snapshot)
+
+    assert catalog.list() == snapshot
+    restored_gpt = catalog.get("openai:gpt")
+    assert restored_gpt is not None
+    assert restored_gpt.available is True
+
+
+def test_restore_all_keeps_availability_and_timestamps_verbatim() -> None:
+    catalog = _route_catalog("openai:main")
+    route = ModelRoute(
+        route_id="openai:gpt",
+        connection_id="openai:main",
+        provider_model_id="gpt",
+        canonical_model_id="gpt",
+        available=False,
+        first_seen_at=T0,
+        last_seen_at=T1,
+    )
+
+    catalog.restore_all((route,))
+
+    assert catalog.list() == (route,)
+    assert catalog.get("openai:gpt").available is False
+
+
+def test_restore_all_can_empty_the_catalog() -> None:
+    catalog = _route_catalog("openai:main")
+    catalog.register(
+        ModelRoute(
+            route_id="openai:gpt",
+            connection_id="openai:main",
+            provider_model_id="gpt",
+            canonical_model_id="gpt",
+        )
+    )
+
+    catalog.restore_all(())
+
+    assert catalog.list() == ()
+    assert catalog.get("openai:gpt") is None
+
+
+def test_restore_all_rejects_an_unknown_connection_without_touching_state() -> None:
+    catalog = _route_catalog("openai:main")
+    catalog.register(
+        ModelRoute(
+            route_id="openai:gpt",
+            connection_id="openai:main",
+            provider_model_id="gpt",
+            canonical_model_id="gpt",
+        )
+    )
+    before = catalog.list()
+
+    with pytest.raises(ValueError, match="unknown connection_id"):
+        catalog.restore_all(
+            (
+                ModelRoute(
+                    route_id="rogue:gpt",
+                    connection_id="rogue:main",
+                    provider_model_id="gpt",
+                    canonical_model_id="gpt",
+                ),
+            )
+        )
+
+    assert catalog.list() == before
+
+
+def test_restore_all_rejects_duplicate_route_ids_without_touching_state() -> None:
+    catalog = _route_catalog("openai:main")
+    before = catalog.list()
+    route = ModelRoute(
+        route_id="openai:gpt",
+        connection_id="openai:main",
+        provider_model_id="gpt",
+        canonical_model_id="gpt",
+    )
+
+    with pytest.raises(ValueError, match="duplicate route_id"):
+        catalog.restore_all((route, route))
+
+    assert catalog.list() == before
+
+
+def test_restore_all_rejects_naive_timestamps_without_touching_state() -> None:
+    catalog = _route_catalog("openai:main")
+    before = catalog.list()
+    naive = datetime(2026, 9, 13, 10, 0)  # noqa: DTZ001
+
+    with pytest.raises(ValueError, match="first_seen_at must be timezone-aware"):
+        catalog.restore_all(
+            (
+                ModelRoute(
+                    route_id="openai:gpt",
+                    connection_id="openai:main",
+                    provider_model_id="gpt",
+                    canonical_model_id="gpt",
+                    first_seen_at=naive,
+                ),
+            )
+        )
+
+    assert catalog.list() == before
+
+
+def test_restore_all_rejects_a_non_route_entry_without_touching_state() -> None:
+    catalog = _route_catalog("openai:main")
+    before = catalog.list()
+
+    with pytest.raises(TypeError, match="ModelRoute"):
+        catalog.restore_all((object(),))  # type: ignore[arg-type]
+
+    assert catalog.list() == before

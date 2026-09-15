@@ -27,6 +27,9 @@ nothing committed and the previous durable revision untouched. Domain mutations
 performed by a caller (for example the connection registration in
 :meth:`ProviderOnboardingService.accept`) stay the caller's compensation, and a
 failure propagates unchanged to that caller's compensation path.
+:meth:`ProviderRegistryStateCoordinator.discover_models` mutates a canonical
+component itself, so it restores exactly the state it changed before re-raising,
+using the smallest snapshot that component already exposes.
 
 Secret boundary: the coordinator never holds, reads or writes secret material.
 Audit records carry sanitized transition facts only, and the persisted aggregate
@@ -38,13 +41,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from kernel.llm.model_catalog import ModelCatalog
-from kernel.llm.model_routes import ModelRouteCatalog
+from kernel.llm.model_discovery import (
+    DiscoverableModelClient,
+    ModelDiscoveryResult,
+    discover_models,
+)
+from kernel.llm.model_routes import ModelRoute, ModelRouteCatalog
 from kernel.llm.provider_connections import (
     ConnectionStatus,
     ProviderConnection,
     ProviderConnectionRegistry,
 )
-from kernel.llm.provider_manifests import ProviderManifestRegistry
+from kernel.llm.provider_manifests import ProviderManifest, ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry
 from kernel.llm.provider_state import ProviderRegistryAuditRecord
 from kernel.llm.provider_state_repository import (
@@ -160,6 +168,133 @@ class ProviderRegistryStateCoordinator:
                 ),
             )
         )
+
+    def discover_models(
+        self,
+        connection: ProviderConnection,
+        manifest: ProviderManifest,
+        client: DiscoverableModelClient,
+        *,
+        seen_at: datetime,
+    ) -> ModelDiscoveryResult:
+        """Run one administrative discovery pass and commit its lifecycle.
+
+        Reconciliation stays where it was: the pure, inference-free, I/O-free
+        :func:`~kernel.llm.model_discovery.discover_models` still owns the
+        rules. This operation wraps it — the pass runs against the canonical
+        route catalog, the transitions it produced become sanitized audit
+        records, and the aggregate is committed as exactly one new revision.
+
+        Commit rule (the documented contract for a no-op scan): exactly one
+        revision is written when the pass produced at least one route lifecycle
+        transition — a route that became known (``route.discovered``), one that
+        became unavailable (``route.unavailable``), or one that became available
+        again (``route.restored``). A pass that produced none of those — an
+        empty administrative result, a refresh of routes that were already known
+        and available, or a repeated allowlist deferral — changes no lifecycle
+        state, so **nothing durable happens and the revision does not advance**.
+        The route catalog stays the live source of truth for ``last_seen_at``;
+        the durable aggregate catches up on the next pass that does transition
+        something.
+
+        Failure rule: the pre-pass catalog is the whole snapshot, and it is put
+        back verbatim if the pass or the save fails, so a failed discovery
+        leaves routes, revision and audit log exactly as they were.
+        """
+        if not isinstance(connection, ProviderConnection):
+            raise TypeError("connection must be a ProviderConnection")
+        if not isinstance(manifest, ProviderManifest):
+            raise TypeError("manifest must be a ProviderManifest")
+        if not isinstance(seen_at, datetime):
+            raise TypeError("seen_at must be a datetime")
+        if seen_at.tzinfo is None:
+            raise ValueError("seen_at must be timezone-aware")
+        registered = self._connections.get(connection.connection_id)
+        if registered is None:
+            raise ValueError(
+                f"connection is not registered: {connection.connection_id}"
+            )
+
+        routes_before = self._routes.list()
+        try:
+            result = discover_models(
+                registered, manifest, client, self._routes, seen_at=seen_at
+            )
+            records = self._discovery_records(
+                registered.connection_id, result, routes_before, seen_at
+            )
+            if records:
+                self._commit(records)
+        except Exception:
+            # Undo only what this pass changed: the route catalog, restored to
+            # its pre-pass tuple. The revision and audit log were never
+            # published (``_commit`` publishes last), so they stand unchanged.
+            self._routes.restore_all(routes_before)
+            raise
+        return result
+
+    def _discovery_records(
+        self,
+        connection_id: str,
+        result: ModelDiscoveryResult,
+        routes_before: tuple[ModelRoute, ...],
+        seen_at: datetime,
+    ) -> tuple[ProviderRegistryAuditRecord, ...]:
+        """Derive the sanitized lifecycle records one discovery pass produced.
+
+        Records are derived from the ``ModelDiscoveryResult`` alone: the client
+        payload is never consulted, so no provider response can reach the audit
+        log, and each record carries only the connection id and an availability
+        string.
+
+        ``unavailable_route_ids`` mixes real transitions with repeated reports —
+        the reconciler also lists a route that was *already* unavailable and is
+        still excluded by the allowlist. Those are filtered against the pre-pass
+        snapshot, so a record is only emitted for a route that actually changed,
+        which is what keeps a no-op scan from advancing the revision.
+        """
+        available_before = {
+            route.route_id for route in routes_before if route.available
+        }
+        deferred = frozenset(result.unavailable_route_ids)
+        newly_discovered = frozenset(result.new_route_ids)
+        records: list[ProviderRegistryAuditRecord] = []
+        for route_id in result.new_route_ids:
+            records.append(
+                self._audit_record(
+                    event_type="route.discovered",
+                    entity_kind="route",
+                    entity_id=route_id,
+                    occurred_at=seen_at,
+                    detail=(
+                        ("connection_id", connection_id),
+                        ("available", "false" if route_id in deferred else "true"),
+                    ),
+                )
+            )
+        for route_id in result.unavailable_route_ids:
+            if route_id not in available_before and route_id not in newly_discovered:
+                continue
+            records.append(
+                self._audit_record(
+                    event_type="route.unavailable",
+                    entity_kind="route",
+                    entity_id=route_id,
+                    occurred_at=seen_at,
+                    detail=(("connection_id", connection_id), ("available", "false")),
+                )
+            )
+        for route_id in result.restored_route_ids:
+            records.append(
+                self._audit_record(
+                    event_type="route.restored",
+                    entity_kind="route",
+                    entity_id=route_id,
+                    occurred_at=seen_at,
+                    detail=(("connection_id", connection_id), ("available", "true")),
+                )
+            )
+        return tuple(records)
 
     def _next_revision(self) -> int:
         """Return the revision a successful commit publishes."""
