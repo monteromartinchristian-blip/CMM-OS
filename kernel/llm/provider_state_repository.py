@@ -20,6 +20,16 @@ reads the live canonical components and
 are never caught and downgraded — an orphan connection, model, manifest or
 route rejects the whole restore instead of exposing a partial aggregate.
 
+Capture coherence (MAJOR-V2-01), deterministically: manifest enumeration is
+active-only — :meth:`ProviderManifestRegistry.list` drops metadata whose
+canonical provider identity is gone or was replaced — so an orphan manifest
+cannot reach the serializer by construction; and should one still be enumerated
+(metadata catalog bound to a different authority), capture *raises*
+:class:`~kernel.llm.provider_state.ProviderStateCoherenceError` instead of
+omitting it silently and instead of producing a state envelope. Capture
+therefore never returns an aggregate that
+:func:`restore_provider_registry_state` cannot rebuild.
+
 Secret boundary: persisted bytes carry only opaque ``credential_ref`` values.
 The credential store remains the only owner of secret material, and the state
 envelope's own guards reject any secret-shaped ref or audit detail before it
