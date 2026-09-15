@@ -28,6 +28,10 @@ CMM-owned isolation outcome is a prerequisite for acceptance. Missing source
 evidence, a failed profile build, or an unusable outcome raises
 :class:`ProviderIsolationError` *before* any connection is registered, so a
 passing validator can never promote an unisolated connection to ``CONNECTED``.
+The requirement itself is the canonical manifest policy OR observed external
+risk (MAJOR-V2-03, spec §6.4): ``manifest.requires_isolation`` is explicit
+provider metadata and is never derived from the candidate's billing class, so an
+auth-only subscription bridge still needs a CMM-owned profile.
 
 Commit rule (MAJOR-V2-02): this service owns no persistence of its own. When a
 :class:`~kernel.llm.provider_state_coordinator.ProviderRegistryStateCoordinator`
@@ -207,8 +211,13 @@ class ProviderOnboardingService:
         for key, value in candidate.metadata:
             if key == "source_home":
                 source_home = value
+        # Canonical policy plus observed external risk (MAJOR-V2-03, spec §6.4):
+        # a declared isolation policy holds even when the only evidence is
+        # authentication, while an observed external config/override still
+        # requires isolation for a provider whose manifest declares none.
         requires_isolation = bool(
-            candidate.external_config_present
+            manifest.requires_isolation
+            or candidate.external_config_present
             or candidate.external_endpoint_override_present
         )
         return ConnectionProposal(

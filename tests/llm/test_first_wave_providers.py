@@ -29,6 +29,7 @@ from kernel.llm.first_wave_providers import (
     provider_spec_from_manifest,
     register_first_wave_manifests,
     register_first_wave_providers,
+    register_subscription_bridge_providers,
 )
 from kernel.llm.provider_connections import BillingClass
 from kernel.llm.provider_manifests import (
@@ -455,6 +456,9 @@ def test_every_declared_base_url_is_pinned_and_provenance_documented() -> None:
         "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
         "OPENCODE_ZEN_BASE_URL": "https://opencode.ai/zen/v1",
         "NVIDIA_NIM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+        "CODEX_BASE_URL": "https://api.openai.com/v1",
+        "CLAUDE_CODE_BASE_URL": "https://api.anthropic.com/v1",
+        "ANTIGRAVITY_BASE_URL": "https://cloudcode-pa.googleapis.com/v1",
     }
 
     assert set(expected_urls) == {
@@ -482,6 +486,15 @@ def test_every_declared_base_url_is_pinned_and_provenance_documented() -> None:
         assert _by_id()[provider_id].default_base_url == getattr(
             first_wave_providers, name
         ), provider_id
+
+    # The subscription bridges are wired to their pinned endpoints as well.
+    assert {
+        manifest.provider_id: manifest.default_base_url for manifest in _bridges()
+    } == {
+        "codex": first_wave_providers.CODEX_BASE_URL,
+        "claude-code": first_wave_providers.CLAUDE_CODE_BASE_URL,
+        "antigravity": first_wave_providers.ANTIGRAVITY_BASE_URL,
+    }
 
     # Provenance is recorded in the module, per the review finding: the three
     # classes must be named so a reader can tell researched values from pinned.
@@ -534,7 +547,10 @@ def test_every_other_manifest_also_defers_activation_to_discovery() -> None:
 
 
 def test_no_manifest_carries_credential_shaped_data() -> None:
-    manifests = _by_id()
+    manifests = {**_by_id(), **{item.provider_id: item for item in _bridges()}}
+    assert set(manifests) == set(REQUIRED_PROVIDER_IDS) | set(
+        REQUIRED_SUBSCRIPTION_BRIDGE_IDS
+    )
     for provider_id, manifest in manifests.items():
         field_names = [field.name for field in dataclasses.fields(manifest)]
         # Substring match: a field named secret_ref is still a credential field.
@@ -612,10 +628,20 @@ def test_credential_and_keychain_reference_guard_has_no_vacuous_pass() -> None:
 def test_manifests_carry_only_plain_declarative_field_values() -> None:
     # A callable, set, dict or object value would mean the manifest smuggles
     # behaviour or a credential resolver instead of declaring static defaults.
-    for manifest in _manifests():
+    # ``bool`` is admitted for the declarative ``requires_isolation`` policy
+    # (MAJOR-V2-03); callables and containers stay rejected, which the controls
+    # below pin so the admitted set cannot silently widen.
+    for manifest in (*_manifests(), *_bridges()):
         for field in dataclasses.fields(manifest):
             for value in _declared_values(getattr(manifest, field.name)):
-                assert isinstance(value, str), (manifest.provider_id, field.name)
+                assert _plain_declared_value(value), (manifest.provider_id, field.name)
+
+    assert _plain_declared_value("bearer") is True
+    assert _plain_declared_value(True) is True
+    assert _plain_declared_value(False) is True
+    assert _plain_declared_value(lambda: None) is False
+    assert _plain_declared_value({"resolver": "keychain://cmm/providers"}) is False
+    assert _plain_declared_value({"a", "b"}) is False
 
 
 def test_module_declares_no_provider_model_id_literals() -> None:
@@ -636,6 +662,161 @@ def test_module_declares_no_provider_model_id_literals() -> None:
         "    model_ids = ('qwen3.8-27b-free',)", quote="'"
     ) == ("qwen3.8-27b-free",)
     assert _model_id_literals_in('"https://kiraai.vn/api/v1"') == ()
+
+
+# --- subscription bridge isolation policy (MAJOR-V2-03) ---------------------
+
+# The three approved subscription bridges (approved hybrid design §2). They are
+# a separate canonical category from the eight first-wave API providers, and
+# each must run under a CMM-owned isolation profile even when the external home
+# carries authentication evidence only.
+REQUIRED_SUBSCRIPTION_BRIDGE_IDS: tuple[str, ...] = (
+    "codex",
+    "claude-code",
+    "antigravity",
+)
+
+_EXPECTED_SUBSCRIPTION_BRIDGE_URLS: dict[str, str] = {
+    "codex": "https://api.openai.com/v1",
+    "claude-code": "https://api.anthropic.com/v1",
+    "antigravity": "https://cloudcode-pa.googleapis.com/v1",
+}
+
+
+def _bridges() -> tuple[_ProviderManifest, ...]:
+    """Return the canonical subscription-bridge manifests as registered."""
+    providers, manifests = _bound_registry()
+    return register_subscription_bridge_providers(providers, manifests)
+
+
+def test_subscription_bridges_declare_the_isolation_policy_explicitly() -> None:
+    """Each bridge is a subscription surface that requires CMM-owned isolation."""
+    bridges = _bridges()
+
+    assert [manifest.provider_id for manifest in bridges] == list(
+        REQUIRED_SUBSCRIPTION_BRIDGE_IDS
+    )
+    for manifest in bridges:
+        assert manifest.requires_isolation is True, manifest.provider_id
+        assert manifest.billing_class is BillingClass.SUBSCRIPTION, manifest.provider_id
+        assert (
+            manifest.default_base_url
+            == _EXPECTED_SUBSCRIPTION_BRIDGE_URLS[manifest.provider_id]
+        ), manifest.provider_id
+
+
+def test_no_first_wave_provider_declares_the_isolation_policy() -> None:
+    """Qwen Token Plan stays a subscription surface without local isolation.
+
+    The policy is explicit metadata, so a subscription billing class must never
+    be enough to force a first-wave provider into profile isolation.
+    """
+    first_wave = _by_id()
+
+    assert first_wave["qwen-token-plan"].billing_class is BillingClass.SUBSCRIPTION
+    for provider_id, manifest in first_wave.items():
+        assert manifest.requires_isolation is False, provider_id
+
+
+def test_subscription_bridge_bootstrap_registers_identity_before_metadata() -> None:
+    """Canonical identity first, then the bound manifest — as for first wave."""
+    providers, manifests = _bound_registry()
+
+    registered = register_subscription_bridge_providers(providers, manifests)
+
+    assert tuple(spec.id for spec in providers.list()) == tuple(
+        sorted(REQUIRED_SUBSCRIPTION_BRIDGE_IDS)
+    )
+    assert {manifest.provider_id for manifest in manifests.list()} == set(
+        REQUIRED_SUBSCRIPTION_BRIDGE_IDS
+    )
+    for manifest in registered:
+        assert manifests.get(manifest.provider_id) is manifest
+        assert providers.get(manifest.provider_id).base_url == (
+            manifest.default_base_url
+        )
+
+
+def test_subscription_bridge_bootstrap_rejects_none_arguments() -> None:
+    providers, manifests = _bound_registry()
+
+    with pytest.raises(ValueError, match="provider_registry cannot be None"):
+        register_subscription_bridge_providers(None, manifests)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="manifests cannot be None"):
+        register_subscription_bridge_providers(providers, None)  # type: ignore[arg-type]
+
+
+def test_bridge_bootstrap_leaves_the_eight_provider_contract_intact() -> None:
+    """The verified first-wave contract is not widened or re-policied."""
+    providers, manifests = _bound_registry()
+    first_wave = {
+        manifest.provider_id for manifest in register_first_wave_manifests(manifests)
+    }
+
+    register_subscription_bridge_providers(providers, manifests)
+
+    assert first_wave == set(REQUIRED_PROVIDER_IDS)
+    assert {spec.id for spec in providers.list()} == first_wave | set(
+        REQUIRED_SUBSCRIPTION_BRIDGE_IDS
+    )
+    reloaded = {manifest.provider_id: manifest for manifest in manifests.list()}
+    assert set(reloaded) == first_wave | set(REQUIRED_SUBSCRIPTION_BRIDGE_IDS)
+    for provider_id in REQUIRED_PROVIDER_IDS:
+        assert reloaded[provider_id].requires_isolation is False, provider_id
+
+
+def test_guard_rejects_an_empty_subscription_bridge_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the emptiness guard on the bridge table and its bootstrap path."""
+    monkeypatch.setattr(first_wave_providers, "_SUBSCRIPTION_BRIDGE_MANIFESTS", ())
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        first_wave_providers._validated_subscription_bridge_manifests()
+
+    providers, manifests = _bound_registry()
+    with pytest.raises(ValueError, match="cannot be empty"):
+        register_subscription_bridge_providers(providers, manifests)
+
+
+def test_guard_rejects_a_bridge_declared_without_isolation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bridge that drops the isolation policy must fail, not connect bare."""
+    table = tuple(
+        _replacement_manifest(
+            provider_id=manifest.provider_id,
+            requires_isolation=False,
+        )
+        if manifest.provider_id == "antigravity"
+        else manifest
+        for manifest in first_wave_providers._SUBSCRIPTION_BRIDGE_MANIFESTS
+    )
+    monkeypatch.setattr(first_wave_providers, "_SUBSCRIPTION_BRIDGE_MANIFESTS", table)
+
+    with pytest.raises(ValueError, match="requires_isolation"):
+        first_wave_providers._validated_subscription_bridge_manifests()
+
+
+def test_guard_rejects_a_bridge_colliding_with_a_first_wave_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bridge category must not reinterpret a first-wave provider id."""
+    table = tuple(
+        _replacement_manifest(provider_id="deepseek", requires_isolation=True)
+        if manifest.provider_id == "codex"
+        else manifest
+        for manifest in first_wave_providers._SUBSCRIPTION_BRIDGE_MANIFESTS
+    )
+    monkeypatch.setattr(first_wave_providers, "_SUBSCRIPTION_BRIDGE_MANIFESTS", table)
+
+    with pytest.raises(ValueError, match="distinct from first-wave"):
+        first_wave_providers._validated_subscription_bridge_manifests()
+
+
+def _plain_declared_value(value: object) -> bool:
+    """Return whether a declared manifest value is a plain static scalar."""
+    return isinstance(value, (str, bool))
 
 
 def _declared_values(value: object) -> tuple[object, ...]:

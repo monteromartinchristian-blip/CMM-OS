@@ -8,6 +8,7 @@ secrets, builds isolation profiles, and mutates the registry.
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
     DEEPSEEK_BASE_URL,
     register_first_wave_manifests,
+    register_subscription_bridge_providers,
 )
 from kernel.llm.model_catalog import ModelCatalog
 from kernel.llm.model_routes import ModelRouteCatalog
@@ -28,11 +30,12 @@ from kernel.llm.provider_connections import (
     ConnectionStatus,
     ProviderConnectionRegistry,
 )
-from kernel.llm.provider_manifests import (
-    FIRST_WAVE_AUTH_SCHEME,
-    ProviderManifest,
-    ProviderManifestRegistry,
+from kernel.llm.provider_detectors import (
+    AntigravityDetector,
+    ClaudeCodeDetector,
+    CodexDetector,
 )
+from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_onboarding import (
     ConnectionProposal,
     ProviderIsolationError,
@@ -49,19 +52,19 @@ from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 _DECOY_URL = "http://127.0.0.1:9999/v1"
 _MARKER = "17841"
+# Canonical subscription endpoints, pinned here to the values the production
+# declaration must carry (MAJOR-V2-03). The connection endpoint always comes
+# from the canonical manifest, never from candidate metadata.
 _CODEX_MANIFEST_URL = "https://api.openai.com/v1"
 _CLAUDE_MANIFEST_URL = "https://api.anthropic.com/v1"
 _ANTIGRAVITY_MANIFEST_URL = "https://cloudcode-pa.googleapis.com/v1"
 _SECRET = "sk-deepseek-test-secret-value"
 
-# Canonical subscription providers and the documented base URL their manifest
-# declares; the connection endpoint always comes from here, never from
-# candidate metadata.
-_SUBSCRIPTION_MANIFESTS: tuple[tuple[str, str], ...] = (
-    ("codex", _CODEX_MANIFEST_URL),
-    ("claude-code", _CLAUDE_MANIFEST_URL),
-    ("antigravity", _ANTIGRAVITY_MANIFEST_URL),
-)
+_SUBSCRIPTION_MANIFEST_URLS: dict[str, str] = {
+    "codex": _CODEX_MANIFEST_URL,
+    "claude-code": _CLAUDE_MANIFEST_URL,
+    "antigravity": _ANTIGRAVITY_MANIFEST_URL,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,29 +90,15 @@ def _wiring(
     """Build a service wired to fresh registries and an in-memory store.
 
     Durable wiring goes through one coordinator: the repository is owned by the
-    coordinator, never by the service (MAJOR-V2-02).
+    coordinator, never by the service (MAJOR-V2-02). Provider identity and
+    manifest metadata come from the canonical bootstraps — the eight first-wave
+    providers plus the three subscription bridges — never from test-local
+    declarations (MAJOR-V2-03).
     """
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_manifests(manifests)
-    for provider_id, base_url in _SUBSCRIPTION_MANIFESTS:
-        providers.register(
-            ProviderSpec(
-                id=provider_id,
-                provider_type="remote",
-                api_style="chat_completions",
-                base_url=base_url,
-            )
-        )
-        manifests.register(
-            ProviderManifest(
-                provider_id=provider_id,
-                display_name=provider_id,
-                billing_class=BillingClass.SUBSCRIPTION,
-                default_base_url=base_url,
-                auth_scheme=FIRST_WAVE_AUTH_SCHEME,
-            )
-        )
+    register_subscription_bridge_providers(providers, manifests)
     connections = ProviderConnectionRegistry(providers)
     credentials = InMemoryCredentialStore()
     models = ModelCatalog(providers)
@@ -462,6 +451,114 @@ def test_isolated_provider_without_validation_stays_out_of_connected(
     assert connection.status == ConnectionStatus.WARNING
     assert connection.status != ConnectionStatus.CONNECTED
     assert connection.isolation_profile_ref is not None
+
+
+# --- auth-only subscription adversaries (MAJOR-V2-03) -----------------------
+
+
+# The auth marker each approved subscription detector reports as evidence, and
+# the config marker it treats as an external configuration file. The
+# adversaries below write ONLY the auth marker.
+_AUTH_ONLY_MARKERS: dict[str, str] = {
+    "codex": "auth.json",
+    "claude-code": ".claude.json",
+    "antigravity": "credentials.json",
+}
+
+_FORBIDDEN_CONFIG_MARKERS: dict[str, str] = {
+    "codex": "config.toml",
+    "claude-code": "settings.json",
+    "antigravity": "config.json",
+}
+
+
+def _write_auth_only_source(provider_id: str, root: Path) -> Path:
+    """Write only that provider's auth marker; never a config marker."""
+    source = root / f"{provider_id}-auth-only"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / _AUTH_ONLY_MARKERS[provider_id]).write_text("{}\n", encoding="utf-8")
+    assert not (source / _FORBIDDEN_CONFIG_MARKERS[provider_id]).exists()
+    return source
+
+
+def _real_subscription_detector(provider_id: str, source: Path):
+    """Return the real approved detector for one subscription provider."""
+    if provider_id == "codex":
+        return CodexDetector(codex_home=source)
+    if provider_id == "claude-code":
+        return ClaudeCodeDetector(claude_home=source)
+    return AntigravityDetector(config_dir=source)
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_auth_only_subscription_proposal_still_requires_isolation(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """Canonical manifest policy — not observed config — requires isolation.
+
+    The Audit V2 §7.3 reproduction, with the real detectors: authentication
+    evidence and no config marker, so the candidate reports
+    ``external_config_present=False`` while the canonical policy still demands a
+    CMM-owned isolation outcome.
+    """
+    source = _write_auth_only_source(provider_id, tmp_path)
+    candidate = _real_subscription_detector(provider_id, source).detect()
+
+    assert candidate.detected is True
+    assert candidate.auth_available is True
+    assert candidate.external_config_present is False
+    assert candidate.external_endpoint_override_present is False
+
+    proposal = _wiring(tmp_path, validator=lambda proposal: True).service.propose(
+        candidate
+    )
+
+    assert proposal.source_home == str(source)
+    assert proposal.requires_isolation is True
+    assert proposal.endpoint == _SUBSCRIPTION_MANIFEST_URLS[provider_id]
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_auth_only_subscription_is_connected_only_with_a_cmm_owned_profile(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """A passing validator still requires the CMM-owned profile first."""
+    source = _write_auth_only_source(provider_id, tmp_path)
+    wired = _wiring(tmp_path, validator=lambda proposal: True)
+    candidate = _real_subscription_detector(provider_id, source).detect()
+    profiles_root = tmp_path / "cmm-profiles"
+
+    connection = wired.service.accept(wired.service.propose(candidate))
+
+    assert connection.status == ConnectionStatus.CONNECTED
+    assert connection.isolation_profile_ref is not None
+    profile_home = Path(connection.isolation_profile_ref)
+    assert profile_home.is_dir()
+    assert profile_home != source
+    assert profile_home.is_relative_to(profiles_root)
+    # Evidence is not authority: the external home is never modified.
+    assert (source / _AUTH_ONLY_MARKERS[provider_id]).is_file()
+
+
+@pytest.mark.parametrize("provider_id", _ISOLATION_PROVIDER_IDS)
+def test_auth_only_subscription_never_connects_when_isolation_fails(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """Auth evidence alone is not connection authority; a failed build closes."""
+    source = _write_auth_only_source(provider_id, tmp_path)
+    wired = _wiring(tmp_path, validator=lambda proposal: True)
+    candidate = _real_subscription_detector(provider_id, source).detect()
+    proposal = wired.service.propose(candidate)
+    assert proposal.requires_isolation is True
+
+    # The evidence home disappears between detection and acceptance.
+    shutil.rmtree(source)
+
+    with pytest.raises(ProviderIsolationError):
+        wired.service.accept(proposal)
+
+    assert wired.connections.list() == ()
+    assert not (tmp_path / "cmm-profiles" / provider_id).exists()
 
 
 def test_propose_requires_canonical_provider_authority(tmp_path: Path) -> None:

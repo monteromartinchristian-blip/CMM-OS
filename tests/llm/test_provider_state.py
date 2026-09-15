@@ -14,6 +14,7 @@ the contract under test is deliberately strict:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -335,6 +336,79 @@ def test_missing_required_field_is_rejected() -> None:
 def test_unknown_field_is_rejected() -> None:
     with pytest.raises(ProviderStateSerializationError, match="unknown field"):
         ProviderRegistryState.from_dict(_payload(unexpected="value"))
+
+
+# --- manifest isolation policy in the persisted shape (MAJOR-V2-03) ---------
+
+
+def _codex_state(*, requires_isolation: bool) -> ProviderRegistryState:
+    """Build a one-provider aggregate carrying an explicit manifest policy."""
+    manifest = dataclasses.replace(
+        _manifest(
+            "codex",
+            billing=BillingClass.SUBSCRIPTION,
+            base_url="https://api.openai.com/v1",
+        ),
+        requires_isolation=requires_isolation,
+    )
+    return ProviderRegistryState(
+        schema_version=SCHEMA_VERSION,
+        revision=1,
+        providers=(_provider("codex", base_url="https://api.openai.com/v1"),),
+        manifests=(manifest,),
+        models=(),
+        connections=(),
+        routes=(),
+    )
+
+
+def test_manifest_isolation_policy_survives_the_persistence_round_trip() -> None:
+    """The canonical isolation policy is persisted, not recomputed on load."""
+    isolated = _codex_state(requires_isolation=True)
+    default = _codex_state(requires_isolation=False)
+
+    payload = isolated.to_dict()
+    restored = ProviderRegistryState.from_dict(json.loads(json.dumps(payload)))
+
+    assert payload["manifests"][0]["requires_isolation"] is True
+    assert restored.manifests[0].requires_isolation is True
+    assert restored == isolated
+    # The default policy round-trips too, and the two states stay distinct.
+    loaded_default = ProviderRegistryState.from_dict(default.to_dict())
+    assert loaded_default.manifests[0].requires_isolation is False
+    assert loaded_default != isolated
+
+
+def test_a_manifest_payload_without_the_isolation_policy_is_rejected() -> None:
+    """A missing policy field fails closed instead of defaulting silently."""
+    payload = _codex_state(requires_isolation=True).to_dict()
+    del payload["manifests"][0]["requires_isolation"]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError, match="requires_isolation"):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_an_unknown_manifest_field_is_rejected() -> None:
+    payload = _codex_state(requires_isolation=True).to_dict()
+    payload["manifests"][0]["requires_isolations"] = True  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError, match="unknown field"):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_the_previous_manifest_shape_version_is_rejected() -> None:
+    """The manifest shape changed, so the previous envelope version fails closed.
+
+    ``SCHEMA_VERSION`` identifies exactly one persisted shape: a document
+    written before the isolation-policy field existed is rejected by version
+    instead of being loaded with an assumed policy.
+    """
+    payload = _codex_state(requires_isolation=True).to_dict()
+    payload["schema_version"] = "1"
+
+    assert payload["schema_version"] != SCHEMA_VERSION
+    with pytest.raises(ProviderStateSchemaError, match="unsupported schema_version"):
+        ProviderRegistryState.from_dict(payload)
 
 
 def test_non_mapping_payload_is_rejected() -> None:

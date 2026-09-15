@@ -26,7 +26,10 @@ import pytest
 
 from kernel.llm.credential_store import InMemoryCredentialStore
 from kernel.llm.exceptions import ProviderError
-from kernel.llm.first_wave_providers import register_first_wave_providers
+from kernel.llm.first_wave_providers import (
+    register_first_wave_providers,
+    register_subscription_bridge_providers,
+)
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_discovery import DiscoverableModelClient, discover_models
 from kernel.llm.model_routes import (
@@ -81,12 +84,15 @@ T1 = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
 
 _SECRET = "sk-deepseek-test-secret-value"
 
-# Canonical subscription providers exercised by Scenarios D-G.
-_SUBSCRIPTION_MANIFESTS: tuple[tuple[str, str], ...] = (
-    ("codex", "https://api.openai.com/v1"),
-    ("claude-code", "https://api.anthropic.com/v1"),
-    ("antigravity", "https://cloudcode-pa.googleapis.com/v1"),
-)
+# Canonical subscription bridge endpoints (MAJOR-V2-03). Identity, metadata and
+# these endpoints come from the production declaration
+# (``register_subscription_bridge_providers``); the mapping below only pins the
+# values the acceptance expects that declaration to carry.
+_SUBSCRIPTION_BRIDGE_ENDPOINTS: dict[str, str] = {
+    "codex": "https://api.openai.com/v1",
+    "claude-code": "https://api.anthropic.com/v1",
+    "antigravity": "https://cloudcode-pa.googleapis.com/v1",
+}
 
 # The auth marker each subscription detector requires (presence-only).
 _SUBSCRIPTION_AUTH_MARKERS: dict[str, str] = {
@@ -124,28 +130,16 @@ def _runtime(
     repository: FileProviderRegistryStateRepository | None = None,
     validator: Callable[[ConnectionProposal], bool] | None = None,
 ) -> _Runtime:
-    """Build the full canonical runtime: one authority, one persistence seam."""
+    """Build the full canonical runtime: one authority, one persistence seam.
+
+    Both provider categories come from their canonical declarations — the eight
+    first-wave API providers and the three subscription bridges — so the runtime
+    carries no test-local provider or manifest fabrication.
+    """
     providers = ProviderRegistry()
     manifests = ProviderManifestRegistry(providers)
     register_first_wave_providers(providers, manifests)
-    for provider_id, base_url in _SUBSCRIPTION_MANIFESTS:
-        providers.register(
-            ProviderSpec(
-                id=provider_id,
-                provider_type="remote",
-                api_style="chat_completions",
-                base_url=base_url,
-            )
-        )
-        manifests.register(
-            ProviderManifest(
-                provider_id=provider_id,
-                display_name=provider_id,
-                billing_class=BillingClass.SUBSCRIPTION,
-                default_base_url=base_url,
-                auth_scheme=FIRST_WAVE_AUTH_SCHEME,
-            )
-        )
+    register_subscription_bridge_providers(providers, manifests)
     connections = ProviderConnectionRegistry(providers)
     models = ModelCatalog(providers)
     routes = ModelRouteCatalog(connections)
@@ -377,10 +371,12 @@ def test_scenario_def_subscription_isolation_requires_a_cmm_profile(
     proposal = runtime.service.propose(candidate)
     assert proposal.source_home == str(source)
     assert proposal.requires_isolation is True
+    assert proposal.endpoint == _SUBSCRIPTION_BRIDGE_ENDPOINTS[provider_id]
 
     connection = runtime.service.accept(proposal)
 
     assert connection.status == ConnectionStatus.CONNECTED
+    assert connection.endpoint == _SUBSCRIPTION_BRIDGE_ENDPOINTS[provider_id]
     assert connection.isolation_profile_ref is not None
     profile_home = Path(connection.isolation_profile_ref)
     assert profile_home.is_dir()

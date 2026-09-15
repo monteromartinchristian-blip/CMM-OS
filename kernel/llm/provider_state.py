@@ -24,6 +24,15 @@ Fail-closed validation. An unsupported schema version raises
 :class:`ProviderStateSchemaError`; a negative revision, a naive timestamp, a
 missing field, an unknown field or a malformed payload raises
 :class:`ProviderStateSerializationError`. Nothing partial is ever returned.
+
+Manifest shape Ruling (MAJOR-V2-03): ``ProviderManifest`` gained the required
+``requires_isolation`` policy field, so the persisted manifest shape changed and
+:data:`SCHEMA_VERSION` was bumped with it. A document written before that change
+is rejected by version rather than loaded with an assumed policy, and a manifest
+entry that is missing the field — or carries an unknown one — is rejected by the
+same fail-closed key checks every other persisted field uses. No migration path
+and no legacy reader are introduced: an aggregate that this build cannot
+reconstruct exactly is never partially accepted.
 """
 
 from __future__ import annotations
@@ -49,8 +58,13 @@ from kernel.llm.provider_connections import (
 from kernel.llm.provider_manifests import FIRST_WAVE_AUTH_SCHEME, ProviderManifest
 from kernel.llm.provider_registry import ProviderSpec
 
-SCHEMA_VERSION: Final[str] = "1"
-"""The only persisted envelope version this build can read or write."""
+SCHEMA_VERSION: Final[str] = "2"
+"""The only persisted envelope version this build can read or write.
+
+``"2"`` adds the required ``requires_isolation`` manifest policy field to the
+``"1"`` shape; ``"1"`` documents are rejected by
+:class:`ProviderStateSchemaError` instead of being read with an assumed policy
+(module docstring, Manifest shape Ruling)."""
 
 # Substrings marking a persisted value as carrying plaintext secret material.
 # Checked case-insensitively against the whole value, mirroring the guard in
@@ -448,6 +462,7 @@ def _manifest_to_dict(manifest: ProviderManifest) -> dict[str, object]:
         "models_path": manifest.models_path,
         "api_styles": list(manifest.api_styles),
         "activation_allowlist": list(manifest.activation_allowlist),
+        "requires_isolation": manifest.requires_isolation,
     }
 
 
@@ -463,9 +478,16 @@ def _manifest_from_dict(payload: Mapping[str, object]) -> ProviderManifest:
         "models_path",
         "api_styles",
         "activation_allowlist",
+        "requires_isolation",
     }
     _reject_unknown_keys(mapping, expected, label="manifest")
     _require_keys(mapping, expected, label="manifest")
+    # Fail closed on a missing or non-bool policy: an isolation-required bridge
+    # must never be reconstructed from an assumed default. Checked before the
+    # constructor try-block so the structural error is not re-wrapped.
+    requires_isolation = _require_bool(
+        mapping["requires_isolation"], label="requires_isolation"
+    )
     try:
         return ProviderManifest(
             provider_id=_require_text(mapping["provider_id"], label="provider_id"),
@@ -488,6 +510,9 @@ def _manifest_from_dict(payload: Mapping[str, object]) -> ProviderManifest:
                     mapping["activation_allowlist"], label="activation_allowlist"
                 )
             ),
+            # Fail closed on a missing or non-bool policy: an isolation-required
+            # bridge must never be reconstructed from an assumed default.
+            requires_isolation=requires_isolation,
         )
     except ValueError as error:
         raise ProviderStateSerializationError(f"invalid manifest: {error}") from error

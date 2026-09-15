@@ -44,6 +44,15 @@ identity is the first-wave bootstrap's job
 (:func:`kernel.llm.first_wave_providers.register_first_wave_providers`), which
 registers the ``ProviderSpec`` *before* its bound manifest.
 
+Isolation rule (MAJOR-V2-03): ``requires_isolation`` is declarative provider
+policy — immutable metadata that says whether a connection for this provider may
+only become ``CONNECTED`` through a CMM-owned isolation profile. It defaults to
+``False`` and must be a real ``bool``: a truthy string or integer is rejected at
+construction rather than coerced, so the policy can never be half-declared. It is
+deliberately *not* derived from :class:`~kernel.llm.provider_connections.BillingClass`
+— a subscription surface such as ``qwen-token-plan`` stays a non-isolated
+provider unless its own declaration says otherwise (spec §6.3/§6.4).
+
 Non-divergence rule (MAJOR-V2-01): metadata is stored as a binding to the exact
 canonical ``ProviderSpec`` *instance* resolved at registration, and it is active
 only while ``provider_registry.get(provider_id) is bound_spec``. Removing the
@@ -115,6 +124,7 @@ class ProviderManifest:
     models_path: str = "/models"
     api_styles: tuple[str, ...] = ("chat_completions",)
     activation_allowlist: tuple[str, ...] = ()
+    requires_isolation: bool = False
 
     def __post_init__(self) -> None:
         """Normalize every field and reject invalid manifests at construction."""
@@ -172,6 +182,11 @@ class ProviderManifest:
             "activation_allowlist",
             _normalize_tuple(self.activation_allowlist, label="activation_allowlist"),
         )
+
+        # Declarative policy, never a derived or coerced value: a truthy string
+        # would silently declare isolation for the wrong reason.
+        if not isinstance(self.requires_isolation, bool):
+            raise TypeError("requires_isolation must be a bool")
 
     @staticmethod
     def _validated_base_url(value: str) -> str:

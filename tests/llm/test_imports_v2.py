@@ -67,6 +67,7 @@ from kernel.llm import (
     provider_spec_from_manifest,
     register_first_wave_manifests,
     register_first_wave_providers,
+    register_subscription_bridge_providers,
     restore_provider_registry_state,
 )
 from kernel.llm.credential_store import InMemoryCredentialStore as _MemStore
@@ -105,6 +106,7 @@ DISCOVERY_CONTRACTS = {
     "ProviderManifestRegistry": ProviderManifestRegistry,
     "register_first_wave_manifests": register_first_wave_manifests,
     "register_first_wave_providers": register_first_wave_providers,
+    "register_subscription_bridge_providers": register_subscription_bridge_providers,
     "provider_spec_from_manifest": provider_spec_from_manifest,
     "DiscoverableModelClient": DiscoverableModelClient,
     "ModelDiscoveryResult": ModelDiscoveryResult,

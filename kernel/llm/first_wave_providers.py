@@ -1,12 +1,21 @@
-"""First-wave provider manifests for the Provider Registry.
+"""Canonical provider manifest declarations for the Provider Registry.
 
 This module is pure declaration: it holds the transport/auth/billing defaults
-for the eight approved first-wave OpenAI-compatible providers (spec §2, plan
-Task 3) and registers them into a :class:`ProviderManifestRegistry`. Nothing
-here performs network I/O, and no credential material — not a key, not a token,
-not a keychain reference — appears in a manifest: secrets live in native secret
-storage and are referenced by accepted connections (see
-``kernel.llm.provider_connections``).
+for the two canonical provider categories — the eight approved first-wave
+OpenAI-compatible providers (spec §2, plan Task 3) and the three approved
+subscription bridges (approved hybrid design §2) — and registers them into a
+:class:`ProviderManifestRegistry`. Nothing here performs network I/O, and no
+credential material — not a key, not a token, not a keychain reference — appears
+in a manifest: secrets live in native secret storage and are referenced by
+accepted connections (see ``kernel.llm.provider_connections``).
+
+The two categories are registered by two separate bootstraps and never share a
+provider id: :func:`register_first_wave_providers` registers the eight API
+surfaces, and :func:`register_subscription_bridge_providers` registers the three
+subscription bridges. Keeping them apart is what preserves the verified
+eight-provider contract while giving the bridges their own policy
+(``requires_isolation=True``) — a declaration table cannot silently widen the
+other one.
 
 Base URLs are the providers' documented public OpenAI-compatible endpoints. A
 manifest carries no per-provider subclass and no model catalog: model ids are
@@ -30,9 +39,18 @@ Billing classes follow spec §2 exactly, including the mandatory separation of
 may be exposed by both, but they must remain distinct providers so quota and
 account state can never be shared implicitly (spec §13).
 
+Isolation policy (MAJOR-V2-03): ``requires_isolation`` is declared per provider
+and never inferred from ``BillingClass``. The three subscription bridges declare
+``True`` because each must run under a CMM-owned profile even when the external
+home carries authentication evidence only; ``qwen-token-plan`` stays ``False``
+even though it is also a subscription surface (spec §6.3 explicitly forbids the
+billing-class inference). The bridge table's own guard refuses a bridge that
+drops the policy and a bridge id that collides with a first-wave provider.
+
 Error taxonomy: this module raises :class:`ValueError` for every configuration
 error it detects directly — an empty manifest table, a missing
-Qwen subscription/PAYG pair, an absent registry argument — and forwards
+Qwen subscription/PAYG pair, a bridge without isolation policy, a bridge id that
+collides with a first-wave provider, an absent registry argument — and forwards
 whatever the registries raise: the canonical
 :class:`~kernel.llm.provider_registry.ProviderRegistry` answers a
 repeat bootstrap with :class:`~kernel.llm.exceptions.ProviderError`
@@ -89,6 +107,14 @@ KIRA_BASE_URL: str = "https://kiraai.vn/api/v1"
 OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 OPENCODE_ZEN_BASE_URL: str = "https://opencode.ai/zen/v1"
 NVIDIA_NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+
+# Subscription bridge endpoints (approved hybrid design §2). Each is the
+# vendor's documented OpenAI-compatible root for the subscription surface the
+# bridge fronts; the CMM-owned isolation profile, not the user's external home,
+# is what a connection references. All three are provider-documented.
+CODEX_BASE_URL: str = "https://api.openai.com/v1"
+CLAUDE_CODE_BASE_URL: str = "https://api.anthropic.com/v1"
+ANTIGRAVITY_BASE_URL: str = "https://cloudcode-pa.googleapis.com/v1"
 
 # Declared in plan order (plan Task 3, spec §2). Registration is order-free —
 # the registry sorts by id — but tests compare the returned tuple against this
@@ -152,6 +178,41 @@ _FIRST_WAVE_MANIFESTS: tuple[ProviderManifest, ...] = (
     ),
 )
 
+# The three approved subscription bridges, declared in canonical order. They are
+# a separate category from the first-wave API providers (approved hybrid design
+# §2) and each declares ``requires_isolation=True`` as explicit canonical policy
+# (spec §6.3): a bridge may become CONNECTED only through a CMM-owned isolation
+# profile, even when the external home carries authentication evidence alone.
+# ``billing_class`` is metadata here and is deliberately NOT the source of the
+# policy — ``qwen-token-plan`` above is also a subscription surface and stays
+# ``requires_isolation=False``.
+_SUBSCRIPTION_BRIDGE_MANIFESTS: tuple[ProviderManifest, ...] = (
+    ProviderManifest(
+        provider_id="codex",
+        display_name="Codex (ChatGPT Plus)",
+        billing_class=BillingClass.SUBSCRIPTION,
+        default_base_url=CODEX_BASE_URL,
+        auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        requires_isolation=True,
+    ),
+    ProviderManifest(
+        provider_id="claude-code",
+        display_name="Claude Code (Claude Pro)",
+        billing_class=BillingClass.SUBSCRIPTION,
+        default_base_url=CLAUDE_CODE_BASE_URL,
+        auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        requires_isolation=True,
+    ),
+    ProviderManifest(
+        provider_id="antigravity",
+        display_name="Antigravity (Google AI Pro)",
+        billing_class=BillingClass.SUBSCRIPTION,
+        default_base_url=ANTIGRAVITY_BASE_URL,
+        auth_scheme=FIRST_WAVE_AUTH_SCHEME,
+        requires_isolation=True,
+    ),
+)
+
 
 def _validated_manifests() -> tuple[ProviderManifest, ...]:
     """Return the declared manifests after checkable invariants hold.
@@ -181,6 +242,53 @@ def _validated_manifests() -> tuple[ProviderManifest, ...]:
         )
 
     return _FIRST_WAVE_MANIFESTS
+
+
+def _validated_subscription_bridge_manifests() -> tuple[ProviderManifest, ...]:
+    """Return the declared subscription bridges after their policy holds.
+
+    Only invariants this table can actually violate are checked, and each one is
+    reachable:
+
+    * the table is non-empty (a mutant that blanks the declaration is caught);
+    * every declared bridge carries ``requires_isolation=True`` — the entire
+      point of declaring the bridges separately (spec §6.3): a bridge that lost
+      the policy would silently connect without a CMM-owned profile;
+    * no bridge reuses a first-wave provider id — the categories are distinct
+      surfaces, and a shared id would reinterpret an API provider as an
+      isolation-required bridge (spec §13's separation rule, applied across
+      categories).
+
+    Blank and duplicate ``provider_id`` inside the table are deliberately *not*
+    re-checked: :class:`ProviderManifest` and
+    :meth:`ProviderManifestRegistry.register` already reject them.
+    """
+    if not _SUBSCRIPTION_BRIDGE_MANIFESTS:
+        raise ValueError("subscription bridge manifests cannot be empty")
+
+    undeclared = sorted(
+        manifest.provider_id
+        for manifest in _SUBSCRIPTION_BRIDGE_MANIFESTS
+        if not manifest.requires_isolation
+    )
+    if undeclared:
+        raise ValueError(
+            "subscription bridges must declare requires_isolation: " + undeclared[0]
+        )
+
+    first_wave_ids = {manifest.provider_id for manifest in _FIRST_WAVE_MANIFESTS}
+    collisions = sorted(
+        manifest.provider_id
+        for manifest in _SUBSCRIPTION_BRIDGE_MANIFESTS
+        if manifest.provider_id in first_wave_ids
+    )
+    if collisions:
+        raise ValueError(
+            "subscription bridges must stay distinct from first-wave providers: "
+            + collisions[0]
+        )
+
+    return _SUBSCRIPTION_BRIDGE_MANIFESTS
 
 
 def provider_spec_from_manifest(manifest: ProviderManifest) -> ProviderSpec:
@@ -246,3 +354,36 @@ def register_first_wave_manifests(
     if registry is None:
         raise ValueError("registry cannot be None")
     return register_first_wave_providers(registry.provider_registry, registry)
+
+
+def register_subscription_bridge_providers(
+    provider_registry: ProviderRegistry,
+    manifests: ProviderManifestRegistry,
+) -> tuple[ProviderManifest, ...]:
+    """Bootstrap the subscription bridges: identity first, then their metadata.
+
+    Same authority order as :func:`register_first_wave_providers` — each declared
+    bridge becomes a ``ProviderSpec`` in ``provider_registry`` and only then a
+    manifest in the provider-bound ``manifests`` catalog — so a bridge can never
+    exist as metadata while being absent from the canonical registry.
+
+    This is a separate bootstrap from the first-wave one on purpose: the eight
+    API providers keep their verified contract, and the three bridges carry their
+    own ``requires_isolation=True`` policy (MAJOR-V2-03). Returns the manifests in
+    declaration order.
+
+    Raises ``ValueError`` for an absent argument (``None``), for an empty bridge
+    table, for a bridge declared without the isolation policy, and for a bridge
+    id that collides with a first-wave provider; raises ``ProviderError`` when
+    the canonical registry already holds one of the bridge ids.
+    """
+    if provider_registry is None:
+        raise ValueError("provider_registry cannot be None")
+    if manifests is None:
+        raise ValueError("manifests cannot be None")
+
+    declared = _validated_subscription_bridge_manifests()
+    for manifest in declared:
+        provider_registry.register(provider_spec_from_manifest(manifest))
+        manifests.register(manifest)
+    return declared

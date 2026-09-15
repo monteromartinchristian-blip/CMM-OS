@@ -21,6 +21,7 @@ from kernel.llm.first_wave_providers import (
     provider_spec_from_manifest,
     register_first_wave_manifests,
     register_first_wave_providers,
+    register_subscription_bridge_providers,
 )
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_discovery import (
@@ -243,6 +244,7 @@ __all__ = [
     "register_experimental_omniroute",
     "register_first_wave_manifests",
     "register_first_wave_providers",
+    "register_subscription_bridge_providers",
     "restore_provider_registry_state",
     "route_snapshot_from_route",
     "select_model",

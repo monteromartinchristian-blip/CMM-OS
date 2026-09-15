@@ -71,6 +71,7 @@ def test_manifest_carries_all_declared_fields() -> None:
         models_path="/models",
         api_styles=("chat_completions",),
         activation_allowlist=(),
+        requires_isolation=True,
     )
 
     assert manifest.provider_id == "nvidia-nim"
@@ -81,6 +82,7 @@ def test_manifest_carries_all_declared_fields() -> None:
     assert manifest.models_path == "/models"
     assert manifest.api_styles == ("chat_completions",)
     assert manifest.activation_allowlist == ()
+    assert manifest.requires_isolation is True
 
 
 def test_manifest_defaults_match_plan_contract() -> None:
@@ -89,6 +91,40 @@ def test_manifest_defaults_match_plan_contract() -> None:
     assert manifest.models_path == "/models"
     assert manifest.api_styles == ("chat_completions",)
     assert manifest.activation_allowlist == ()
+    assert manifest.requires_isolation is False
+
+
+# --- canonical isolation policy (MAJOR-V2-03) -------------------------------
+
+
+def test_manifest_isolation_policy_is_not_derived_from_billing_class() -> None:
+    """Isolation is explicit policy metadata, never a billing-class inference."""
+    subscription = _manifest(billing_class=BillingClass.SUBSCRIPTION)
+    payg = _manifest(billing_class=BillingClass.PAYG)
+
+    assert subscription.requires_isolation is False
+    assert payg.requires_isolation is False
+    assert _manifest(requires_isolation=True).requires_isolation is True
+
+
+def test_manifest_isolation_policy_is_declared_and_immutable() -> None:
+    manifest = _manifest(requires_isolation=True)
+
+    assert dataclasses.is_dataclass(manifest)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        manifest.requires_isolation = False  # type: ignore[misc]
+    # A frozen dataclass still allows a declared copy with a new policy value.
+    replaced = dataclasses.replace(manifest, requires_isolation=False)
+
+    assert replaced.requires_isolation is False
+    assert replaced == _manifest()
+
+
+@pytest.mark.parametrize("value", ["yes", "True", 1, 0, None, [], object()])
+def test_manifest_rejects_a_non_bool_isolation_policy(value: object) -> None:
+    """Only a real bool may enter the policy field (no truthy coercion)."""
+    with pytest.raises(TypeError, match="requires_isolation must be a bool"):
+        _manifest(requires_isolation=value)
 
 
 def test_manifest_is_frozen_and_slots_backed() -> None:
@@ -314,6 +350,7 @@ def test_manifest_has_no_credential_field() -> None:
         "models_path",
         "api_styles",
         "activation_allowlist",
+        "requires_isolation",
     ]
     for forbidden in _FORBIDDEN_FIELD_NAMES:
         assert forbidden not in names
