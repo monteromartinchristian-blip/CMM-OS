@@ -286,6 +286,110 @@ def test_remove_returns_and_deletes_one_connection() -> None:
     assert registry.list() == ()
 
 
+def test_connection_registry_tracks_exact_provider_authority() -> None:
+    """A connection stays bound to the exact ProviderSpec of its registration.
+
+    MAJOR-V4-01: the same provider id re-registered as a different object is a
+    different authority, so the surviving connection must read as stale.
+    """
+    providers = ProviderRegistry()
+    provider_a = providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    registry = ProviderConnectionRegistry(providers)
+    connection = registry.register(
+        _connection(connection_id="x:main", endpoint="https://old.example/v1")
+    )
+
+    assert registry.is_bound_to_current_provider(connection) is True
+
+    providers.remove("x")
+    provider_b = providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="responses",
+            base_url="https://new.example/v1",
+        )
+    )
+
+    assert provider_a is not provider_b
+    assert registry.is_bound_to_current_provider(connection) is False
+    # The stale connection stays visible; capture, not the catalog, refuses it.
+    assert registry.get("x:main") is connection
+
+
+def test_connection_registry_binding_is_false_without_canonical_provider() -> None:
+    """A removed provider leaves the connection bound to a missing authority."""
+    registry = _registry("x")
+    connection = registry.register(_connection(connection_id="x:main"))
+
+    providers = registry.provider_registry
+    providers.remove("x")
+
+    assert registry.is_bound_to_current_provider(connection) is False
+
+
+def test_connection_registry_binding_rejects_unregistered_connection() -> None:
+    """A connection the registry does not hold has no binding to report."""
+    registry = _registry("x")
+
+    assert registry.is_bound_to_current_provider(_connection()) is False
+
+
+def test_connection_registry_field_only_mutations_preserve_binding() -> None:
+    """Status/record rewrites never re-resolve, so no path silently rebinds."""
+    validated_at = datetime(2026, 9, 15, tzinfo=timezone.utc)
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://old.example/v1",
+        )
+    )
+    registry = ProviderConnectionRegistry(providers)
+    original = registry.register(_connection(connection_id="x:main"))
+
+    providers.remove("x")
+    providers.register(
+        ProviderSpec(
+            id="x",
+            provider_type="remote",
+            api_style="responses",
+            base_url="https://new.example/v1",
+        )
+    )
+
+    updated = registry.update_status(
+        "x:main", ConnectionStatus.WARNING, validated_at=validated_at
+    )
+    replaced = registry.replace(original)
+
+    assert updated is not original
+    assert updated.last_validated_at == validated_at
+    assert replaced is original
+    assert registry.is_bound_to_current_provider(updated) is False
+    assert registry.is_bound_to_current_provider(original) is False
+
+
+def test_connection_registry_binding_is_private_to_public_values() -> None:
+    """Binding metadata never leaks into the public connection inventory."""
+    registry = _registry("x")
+    connection = registry.register(_connection(connection_id="x:main"))
+
+    assert registry.get("x:main") is connection
+    assert registry.list() == (connection,)
+    assert registry.remove("x:main") is connection
+    assert registry.is_bound_to_current_provider(connection) is False
+
+
 def test_remove_unknown_or_blank_id_raises() -> None:
     registry = _registry()
 

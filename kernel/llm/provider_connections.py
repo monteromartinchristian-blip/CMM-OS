@@ -10,7 +10,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
-from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.exceptions import ProviderError
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 # Secure-reference scheme allowlist. Interpolated into the error message so
 # code and message cannot drift (review round 1, finding 4).
@@ -106,6 +107,20 @@ class ProviderConnection:
             object.__setattr__(self, "credential_ref", ref)
 
 
+@dataclass(frozen=True, slots=True)
+class _ConnectionBinding:
+    """One connection together with the canonical provider it was bound to.
+
+    Private storage detail (MAJOR-V4-01): identity is the exact ``ProviderSpec``
+    object resolved at registration, never the provider id alone, so a removed
+    or same-id replaced provider leaves the connection visibly stale instead of
+    silently current.
+    """
+
+    provider: ProviderSpec
+    connection: ProviderConnection
+
+
 class ProviderConnectionRegistry:
     """Catalog of accepted connections, referentially bound to providers.
 
@@ -121,7 +136,7 @@ class ProviderConnectionRegistry:
         if not isinstance(provider_registry, ProviderRegistry):
             raise TypeError("provider_registry must be a ProviderRegistry")
         self._provider_registry = provider_registry
-        self._items: dict[str, ProviderConnection] = {}
+        self._items: dict[str, _ConnectionBinding] = {}
 
     @property
     def provider_registry(self) -> ProviderRegistry:
@@ -133,12 +148,18 @@ class ProviderConnectionRegistry:
 
         Raises the canonical ``ProviderError`` for an unregistered provider
         (before any mutation) and ``ValueError`` for a duplicate id.
+
+        The exact ``ProviderSpec`` resolved here is retained privately as this
+        connection's authority binding (MAJOR-V4-01): a later removal of that
+        provider — or its same-id replacement by a different object — leaves the
+        connection bound to a non-current authority, which capture refuses to
+        persist.
         """
-        self._provider_registry.get(connection.provider_id)
+        provider = self._provider_registry.get(connection.provider_id)
         key = connection.connection_id
         if key in self._items:
             raise ValueError(f"duplicate connection_id: {key}")
-        self._items[key] = connection
+        self._items[key] = _ConnectionBinding(provider=provider, connection=connection)
         return connection
 
     def get(self, connection_id: str) -> ProviderConnection | None:
@@ -146,11 +167,33 @@ class ProviderConnectionRegistry:
         key = _normalize_lookup_key(connection_id)
         if key is None:
             return None
-        return self._items.get(key)
+        binding = self._items.get(key)
+        return None if binding is None else binding.connection
+
+    def is_bound_to_current_provider(self, connection: ProviderConnection) -> bool:
+        """Return whether ``connection`` still belongs to the current authority.
+
+        Authority coherence check (MAJOR-V4-01), read-only: it reports whether
+        the connection stored under ``connection``'s id is that same record and
+        is bound to the exact ``ProviderSpec`` the canonical registry currently
+        resolves for its provider id. It never mutates, rebinds or repairs — a
+        stale entry stays visible and answers ``False``.
+        """
+        key = _normalize_lookup_key(connection.connection_id)
+        binding = self._items.get(key) if key is not None else None
+        if binding is None:
+            return False
+        if binding.connection is not connection and binding.connection != connection:
+            return False
+        try:
+            current_provider = self._provider_registry.get(connection.provider_id)
+        except ProviderError:
+            return False
+        return current_provider is binding.provider
 
     def list(self, provider_id: str | None = None) -> tuple[ProviderConnection, ...]:
         """Return connections sorted by id, optionally filtered by provider."""
-        values = tuple(self._items[key] for key in sorted(self._items))
+        values = tuple(self._items[key].connection for key in sorted(self._items))
         if provider_id is None:
             return values
         wanted = _normalize_lookup_key(provider_id)
@@ -167,17 +210,25 @@ class ProviderConnectionRegistry:
 
         Unlike ``get()``, which returns ``None`` for unknown ids, this raises
         ``ValueError`` for unknown ids and for values outside the status enum.
+
+        The rewritten record keeps the stored authority binding: this is the
+        same registration with a field changed, so it must never re-resolve —
+        and therefore never silently rebind a stale connection to a same-id
+        replacement provider (MAJOR-V4-01).
         """
         key = _normalize_lookup_key(connection_id)
-        current = self._items.get(key) if key is not None else None
-        if key is None or current is None:
+        binding = self._items.get(key) if key is not None else None
+        if key is None or binding is None:
             raise ValueError(f"unknown connection_id: {connection_id}")
+        current = binding.connection
         updated = replace(
             current,
             status=status,
             last_validated_at=validated_at or current.last_validated_at,
         )
-        self._items[key] = updated
+        self._items[key] = _ConnectionBinding(
+            provider=binding.provider, connection=updated
+        )
         return updated
 
     def replace(self, connection: ProviderConnection) -> ProviderConnection:
@@ -192,14 +243,21 @@ class ProviderConnectionRegistry:
         provider must still be canonical, mirroring :meth:`register`. Raises
         ``TypeError`` for a non-connection, ``ValueError`` for an unknown id and
         the canonical ``ProviderError`` for an unregistered provider.
+
+        The stored authority binding is preserved rather than re-resolved: this
+        restores a previous value of the *same* registration, so rebinding here
+        would be a silent rebinding path (MAJOR-V4-01).
         """
         if not isinstance(connection, ProviderConnection):
             raise TypeError("connection must be a ProviderConnection")
         self._provider_registry.get(connection.provider_id)
         key = connection.connection_id
-        if key not in self._items:
+        binding = self._items.get(key)
+        if binding is None:
             raise ValueError(f"unknown connection_id: {key}")
-        self._items[key] = connection
+        self._items[key] = _ConnectionBinding(
+            provider=binding.provider, connection=connection
+        )
         return connection
 
     def remove(self, connection_id: str) -> ProviderConnection:
@@ -211,4 +269,4 @@ class ProviderConnectionRegistry:
         key = _normalize_lookup_key(connection_id)
         if key is None or key not in self._items:
             raise ValueError(f"unknown connection_id: {connection_id}")
-        return self._items.pop(key)
+        return self._items.pop(key).connection
