@@ -1172,3 +1172,69 @@ def test_route_restore_all_still_restores_under_a_stale_provider() -> None:
 
     assert routes.list() == snapshot
     assert routes.get("x:main:m") is route
+
+
+# --- Remediation V6 (MAJOR-V6-01): restore_all() relationship classification -
+
+
+def test_restore_all_rejects_a_fresh_route_under_stale_provider_authority() -> None:
+    """MAJOR-V6-01: fresh restore_all binding must pass current authority.
+
+    A fresh entry is a *new* route relation, so it resolves through the same
+    current-authority rule as ``register``/``restore``: a connection whose exact
+    ``ProviderSpec`` binding is gone may not authorize it.
+    """
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    _replace_provider_authority(connections)
+    stale = connections.get("x:main")
+    assert stale is not None
+    assert connections.is_bound_to_current_provider(stale) is False
+    before = routes.list()
+
+    incoming = ModelRoute(
+        route_id="logical-route",
+        connection_id="x:main",
+        provider_model_id="m",
+        canonical_model_id="m",
+        first_seen_at=T0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="connection x:main is bound to a stale or missing ProviderSpec",
+    ):
+        routes.restore_all((incoming,))
+
+    assert routes.list() == before
+    assert routes.get("logical-route") is None
+
+
+def test_restore_all_rebinds_same_route_id_to_the_declared_current_connection() -> None:
+    """A connection-id change is a new relation, not an exact rollback."""
+    catalog = _route_catalog("x:main", "y:main")
+    original = catalog.register(
+        ModelRoute(
+            route_id="logical-route",
+            connection_id="x:main",
+            provider_model_id="m-x",
+            canonical_model_id="m",
+        )
+    )
+    assert catalog.is_bound_to_current_connection(original) is True
+
+    incoming = ModelRoute(
+        route_id="logical-route",
+        connection_id="y:main",
+        provider_model_id="m-y",
+        canonical_model_id="m",
+        first_seen_at=T0,
+        last_seen_at=T1,
+    )
+
+    catalog.restore_all((incoming,))
+
+    restored = catalog.get("logical-route")
+    assert restored == incoming
+    assert restored is not None
+    assert restored.connection_id == "y:main"
+    assert catalog.is_bound_to_current_connection(restored) is True

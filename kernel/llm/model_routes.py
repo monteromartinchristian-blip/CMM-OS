@@ -225,11 +225,16 @@ class ModelRouteCatalog:
         given: this is a state-restoration seam, never a "seen now" seam and
         never a deletion policy (routes are still only ever marked unavailable).
 
-        Authority bindings are restored with the records (MAJOR-V4-01): a record
-        already stored keeps the exact registration it was bound to, so undoing
-        a pass can never re-bind a stale route to a same-id replacement
-        connection. A record the catalog does not currently hold is bound to the
-        connection registration accepted now.
+        Authority bindings follow the relationship an entry describes
+        (MAJOR-V4-01, MAJOR-V6-01): a record already stored under the same route
+        id *and* the same connection id is that same historical relation, so it
+        keeps the exact registration it was bound to — undoing a pass can never
+        re-bind a stale route to a same-id replacement connection, and the
+        rollback stays possible even once the parent provider authority itself
+        became stale. Any other entry is a *new* relation — a record the catalog
+        does not hold, or one whose stored entry names a different connection —
+        and resolves through :meth:`_current_connection_registration` exactly as
+        ``register()`` and ``restore()`` do.
         """
         entries: dict[str, _RouteBinding] = {}
         for route in routes:
@@ -239,16 +244,20 @@ class ModelRouteCatalog:
                 _ensure_aware(route.first_seen_at, "first_seen_at")
             if route.last_seen_at is not None:
                 _ensure_aware(route.last_seen_at, "last_seen_at")
-            registration = self._connections.registration(route.connection_id)
-            if registration is None:
-                raise ValueError(f"unknown connection_id: {route.connection_id}")
+            existing = self._routes.get(route.route_id)
+            if (
+                existing is not None
+                and existing.route.connection_id == route.connection_id
+            ):
+                registration = existing.registration
+            else:
+                registration = self._current_connection_registration(
+                    route.connection_id
+                )
             if route.route_id in entries:
                 raise ValueError(f"duplicate route_id: {route.route_id}")
-            existing = self._routes.get(route.route_id)
             entries[route.route_id] = _RouteBinding(
-                registration=(
-                    existing.registration if existing is not None else registration
-                ),
+                registration=registration,
                 route=route,
             )
         self._routes = entries
