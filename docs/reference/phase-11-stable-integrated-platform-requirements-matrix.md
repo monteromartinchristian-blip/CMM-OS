@@ -79,7 +79,7 @@ far, and it introduces the next non-colliding requirement below.
 
 | `requirement_id` | Normative requirement | Primary source | Responsible phase | Repository mapping | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-014` | Maintain one canonical, persistent, auditable and fail-closed Provider Registry in which provider identity is authoritative through `ProviderRegistry`, manifests/connections/models/routes are referentially coherent, subscription isolation policy is explicit, onboarding side effects are ownership-safe, discovery remains non-inference, and `DP-134` is verified through `AT-DP-134`. | `SRC-R11` (detailed Phase 11 roadmap §11.34); `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` §10 | Phase 11 | `kernel/llm/provider_registry.py`; `kernel/llm/provider_manifests.py`; `kernel/llm/provider_connections.py`; `kernel/llm/model_routes.py`; `kernel/llm/model_discovery.py`; `kernel/llm/provider_onboarding.py`; `kernel/llm/provider_state.py`; `kernel/llm/provider_state_repository.py`; `kernel/llm/provider_state_coordinator.py` | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
+| `F11-014` | Maintain one canonical, persistent, auditable and fail-closed Provider Registry in which provider identity is authoritative through `ProviderRegistry`, manifests/connections/models/routes are referentially coherent, subscription isolation policy is explicit, onboarding side effects are ownership-safe, discovery remains non-inference, and `DP-134` is verified through `AT-DP-134`. | `SRC-R11` (detailed Phase 11 roadmap §11.34); `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` §10 | Phase 11 | `kernel/llm/provider_registry.py`; `kernel/llm/provider_manifests.py`; `kernel/llm/provider_connections.py`; `kernel/llm/model_routes.py`; `kernel/llm/model_discovery.py`; `kernel/llm/provider_onboarding.py`; `kernel/llm/provider_state.py`; `kernel/llm/provider_state_repository.py`; `kernel/llm/provider_state_coordinator.py` | `VERIFIED_EXISTING` | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
 
 The row is non-colliding: `F11-001` … `F11-013` stay owned by the Phase 10
 matrix, and `F11-014` is the next Phase 11 functional identifier
@@ -108,6 +108,7 @@ matrix, and `F11-014` is the next Phase 11 functional identifier
 | Historical Re-audit V4 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v4.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=3`; `MINORS=1`; `MAJOR-V4-01`; `MAJOR-V4-02`; `MAJOR-V4-03`; `MINOR-V4-01`; audited HEAD `46ef38ae477c801975b55b92c5f31f9137a3bc12`; audited tree `4f24aed198e86d702791bef46d71df7d281a767d`; bundle SHA-256 `d8a21eac304d56789ee54b08bc6e96fa4e7ed995ef829897e9e1c268771c4f64` |
 | Historical Re-audit V5 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v5.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=2`; `MINORS=0`; `MAJOR-V5-01`; `MAJOR-V5-02`; audited HEAD `30dec367279b0b80a9692ee0f067365c6e93b0a7`; audited tree `e058dca561efba5d9c0bc58165b12c19761e797c`; bundle SHA-256 `b72e03d78622b2927a9081bea4b180e1343ba9b8e2aea326bf44604ca3580d32` |
 | Historical Re-audit V6 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v6.md` — independent verdict `FAIL`; `BLOCKERS=0`; `MAJORS=1`; `MINORS=0`; `MAJOR-V6-01`; audited HEAD `cd780e3b7d74d2054470f277107986769ebb39a4`; audited tree `ff534595fdc841bd77f40a271c8e50284c0b40e7`; bundle SHA-256 `af0e5f141ef865479946f3882cc13597bf06e33db50a90add22c38dc0d729e3a` |
+| Final Re-audit V7 | `docs/audits/phase-11.34-provider-registry-independent-reaudit-v7.md` — independent verdict `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR-V6-01=VERIFIED_REMEDIATED`; `MAJOR-V5-01=VERIFIED_REMEDIATED`; `MAJOR-V5-02=VERIFIED_REMEDIATED`; `DP-134=VERIFIED_EXISTING`; `F11-014=VERIFIED_EXISTING`; `AT-DP-134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `a96468094d39f7bd8afe5a2d7a4daab67c0b55be`; audited tree `583a260596bdd5eef331be8b3d9a0017fb5628d7`; bundle SHA-256 `09fd8ae76a64a898a8dca6b1397749defe9145c1f7ca865228646a66c6364100`; audit-report commit `59a4c774b647d980927d02f4cea6476075235ca4` |
 | Remediation V1 design | `docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md` (historical: implemented, then audited by Independent Re-audit V2 `FAIL`) |
 | Remediation V1 plan | `docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md` (historical) |
 | Remediation V2 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md` — froze the remedy for the five Re-audit V2 findings |
@@ -119,10 +120,10 @@ matrix, and `F11-014` is the next Phase 11 functional identifier
 | Remediation V5 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v5-design.md` (historical: implemented, then audited by Independent Re-audit V6 `FAIL`) |
 | Remediation V5 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v5-implementation-plan.md` (historical) |
 | Remediation V6 design | `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v6-design.md` — froze the remedy for exactly the one Re-audit V6 finding, and changes no design point (`DP-134` unchanged) |
-| Remediation V6 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v6-implementation-plan.md` — implements that remedy; `REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
-| Remediated findings | `MAJOR-V3-01` (canonical graph identity), `MAJOR-V3-02` (durable route refresh) and `MINOR-V3-01` (format gate evidence) were verified remediated by Independent Re-audit V4. `MAJOR-V4-01` (item-level authority binding), `MAJOR-V4-02` (acceptance-time proposal authority) and `MAJOR-V4-03` (discovery manifest authority) were verified remediated by Independent Re-audit V5, which held `MINOR-V4-01` (monotonic discovery snapshots) only partially remediated. Independent Re-audit V6 verified `MAJOR-V5-02` (route-only temporal floor) as remediated and held `MAJOR-V5-01` (stale connection authority) partially remediated, because `ModelRouteCatalog.restore_all()` still bypassed the new-relation authority rule. `MAJOR-V6-01` (`restore_all()` fresh/rebound route authority) implements the intended remediation for that one Re-audit V6 finding and is pending Independent Re-audit V7; it is not independently verified yet |
-| Lifecycle status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
-| Audit status | `PENDING_INDEPENDENT_REAUDIT_V7` |
+| Remediation V6 plan | `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v6-implementation-plan.md` — implemented the one Re-audit V6 remedy and was independently verified by final Re-audit V7 `PASS` |
+| Remediated findings | `MAJOR-V3-01`, `MAJOR-V3-02` and `MINOR-V3-01` were verified remediated by Re-audit V4; `MAJOR-V4-01`, `MAJOR-V4-02` and `MAJOR-V4-03` were verified remediated by Re-audit V5; Re-audit V6 verified `MAJOR-V5-02` and held `MAJOR-V5-01` partially remediated while opening `MAJOR-V6-01`; final Re-audit V7 verified `MAJOR-V6-01=VERIFIED_REMEDIATED`, `MAJOR-V5-01=VERIFIED_REMEDIATED` and `MAJOR-V5-02=VERIFIED_REMEDIATED`, with no remaining blocker, major or minor findings |
+| Lifecycle status | `CLOSED` |
+| Audit status | `INDEPENDENT_REAUDIT_V7=PASS` |
 
 Persisted-shape note: the V2 persisted manifest shape carries the explicit
 isolation policy (`requires_isolation`), which is why `SCHEMA_VERSION` is `"2"`.
@@ -133,68 +134,51 @@ values only — never secret material.
 ## 5. Current lifecycle status
 
 ```text
-PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+PHASE11_34=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
 INDEPENDENT_REAUDIT_V4=FAIL
 INDEPENDENT_REAUDIT_V5=FAIL
 INDEPENDENT_REAUDIT_V6=FAIL
-REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-AT-DP-134=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7
-```
-
-This is the complete current state and the maximum documentary state allowed
-before Independent Re-audit V7. `REMEDIATION_V1`, `REMEDIATION_V2`,
-`REMEDIATION_V3`, `REMEDIATION_V4` and `REMEDIATION_V5` are historical context,
-not current-state markers: each was implemented and committed, then
-independently audited by a later re-audit that returned `FAIL` (Re-audit V2:
-`BLOCKERS=0`; `MAJORS=5`; `MINORS=0`; Re-audit V3: `BLOCKERS=0`; `MAJORS=2`;
-`MINORS=1`; Re-audit V4: `BLOCKERS=0`; `MAJORS=3`; `MINORS=1`; Re-audit V5:
-`BLOCKERS=0`; `MAJORS=2`; `MINORS=0`; Re-audit V6: `BLOCKERS=0`; `MAJORS=1`;
-`MINORS=0`). Re-audit V3 verified `MAJOR-V2-03`, `MAJOR-V2-04` and
-`MAJOR-V2-05` as remediated and carried `MAJOR-V2-01` and `MAJOR-V2-02` forward
-as `MAJOR-V3-01` and `MAJOR-V3-02`. Re-audit V4 verified `MAJOR-V3-01` and
-`MAJOR-V3-02` as remediated and opened the deeper authority/coherence layer
-`MAJOR-V4-01`, `MAJOR-V4-02`, `MAJOR-V4-03` and `MINOR-V4-01`. Re-audit V5
-verified `MAJOR-V4-01`, `MAJOR-V4-02` and `MAJOR-V4-03` as remediated, held
-`MINOR-V4-01` only partially remediated, and opened `MAJOR-V5-01` and
-`MAJOR-V5-02`. Re-audit V6 verified `MAJOR-V5-02` as remediated, held
-`MAJOR-V5-01` partially remediated and opened `MAJOR-V6-01`. Remediation V6
-(design/plan linked in §4.2) implements the intended remediation for exactly
-that one Re-audit V6 finding, and it is pending Independent Re-audit V7. No
-audit report was rewritten, and no design point was changed: `DP-134` remains
-the single closure design point for Phase 11.34.
-
-`AT-DP-134=PASS_REPORTED` means the connected
-acceptance was executed on the implementation machine and its evidence is
-recorded; it is **not** an independent verification of the acceptance.
-Therefore, before Independent Re-audit V7:
-
-- `DP-134`, `AT-DP-134` and `F11-014` are **not** independently verified;
-- no artifact in this repository may claim a verified, passing or
-  closure-eligible state for them; the reserved tokens for that state are
-  reproduced in §6 and are unclaimed;
-- Phase 11.34 is not closed, and this matrix is not closure evidence.
-
-## 6. Future closure criteria
-
-`VERIFIED_EXISTING`, `PASS` and `CLOSURE_ELIGIBLE=YES` are reserved for the
-post-V7 docs-only closure and are reproduced below **only** as unclaimed future
-closure criteria for Independent Re-audit V7. They are not current state. The
-line immediately below labels this block; the repository-wide check that no
-current-state claim exists outside such a labelled block lives in
-`tests/llm/test_provider_registry_dp134_acceptance.py`.
-
-**Future closure criteria — post-Independent-Re-audit-V7 only; not current state:**
-
-```text
+INDEPENDENT_REAUDIT_V7=PASS
 BLOCKERS=0
 MAJORS=0
+MINORS=0
+MAJOR-V6-01=VERIFIED_REMEDIATED
+MAJOR-V5-01=VERIFIED_REMEDIATED
+MAJOR-V5-02=VERIFIED_REMEDIATED
+F11-014=VERIFIED_EXISTING
+DP-134=VERIFIED_EXISTING
+AT-DP-134=PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V7_PASS
+```
+
+This is the final closed state after Independent Re-audit V7 `PASS`. Historical
+Independent Audit V1 and Re-audits V2–V6 remain immutable `FAIL` evidence;
+final Re-audit V7 independently verified every closure requirement with
+`BLOCKERS=0`, `MAJORS=0` and `MINORS=0`. `MAJOR-V6-01`, `MAJOR-V5-01` and
+`MAJOR-V5-02` are `VERIFIED_REMEDIATED`; `DP-134=VERIFIED_EXISTING`;
+`F11-014=VERIFIED_EXISTING`; `AT-DP-134=PASS`; and
+`CLOSURE_ELIGIBLE=YES`. The final independent report is
+`docs/audits/phase-11.34-provider-registry-independent-reaudit-v7.md`, and
+the dedicated docs-only closure records `PHASE11_34=CLOSED` without changing
+production code or historical audit artifacts.
+
+## 6. Final closure evidence
+
+Independent Re-audit V7 reached the reserved closure state and the dedicated
+docs-only closure now records it as current repository state:
+
+```text
+INDEPENDENT_REAUDIT_V7=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR-V6-01=VERIFIED_REMEDIATED
+MAJOR-V5-01=VERIFIED_REMEDIATED
+MAJOR-V5-02=VERIFIED_REMEDIATED
 DP-134=VERIFIED_EXISTING
 AT-DP-134=PASS
 F11-014=VERIFIED_EXISTING
@@ -202,8 +186,15 @@ CLOSURE_ELIGIBLE=YES
 PHASE11_34=CLOSED
 ```
 
-Until an independent verdict reaches that state, the current status in §5
-stands unchanged.
+Audited implementation HEAD:
+`a96468094d39f7bd8afe5a2d7a4daab67c0b55be`.
+Audited tree: `583a260596bdd5eef331be8b3d9a0017fb5628d7`.
+Bundle SHA-256:
+`09fd8ae76a64a898a8dca6b1397749defe9145c1f7ca865228646a66c6364100`.
+Final report:
+`docs/audits/phase-11.34-provider-registry-independent-reaudit-v7.md`.
+Audit-report commit:
+`59a4c774b647d980927d02f4cea6476075235ca4`.
 
 ## 7. Deferred scope recorded with this requirement
 

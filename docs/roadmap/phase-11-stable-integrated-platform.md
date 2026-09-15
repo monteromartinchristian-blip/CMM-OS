@@ -3153,25 +3153,31 @@ Stable Release
 ## Status
 
 ```text
-PHASE11_34=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+PHASE11_34=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
 INDEPENDENT_REAUDIT_V4=FAIL
 INDEPENDENT_REAUDIT_V5=FAIL
 INDEPENDENT_REAUDIT_V6=FAIL
-REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-F11-014=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-AT-DP-134=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7
+INDEPENDENT_REAUDIT_V7=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR-V6-01=VERIFIED_REMEDIATED
+MAJOR-V5-01=VERIFIED_REMEDIATED
+MAJOR-V5-02=VERIFIED_REMEDIATED
+F11-014=VERIFIED_EXISTING
+DP-134=VERIFIED_EXISTING
+AT-DP-134=PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V7_PASS
 ```
 
-Phase 11 has begun with 11.34 as an intentional out-of-order bootstrap. The
-implementation and Remediations V1–V6 are complete and committed, but the
-subphase remains pending Independent Re-audit V7 of a new exact-HEAD bundle; it
-is not closed.
+Phase 11 began with 11.34 as an intentional out-of-order bootstrap. The
+implementation and Remediations V1–V6 are complete, final Independent Re-audit
+V7 returned `PASS`, and the subphase is now closed by the dedicated docs-only
+closure commit.
 
 Historical Independent Audit V1 —
 `docs/audits/phase-11.34-provider-registry-independent-audit-v1.md`: verdict
@@ -3237,6 +3243,20 @@ binding through a stale provider-bound connection and could preserve an old
 connection-registration marker while the incoming route declared a different
 connection id. This verdict is historical evidence, not a current result.
 
+Final Independent Re-audit V7 —
+`docs/audits/phase-11.34-provider-registry-independent-reaudit-v7.md`: verdict
+`PASS` on the exact-HEAD Remediation V6 bundle (`INDEPENDENT_REAUDIT_V7=PASS`;
+`BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR-V6-01=VERIFIED_REMEDIATED`;
+`MAJOR-V5-01=VERIFIED_REMEDIATED`; `MAJOR-V5-02=VERIFIED_REMEDIATED`;
+`DP-134=VERIFIED_EXISTING`; `F11-014=VERIFIED_EXISTING`; `AT-DP-134=PASS`;
+`CLOSURE_ELIGIBLE=YES`; audited HEAD
+`a96468094d39f7bd8afe5a2d7a4daab67c0b55be`; audited tree
+`583a260596bdd5eef331be8b3d9a0017fb5628d7`; bundle SHA-256
+`09fd8ae76a64a898a8dca6b1397749defe9145c1f7ca865228646a66c6364100`;
+audit-report commit `59a4c774b647d980927d02f4cea6476075235ca4`). This is
+the final independent closure evidence for Phase 11.34.
+
+
 Remediation V1, Remediation V2, Remediation V3, Remediation V4 and Remediation
 V5 are historical context only: each was implemented and committed, then
 independently re-audited `FAIL`. None is a current-state marker. Historical
@@ -3261,17 +3281,15 @@ design
 plan
 `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v5-implementation-plan.md`.
 
-Remediation V6 implements the intended remediation for exactly the one Re-audit
-V6 finding and is therefore
-`REMEDIATION_V6=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; Independent Re-audit
-V7 of its exact-HEAD bundle (`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7`) is
-still pending, and `MAJOR-V6-01` stays open as historical audit state until that
-verdict. Design
+Remediation V6 implemented the intended remediation for exactly the one Re-audit
+V6 finding and has now been independently verified by final Re-audit V7 `PASS`.
+`MAJOR-V6-01`, `MAJOR-V5-01` and `MAJOR-V5-02` are
+`VERIFIED_REMEDIATED`. Design
 `docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v6-design.md`;
 plan
 `docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v6-implementation-plan.md`.
-It changes no design point: `DP-134` is unchanged and remains the single closure
-design point for Phase 11.34, and no new requirement identifier is introduced.
+It changes no design point: `DP-134` remains the single closure design point for
+Phase 11.34, and no new requirement identifier was introduced.
 
 CMM Usage integration remains deferred and not performed; CMMChat integration
 remains deferred by the user.
@@ -3310,8 +3328,8 @@ requirements matrix:
 That document is the Phase 11 owner for `F11-014`; the inherited/preassigned
 planning rows `F11-001`…`F11-013` stay normatively owned by the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md)
-(Phase 10). `F11-014` is `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` — implemented
-and not independently verified before Independent Re-audit V7.
+(Phase 10). `F11-014` is `VERIFIED_EXISTING` after final Independent Re-audit V7 `PASS` and
+Phase 11.34 docs-only closure.
 
 ## Connected Acceptance
 
@@ -3325,10 +3343,9 @@ for `MAJOR-V5-01`/`MAJOR-V5-02` and the Remediation V6 adversaries for
 `V6-B` coherent same-route-id rebind to a declared current connection, `V6-C`
 exact rollback under a stale parent), over the real canonical
 components and their official in-memory implementations).
-Implementation-machine result: `AT-DP-134=PASS_REPORTED`. Independent
-verification of the connected acceptance and of `DP-134` is still pending, and
-belongs to Independent Re-audit V7
-(`AUDIT_STATUS=PENDING_INDEPENDENT_REAUDIT_V7`).
+Final Independent Re-audit V7 executed and verified the connected acceptance:
+`AT-DP-134=PASS` (`67 passed`), with `DP-134=VERIFIED_EXISTING`,
+`F11-014=VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE=YES`.
 
 ## Objective
 
