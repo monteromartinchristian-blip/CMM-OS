@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,6 +35,7 @@ import pytest
 from kernel.llm.credential_store import InMemoryCredentialStore
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
+    provider_spec_from_manifest,
     register_first_wave_providers,
     register_subscription_bridge_providers,
 )
@@ -75,6 +77,7 @@ from kernel.llm.provider_onboarding import (
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from kernel.llm.provider_state import (
     ProviderRegistryState,
+    ProviderStateCoherenceError,
     ProviderStateSchemaError,
     ProviderStateSerializationError,
 )
@@ -88,6 +91,7 @@ from kernel.llm.subscription_profiles import SubscriptionProfileManager
 
 T0 = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
 T1 = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+T2 = datetime(2026, 9, 14, 14, 0, tzinfo=timezone.utc)
 
 _SECRET = "sk-deepseek-test-secret-value"
 
@@ -129,6 +133,7 @@ class _Runtime:
     routes: ModelRouteCatalog
     credentials: InMemoryCredentialStore
     profiles_root: Path
+    coordinator: ProviderRegistryStateCoordinator | None
 
 
 def _runtime(
@@ -182,6 +187,7 @@ def _runtime(
         routes=routes,
         credentials=credentials,
         profiles_root=tmp_path / "cmm-profiles",
+        coordinator=coordinator,
     )
 
 
@@ -539,48 +545,41 @@ def test_scenario_i_durable_no_secret_restart(tmp_path: Path) -> None:
     """The aggregate survives a process-equivalent restart without secrets."""
     repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
     runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
     connection = _connect_deepseek(runtime)
     manifest = runtime.manifests.get("deepseek")
     assert manifest is not None
 
-    # Two discovery passes: the second omits deepseek-reasoner, so its route
-    # stays in the catalog but unavailable with its first-sight history.
-    discover_models(
-        connection,
-        manifest,
-        _RecordingClient(("deepseek-chat", "deepseek-reasoner")),
-        runtime.routes,
-        seen_at=T0,
-    )
-    discover_models(
-        connection,
-        manifest,
-        _RecordingClient(("deepseek-chat",)),
-        runtime.routes,
-        seen_at=T1,
-    )
+    # Two administrative discovery passes through the coordinator's canonical
+    # discovery operation — the one seam that reconciles routes *and* commits
+    # the lifecycle audit. Nothing here captures or saves state by hand, so the
+    # acceptance proves discovery itself goes through that seam: the second pass
+    # omits deepseek-reasoner, so its route stays in the catalog but unavailable
+    # with its first-sight history.
+    first_pass = _RecordingClient(("deepseek-chat", "deepseek-reasoner"))
+    second_pass = _RecordingClient(("deepseek-chat",))
+    coordinator.discover_models(connection, manifest, first_pass, seen_at=T0)
+    coordinator.discover_models(connection, manifest, second_pass, seen_at=T1)
+    assert first_pass.inference_calls == []
+    assert second_pass.inference_calls == []
     vanished = runtime.routes.get("deepseek:main:deepseek-reasoner")
     assert vanished is not None
     assert vanished.available is False
     assert vanished.last_seen_at == T0
 
-    # Persist the discovery results through the canonical capture/save path
-    # (discovery itself is administrative and never persists implicitly).
     persisted = repository.load()
     assert persisted is not None
-    repository.save(
-        capture_provider_registry_state(
-            runtime.providers,
-            runtime.manifests,
-            runtime.models,
-            runtime.connections,
-            runtime.routes,
-            revision=persisted.revision + 1,
-            audit_log=persisted.audit_log,
-        )
-    )
-    persisted = repository.load()
-    assert persisted is not None
+    assert persisted.revision == coordinator.revision == 3
+    assert [record.event_type for record in persisted.audit_log] == [
+        # no validator is wired, so this acceptance is not ``CONNECTED`` and its
+        # canonical event is ``connection.accepted`` rather than
+        # ``provider.connected``
+        "connection.accepted",
+        "route.discovered",
+        "route.discovered",
+        "route.unavailable",
+    ]
 
     # Discard every runtime component; rebuild from the persisted bytes only.
     restored = restore_provider_registry_state(persisted)
@@ -858,6 +857,360 @@ def _all_keys(payload: object) -> list[str]:
 # components as scenarios A–M — no mock stands in for the provider authority,
 # the manifest catalog, the repository, the coordinator, the real detectors or
 # the discovery path.
+
+# --- MAJOR-V2-01: manifest metadata cannot outlive canonical identity -------
+
+
+def test_v2_manifest_non_divergence_after_provider_removal(tmp_path: Path) -> None:
+    """A manifest dies with its exact provider and never revives on re-add."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    bound = runtime.providers.get("deepseek")
+
+    assert runtime.providers.remove("deepseek") is bound
+    assert runtime.manifests.get("deepseek") is None
+    assert all(item.provider_id != "deepseek" for item in runtime.manifests.list())
+    # The metadata record itself is untouched; only its validity is gone.
+    assert manifest.provider_id == "deepseek"
+
+    # Same provider id, new canonical `ProviderSpec` object: identity equality by
+    # id alone must not revive the removed provider's metadata.
+    runtime.providers.register(provider_spec_from_manifest(manifest))
+    assert runtime.providers.has("deepseek")
+    assert runtime.manifests.get("deepseek") is None
+    assert all(item.provider_id != "deepseek" for item in runtime.manifests.list())
+
+    # Capture stays coherent, and whatever it captures always restores.
+    state = capture_provider_registry_state(
+        runtime.providers,
+        runtime.manifests,
+        runtime.models,
+        runtime.connections,
+        runtime.routes,
+        revision=0,
+    )
+    assert all(item.provider_id != "deepseek" for item in state.manifests)
+    assert [spec.id for spec in state.providers] == [
+        spec.id for spec in runtime.providers.list()
+    ]
+    restored = restore_provider_registry_state(state)
+    assert restored.providers.has("deepseek")
+    assert [item.provider_id for item in restored.manifests.list()] == [
+        item.provider_id for item in state.manifests
+    ]
+
+    # The lazy purge is not what makes this safe: a runtime that re-registers the
+    # same id without any intervening lookup still refuses the old metadata.
+    fresh = _runtime(tmp_path / "no-intervening-lookup")
+    fresh_manifest = fresh.manifests.get("deepseek")
+    assert fresh_manifest is not None
+    fresh.providers.remove("deepseek")
+    fresh.providers.register(provider_spec_from_manifest(fresh_manifest))
+    assert fresh.manifests.get("deepseek") is None
+    assert all(item.provider_id != "deepseek" for item in fresh.manifests.list())
+
+
+def test_v2_capture_refuses_manifest_metadata_without_a_canonical_provider(
+    tmp_path: Path,
+) -> None:
+    """An orphan manifest can never reach a persisted, unrestorable aggregate."""
+    runtime = _runtime(tmp_path)
+    foreign = ProviderRegistry()
+    assert foreign.list() == ()
+    models = ModelCatalog(foreign)
+    connections = ProviderConnectionRegistry(foreign)
+    routes = ModelRouteCatalog(connections)
+
+    with pytest.raises(
+        ProviderStateCoherenceError, match="without canonical provider identity"
+    ):
+        capture_provider_registry_state(
+            foreign,
+            runtime.manifests,
+            models,
+            connections,
+            routes,
+            revision=0,
+        )
+
+    # The guard is a refusal, not a silent omission: the same metadata graph
+    # captures and restores once it is bound to the authority holding its
+    # providers.
+    coherent = capture_provider_registry_state(
+        runtime.providers,
+        runtime.manifests,
+        runtime.models,
+        runtime.connections,
+        runtime.routes,
+        revision=0,
+    )
+    assert [item.provider_id for item in coherent.manifests] == [
+        item.provider_id for item in runtime.manifests.list()
+    ]
+    assert restore_provider_registry_state(coherent).providers.has("deepseek")
+
+
+# --- MAJOR-V2-02: route and validation lifecycle audit persistence ----------
+
+
+def test_v2_route_lifecycle_audit_is_persisted_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    """discover → disappear → restore is durably audited, not just inspected."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    manifest = runtime.manifests.get("deepseek")
+    assert manifest is not None
+    clients = (
+        _RecordingClient(("deepseek-chat", "deepseek-reasoner")),
+        _RecordingClient(("deepseek-chat",)),
+        _RecordingClient(("deepseek-chat", "deepseek-reasoner")),
+    )
+
+    for client, seen_at in zip(clients, (T0, T1, T2), strict=True):
+        coordinator.discover_models(connection, manifest, client, seen_at=seen_at)
+
+    assert [client.inference_calls for client in clients] == [[], [], []]
+    state = repository.load()
+    assert state is not None
+    assert state.revision == coordinator.revision == 4
+    assert [record.event_type for record in state.audit_log] == [
+        "connection.accepted",
+        "route.discovered",
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+    ]
+    assert [record.revision for record in state.audit_log] == [1, 2, 2, 3, 4]
+    assert state.audit_log[3].entity_kind == "route"
+    assert state.audit_log[3].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[3].occurred_at == T1
+    assert state.audit_log[3].detail == (
+        ("connection_id", "deepseek:main"),
+        ("available", "false"),
+    )
+    assert state.audit_log[4].entity_id == "deepseek:main:deepseek-reasoner"
+    assert state.audit_log[4].occurred_at == T2
+    assert state.audit_log[4].detail == (
+        ("connection_id", "deepseek:main"),
+        ("available", "true"),
+    )
+
+    # Process-equivalent restart: the same subsequence is available again.
+    restored = restore_provider_registry_state(state)
+    assert restored.revision == state.revision
+    assert [record.event_type for record in restored.audit_log] == [
+        "connection.accepted",
+        "route.discovered",
+        "route.discovered",
+        "route.unavailable",
+        "route.restored",
+    ]
+    assert [record.revision for record in restored.audit_log] == [1, 2, 2, 3, 4]
+    route = restored.routes.get("deepseek:main:deepseek-reasoner")
+    assert route is not None
+    assert route.available is True
+    assert route.first_seen_at == T0
+    assert route.last_seen_at == T2
+
+
+def test_v2_validation_transition_audit_is_persisted_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    """A real status transition is durably audited with its old/new status."""
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime = _runtime(tmp_path, repository=repository)
+    coordinator = runtime.coordinator
+    assert coordinator is not None
+    connection = _connect_deepseek(runtime)
+    assert connection.status is ConnectionStatus.AUTH_REQUIRED
+    assert connection.last_validated_at is None
+
+    updated = coordinator.update_connection_status(
+        "deepseek:main", ConnectionStatus.CONNECTED, occurred_at=T1
+    )
+
+    assert updated.status is ConnectionStatus.CONNECTED
+    assert updated.last_validated_at == T1
+    assert runtime.connections.get("deepseek:main") == updated
+    state = repository.load()
+    assert state is not None
+    assert state.revision == coordinator.revision == 2
+    assert [record.event_type for record in state.audit_log] == [
+        "connection.accepted",
+        "provider.validation_changed",
+    ]
+    record = state.audit_log[1]
+    assert record.entity_kind == "connection"
+    assert record.entity_id == "deepseek:main"
+    assert record.occurred_at == T1
+    assert record.detail == (
+        ("old_status", "auth_required"),
+        ("new_status", "connected"),
+    )
+
+    restored = restore_provider_registry_state(state)
+    assert [item.event_type for item in restored.audit_log] == [
+        "connection.accepted",
+        "provider.validation_changed",
+    ]
+    rebuilt = restored.connections.get("deepseek:main")
+    assert rebuilt is not None
+    assert rebuilt.status is ConnectionStatus.CONNECTED
+    assert rebuilt.last_validated_at == T1
+
+
+# --- MAJOR-V2-03: auth-only subscription isolation --------------------------
+
+
+def _write_auth_only_subscription_source(provider_id: str, root: Path) -> Path:
+    """A subscription home carrying authentication evidence *only*."""
+    source = root / f"{provider_id}-auth-only"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / _SUBSCRIPTION_AUTH_MARKERS[provider_id]).write_text(
+        "{}\n", encoding="utf-8"
+    )
+    return source
+
+
+@pytest.mark.parametrize("provider_id", ["codex", "claude-code", "antigravity"])
+def test_v2_auth_only_subscription_requires_cmm_owned_isolation(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """Authentication alone still forces a CMM-owned profile before CONNECTED."""
+    source = _write_auth_only_subscription_source(provider_id, tmp_path)
+    runtime = _runtime(tmp_path, validator=lambda proposal: True)
+
+    candidate = _subscription_detector(provider_id, source).detect()
+
+    assert candidate.auth_available is True
+    assert candidate.external_config_present is False
+    assert candidate.external_endpoint_override_present is False
+    proposal = runtime.service.propose(candidate)
+    assert proposal.requires_isolation is True
+
+    connection = runtime.service.accept(proposal)
+
+    assert connection.status is ConnectionStatus.CONNECTED
+    assert connection.isolation_profile_ref is not None
+    profile_home = Path(connection.isolation_profile_ref)
+    assert profile_home.is_dir()
+    assert runtime.profiles_root in profile_home.parents
+    assert profile_home != source
+    # The profile is CMM-owned: the external home is never the profile, the
+    # external config marker is never copied, and the acceptance touched
+    # nothing outside the CMM-owned root.
+    assert not (profile_home / _SUBSCRIPTION_CONFIG_MARKERS[provider_id]).exists()
+    assert (source / _SUBSCRIPTION_AUTH_MARKERS[provider_id]).is_file()
+    assert not (source / _SUBSCRIPTION_CONFIG_MARKERS[provider_id]).exists()
+    if provider_id == "codex":
+        copied = profile_home / _SUBSCRIPTION_AUTH_MARKERS[provider_id]
+        original = source / _SUBSCRIPTION_AUTH_MARKERS[provider_id]
+        assert copied.read_bytes() == original.read_bytes()
+
+
+@pytest.mark.parametrize("provider_id", ["codex", "claude-code", "antigravity"])
+def test_v2_auth_only_subscription_never_connects_without_isolation(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """A passing validator never replaces a required isolation outcome."""
+    root = tmp_path / "run"
+    repository = FileProviderRegistryStateRepository(root / "state.json")
+    source = _write_auth_only_subscription_source(provider_id, root)
+    runtime = _runtime(root, repository=repository, validator=lambda proposal: True)
+    candidate = _subscription_detector(provider_id, source).detect()
+    assert candidate.external_config_present is False
+    proposal = runtime.service.propose(candidate)
+    assert proposal.requires_isolation is True
+
+    # The isolation evidence disappears after detection: the candidate was real,
+    # the profile can no longer be built.
+    shutil.rmtree(source)
+
+    with pytest.raises(ProviderIsolationError):
+        runtime.service.accept(proposal)
+
+    assert runtime.connections.list() == ()
+    assert runtime.service.revision == 0
+    assert repository.load() is None
+    assert not (runtime.profiles_root / provider_id).exists()
+
+
+# --- MAJOR-V2-04: ownership-safe acceptance side effects --------------------
+
+
+def test_v2_preexisting_credential_is_never_overwritten_or_deleted(
+    tmp_path: Path,
+) -> None:
+    """New-connection acceptance rejects an unowned ref before `put()`."""
+    state_path = tmp_path / "state.json"
+    repository = FileProviderRegistryStateRepository(state_path)
+    runtime = _runtime(tmp_path, repository=repository)
+    other = runtime.service.accept(
+        runtime.service.propose(_api_candidate("qwen-cloud")), credential="qwen-secret"
+    )
+    existing_ref = runtime.credentials.put("deepseek", "main", "secret-old")
+    secrets_before = dict(runtime.credentials._secrets)
+    bytes_before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="credential already exists"):
+        runtime.service.accept(
+            runtime.service.propose(_api_candidate("deepseek")),
+            credential="secret-new",
+        )
+
+    # Rejected before any mutation: the pre-existing secret mapping is unchanged
+    # byte for byte, the connection is absent and the durable state is untouched.
+    assert runtime.credentials._secrets == secrets_before
+    assert runtime.credentials.has(existing_ref)
+    assert runtime.credentials._secrets[existing_ref] == "secret-old"
+    assert runtime.connections.list() == (other,)
+    assert runtime.service.revision == 1
+    durable = repository.load()
+    assert durable is not None
+    assert durable.revision == 1
+    assert state_path.read_bytes() == bytes_before
+    assert _SECRET not in bytes_before.decode("utf-8")
+    assert "secret-new" not in bytes_before.decode("utf-8")
+
+
+@pytest.mark.parametrize("provider_id", ["codex", "claude-code", "antigravity"])
+def test_v2_preexisting_isolation_target_is_never_mutated(
+    tmp_path: Path, provider_id: str
+) -> None:
+    """A pre-existing isolation target is rejected before profile mutation."""
+    root = tmp_path / "run"
+    repository = FileProviderRegistryStateRepository(root / "state.json")
+    source = _write_auth_only_subscription_source(provider_id, root)
+    runtime = _runtime(root, repository=repository, validator=lambda proposal: True)
+    target = runtime.profiles_root / provider_id
+    target.mkdir(parents=True)
+    (target / "keep-me.bin").write_bytes(b"PRE-EXISTING-MARKER")
+    if provider_id == "codex":
+        (target / "auth.json").write_text(
+            '{"tokens": "PRE-EXISTING-AUTH"}\n', encoding="utf-8"
+        )
+    before = {path.name: path.read_bytes() for path in target.iterdir()}
+
+    candidate = _subscription_detector(provider_id, source).detect()
+    proposal = runtime.service.propose(candidate)
+    assert proposal.requires_isolation is True
+
+    with pytest.raises(ValueError, match="isolation profile already exists"):
+        runtime.service.accept(proposal)
+
+    # Byte-for-byte identical target: no file rewritten, no file added, no
+    # directory replaced.
+    assert {path.name: path.read_bytes() for path in target.iterdir()} == before
+    assert runtime.connections.list() == ()
+    assert runtime.service.revision == 0
+    assert repository.load() is None
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PHASE11_MATRIX_PATH = (
