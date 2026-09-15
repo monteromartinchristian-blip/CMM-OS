@@ -936,6 +936,47 @@ def test_route_catalog_binding_is_false_without_canonical_connection() -> None:
     assert routes.is_bound_to_current_connection(route) is False
 
 
+def test_route_stays_bound_across_a_connection_status_transition() -> None:
+    """A field-only connection rewrite keeps surviving routes current.
+
+    MAJOR-V4-01 binds a route to the connection *registration*: a status
+    transition is the same accepted connection, so the route must remain
+    coherent (and the aggregate capturable) afterwards.
+    """
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+
+    connections.update_status("x:main", ConnectionStatus.WARNING)
+
+    assert routes.is_bound_to_current_connection(route) is True
+
+
+def test_route_reads_stale_after_a_transition_then_reregistration() -> None:
+    """A registration replaced after a status transition is still stale."""
+    connections, _connection_a, routes = _route_catalog_with_connection()
+    route = routes.register(
+        ModelRoute(
+            route_id="x:main:m",
+            connection_id="x:main",
+            provider_model_id="m",
+            canonical_model_id="m",
+        )
+    )
+    connections.update_status("x:main", ConnectionStatus.WARNING)
+
+    connections.remove("x:main")
+    connections.register(_replacement_connection())
+
+    assert routes.is_bound_to_current_connection(route) is False
+
+
 def test_route_catalog_binding_rejects_unregistered_route() -> None:
     """A route the catalog does not hold has no binding to report."""
     _connections, _connection_a, routes = _route_catalog_with_connection()

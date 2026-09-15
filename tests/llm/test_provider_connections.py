@@ -390,6 +390,64 @@ def test_connection_registry_binding_is_private_to_public_values() -> None:
     assert registry.is_bound_to_current_provider(connection) is False
 
 
+def test_update_status_keeps_the_same_registration_identity() -> None:
+    """A field-only rewrite stays the same registration (MAJOR-V4-01).
+
+    ``ProviderConnection`` is frozen, so a status transition necessarily stores
+    a new value object. The *registration* — the identity dependent catalogs
+    bind to — must not change, or a coherent runtime would read as stale.
+    """
+    registry = _registry("x")
+    original = registry.register(_connection(connection_id="x:main"))
+    registration = registry.registration("x:main")
+
+    updated = registry.update_status("x:main", ConnectionStatus.WARNING)
+
+    assert updated is not original
+    assert registry.registration("x:main") is registration
+    assert registry.get("x:main") is updated
+    assert registry.is_bound_to_current_provider(updated) is True
+    # A superseded value object is not the record the registry holds, so the
+    # authority check answers False for it (fail closed); capture only ever
+    # consults the current value from list().
+    assert registry.is_bound_to_current_provider(original) is False
+
+
+def test_replace_keeps_the_same_registration_identity() -> None:
+    """The rollback seam restores a record without creating an identity."""
+    registry = _registry("x")
+    original = registry.register(_connection(connection_id="x:main"))
+    registration = registry.registration("x:main")
+    registry.update_status("x:main", ConnectionStatus.WARNING)
+
+    restored = registry.replace(original)
+
+    assert restored is original
+    assert registry.registration("x:main") is registration
+
+
+def test_same_id_reregistration_is_a_new_registration_identity() -> None:
+    """Removal plus re-registration is a different authority generation."""
+    registry = _registry("x")
+    registry.register(_connection(connection_id="x:main"))
+    registration = registry.registration("x:main")
+
+    registry.remove("x:main")
+    replacement = registry.register(_connection(connection_id="x:main"))
+
+    assert registry.registration("x:main") is not registration
+    assert registry.get("x:main") is replacement
+    assert registry.is_bound_to_current_provider(replacement) is True
+
+
+def test_registration_identity_is_none_for_unknown_or_blank_ids() -> None:
+    """The identity accessor mirrors ``get()``'s None-for-unknown contract."""
+    registry = _registry("x")
+
+    assert registry.registration("missing:main") is None
+    assert registry.registration("   ") is None
+
+
 def test_remove_unknown_or_blank_id_raises() -> None:
     registry = _registry()
 

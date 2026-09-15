@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from kernel.llm.provider_connections import (
-    ProviderConnection,
     ProviderConnectionRegistry,
+    _ConnectionRegistration,
 )
 
 
@@ -108,15 +108,18 @@ class ModelRoute:
 
 @dataclass(frozen=True, slots=True)
 class _RouteBinding:
-    """One route together with the canonical connection it was bound to.
+    """One route together with the canonical connection registration it belongs to.
 
-    Private storage detail (MAJOR-V4-01): identity is the exact
-    ``ProviderConnection`` object resolved at registration, never the
-    ``connection_id`` alone, so a removed or same-id replaced connection leaves
-    the route visibly stale instead of silently current.
+    Private storage detail (MAJOR-V4-01): identity is the exact registration the
+    bound :class:`~kernel.llm.provider_connections.ProviderConnectionRegistry`
+    held when the route was registered, never the ``connection_id`` alone — so a
+    removed or same-id re-registered connection leaves the route visibly stale
+    instead of silently current. Binding to the registration rather than to one
+    of its ``ProviderConnection`` value objects keeps a route current across a
+    field-only rewrite of the same connection (a status transition).
     """
 
-    connection: ProviderConnection
+    registration: _ConnectionRegistration
     route: ModelRoute
 
 
@@ -130,11 +133,11 @@ class ModelRouteCatalog:
     the route id: the connection is the only authority on which provider a
     route belongs to.
 
-    The resolved connection object is retained privately as this route's
-    authority binding (MAJOR-V4-01). Field-only mutations — availability,
-    ``last_seen_at``, capability or restore rewrites — keep that binding, so a
-    stale route can never be silently re-bound to a same-id replacement
-    connection.
+    The connection registration this route belongs to is retained privately as
+    the route's authority binding (MAJOR-V4-01). Field-only mutations —
+    availability, ``last_seen_at``, capability or restore rewrites — keep that
+    binding, so a stale route can never be silently re-bound to a same-id
+    replacement connection.
     """
 
     def __init__(self, connections: ProviderConnectionRegistry) -> None:
@@ -160,8 +163,8 @@ class ModelRouteCatalog:
         """
         if route.first_seen_at is not None:
             _ensure_aware(route.first_seen_at, "first_seen_at")
-        connection = self._connections.get(route.connection_id)
-        if connection is None:
+        registration = self._connections.registration(route.connection_id)
+        if registration is None:
             raise ValueError(f"unknown connection_id: {route.connection_id}")
         now = datetime.now(timezone.utc)
         stored = replace(
@@ -173,7 +176,7 @@ class ModelRouteCatalog:
         key = stored.route_id
         if key in self._routes:
             raise ValueError(f"duplicate route_id: {key}")
-        self._routes[key] = _RouteBinding(connection=connection, route=stored)
+        self._routes[key] = _RouteBinding(registration=registration, route=stored)
         return stored
 
     def restore(self, route: ModelRoute) -> ModelRoute:
@@ -187,21 +190,21 @@ class ModelRouteCatalog:
         same aware-timestamp rule. Raises ``ValueError`` for an unknown
         connection, a duplicate route id or a naive timestamp.
 
-        A restore establishes a *fresh* binding to the exact connection object
-        resolved now (MAJOR-V4-01): a rebuilt runtime is one new coherent
-        authority generation, and no object identity is persisted.
+        A restore establishes a *fresh* binding to the connection registration
+        the rebuilt registry holds now (MAJOR-V4-01): a rebuilt runtime is one
+        new coherent authority generation, and no object identity is persisted.
         """
         if route.first_seen_at is not None:
             _ensure_aware(route.first_seen_at, "first_seen_at")
         if route.last_seen_at is not None:
             _ensure_aware(route.last_seen_at, "last_seen_at")
-        connection = self._connections.get(route.connection_id)
-        if connection is None:
+        registration = self._connections.registration(route.connection_id)
+        if registration is None:
             raise ValueError(f"unknown connection_id: {route.connection_id}")
         key = route.route_id
         if key in self._routes:
             raise ValueError(f"duplicate route_id: {key}")
-        self._routes[key] = _RouteBinding(connection=connection, route=route)
+        self._routes[key] = _RouteBinding(registration=registration, route=route)
         return route
 
     def restore_all(self, routes: Iterable[ModelRoute]) -> None:
@@ -221,10 +224,10 @@ class ModelRouteCatalog:
         never a deletion policy (routes are still only ever marked unavailable).
 
         Authority bindings are restored with the records (MAJOR-V4-01): a record
-        already stored keeps the exact connection it was bound to, so undoing a
-        pass can never re-bind a stale route to a same-id replacement
+        already stored keeps the exact registration it was bound to, so undoing
+        a pass can never re-bind a stale route to a same-id replacement
         connection. A record the catalog does not currently hold is bound to the
-        exact connection object accepted now.
+        connection registration accepted now.
         """
         entries: dict[str, _RouteBinding] = {}
         for route in routes:
@@ -234,15 +237,15 @@ class ModelRouteCatalog:
                 _ensure_aware(route.first_seen_at, "first_seen_at")
             if route.last_seen_at is not None:
                 _ensure_aware(route.last_seen_at, "last_seen_at")
-            connection = self._connections.get(route.connection_id)
-            if connection is None:
+            registration = self._connections.registration(route.connection_id)
+            if registration is None:
                 raise ValueError(f"unknown connection_id: {route.connection_id}")
             if route.route_id in entries:
                 raise ValueError(f"duplicate route_id: {route.route_id}")
             existing = self._routes.get(route.route_id)
             entries[route.route_id] = _RouteBinding(
-                connection=(
-                    existing.connection if existing is not None else connection
+                registration=(
+                    existing.registration if existing is not None else registration
                 ),
                 route=route,
             )
@@ -270,19 +273,17 @@ class ModelRouteCatalog:
 
         Authority coherence check (MAJOR-V4-01), read-only: it reports whether
         the route stored under ``route``'s id is that same route and is bound to
-        the exact ``ProviderConnection`` the bound registry currently resolves
-        for its connection id. It never mutates, rebinds or repairs — a stale
-        route stays visible and answers ``False``.
+        the connection registration the bound registry currently holds for its
+        connection id. It never mutates, rebinds or repairs — a stale route
+        stays visible and answers ``False``.
         """
         binding = self._routes.get(route.route_id)
         if binding is None:
             return False
         if binding.route is not route and binding.route != route:
             return False
-        current_connection = self._connections.get(route.connection_id)
-        if current_connection is None:
-            return False
-        return current_connection is binding.connection
+        current_registration = self._connections.registration(route.connection_id)
+        return current_registration is binding.registration
 
     def mark_seen(self, route_id: str, at: datetime | None = None) -> ModelRoute:
         """Refresh ``last_seen_at`` and restore availability for a known route.
@@ -292,7 +293,7 @@ class ModelRouteCatalog:
         2026-09-13-cmm-provider-registry-core); the previous keyword-only
         spelling was a spec deviation. Keyword callers remain unaffected.
         Raises ``ValueError`` for an unknown id or a naive ``at``. The stored
-        connection binding is kept: this is a field-only update of the same
+        connection registration is kept: this is a field-only update of the same
         registration (MAJOR-V4-01).
         """
         binding = self._require(route_id)
@@ -301,7 +302,7 @@ class ModelRouteCatalog:
         now = at or datetime.now(timezone.utc)
         updated = replace(binding.route, last_seen_at=now, available=True)
         self._routes[binding.route.route_id] = _RouteBinding(
-            connection=binding.connection, route=updated
+            registration=binding.registration, route=updated
         )
         return updated
 
@@ -309,13 +310,13 @@ class ModelRouteCatalog:
         """Flag a known route unavailable; identity and history are retained.
 
         Raises ``ValueError`` for an unknown or blank id. The stored connection
-        binding is kept: this is a field-only update of the same registration
-        (MAJOR-V4-01).
+        registration is kept: this is a field-only update of the same
+        registration (MAJOR-V4-01).
         """
         binding = self._require(route_id)
         updated = replace(binding.route, available=False)
         self._routes[binding.route.route_id] = _RouteBinding(
-            connection=binding.connection, route=updated
+            registration=binding.registration, route=updated
         )
         return updated
 
