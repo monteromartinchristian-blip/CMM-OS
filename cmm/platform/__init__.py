@@ -20,6 +20,10 @@ from cmm.platform.compatibility import (
     CompatibilityStatus,
     check_contract_compatibility,
 )
+from cmm.platform.configuration import (
+    CompositionConfiguration,
+    ServiceExpectation,
+)
 from cmm.platform.contracts import (
     ContainerState,
     ContractCanonicalizationEntry,
@@ -43,12 +47,15 @@ from cmm.platform.errors import (
     MissingDependencyError,
     PlatformCompositionError,
 )
+from cmm.platform.modules import CompositionModule, StaticCompositionModule
 from cmm.platform.service_registry import IntegrationServiceRegistry
 
 __all__ = [
     "CircularDependencyError",
     "CompatibilityResult",
     "CompatibilityStatus",
+    "CompositionConfiguration",
+    "CompositionModule",
     "ContainerNotReadyError",
     "ContainerState",
     "ContractCanonicalizationEntry",
@@ -67,6 +74,8 @@ __all__ = [
     "ServiceBinding",
     "ServiceDependency",
     "ServiceDescriptor",
+    "ServiceExpectation",
     "ServiceMode",
+    "StaticCompositionModule",
     "check_contract_compatibility",
 ]
