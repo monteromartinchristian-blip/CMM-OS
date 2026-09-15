@@ -47,10 +47,16 @@ from cmm.platform.errors import (
     MissingDependencyError,
     PlatformCompositionError,
 )
+from cmm.platform.inspection import (
+    ApplicationCompositionSnapshot,
+    ServiceInspection,
+    build_composition_snapshot,
+)
 from cmm.platform.modules import CompositionModule, StaticCompositionModule
 from cmm.platform.service_registry import IntegrationServiceRegistry
 
 __all__ = [
+    "ApplicationCompositionSnapshot",
     "CircularDependencyError",
     "CompatibilityResult",
     "CompatibilityStatus",
@@ -75,7 +81,9 @@ __all__ = [
     "ServiceDependency",
     "ServiceDescriptor",
     "ServiceExpectation",
+    "ServiceInspection",
     "ServiceMode",
     "StaticCompositionModule",
+    "build_composition_snapshot",
     "check_contract_compatibility",
 ]
