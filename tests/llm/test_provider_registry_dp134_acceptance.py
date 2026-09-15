@@ -7,6 +7,13 @@ discovery path. Scenarios A–M map one-to-one to the Design Point statement in
 ``docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md``
 §10.
 
+The final section carries the Remediation V2 adversaries Independent Re-audit V2
+required (``docs/audits/phase-11.34-provider-registry-independent-reaudit-v2.md``):
+manifest non-divergence, route/validation audit persistence through the
+coordinator, auth-only subscription isolation with the real detectors,
+pre-existing credential/profile ownership, and the Phase 11 requirements-matrix
+traceability checkpoint.
+
 The only fakes allowed are boundary fakes required for a hermetic run: an
 injected detector environment, injected filesystem homes under ``tmp_path``,
 the official in-memory credential store, and a recording discovery client that
@@ -842,3 +849,153 @@ def _all_keys(payload: object) -> list[str]:
         for item in payload:
             keys.extend(_all_keys(item))
     return keys
+
+
+# --- Remediation V2 adversaries (Independent Re-audit V2 findings) ----------
+#
+# These checkpoints close the acceptance-adequacy gap Independent Re-audit V2
+# reported for MAJOR-V2-01 … MAJOR-V2-05. They exercise the same canonical
+# components as scenarios A–M — no mock stands in for the provider authority,
+# the manifest catalog, the repository, the coordinator, the real detectors or
+# the discovery path.
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PHASE11_MATRIX_PATH = (
+    _REPO_ROOT
+    / "docs"
+    / "reference"
+    / "phase-11-stable-integrated-platform-requirements-matrix.md"
+)
+_PHASE10_MATRIX_PATH = (
+    _REPO_ROOT / "docs" / "reference" / "domain-intelligence-requirements-matrix.md"
+)
+
+# The canonical F11-014 statement the Phase 11 matrix must carry (spec §8.3).
+_F11_014_STATEMENT = (
+    "Maintain one canonical, persistent, auditable and fail-closed Provider "
+    "Registry in which provider identity is authoritative through "
+    "`ProviderRegistry`, manifests/connections/models/routes are referentially "
+    "coherent, subscription isolation policy is explicit, onboarding side "
+    "effects are ownership-safe, discovery remains non-inference, and `DP-134` "
+    "is verified through `AT-DP-134`."
+)
+
+# Claims that would mean Phase 11.34 is closed. Before Independent Re-audit V3
+# they may appear only inside a fence explicitly labelled as the future closure
+# criteria, never as current state (spec §15).
+_FORBIDDEN_CURRENT_CLAIMS = (
+    "PHASE11_34=CLOSED",
+    "F11-014=VERIFIED_EXISTING",
+    "DP-134=VERIFIED_EXISTING",
+    "AT-DP-134=PASS",
+    "CLOSURE_ELIGIBLE=YES",
+)
+
+# Every artifact the F11-014 row must trace to (spec §8.4).
+_F11_014_TRACEABILITY = (
+    "kernel/llm/provider_registry.py",
+    "kernel/llm/provider_manifests.py",
+    "kernel/llm/provider_connections.py",
+    "kernel/llm/model_routes.py",
+    "kernel/llm/model_discovery.py",
+    "kernel/llm/provider_onboarding.py",
+    "ProviderRegistryStateRepository",
+    "ProviderRegistryStateCoordinator",
+    "ProviderOnboardingService",
+    "docs/audits/phase-11.34-provider-registry-independent-audit-v1.md",
+    "docs/audits/phase-11.34-provider-registry-independent-reaudit-v2.md",
+    "docs/superpowers/specs/2026-09-14-phase-11.34-provider-registry-remediation-v1-design.md",
+    "docs/superpowers/plans/2026-09-14-phase-11.34-provider-registry-remediation-v1-implementation-plan.md",
+    "docs/superpowers/specs/2026-09-15-phase-11.34-provider-registry-remediation-v2-design.md",
+    "docs/superpowers/plans/2026-09-15-phase-11.34-provider-registry-remediation-v2-implementation-plan.md",
+    "tests/llm/test_provider_registry_dp134_acceptance.py",
+)
+
+# The inherited/preassigned Phase 11 planning rows that stay owned by the Phase
+# 10 matrix. Their normative text must not be restated (duplicated) here.
+_INHERITED_PHASE11_IDS = tuple(f"F11-{index:03d}" for index in range(1, 14))
+
+
+def _marked_lines(text: str):
+    """Yield ``(line, fence_label)``; the label is ``None`` outside a fence.
+
+    A fence is labelled with the nearest preceding non-empty line outside any
+    fence, so a "future closure criteria" heading before a block is what marks
+    the block as such.
+    """
+    fence_label: str | None = None
+    pending_label = ""
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            if fence_label is None:
+                fence_label = pending_label
+            else:
+                fence_label = None
+                pending_label = ""
+            continue
+        if fence_label is None and line.strip():
+            pending_label = line.strip()
+        yield line, fence_label
+
+
+def _phase11_inherited_rows(text: str) -> dict[str, str]:
+    """Return the ``F11-0xx`` planning rows of the Phase 10 matrix by id.
+
+    Only the normative-requirement cell is extracted: that text is what the new
+    Phase 11 matrix must point back to instead of copying.
+    """
+    rows: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("| `F11-0"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split(" | ")]
+        if len(cells) != 7:
+            continue
+        requirement_id = cells[0].strip("`")
+        if requirement_id in _INHERITED_PHASE11_IDS:
+            rows[requirement_id] = cells[1]
+    return rows
+
+
+def test_requirements_matrix_traceability_is_canonical_and_pending_reaudit() -> None:
+    """The Phase 11 matrix owns `F11-014` → `DP-134` → `AT-DP-134`, unclosed.
+
+    Documentary checkpoint only (spec §9.7): every runtime invariant in this
+    file is proven by the scenarios themselves, never by reading a document.
+    """
+    assert _PHASE11_MATRIX_PATH.is_file(), (
+        f"the canonical Phase 11 requirements matrix is missing: {_PHASE11_MATRIX_PATH}"
+    )
+    text = _PHASE11_MATRIX_PATH.read_text(encoding="utf-8")
+
+    # The row and its full traceable chain exist verbatim.
+    for marker in ("F11-014", "DP-134", "AT-DP-134", "11.34"):
+        assert marker in text, f"Phase 11 matrix does not carry {marker}"
+    assert _F11_014_STATEMENT in text
+    for artifact in _F11_014_TRACEABILITY:
+        assert artifact in text, f"F11-014 row does not trace to {artifact}"
+
+    # The lifecycle status is the pending-reaudit maximum, never closure.
+    assert "IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT" in text
+    assert "DP-134=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT" in text
+    assert "AT-DP-134=PASS_REPORTED" in text
+    assert "CLOSURE_ELIGIBLE=NO" in text
+    for line, fence_label in _marked_lines(text):
+        if line.strip() not in _FORBIDDEN_CURRENT_CLAIMS:
+            continue
+        assert fence_label is not None and "future closure criteria" in (
+            fence_label.lower()
+        ), f"premature closure claim outside future criteria: {line.strip()!r}"
+
+    # The historical Phase 10 matrix stays canonical for `F11-001`…`F11-013`:
+    # the new matrix points back to those rows instead of restating them.
+    assert _PHASE10_MATRIX_PATH.name in text
+    inherited = _phase11_inherited_rows(_PHASE10_MATRIX_PATH.read_text("utf-8"))
+    assert set(_INHERITED_PHASE11_IDS) <= set(inherited)
+    for requirement_id in _INHERITED_PHASE11_IDS:
+        assert requirement_id in text
+        assert inherited[requirement_id] not in text, (
+            f"{requirement_id} normative text must stay owned by the Phase 10 "
+            "matrix instead of being duplicated"
+        )
