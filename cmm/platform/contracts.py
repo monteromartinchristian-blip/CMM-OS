@@ -178,11 +178,44 @@ class ServiceBinding:
     runtime_contract: type[Any] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ErrorResult:
+    """Minimal platform-boundary composition failure value.
+
+    This is a boundary result only.  It never replaces canonical
+    subsystem-specific error types inside those subsystems.
+
+    ``details`` carries identifiers and reason codes only.  Arbitrary runtime
+    objects, exception instances, secrets, credentials, provider payloads,
+    prompts, tracebacks and hidden reasoning are rejected rather than
+    serialized.
+    """
+
+    code: str
+    message: str
+    category: str
+    details: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", _non_empty(self.code, "code"))
+        object.__setattr__(self, "message", _non_empty(self.message, "message"))
+        object.__setattr__(self, "category", _non_empty(self.category, "category"))
+
+        details = dict(self.details)
+        for key, value in details.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise TypeError("error details must map strings to strings")
+            _non_empty(key, "detail key")
+
+        object.__setattr__(self, "details", MappingProxyType(details))
+
+
 __all__ = [
     "ContainerState",
     "ContractCanonicalizationEntry",
     "ContractClassification",
     "ContractMetadata",
+    "ErrorResult",
     "ServiceBinding",
     "ServiceDependency",
     "ServiceDescriptor",

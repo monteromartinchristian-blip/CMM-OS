@@ -11,6 +11,7 @@ from cmm.platform.contracts import (
     ContractCanonicalizationEntry,
     ContractClassification,
     ContractMetadata,
+    ErrorResult,
     ServiceBinding,
     ServiceDependency,
     ServiceDescriptor,
@@ -281,3 +282,66 @@ def test_service_binding_is_immutable() -> None:
 
     with pytest.raises(FrozenInstanceError):
         binding.implementation = object()  # type: ignore[misc]
+
+
+# ── ErrorResult ──────────────────────────────────────────────────────────────
+
+
+def test_error_result_requires_non_empty_identity() -> None:
+    result = ErrorResult(
+        code="MISSING_DEPENDENCY",
+        message="Required service is missing",
+        category="composition",
+    )
+
+    assert result.code == "MISSING_DEPENDENCY"
+    assert result.message == "Required service is missing"
+    assert result.category == "composition"
+    assert dict(result.details) == {}
+
+
+@pytest.mark.parametrize("field", ["code", "message", "category"])
+def test_error_result_rejects_empty_required_fields(field: str) -> None:
+    payload = {
+        "code": "MISSING_DEPENDENCY",
+        "message": "Required service is missing",
+        "category": "composition",
+    }
+    payload[field] = "  "
+
+    with pytest.raises(ValueError):
+        ErrorResult(**payload)
+
+
+def test_error_result_details_are_immutable_and_defensively_copied() -> None:
+    source = {"service_id": "agent.runtime"}
+    result = ErrorResult(
+        code="MISSING_DEPENDENCY",
+        message="Required service is missing",
+        category="composition",
+        details=source,
+    )
+
+    source["injected"] = "later"
+
+    assert dict(result.details) == {"service_id": "agent.runtime"}
+
+    with pytest.raises(TypeError):
+        result.details["injected"] = "later"  # type: ignore[index]
+
+
+def test_error_result_rejects_non_string_detail_values() -> None:
+    with pytest.raises(TypeError):
+        ErrorResult(
+            code="MISSING_DEPENDENCY",
+            message="Required service is missing",
+            category="composition",
+            details={"service_id": object()},  # type: ignore[dict-item]
+        )
+
+
+def test_error_result_is_immutable() -> None:
+    result = ErrorResult(code="X", message="Y", category="Z")
+
+    with pytest.raises(FrozenInstanceError):
+        result.code = "other"  # type: ignore[misc]
