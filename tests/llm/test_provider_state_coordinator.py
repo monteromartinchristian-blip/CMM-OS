@@ -2063,6 +2063,70 @@ def test_discovery_floor_ignores_another_connections_route_audit(
     assert client.calls == 1
 
 
+def test_restarted_coordinator_derives_the_same_discovery_floor(
+    tmp_path: Path,
+) -> None:
+    """MAJOR-V5-02: the combined floor survives a restart with no extra state.
+
+    The exact T1 aggregate is persisted through the canonical repository,
+    rebuilt into fresh components and driven by a fresh coordinator seated on
+    the restored revision and audit log. Both floors must be reproducible from
+    that restored state alone — an older snapshot is still refused before the
+    client is consulted.
+    """
+    repository = FileProviderRegistryStateRepository(tmp_path / "state.json")
+    runtime, _connection, _manifest = _three_pass_runtime(tmp_path)
+    state_t1 = repository.load()
+    assert state_t1 is not None
+    assert state_t1.revision == 2
+    assert runtime.coordinator.revision == 2
+
+    restored = restore_provider_registry_state(state_t1)
+    coordinator = ProviderRegistryStateCoordinator(
+        providers=restored.providers,
+        manifests=restored.manifests,
+        models=restored.models,
+        connections=restored.connections,
+        routes=restored.routes,
+        repository=repository,
+        revision=restored.revision,
+        audit_log=restored.audit_log,
+    )
+    restored_runtime = _Runtime(
+        coordinator=coordinator,
+        providers=restored.providers,
+        manifests=restored.manifests,
+        models=restored.models,
+        connections=restored.connections,
+        routes=restored.routes,
+        repository=repository,
+        credentials=InMemoryCredentialStore(),
+    )
+    connection = restored.connections.get("deepseek:main")
+    assert connection is not None
+    manifest = restored.manifests.get("deepseek")
+    assert manifest is not None
+
+    assert _route_floor(restored_runtime) == _WATERMARK_T0
+    assert _audit_floor(restored_runtime) == _WATERMARK_T1
+    assert coordinator.revision == 2
+    route_a = restored.routes.get("deepseek:main:a")
+    assert route_a is not None and route_a.available is False
+    client = _DiscoveryClient(("a", "b"))
+
+    with pytest.raises(
+        ProviderStateCoherenceError,
+        match="discovery seen_at precedes current route state",
+    ):
+        coordinator.discover_models(connection, manifest, client, seen_at=_WATERMARK_TM)
+
+    assert client.calls == 0
+    assert restored.routes.list() == state_t1.routes
+    assert coordinator.revision == 2
+    assert coordinator.audit_log == state_t1.audit_log
+    assert repository.load() == state_t1
+
+
 def test_discovery_route_event_allowlist_is_exact() -> None:
     """The audit floor admits exactly the four discovery route events.
 
