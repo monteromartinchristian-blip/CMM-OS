@@ -2595,3 +2595,176 @@ def test_v5_d_restarted_runtime_rejects_the_intermediate_snapshot(
     assert coordinator.revision == 3
     assert coordinator.audit_log == state_t1.audit_log
     assert repository.load() == state_t1
+
+
+# --- Remediation V6 adversaries (Independent Re-audit V6 finding) ------------
+#
+# MAJOR-V6-01: restore_all() may preserve an existing registration marker only
+# for the same route_id + connection_id relationship. Fresh or rebound relations
+# must pass through current connection/provider authority.
+#
+# Every adversary below runs on the canonical runtime: the real provider,
+# manifest, connection and route catalogs under the canonical first-wave
+# bootstrap, connections accepted through the real onboarding service, and —
+# for the rebind case — a second real first-wave connection rather than a
+# fabricated provider or connection record.
+
+_V6_REBIND_PROVIDER = "kira"
+
+
+def _connect_v6_rebind_provider(runtime: _Runtime) -> ProviderConnection:
+    """Accept one further canonical first-wave API provider as a rebind target."""
+    return runtime.service.accept(
+        runtime.service.propose(_api_candidate(_V6_REBIND_PROVIDER)),
+        credential=_SECRET,
+    )
+
+
+def test_v6_a_restore_all_rejects_a_fresh_route_under_a_stale_parent(
+    tmp_path: Path,
+) -> None:
+    """Scenario V6-A: a fresh relation cannot be created through stale authority.
+
+    The accepted connection survives a same-id provider replacement, so the
+    referential lookup alone would accept the route — but its exact
+    ``ProviderSpec`` binding is gone, and a fresh ``restore_all()`` entry is a
+    new relation exactly like ``register()`` and ``restore()``.
+    """
+    runtime = _runtime(tmp_path)
+    connection = _connect_deepseek(runtime)
+    _replace_deepseek_authority(runtime)
+
+    stale = runtime.connections.get("deepseek:main")
+    assert stale is connection
+    assert runtime.connections.is_bound_to_current_provider(stale) is False
+
+    incoming = ModelRoute(
+        route_id="deepseek:main:deepseek-chat",
+        connection_id="deepseek:main",
+        provider_model_id="deepseek-chat",
+        canonical_model_id="deepseek-chat",
+        first_seen_at=T0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=("connection deepseek:main is bound to a stale or missing ProviderSpec"),
+    ):
+        runtime.routes.restore_all((incoming,))
+
+    assert runtime.routes.list() == ()
+    assert runtime.routes.get("deepseek:main:deepseek-chat") is None
+    # The stale connection stays visible: no cascading teardown.
+    assert runtime.connections.get("deepseek:main") is connection
+
+
+def test_v6_b_restore_all_rebinds_same_route_id_to_the_declared_connection(
+    tmp_path: Path,
+) -> None:
+    """Scenario V6-B: a changed connection id is a coherent current rebind.
+
+    The same route id now declares a different, currently authorized
+    connection, so the rebound relation must carry *that* connection's
+    registration marker — the previous connection's marker may not survive.
+    """
+    runtime = _runtime(tmp_path)
+    deepseek = _connect_deepseek(runtime)
+    target = _connect_v6_rebind_provider(runtime)
+    target_id = f"{_V6_REBIND_PROVIDER}:main"
+    assert target.connection_id == target_id
+    assert runtime.connections.is_bound_to_current_provider(target) is True
+
+    original = runtime.routes.register(
+        ModelRoute(
+            route_id="logical-route",
+            connection_id="deepseek:main",
+            provider_model_id="deepseek-chat",
+            canonical_model_id="deepseek-chat",
+        )
+    )
+    assert runtime.routes.is_bound_to_current_connection(original) is True
+
+    incoming = ModelRoute(
+        route_id="logical-route",
+        connection_id=target_id,
+        provider_model_id="kira-model",
+        canonical_model_id="deepseek-chat",
+        first_seen_at=T0,
+        last_seen_at=T1,
+    )
+
+    runtime.routes.restore_all((incoming,))
+
+    restored = runtime.routes.get("logical-route")
+    assert restored == incoming
+    assert restored is not None
+    assert restored.connection_id == target_id
+    assert runtime.routes.is_bound_to_current_connection(restored) is True
+    # The previous parent connection is untouched by the rebind.
+    assert runtime.connections.get("deepseek:main") is deepseek
+
+
+def test_v6_c_restore_all_keeps_the_historical_binding_under_a_stale_parent(
+    tmp_path: Path,
+) -> None:
+    """Scenario V6-C: exact rollback neither re-resolves nor repairs authority.
+
+    The pass mutates the stored record before it fails, so the rollback has to
+    put a *changed* value back while its parent provider authority is already
+    stale. The same route id + connection id is the same historical relation,
+    so the rollback stays possible — accepting it at all is the proof that no
+    current-authority lookup happened — and the relation is not silently
+    rebound to the same-id replacement provider.
+    """
+    runtime = _runtime(tmp_path)
+    connection = _connect_deepseek(runtime)
+    route = runtime.routes.register(
+        ModelRoute(
+            route_id="deepseek:main:deepseek-chat",
+            connection_id="deepseek:main",
+            provider_model_id="deepseek-chat",
+            canonical_model_id="deepseek-chat",
+            last_seen_at=T0,
+        )
+    )
+    snapshot = runtime.routes.list()
+
+    runtime.routes.mark_seen(route.route_id, T1)
+    mutated = runtime.routes.get(route.route_id)
+    assert mutated is not None
+    assert mutated != route
+
+    _replace_deepseek_authority(runtime)
+    assert runtime.connections.get("deepseek:main") is connection
+    assert runtime.connections.is_bound_to_current_provider(connection) is False
+
+    runtime.routes.restore_all(snapshot)
+
+    assert runtime.routes.list() == snapshot
+    restored = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert restored is snapshot[0]
+    assert restored is route
+    # Route authority is the connection *registration* (MAJOR-V4-01): only the
+    # parent provider binding is stale here, so the connection-level check stays
+    # true and capture is what refuses the aggregate (V6 design §40). Asserted
+    # explicitly so a silent rebind cannot pass unnoticed.
+    assert runtime.routes.is_bound_to_current_connection(restored) is True
+    assert runtime.connections.is_bound_to_current_provider(connection) is False
+    # The rollback did not turn the stale parent into fresh authority: a *new*
+    # relation under the same connection is still refused.
+    with pytest.raises(
+        ValueError,
+        match=("connection deepseek:main is bound to a stale or missing ProviderSpec"),
+    ):
+        runtime.routes.restore_all(
+            (
+                ModelRoute(
+                    route_id="deepseek:main:deepseek-reasoner",
+                    connection_id="deepseek:main",
+                    provider_model_id="deepseek-reasoner",
+                    canonical_model_id="deepseek-reasoner",
+                    first_seen_at=T0,
+                ),
+            )
+        )
+    assert runtime.routes.list() == snapshot
