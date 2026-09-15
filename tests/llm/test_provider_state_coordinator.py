@@ -678,8 +678,9 @@ def test_no_op_discovery_scan_does_not_advance_the_revision(tmp_path: Path) -> N
         connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T0
     )
     assert repository.save_calls == 1
-    seen_at_before = runtime.routes.get("deepseek:main:deepseek-chat")
-    assert seen_at_before is not None
+    first_pass = runtime.routes.get("deepseek:main:deepseek-chat")
+    assert first_pass is not None
+    assert first_pass.last_seen_at == T0
 
     runtime.coordinator.discover_models(
         connection, manifest, _DiscoveryClient(("deepseek-chat",)), seen_at=T1
