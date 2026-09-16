@@ -73,6 +73,12 @@ from cmm.orchestration.orchestrator import (
     Orchestrator,
     OrchestratorProtocol,
 )
+from cmm.orchestration.platform_module import (
+    ORCHESTRATION_AUTHORITY,
+    ORCHESTRATION_MODULE_ID,
+    ORCHESTRATION_SERVICE_IDS,
+    build_orchestration_composition_module,
+)
 from cmm.orchestration.policy import (
     DefaultOrchestrationPolicy,
     OrchestrationConfiguration,
@@ -81,6 +87,9 @@ from cmm.orchestration.policy import (
 
 __all__ = [
     "ALLOWED_EVENT_TYPES",
+    "ORCHESTRATION_AUTHORITY",
+    "ORCHESTRATION_MODULE_ID",
+    "ORCHESTRATION_SERVICE_IDS",
     "AgentRouteDecision",
     "AgentRouter",
     "AgentRoutingError",
@@ -120,5 +129,6 @@ __all__ = [
     "RecordedOrchestrationEvent",
     "RecordingOrchestrationEventSink",
     "ResolvedContext",
+    "build_orchestration_composition_module",
     "validate_orchestration_event",
 ]

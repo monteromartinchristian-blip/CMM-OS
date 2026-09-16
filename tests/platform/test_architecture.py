@@ -20,6 +20,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_PACKAGE = REPO_ROOT / "cmm" / "platform"
 CANONICAL_MODULE = PLATFORM_PACKAGE / "canonical.py"
+ORCHESTRATION_PACKAGE = REPO_ROOT / "cmm" / "orchestration"
 
 # ── Canonical imports used only to build real subsystem objects ---------------
 
@@ -332,12 +333,22 @@ def _imported_modules(path: Path) -> set[str]:
 
 
 def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
-    """Dependency direction is one-way: cmm.platform -> canonical subsystems."""
+    """Dependency direction is one-way: cmm.platform -> canonical subsystems.
+
+    ``cmm.orchestration`` is excluded because Phase 11.2 is the application-level
+    coordination layer that the Phase 11.2 design places explicitly *above*
+    ``cmm.platform`` (``cmm.orchestration -> cmm.platform + canonical
+    subsystems``).  It is not a canonical subsystem, and
+    ``test_only_orchestration_may_depend_on_the_platform_package`` below keeps
+    that exemption exact.
+    """
 
     offenders: list[str] = []
 
     for root in (REPO_ROOT / "cmm", REPO_ROOT / "kernel"):
         for path in _python_files(root, exclude=PLATFORM_PACKAGE):
+            if ORCHESTRATION_PACKAGE in path.parents:
+                continue
             for module in _imported_modules(path):
                 if module == "cmm.platform" or module.startswith("cmm.platform."):
                     offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
@@ -345,6 +356,24 @@ def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
     assert not offenders, (
         "canonical subsystem packages must not import cmm.platform: "
         f"{sorted(offenders)}"
+    )
+
+
+def test_only_orchestration_may_depend_on_the_platform_package() -> None:
+    """The Phase 11.2 orchestration layer is the one sanctioned consumer."""
+
+    consumers: set[str] = set()
+
+    for root in (REPO_ROOT / "cmm", REPO_ROOT / "kernel"):
+        for path in _python_files(root, exclude=PLATFORM_PACKAGE):
+            for module in _imported_modules(path):
+                if module == "cmm.platform" or module.startswith("cmm.platform."):
+                    package = path.relative_to(REPO_ROOT).parts[1]
+                    consumers.add(package)
+
+    assert consumers <= {"orchestration"}, (
+        "only cmm.orchestration may depend on cmm.platform: "
+        f"{sorted(consumers)}"
     )
 
 
