@@ -20,7 +20,10 @@ The gateway owns exactly four decisions:
   from the stored safe response when the fingerprint matches, rejected as
   ``IDEMPOTENCY_CONFLICT`` when it does not, and recorded only after a terminal
   safe response exists.  A response synthesized by the failure handler is never
-  recorded, so an internal defect can not be pinned to a caller's key;
+  recorded, so an internal defect can not be pinned to a caller's key.  The
+  complete keyed ``get -> execute -> put`` sequence is one atomic critical
+  section for this gateway instance, so two simultaneous keyed commands of one
+  key can not both observe an absent record and both enter the canonical owner;
 - **fail-closed failure** — no exception escapes ``handle()`` for an accepted
   request.  Every failure becomes ``failed_response(...)`` built from the safe
   :func:`~cmm.application.errors.safe_error_from_exception` projection, so an
@@ -39,6 +42,7 @@ See ``docs/reference/phase-11-application-backend.md``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -211,6 +215,13 @@ class ApplicationGateway:
         self._capabilities = capabilities
         self._health = health
         self._idempotency = idempotency
+        # One private, in-process lock owns the keyed idempotency critical
+        # section of *this* gateway instance.  It is an implementation detail:
+        # it is not a constructor argument, not a service, not registered in
+        # composition and not exported.  Commands without a key and queries
+        # never touch it, and the v1 guarantee is deliberately local rather
+        # than distributed.
+        self._idempotency_lock = Lock()
 
     # ── Public entrypoint ────────────────────────────────────────────────────
 
@@ -269,29 +280,38 @@ class ApplicationGateway:
         return self._dispatch_once(request)
 
     def _dispatch_idempotent(self, request: ApplicationCommand) -> ApplicationResponse:
-        """Replay, reject or record one keyed public command."""
+        """Replay, reject or record one keyed public command atomically.
+
+        The whole keyed sequence — fingerprint, lookup, replay or conflict
+        decision, canonical execution and record persistence — runs as one
+        critical section, so a second caller of a key can never observe the
+        absent record while the first is still executing the command.  The
+        public replay/conflict semantics are unchanged; only the interleaving is
+        closed.
+        """
 
         key = request.idempotency_key
         if key is None:
             return self._dispatch_once(request)
 
-        fingerprint = fingerprint_command(request)
-        stored = self._idempotency.get(key)
-        if stored is not None:
-            if stored.fingerprint != fingerprint:
-                raise IdempotencyConflictError(
-                    details={"reason_code": "IDEMPOTENCY_KEY_REUSED"}
-                )
-            return stored.response
+        with self._idempotency_lock:
+            fingerprint = fingerprint_command(request)
+            stored = self._idempotency.get(key)
+            if stored is not None:
+                if stored.fingerprint != fingerprint:
+                    raise IdempotencyConflictError(
+                        details={"reason_code": "IDEMPOTENCY_KEY_REUSED"}
+                    )
+                return stored.response
 
-        # Recording happens strictly after a terminal safe response exists.  A
-        # raised failure produced no response, so nothing is recorded for it and
-        # the key is never bound to a defect.
-        response = self._dispatch_once(request)
-        self._idempotency.put(
-            IdempotencyRecord(key=key, fingerprint=fingerprint, response=response)
-        )
-        return response
+            # Recording happens strictly after a terminal safe response exists.
+            # A raised failure produced no response, so nothing is recorded for
+            # it and the key is never bound to a defect.
+            response = self._dispatch_once(request)
+            self._idempotency.put(
+                IdempotencyRecord(key=key, fingerprint=fingerprint, response=response)
+            )
+            return response
 
     def _dispatch_once(self, request: ApplicationRequest) -> ApplicationResponse:
         """Dispatch one of the six frozen public operations explicitly."""
