@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 
+from cmm.agent_runtime.agent_registry_service import AgentRegistryService
 from cmm.orchestration.contracts import (
     AgentRouteDecision,
     DomainRouteDecision,
@@ -112,9 +113,24 @@ class AgentRouter(Protocol):
 
 
 class CanonicalAgentRouter:
-    """Deterministic execution-path router delegating agent selection canonically."""
+    """Deterministic execution-path router delegating agent selection canonically.
 
-    def __init__(self, *, registry_service: Any | None = None) -> None:
+    Agent compatibility and selection stay owned by the canonical
+    :class:`~cmm.agent_runtime.agent_registry_service.AgentRegistryService`, and
+    this router accepts no other agent-selection authority: a noncanonical object
+    that merely exposes ``resolve_agent`` is rejected at construction, so it can
+    never fabricate an agent identifier through this boundary.
+    """
+
+    def __init__(self, *, registry_service: AgentRegistryService | None = None) -> None:
+        if registry_service is not None and not isinstance(
+            registry_service, AgentRegistryService
+        ):
+            raise TypeError(
+                "registry_service must be the canonical "
+                f"{AgentRegistryService.__name__}, "
+                f"got {type(registry_service).__name__}"
+            )
         self._registry_service = registry_service
 
     # ── Public API ───────────────────────────────────────────────────────────

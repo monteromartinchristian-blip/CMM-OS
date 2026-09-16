@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -228,7 +229,9 @@ def test_route_matrix_is_independent_of_the_selected_domain() -> None:
 def test_continuation_carries_the_referenced_workflow() -> None:
     request = _request(input={"continuation_id": "workflow-1"})
 
-    decision = _route_agent(CanonicalAgentRouter(), IntentKind.CONTINUATION, request=request)
+    decision = _route_agent(
+        CanonicalAgentRouter(), IntentKind.CONTINUATION, request=request
+    )
 
     assert decision.route is ExecutionRoute.WORKFLOW
     assert decision.workflow_id == "workflow-1"
@@ -237,7 +240,9 @@ def test_continuation_carries_the_referenced_workflow() -> None:
 def test_cancellation_carries_the_referenced_workflow() -> None:
     request = _request(input={"cancel_target_id": "workflow-2"})
 
-    decision = _route_agent(CanonicalAgentRouter(), IntentKind.CANCELLATION, request=request)
+    decision = _route_agent(
+        CanonicalAgentRouter(), IntentKind.CANCELLATION, request=request
+    )
 
     assert decision.route is ExecutionRoute.WORKFLOW
     assert decision.workflow_id == "workflow-2"
@@ -337,12 +342,27 @@ def test_autonomous_goal_without_a_registry_service_escalates() -> None:
     assert decision.agent_id is None
 
 
-def test_registry_failure_fails_closed() -> None:
-    class _BrokenService:
-        def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
-            raise RuntimeError("registry unavailable")
+class _BrokenAgentRegistryService(AgentRegistryService):
+    """Canonical authority whose resolution fails; proves fail-closed handling."""
 
-    router = CanonicalAgentRouter(registry_service=_BrokenService())
+    def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("registry unavailable")
+
+
+class _RecordingAgentRegistryService(AgentRegistryService):
+    """Canonical authority that records whether agent resolution was attempted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        raise AssertionError("non-agent route must not resolve an agent")
+
+
+def test_registry_failure_fails_closed() -> None:
+    router = CanonicalAgentRouter(registry_service=_BrokenAgentRegistryService())
     request = _request(
         input={"goal": {"title": "Complete task"}},
         requested_capabilities=("knowledge.read",),
@@ -352,6 +372,94 @@ def test_registry_failure_fails_closed() -> None:
         _route_agent(router, IntentKind.GOAL, request=request)
 
     assert captured.value.category == "agent"
+
+
+# ── Canonical authority (Audit V1 MAJOR-02) ──────────────────────────────────
+
+
+class _FakeRegistryService:
+    """A noncanonical authority that can fabricate an agent selection."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        return SimpleNamespace(
+            selected=SimpleNamespace(
+                agent_id="forged.agent",
+                version=SimpleNamespace(canonical=lambda: "9.9.9"),
+            )
+        )
+
+
+def test_noncanonical_registry_service_is_rejected_before_routing() -> None:
+    """Audit V1 MAJOR-02: canonical authority must be a real runtime boundary."""
+
+    with pytest.raises(TypeError):
+        CanonicalAgentRouter(registry_service=_FakeRegistryService())  # type: ignore[arg-type]
+
+
+def test_noncanonical_registry_service_can_never_fabricate_an_agent() -> None:
+    """The fake authority must be rejected before it is ever consulted."""
+
+    fake = _FakeRegistryService()
+
+    with pytest.raises(TypeError):
+        CanonicalAgentRouter(registry_service=fake)  # type: ignore[arg-type]
+
+    assert fake.calls == 0
+
+
+def test_rejection_message_names_the_canonical_authority_safely() -> None:
+    with pytest.raises(TypeError) as captured:
+        CanonicalAgentRouter(  # type: ignore[arg-type]
+            registry_service=_FakeRegistryService()
+        )
+
+    message = str(captured.value)
+    assert AgentRegistryService.__name__ in message
+    assert "_FakeRegistryService" in message
+    assert "0x" not in message
+    assert "object at" not in message
+
+
+def test_real_canonical_registry_service_is_accepted() -> None:
+    service = _service(_descriptor())
+
+    router = CanonicalAgentRouter(registry_service=service)
+
+    assert isinstance(router, AgentRouter)
+
+
+def test_no_registry_service_is_accepted_for_non_agent_routes() -> None:
+    """``None`` stays valid: a route that needs no agent selection needs no authority."""
+
+    router = CanonicalAgentRouter(registry_service=None)
+
+    assert isinstance(router, AgentRouter)
+    assert (
+        _route_agent(router, IntentKind.QUESTION).route
+        is ExecutionRoute.DIRECT_RESPONSE
+    )
+
+
+def test_canonical_no_match_escalates_through_the_real_authority() -> None:
+    """No compatible canonical agent means escalation, never an invented agent."""
+
+    service = _service(_descriptor(capability="knowledge.read"))
+    router = CanonicalAgentRouter(registry_service=service)
+    request = _request(
+        input={"goal": {"title": "Complete task"}},
+        requested_capabilities=("operation.execute",),
+    )
+
+    decision = _route_agent(router, IntentKind.GOAL, request=request)
+
+    assert service.resolver.attempts == 1
+    assert decision.route is ExecutionRoute.HUMAN_ESCALATION
+    assert decision.agent_id is None
+    assert "AGENT_ROUTING_NO_COMPATIBLE_AGENT" in decision.reason_codes
 
 
 @pytest.mark.parametrize(
@@ -368,15 +476,7 @@ def test_registry_failure_fails_closed() -> None:
 def test_non_agent_routes_do_not_consult_the_agent_registry(
     intent: IntentKind,
 ) -> None:
-    class _RecordingService:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
-            self.calls += 1
-            raise AssertionError("non-agent route must not resolve an agent")
-
-    service = _RecordingService()
+    service = _RecordingAgentRegistryService()
 
     _route_agent(CanonicalAgentRouter(registry_service=service), intent)
 
