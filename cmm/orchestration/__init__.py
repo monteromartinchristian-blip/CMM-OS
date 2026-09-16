@@ -69,6 +69,10 @@ from cmm.orchestration.intent import (
     DeterministicIntentResolver,
     IntentResolver,
 )
+from cmm.orchestration.orchestrator import (
+    Orchestrator,
+    OrchestratorProtocol,
+)
 from cmm.orchestration.policy import (
     DefaultOrchestrationPolicy,
     OrchestrationConfiguration,
@@ -110,6 +114,8 @@ __all__ = [
     "OrchestrationRequest",
     "OrchestrationResult",
     "OrchestrationStatus",
+    "Orchestrator",
+    "OrchestratorProtocol",
     "PolicyDisposition",
     "RecordedOrchestrationEvent",
     "RecordingOrchestrationEventSink",

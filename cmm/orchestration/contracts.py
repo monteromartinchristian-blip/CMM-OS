@@ -636,7 +636,7 @@ class OrchestrationDecisionRecord:
     channel: OrchestrationChannel
     intent: IntentKind
     execution_route: ExecutionRoute
-    policy_disposition: PolicyDisposition
+    policy_disposition: PolicyDisposition | None = None
     session_id: str | None = None
     primary_domain: str | None = None
     supporting_domains: tuple[str, ...] = ()
@@ -668,7 +668,7 @@ class OrchestrationDecisionRecord:
         object.__setattr__(
             self,
             "policy_disposition",
-            _enum_value(
+            _enum_value_opt(
                 self.policy_disposition, PolicyDisposition, "policy_disposition"
             ),
         )
@@ -704,7 +704,11 @@ class OrchestrationDecisionRecord:
             "primary_domain": self.primary_domain,
             "supporting_domains": list(self.supporting_domains),
             "execution_route": self.execution_route.value,
-            "policy_disposition": self.policy_disposition.value,
+            "policy_disposition": (
+                None
+                if self.policy_disposition is None
+                else self.policy_disposition.value
+            ),
             "selected_agent_id": self.selected_agent_id,
             "workflow_id": self.workflow_id,
             "approval_refs": list(self.approval_refs),
