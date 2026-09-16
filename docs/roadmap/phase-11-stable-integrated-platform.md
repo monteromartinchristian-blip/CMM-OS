@@ -497,6 +497,56 @@ Configure decisions according to:
 - multichannel tests;
 - end-to-end orchestration tests.
 
+### 11.2 implementation status
+
+**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+
+Implemented by the `cmm/orchestration/` orchestration-layer package:
+
+- requirement `F11-016 — Canonical Request Orchestration`;
+- Design Point `DP-102 — Fail-Closed Canonical Request Orchestration Pipeline`;
+- acceptance test `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`
+  (12 connected scenarios A–L over real canonical components);
+- architecture gates — `tests/orchestration/test_architecture.py`;
+- reference documentation — [`docs/reference/phase-11-orchestration-layer.md`](../reference/phase-11-orchestration-layer.md).
+
+The layer coordinates existing canonical owners and duplicates none of them:
+intent resolution is Phase 11.2-owned and deterministic; context resolution is a
+read-only two-stage projection over `cmm.runtime.sessions.SessionStore` and
+explicit read-only seams; domain selection delegates to
+`cmm.domains.resolver.DefaultDomainResolver` and canonical Domain permission
+resources; execution-path selection delegates agent selection to
+`cmm.agent_runtime.agent_registry_service.AgentRegistryService` /
+`cmm.agent_runtime.agent_resolver.AgentResolver`; the restrictive policy only
+preserves or narrows canonical authority. Decision persistence and safe event
+emission are the only Phase 11.2-owned side effects.
+
+Phase 11.2 does **not** execute the downstream vertical (no operation, workflow,
+agent run, memory/knowledge write or provider/model call) and does **not**
+implement the Phase 11.3 Application Backend: no HTTP API, FastAPI/Flask,
+OpenAPI, REST resources, streaming, pagination, API idempotency/concurrency,
+application-service facade or conversation service is introduced. **Phase 11.3
+remains the Application Backend.**
+
+`AT-DP-101` and `AT-DP-134` remain green and unchanged. Phase 11.1 and Phase
+11.34 stay closed; no closed-phase production semantics were modified. The only
+Phase 11.1 test adjustment is the documented dependency-direction exemption for
+the new `cmm.orchestration` package, with a stronger gate confirming that
+`cmm.orchestration` is the one sanctioned `cmm.platform` consumer.
+
+Before independent audit the recorded state is:
+
+```text
+PHASE11_2=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_016=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_102=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_102=PASS
+```
+
+This is not a closure and not a verification claim. Only the subsequent
+independent audit may return `DP-102=VERIFIED_EXISTING`,
+`F11_016=VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE=YES`.
+
 ---
 
 # 11.3 — Application Backend

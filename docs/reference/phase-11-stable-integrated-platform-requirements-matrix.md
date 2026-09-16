@@ -177,6 +177,49 @@ Final Independent Re-audit V1 returned `PASS` with `BLOCKERS=0`, `MAJORS=0`,
 therefore closed by the dedicated docs-only closure commit. Final report:
 `docs/audits/phase-11.1-integration-core-independent-reaudit-v1.md`; audited HEAD `80dd0e70ebb1c5619fb5e0b3c69cbbe382fb0bf4`; bundle SHA-256 `aacb9c8452710d37f28473ee1d8b9e8010e1f2d8337a3279adc845913da609bb`.
 
+### 4.5 `F11-016` — Canonical Request Orchestration
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix, `F11-014` is owned
+by §4.1 and `F11-015` by §4.3 of this document. `F11-016` is the next
+non-colliding Phase 11 functional identifier, assigned to Phase 11.2 —
+Orchestration Layer.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-016` | Canonical Request Orchestration. CMM OS shall coordinate each application request through one explicit, fail-closed Orchestrator that resolves request intent and authorized context, delegates domain selection to canonical Domain Intelligence, selects a bounded execution route, delegates agent selection to canonical Agent Runtime authority, preserves restrictive permission/approval/autonomy semantics, records safe orchestration decisions, emits safe lifecycle events through an injected sink, and returns a structured orchestration result without duplicating domain, agent, workflow, execution, validation, session, memory, knowledge, provider or event-system ownership. | `SRC-R11` (detailed Phase 11 roadmap §11.2); `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` §45 | Phase 11.2 | `cmm/orchestration/__init__.py`; `contracts.py`; `errors.py`; `intent.py`; `context.py`; `domain_router.py`; `agent_router.py`; `policy.py`; `decision_repository.py`; `events.py`; `orchestrator.py`; `platform_module.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
+
+### 4.6 `F11-016` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-016 — Canonical Request Orchestration` |
+| Design Point | `DP-102 — Fail-Closed Canonical Request Orchestration Pipeline` |
+| Acceptance test | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
+| Production package | `cmm/orchestration/` (12 modules) |
+| Focused suite | `tests/orchestration/` |
+| Architecture gates | `tests/orchestration/test_architecture.py` |
+| Reference documentation | `docs/reference/phase-11-orchestration-layer.md` |
+| Design specification | `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-orchestration-layer-implementation-plan.md` |
+| Reused canonical owners | `cmm.domains.resolver.DefaultDomainResolver`; `cmm.domains.registry.DomainRegistry`; `cmm.domains.resolution_builder.DomainResolutionContextBuilder`; `cmm.domains.permission_registry.DomainPermissionRegistry`; `cmm.domains.permission_resolution.DomainPermissionResolver`; `cmm.domains.profile_registry.InMemoryDomainProfileRegistry`; `cmm.agent_runtime.agent_registry_service.AgentRegistryService`; `cmm.agent_runtime.agent_resolver.AgentResolver`; `cmm.agent_runtime.agent_registry_store.InMemoryAgentRegistryStore`; `cmm.runtime.sessions.SessionStore` / `InMemorySessionStore`; `cmm.platform.contracts.ErrorResult`; Phase 11.1 `StaticCompositionModule` / `ApplicationContainer` |
+| Inherited requirements reused | `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
+| Inherited acceptance regressions | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+| Audit status | independent audit not yet performed |
+
+Phase 11.2 introduces exactly one new persistence owner
+(`OrchestrationDecisionRepository`, in-memory only) because orchestration
+decision recording is genuinely new; it introduces no second Provider Registry,
+Domain Registry, Agent Registry, Session Store, workflow/execution/validation
+engine, Memory/Knowledge Store, Event Bus, planner, model router or policy
+engine. Safe decision persistence and safe event emission are the only Phase
+11.2-owned side effects, and no downstream operation, workflow, agent run,
+memory/knowledge write or provider/model call occurs.
+
+Phase 11.2 does not implement the Phase 11.3 Application Backend; the API,
+application services, streaming, pagination, idempotency and concurrency remain
+Phase 11.3 scope.
+
 ## 5. Current lifecycle status
 
 ```text
@@ -332,3 +375,66 @@ forward):
 No parallel provider registry, domain registry, agent runtime, planner, workflow
 engine, validation engine, knowledge/memory store, tool registry or event bus is
 introduced by Phase 11.1.
+
+## 9. Phase 11.2 — Orchestration Layer current status
+
+Sections 5, 6 and 8 record the closed Phase 11.34 Provider Registry and the
+closed Phase 11.1 integration core and are not modified by Phase 11.2. The
+Phase 11.2 orchestration layer is a separate subphase and is reported here:
+
+```text
+PHASE11_2=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_016=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_102=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_102=PASS
+
+PHASE11_1=CLOSED
+F11_015=VERIFIED_EXISTING
+DP_101=VERIFIED_EXISTING
+AT_DP_101=PASS
+
+PHASE11_34=CLOSED
+F11_014=VERIFIED_EXISTING
+DP_134=VERIFIED_EXISTING
+AT_DP_134=PASS
+
+BLOCKERS=NONE_RECORDED
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
+```
+
+Phase 11.2 does not reopen Phase 11.1 or Phase 11.34. No closed-phase production
+semantics were changed: the Phase 11.1 composition core is **extended** by one
+new side-effect-free orchestration composition module, and the Phase 11.34
+Provider Registry is referenced as a dependency only.
+
+Phase 11.2 introduces no new Phase 11.3 surface:
+
+- no HTTP API, FastAPI/Flask/Starlette, OpenAPI, REST resources, endpoint
+  decorators, streaming, pagination or API idempotency/concurrency;
+- no application-service facade, conversation service, `GoalService`,
+  `WorkflowService`, `KnowledgeService` or `MemoryService`;
+- no CMMChat or CMM Bots integration;
+- no Model Gateway or provider/model routing;
+- no Event Bus, plugin lifecycle, scheduler or queue;
+- no new session, goal, workflow, memory, knowledge or event repository.
+
+Deferred Phase 11.2 items recorded with this requirement (implemented nowhere,
+not silently pulled forward):
+
+- API and application backend surfaces — **Phase 11.3**;
+- durable (file/SQLite/relational) orchestration decision persistence — Phase
+  11.15 storage work; Phase 11.2 provides the official in-memory repository
+  only;
+- per-actor domain authorization — canonical permission evidence today, the
+  dedicated authorization owner in Phase 11.13;
+- Model Gateway / Phase 11.35 Routing Policy Engine integration — later routing
+  work; Phase 11.2 correctness does not depend on remote inference;
+- distributed tracing, metrics infrastructure, dashboards and alerting — later
+  Phase 11 observability work; Phase 11.2 propagates existing references only;
+- CMMChat / CMM Bots consumption of the orchestration result — after the Phase
+  11.3 Application Backend.
+
+Implementation decisions and deviations are recorded in
+[`docs/reference/phase-11-orchestration-layer.md`](phase-11-orchestration-layer.md)
+§17.
