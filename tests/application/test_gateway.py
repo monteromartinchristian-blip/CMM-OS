@@ -934,10 +934,14 @@ def test_same_key_and_same_command_replays_the_stored_response() -> None:
     harness = _harness(sessions=())
 
     first = harness.gateway.handle(
-        _session_create_request("session-5", request_id="req-a", idempotency_key="key-1")
+        _session_create_request(
+            "session-5", request_id="req-a", idempotency_key="key-1"
+        )
     )
     second = harness.gateway.handle(
-        _session_create_request("session-5", request_id="req-b", idempotency_key="key-1")
+        _session_create_request(
+            "session-5", request_id="req-b", idempotency_key="key-1"
+        )
     )
 
     assert first.status is ApplicationStatus.SUCCESS
@@ -966,10 +970,14 @@ def test_same_key_with_a_different_payload_is_an_idempotency_conflict() -> None:
     harness = _harness(sessions=())
 
     harness.gateway.handle(
-        _session_create_request("session-5", request_id="req-a", idempotency_key="key-3")
+        _session_create_request(
+            "session-5", request_id="req-a", idempotency_key="key-3"
+        )
     )
     response = harness.gateway.handle(
-        _session_create_request("session-6", request_id="req-b", idempotency_key="key-3")
+        _session_create_request(
+            "session-6", request_id="req-b", idempotency_key="key-3"
+        )
     )
 
     assert response.status is ApplicationStatus.FAILED
@@ -1002,7 +1010,9 @@ def test_same_key_with_a_different_operation_is_an_idempotency_conflict() -> Non
     harness = _harness(sessions=())
 
     harness.gateway.handle(
-        _session_create_request("session-5", request_id="req-a", idempotency_key="key-5")
+        _session_create_request(
+            "session-5", request_id="req-a", idempotency_key="key-5"
+        )
     )
     response = harness.gateway.handle(
         _message_submit_request(

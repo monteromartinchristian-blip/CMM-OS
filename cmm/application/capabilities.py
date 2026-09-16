@@ -136,9 +136,7 @@ class CapabilityApplicationService:
                     "capabilities must contain ApplicationCapability values"
                 )
 
-        identifiers = [
-            capability.capability_id for capability in capabilities
-        ]
+        identifiers = [capability.capability_id for capability in capabilities]
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("capabilities must not declare a duplicate capability ID")
 

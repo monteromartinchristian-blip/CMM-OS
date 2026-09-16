@@ -89,9 +89,7 @@ _FAILURE_CATEGORY_CODES: Mapping[str, ApplicationErrorCode] = {
 
 #: The typed failure that owns each mapped public code, so the public message is
 #: always the application-owned constant and never canonical error text.
-_FAILURE_EXCEPTIONS: Mapping[
-    ApplicationErrorCode, type[ApplicationServiceError]
-] = {
+_FAILURE_EXCEPTIONS: Mapping[ApplicationErrorCode, type[ApplicationServiceError]] = {
     ApplicationErrorCode.POLICY_DENIED: PolicyDeniedApplicationError,
     ApplicationErrorCode.APPROVAL_REQUIRED: ApprovalRequiredApplicationError,
     ApplicationErrorCode.CANCELLED: ApplicationCancelledError,
@@ -250,9 +248,9 @@ class RequestApplicationService:
                 api_version=APPLICATION_API_VERSION,
                 status=status,
                 data=None,
-                error=error if error is not None else _public_error(
-                    ApplicationErrorCode.INTERNAL_FAILURE
-                ),
+                error=error
+                if error is not None
+                else _public_error(ApplicationErrorCode.INTERNAL_FAILURE),
                 metadata={},
             )
 

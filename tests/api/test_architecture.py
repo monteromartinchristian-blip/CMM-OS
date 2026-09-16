@@ -288,9 +288,7 @@ def test_api_package_transport_imports_are_the_frozen_allowlist() -> None:
             if root not in ALLOWED_EXTERNAL_IMPORT_ROOTS:
                 offenders.append(f"{path.name} -> {module}")
 
-    assert not offenders, (
-        f"unfrozen transport import in cmm.api: {sorted(offenders)}"
-    )
+    assert not offenders, f"unfrozen transport import in cmm.api: {sorted(offenders)}"
 
 
 def test_api_package_never_dispatches_by_string_or_reflection() -> None:
@@ -309,7 +307,9 @@ def test_api_package_never_dispatches_by_string_or_reflection() -> None:
     )
 
 
-@pytest.mark.parametrize("layer", LOWER_LAYERS, ids=lambda value: value.replace("/", "_"))
+@pytest.mark.parametrize(
+    "layer", LOWER_LAYERS, ids=lambda value: value.replace("/", "_")
+)
 def test_lower_layers_do_not_import_the_api_package(layer: str) -> None:
     offenders: list[str] = []
 
@@ -340,7 +340,9 @@ def test_api_package_new_owner_classes_are_the_frozen_allowlist() -> None:
     """The adapter owns no new authority: the allowlist is empty."""
 
     defined = {
-        name for path in _package_files(API_PACKAGE) for name in _defined_class_names(path)
+        name
+        for path in _package_files(API_PACKAGE)
+        for name in _defined_class_names(path)
     }
 
     owner_shaped = {
@@ -376,7 +378,9 @@ def test_api_package_contains_no_owner_shaped_module() -> None:
 
     offenders = sorted(present & FORBIDDEN_MODULE_NAMES)
 
-    assert not offenders, f"owner/storage/auth module introduced in cmm.api: {offenders}"
+    assert not offenders, (
+        f"owner/storage/auth module introduced in cmm.api: {offenders}"
+    )
 
 
 # ── 3. No durable storage or migration layer ─────────────────────────────────

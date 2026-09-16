@@ -92,9 +92,7 @@ _IDEMPOTENT_OPERATIONS = frozenset(
 _DEFAULT_CONTENT_TYPE = "text/plain"
 
 
-def _success_response(
-    request_id: str, data: Mapping[str, Any]
-) -> ApplicationResponse:
+def _success_response(request_id: str, data: Mapping[str, Any]) -> ApplicationResponse:
     """Return one successful, versioned public response envelope."""
 
     return ApplicationResponse(
@@ -264,16 +262,13 @@ class ApplicationGateway:
     # ── Dispatch ─────────────────────────────────────────────────────────────
 
     def _dispatch(self, request: ApplicationRequest) -> ApplicationResponse:
-        if (
-            request.operation in _IDEMPOTENT_OPERATIONS
-            and isinstance(request, ApplicationCommand)
+        if request.operation in _IDEMPOTENT_OPERATIONS and isinstance(
+            request, ApplicationCommand
         ):
             return self._dispatch_idempotent(request)
         return self._dispatch_once(request)
 
-    def _dispatch_idempotent(
-        self, request: ApplicationCommand
-    ) -> ApplicationResponse:
+    def _dispatch_idempotent(self, request: ApplicationCommand) -> ApplicationResponse:
         """Replay, reject or record one keyed public command."""
 
         key = request.idempotency_key
@@ -294,9 +289,7 @@ class ApplicationGateway:
         # the key is never bound to a defect.
         response = self._dispatch_once(request)
         self._idempotency.put(
-            IdempotencyRecord(
-                key=key, fingerprint=fingerprint, response=response
-            )
+            IdempotencyRecord(key=key, fingerprint=fingerprint, response=response)
         )
         return response
 

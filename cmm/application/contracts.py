@@ -359,9 +359,7 @@ def _message_content(value: object) -> str:
     if not value:
         raise ValueError("content must be non-empty")
     if len(value) > MAX_MESSAGE_LENGTH:
-        raise ValueError(
-            f"content must not exceed {MAX_MESSAGE_LENGTH} characters"
-        )
+        raise ValueError(f"content must not exceed {MAX_MESSAGE_LENGTH} characters")
     return value
 
 
@@ -378,9 +376,7 @@ def _optional_revision(value: object, field_name: str) -> int | None:
 def _optional_idempotency_key(value: object) -> str | None:
     if value is None:
         return None
-    return _bounded_text(
-        value, "idempotency_key", MAX_IDEMPOTENCY_KEY_LENGTH
-    )
+    return _bounded_text(value, "idempotency_key", MAX_IDEMPOTENCY_KEY_LENGTH)
 
 
 def _timestamp(value: object, field_name: str) -> str:
@@ -439,7 +435,9 @@ class ApplicationRequest:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
         object.__setattr__(self, "api_version", _api_version(self.api_version))
         object.__setattr__(
             self,
@@ -571,7 +569,9 @@ class ApplicationResponse:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
         object.__setattr__(self, "api_version", _api_version(self.api_version))
         object.__setattr__(
             self,
@@ -581,9 +581,7 @@ class ApplicationResponse:
         if self.error is not None and not isinstance(self.error, ApplicationError):
             raise TypeError("error must be an ApplicationError or None")
         if self.data is not None:
-            object.__setattr__(
-                self, "data", _freeze_public_mapping(self.data, "data")
-            )
+            object.__setattr__(self, "data", _freeze_public_mapping(self.data, "data"))
         object.__setattr__(
             self, "metadata", _freeze_public_mapping(self.metadata, "metadata")
         )
@@ -621,7 +619,9 @@ class ApplicationSession:
     updated_at: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "session_id", _identifier(self.session_id, "session_id"))
+        object.__setattr__(
+            self, "session_id", _identifier(self.session_id, "session_id")
+        )
         object.__setattr__(
             self, "revision", _optional_revision(self.revision, "revision")
         )
@@ -632,8 +632,12 @@ class ApplicationSession:
             "status",
             _bounded_text(self.status, "status", MAX_IDENTIFIER_LENGTH),
         )
-        object.__setattr__(self, "created_at", _timestamp(self.created_at, "created_at"))
-        object.__setattr__(self, "updated_at", _timestamp(self.updated_at, "updated_at"))
+        object.__setattr__(
+            self, "created_at", _timestamp(self.created_at, "created_at")
+        )
+        object.__setattr__(
+            self, "updated_at", _timestamp(self.updated_at, "updated_at")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -659,8 +663,12 @@ class ApplicationMessage:
     idempotency_key: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "message_id", _identifier(self.message_id, "message_id"))
-        object.__setattr__(self, "session_id", _identifier(self.session_id, "session_id"))
+        object.__setattr__(
+            self, "message_id", _identifier(self.message_id, "message_id")
+        )
+        object.__setattr__(
+            self, "session_id", _identifier(self.session_id, "session_id")
+        )
         object.__setattr__(self, "actor_id", _identifier(self.actor_id, "actor_id"))
         object.__setattr__(self, "content", _message_content(self.content))
         object.__setattr__(
@@ -722,7 +730,9 @@ class ApplicationCapability:
             _enum_member(self.status, CapabilityStatus, "status"),
         )
         object.__setattr__(
-            self, "version", _bounded_text(self.version, "version", MAX_IDENTIFIER_LENGTH)
+            self,
+            "version",
+            _bounded_text(self.version, "version", MAX_IDENTIFIER_LENGTH),
         )
         object.__setattr__(self, "operations", _operations(self.operations))
         object.__setattr__(
@@ -785,7 +795,9 @@ class ApplicationStreamEvent:
     error: ApplicationError | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
         object.__setattr__(
             self, "sequence", _optional_revision(self.sequence, "sequence")
         )
@@ -823,7 +835,9 @@ class ApplicationCancellationRequest:
     request_id: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {"request_id": self.request_id}

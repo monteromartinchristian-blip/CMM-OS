@@ -151,7 +151,8 @@ def test_list_capabilities_returns_the_frozen_declarations() -> None:
 
 def test_list_capabilities_is_deterministically_ordered() -> None:
     identifiers = [
-        declaration.capability_id for declaration in _default_service().list_capabilities()
+        declaration.capability_id
+        for declaration in _default_service().list_capabilities()
     ]
 
     assert identifiers == sorted(identifiers)

@@ -387,8 +387,7 @@ def test_openapi_operation_ids_are_deterministic_across_applications() -> None:
 
 def test_openapi_publishes_a_summary_for_every_operation() -> None:
     summaries = {
-        operation["summary"]
-        for _method, _path, operation in _operations(_document())
+        operation["summary"] for _method, _path, operation in _operations(_document())
     }
 
     assert len(summaries) == len(FROZEN_V1_ROUTES)
@@ -405,9 +404,7 @@ def test_openapi_publishes_the_frozen_success_status_for_every_operation() -> No
 
     for method, path, operation in _operations(_document()):
         successes = [
-            int(status)
-            for status in operation["responses"]
-            if status.startswith("2")
+            int(status) for status in operation["responses"] if status.startswith("2")
         ]
         assert len(successes) == 1, f"{method.upper()} {path} -> {successes}"
         published[(method, path)] = successes[0]
@@ -415,16 +412,16 @@ def test_openapi_publishes_the_frozen_success_status_for_every_operation() -> No
     assert published == FROZEN_V1_SUCCESS_STATUS
 
 
-def test_openapi_success_status_matches_the_application_operation_it_dispatches() -> None:
+def test_openapi_success_status_matches_the_application_operation_it_dispatches() -> (
+    None
+):
     """A 201 may only publish the one operation the status map creates."""
 
     for route, status in FROZEN_V1_SUCCESS_STATUS.items():
         assert status == success_status_code(FROZEN_V1_OPERATIONS[route])
 
     creating = {
-        route
-        for route, status in FROZEN_V1_SUCCESS_STATUS.items()
-        if status == 201
+        route for route, status in FROZEN_V1_SUCCESS_STATUS.items() if status == 201
     }
     assert creating == {
         route
@@ -451,7 +448,8 @@ def test_openapi_stream_operation_is_not_published_as_a_json_envelope() -> None:
     """The stream route answers with SSE frames, never with the JSON envelope."""
 
     operations = {
-        (method, path): operation for method, path, operation in _operations(_document())
+        (method, path): operation
+        for method, path, operation in _operations(_document())
     }
     stream = operations[STREAM_ROUTE]
 
@@ -461,14 +459,13 @@ def test_openapi_stream_operation_is_not_published_as_a_json_envelope() -> None:
 
 def test_openapi_stream_operation_takes_the_frozen_message_command() -> None:
     operations = {
-        (method, path): operation for method, path, operation in _operations(_document())
+        (method, path): operation
+        for method, path, operation in _operations(_document())
     }
     stream = operations[STREAM_ROUTE]
 
     body_schema = stream["requestBody"]["content"]["application/json"]["schema"]
-    parameters = {
-        parameter["name"]: parameter for parameter in stream["parameters"]
-    }
+    parameters = {parameter["name"]: parameter for parameter in stream["parameters"]}
 
     assert body_schema == {"$ref": "#/components/schemas/MessageBody"}
     assert stream["requestBody"]["required"] is True
@@ -502,9 +499,7 @@ def test_openapi_publishes_exactly_the_closed_public_error_codes() -> None:
 def test_openapi_publishes_exactly_the_closed_public_response_statuses() -> None:
     status_schema = _schemas(_document())["ApplicationStatus"]
 
-    assert set(status_schema["enum"]) == {
-        status.value for status in ApplicationStatus
-    }
+    assert set(status_schema["enum"]) == {status.value for status in ApplicationStatus}
     assert status_schema["type"] == "string"
 
 
@@ -549,12 +544,8 @@ def test_openapi_publishes_exactly_the_frozen_schema_set() -> None:
 def test_openapi_exposes_no_internal_implementation_name() -> None:
     document = json.dumps(_document(), sort_keys=True)
 
-    owners = sorted(
-        token for token in FORBIDDEN_DOCUMENT_TOKENS if token in document
-    )
-    modules = sorted(
-        token for token in FORBIDDEN_DOCUMENT_MODULES if token in document
-    )
+    owners = sorted(token for token in FORBIDDEN_DOCUMENT_TOKENS if token in document)
+    modules = sorted(token for token in FORBIDDEN_DOCUMENT_MODULES if token in document)
 
     assert not owners, f"internal owner published in OpenAPI: {owners}"
     assert not modules, f"internal module published in OpenAPI: {modules}"

@@ -708,7 +708,9 @@ def test_application_stream_event_is_frozen_and_typed() -> None:
         ApplicationStreamEvent(request_id="req-1", sequence=0, kind="started")
 
     with pytest.raises(ValueError):
-        ApplicationStreamEvent(request_id="req-1", sequence=-1, kind=StreamEventKind.DATA)
+        ApplicationStreamEvent(
+            request_id="req-1", sequence=-1, kind=StreamEventKind.DATA
+        )
 
 
 def test_application_cancellation_request_requires_a_request_identity() -> None:

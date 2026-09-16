@@ -548,9 +548,7 @@ def _client(backend: ApplicationBackend) -> TestClient:
     return TestClient(backend.app)
 
 
-def _client_with_sessions(
-    backend: ApplicationBackend, *session_ids: str
-) -> TestClient:
+def _client_with_sessions(backend: ApplicationBackend, *session_ids: str) -> TestClient:
     """Create the named sessions through the public API and return a client."""
 
     client = _client(backend)
@@ -742,8 +740,7 @@ def test_scenario_b_health_reports_safe_readiness_on_the_v1_surface() -> None:
     assert "agent.runtime.integration" in data["services"]
     # The readiness owner is the real Phase 11.1 composition.
     assert set(data["services"]) == {
-        service.service_id
-        for service in backend.platform_container.snapshot().services
+        service.service_id for service in backend.platform_container.snapshot().services
     }
 
 
@@ -823,9 +820,7 @@ def test_scenario_c_duplicate_session_creation_is_a_conflict() -> None:
     duplicate = client.post("/v1/sessions", json={"session_id": SESSION_ID})
 
     assert duplicate.status_code == 409
-    assert duplicate.json()["error"]["code"] == (
-        ApplicationErrorCode.CONFLICT.value
-    )
+    assert duplicate.json()["error"]["code"] == (ApplicationErrorCode.CONFLICT.value)
     # The canonical session was never re-versioned by the rejected create.
     assert backend.session_store.load(SESSION_ID).revision == 1
     _assert_orchestration_not_invoked(backend)
@@ -1040,9 +1035,7 @@ def test_scenario_e_application_layer_projects_and_never_reselects() -> None:
     # Domain and agent listing stay honestly deferred on the public surface.
     declared = {
         capability["capability_id"]: capability
-        for capability in client.get("/v1/capabilities").json()["data"][
-            "capabilities"
-        ]
+        for capability in client.get("/v1/capabilities").json()["data"]["capabilities"]
     }
     assert declared["domains"]["status"] == CapabilityStatus.DEFERRED.value
     assert declared["agents"]["status"] == CapabilityStatus.DEFERRED.value
@@ -1083,7 +1076,11 @@ def test_scenario_e_agent_authority_is_not_reachable_from_the_public_path() -> N
             "content": MESSAGE_CONTENT,
             "expected_session_revision": True,
         },
-        {"actor_id": ACTOR_ID, "content": MESSAGE_CONTENT, "metadata": {"a": [1] * 200}},
+        {
+            "actor_id": ACTOR_ID,
+            "content": MESSAGE_CONTENT,
+            "metadata": {"a": [1] * 200},
+        },
     ],
     ids=[
         "missing-actor",
@@ -1127,9 +1124,7 @@ def test_scenario_f_transport_defects_fail_before_orchestration() -> None:
     backend = _build_backend()
     client = _client_with_sessions(backend, SESSION_ID)
 
-    oversized_key = _submit_message(
-        client, idempotency_key="k" * 300
-    )
+    oversized_key = _submit_message(client, idempotency_key="k" * 300)
     assert oversized_key.status_code == 400
     assert oversized_key.json()["error"]["details"]["reason_code"] == (
         REASON_INVALID_IDEMPOTENCY_KEY
@@ -1222,9 +1217,7 @@ def test_scenario_g_http_serves_no_v2_route() -> None:
         assert response.status_code == 404
         body = response.json()
         assert body["api_version"] == APPLICATION_API_VERSION
-        assert body["error"]["code"] == (
-            ApplicationErrorCode.RESOURCE_NOT_FOUND.value
-        )
+        assert body["error"]["code"] == (ApplicationErrorCode.RESOURCE_NOT_FOUND.value)
         assert body["error"]["details"]["reason_code"] == REASON_UNKNOWN_ROUTE
         assert "detail" not in body
 
@@ -1247,9 +1240,7 @@ def test_scenario_h_canonical_defect_becomes_a_safe_failure(
 
     monkeypatch.setattr(backend.orchestrator, "orchestrate", _defective_orchestrate)
 
-    response = _submit_message(
-        client, request_id="request-h", idempotency_key="key-h"
-    )
+    response = _submit_message(client, request_id="request-h", idempotency_key="key-h")
 
     assert response.status_code == 500
     body = response.json()
@@ -1284,9 +1275,7 @@ def test_scenario_h_application_defect_in_a_service_is_safe(
     def _defective_create_session(session_id: str) -> object:
         raise ValueError(RAW_DEFECT_TEXT)
 
-    monkeypatch.setattr(
-        backend.sessions, "create_session", _defective_create_session
-    )
+    monkeypatch.setattr(backend.sessions, "create_session", _defective_create_session)
 
     response = client.post("/v1/sessions", json={"session_id": "session-h"})
 
@@ -1308,12 +1297,8 @@ def test_scenario_i_same_key_and_command_replays_one_orchestration() -> None:
     backend = _build_backend()
     client = _client_with_sessions(backend, SESSION_ID)
 
-    first = _submit_message(
-        client, request_id="request-i", idempotency_key="key-i"
-    )
-    second = _submit_message(
-        client, request_id="request-i-2", idempotency_key="key-i"
-    )
+    first = _submit_message(client, request_id="request-i", idempotency_key="key-i")
+    second = _submit_message(client, request_id="request-i-2", idempotency_key="key-i")
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -1358,9 +1343,7 @@ def test_scenario_j_same_key_with_changed_content_is_a_conflict() -> None:
     backend = _build_backend()
     client = _client_with_sessions(backend, SESSION_ID)
 
-    first = _submit_message(
-        client, request_id="request-j", idempotency_key="key-j"
-    )
+    first = _submit_message(client, request_id="request-j", idempotency_key="key-j")
     conflict = _submit_message(
         client,
         request_id="request-j-2",
@@ -1385,9 +1368,7 @@ def test_scenario_j_same_key_against_another_session_is_a_conflict() -> None:
     backend = _build_backend()
     client = _client_with_sessions(backend, SESSION_ID, OTHER_SESSION_ID)
 
-    first = _submit_message(
-        client, request_id="request-j", idempotency_key="key-j"
-    )
+    first = _submit_message(client, request_id="request-j", idempotency_key="key-j")
     conflict = _submit_message(
         client,
         session_id=OTHER_SESSION_ID,
@@ -1422,9 +1403,7 @@ def test_scenario_k_stale_expected_revision_is_a_concurrency_conflict() -> None:
         ApplicationErrorCode.CONCURRENCY_CONFLICT.value
     )
     assert stale.json()["error"]["retryable"] is True
-    assert stale.json()["error"]["details"]["reason_code"] == (
-        "SESSION_REVISION_STALE"
-    )
+    assert stale.json()["error"]["details"]["reason_code"] == ("SESSION_REVISION_STALE")
 
     # The stale command never reached the canonical pipeline.
     _assert_orchestration_not_invoked(backend)
@@ -1476,9 +1455,7 @@ def test_scenario_l_cancellation_reports_capability_unavailable() -> None:
 
     assert body["status"] == ApplicationStatus.FAILED.value
     assert body["data"] is None
-    assert body["error"]["code"] == (
-        ApplicationErrorCode.CAPABILITY_UNAVAILABLE.value
-    )
+    assert body["error"]["code"] == (ApplicationErrorCode.CAPABILITY_UNAVAILABLE.value)
     assert body["error"]["message"] == CANCELLATION_UNAVAILABLE_MESSAGE
     assert body["error"]["retryable"] is False
     assert body["error"]["details"] == {}
@@ -1503,9 +1480,7 @@ def test_scenario_l_no_cancellation_runtime_is_created() -> None:
 
     declared = {
         capability["capability_id"]: capability
-        for capability in client.get("/v1/capabilities").json()["data"][
-            "capabilities"
-        ]
+        for capability in client.get("/v1/capabilities").json()["data"]["capabilities"]
     }
     cancellation = declared["request-cancellation"]
 
@@ -1642,23 +1617,16 @@ def test_scenario_m_route_wiring_exposes_application_contracts_only() -> None:
         for value in _closure_values(entrypoint):
             assert not isinstance(value, CANONICAL_AUTHORITY_TYPES)
 
-    assert len(
-        {
-            route.path
-            for route in backend.app.routes
-            if isinstance(route, APIRoute)
-        }
-    ) == 7
+    assert (
+        len({route.path for route in backend.app.routes if isinstance(route, APIRoute)})
+        == 7
+    )
 
 
 def test_scenario_m_the_gateway_is_the_one_public_entrypoint() -> None:
     backend = _build_backend()
 
-    public = {
-        name
-        for name in vars(ApplicationGateway)
-        if not name.startswith("_")
-    }
+    public = {name for name in vars(ApplicationGateway) if not name.startswith("_")}
     # No second entrypoint name exists: the boundary is ``handle`` only.
     assert public == {"handle"}
     assert not hasattr(backend.gateway, "invoke")

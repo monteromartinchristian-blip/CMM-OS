@@ -165,9 +165,7 @@ def test_fingerprint_matches_the_canonical_sha256_document() -> None:
     """The digest is SHA-256 over the canonical JSON document, UTF-8 encoded."""
 
     command = _command()
-    expected = hashlib.sha256(
-        _canonical_document(command).encode("utf-8")
-    ).hexdigest()
+    expected = hashlib.sha256(_canonical_document(command).encode("utf-8")).hexdigest()
 
     assert fingerprint_command(command) == expected
 

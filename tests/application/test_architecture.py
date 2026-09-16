@@ -270,7 +270,9 @@ def _defined_class_names(path: Path) -> list[str]:
 # ── 1. Dependency direction: lower layers never import the backend ───────────
 
 
-@pytest.mark.parametrize("layer", LOWER_LAYERS, ids=lambda value: value.replace("/", "_"))
+@pytest.mark.parametrize(
+    "layer", LOWER_LAYERS, ids=lambda value: value.replace("/", "_")
+)
 def test_lower_layers_do_not_import_the_application_or_api_package(layer: str) -> None:
     offenders: list[str] = []
 
@@ -300,8 +302,7 @@ def test_only_the_backend_packages_import_the_backend_packages() -> None:
                         offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
 
     assert not offenders, (
-        f"only cmm.api and cmm.application may import the backend: "
-        f"{sorted(offenders)}"
+        f"only cmm.api and cmm.application may import the backend: {sorted(offenders)}"
     )
 
 
@@ -315,8 +316,7 @@ def test_application_package_internal_imports_are_the_frozen_allowlist() -> None
                 continue
             allowed = ALLOWED_INTERNAL_IMPORTS + sanctioned
             if not any(
-                module == entry or module.startswith(f"{entry}.")
-                for entry in allowed
+                module == entry or module.startswith(f"{entry}.") for entry in allowed
             ):
                 offenders.append(f"{path.name} -> {module}")
 
@@ -356,9 +356,7 @@ def test_application_package_external_imports_are_the_frozen_allowlist() -> None
             if root not in ALLOWED_EXTERNAL_IMPORT_ROOTS:
                 offenders.append(f"{path.name} -> {module}")
 
-    assert not offenders, (
-        f"unfrozen application-core import: {sorted(offenders)}"
-    )
+    assert not offenders, f"unfrozen application-core import: {sorted(offenders)}"
 
 
 # ── 2. Transport neutrality ──────────────────────────────────────────────────
@@ -402,9 +400,7 @@ def test_application_package_defines_no_parallel_owner_class(owner: str) -> None
 def test_application_package_new_owner_classes_are_the_frozen_allowlist() -> None:
     """Only the backend-owned idempotency repository may be added in Phase 11.3."""
 
-    defined = {
-        name for path in _package_files() for name in _defined_class_names(path)
-    }
+    defined = {name for path in _package_files() for name in _defined_class_names(path)}
 
     owner_shaped = {
         name

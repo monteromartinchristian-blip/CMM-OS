@@ -187,7 +187,9 @@ def _real_orchestrator(
 
     return Orchestrator(
         intent_resolver=(
-            DeterministicIntentResolver() if intent_resolver is None else intent_resolver
+            DeterministicIntentResolver()
+            if intent_resolver is None
+            else intent_resolver
         ),  # type: ignore[arg-type]
         context_resolver=_ContextResolver(),  # type: ignore[arg-type]
         domain_router=_DomainRouter(  # type: ignore[arg-type]
@@ -266,7 +268,9 @@ def _fixture(
     result: OrchestrationResult | None = None,
     error: BaseException | None = None,
     create_session: bool = True,
-) -> tuple[RequestApplicationService, _RecordingOrchestrator, SessionApplicationService]:
+) -> tuple[
+    RequestApplicationService, _RecordingOrchestrator, SessionApplicationService
+]:
     sessions = SessionApplicationService(InMemorySessionStore())
     if create_session:
         sessions.create_session("session-1")
@@ -424,7 +428,8 @@ def test_a_foreign_message_value_is_rejected() -> None:
 
     with pytest.raises(TypeError):
         service.submit_message(
-            request_id="req-1", message={"content": "hello"}  # type: ignore[arg-type]
+            request_id="req-1",
+            message={"content": "hello"},  # type: ignore[arg-type]
         )
 
     assert probe.requests == []
@@ -503,7 +508,12 @@ def test_the_adapted_request_carries_no_raw_context_or_permissions() -> None:
 
     to_dict = probe.requests[0].to_dict()
     assert to_dict["context"] == {}
-    assert set(to_dict["input"]) == {"message_id", "content", "content_type", "metadata"}
+    assert set(to_dict["input"]) == {
+        "message_id",
+        "content",
+        "content_type",
+        "metadata",
+    }
 
 
 def test_every_submission_adapts_its_own_request() -> None:
@@ -633,9 +643,7 @@ def test_every_orchestration_status_maps_to_an_application_status(
     result = _result(
         status=orchestration_status,
         error=(
-            _failure()
-            if orchestration_status is OrchestrationStatus.FAILED
-            else None
+            _failure() if orchestration_status is OrchestrationStatus.FAILED else None
         ),
     )
     service, _probe, _sessions = _fixture(result=result)
@@ -706,7 +714,9 @@ def test_orchestration_failure_categories_map_conservatively(
     category: str, expected_code: ApplicationErrorCode
 ) -> None:
     service, _probe, _sessions = _fixture(
-        result=_result(status=OrchestrationStatus.FAILED, error=_failure(category=category))
+        result=_result(
+            status=OrchestrationStatus.FAILED, error=_failure(category=category)
+        )
     )
 
     response = service.submit_message(request_id="req-1", message=_message())
