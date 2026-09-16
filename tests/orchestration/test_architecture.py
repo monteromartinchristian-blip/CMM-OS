@@ -121,6 +121,16 @@ FORBIDDEN_MODEL_TOKENS = (
     "routing policy engine",
 )
 
+#: Generic authority/role frameworks Remediation V1 must not introduce.
+FORBIDDEN_AUTHORITY_FRAMEWORK = (
+    "CanonicalAuthorityRegistry",
+    "AuthorityTypeRegistry",
+    "AdapterTrustRegistry",
+    "RoleRegistry",
+    "RuntimeContractRegistry",
+    "CanonicalOwnerResolver",
+)
+
 #: Names that would function as hidden reasoning.
 FORBIDDEN_REASONING_NAMES = (
     "chain_of_thought",
@@ -757,3 +767,93 @@ def test_no_official_implementation_satisfies_another_orchestration_role() -> No
     assert not collisions, (
         f"orchestration roles are not pairwise exclusive: {collisions}"
     )
+
+
+# ── 10. Role methods are explicit and static ─────────────────────────────────
+
+
+def test_domain_router_role_declares_only_the_domain_role_method() -> None:
+    from cmm.orchestration.domain_router import DomainRouter
+
+    assert hasattr(DomainRouter, "route_domain")
+    assert not hasattr(DomainRouter, "route")
+
+
+def test_agent_router_role_declares_only_the_agent_role_method() -> None:
+    from cmm.orchestration.agent_router import AgentRouter
+
+    assert hasattr(AgentRouter, "route_agent")
+    assert not hasattr(AgentRouter, "route")
+
+
+@pytest.mark.parametrize("module_name", ["domain_router.py", "agent_router.py"])
+def test_official_routers_define_no_generic_role_method(module_name: str) -> None:
+    """A generic ``route`` method would recreate the runtime role collision."""
+
+    offenders = [
+        node.name
+        for node in ast.walk(_parsed(ORCHESTRATION_PACKAGE / module_name))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "route"
+    ]
+
+    assert not offenders, f"{module_name} must not define a generic route method"
+
+
+@pytest.mark.parametrize("module_name", ["domain_router.py", "agent_router.py"])
+def test_official_routers_expose_their_role_method(module_name: str) -> None:
+    expected = "route_domain" if module_name == "domain_router.py" else "route_agent"
+
+    methods = {
+        node.name
+        for node in ast.walk(_parsed(ORCHESTRATION_PACKAGE / module_name))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert expected in methods
+
+
+def test_orchestrator_calls_the_explicit_role_methods() -> None:
+    source = (ORCHESTRATION_PACKAGE / "orchestrator.py").read_text()
+
+    assert "route_domain(" in source
+    assert "route_agent(" in source
+    assert ".route(" not in source
+
+
+@pytest.mark.parametrize(
+    "module_name", ["domain_router.py", "agent_router.py", "orchestrator.py"]
+)
+def test_role_methods_are_never_resolved_dynamically(module_name: str) -> None:
+    """No ``getattr(..., "route")`` style fallback may reopen the collision."""
+
+    source = (ORCHESTRATION_PACKAGE / module_name).read_text()
+
+    assert "getattr(" not in source
+
+
+# ── 11. No generic authority/role framework was added ────────────────────────
+
+
+@pytest.mark.parametrize("token", FORBIDDEN_AUTHORITY_FRAMEWORK)
+def test_orchestration_adds_no_generic_authority_framework(token: str) -> None:
+    offenders = [
+        f"{path.name}:{name}"
+        for path in _package_files()
+        for name in _defined_class_names(path)
+        if token in name
+    ]
+
+    assert not offenders, f"Phase 11.2 must not introduce {token}: {offenders}"
+
+
+def test_orchestration_adds_no_role_marker_attribute() -> None:
+    """Role markers would hide a collision rather than remove it."""
+
+    offenders = [
+        path.name
+        for path, source in _source_files()
+        if "__orchestration_role__" in source or "__role_tag__" in source
+    ]
+
+    assert not offenders, f"role markers must not stand in for real roles: {offenders}"

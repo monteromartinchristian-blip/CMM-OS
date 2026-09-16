@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,11 +69,13 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.execution.executor_registry import ExecutorRegistry
-from cmm.orchestration.agent_router import CanonicalAgentRouter
+from cmm.orchestration.agent_router import AgentRouter, CanonicalAgentRouter
 from cmm.orchestration.context import DefaultContextResolver
 from cmm.orchestration.contracts import (
+    DomainRouteDecision,
     ExecutionRoute,
     IntentKind,
+    IntentResolution,
     OrchestrationChannel,
     OrchestrationRequest,
     OrchestrationStatus,
@@ -81,7 +84,7 @@ from cmm.orchestration.contracts import (
 from cmm.orchestration.decision_repository import (
     InMemoryOrchestrationDecisionRepository,
 )
-from cmm.orchestration.domain_router import CanonicalDomainRouter
+from cmm.orchestration.domain_router import CanonicalDomainRouter, DomainRouter
 from cmm.orchestration.events import RecordingOrchestrationEventSink
 from cmm.orchestration.intent import DeterministicIntentResolver
 from cmm.orchestration.orchestrator import Orchestrator
@@ -296,6 +299,20 @@ def _session_store(*session_ids: str) -> InMemorySessionStore:
     return store
 
 
+def _composition_configuration() -> CompositionConfiguration:
+    return CompositionConfiguration(
+        required_services=(
+            *ORCHESTRATION_SERVICE_IDS,
+            "agent.runtime.integration",
+            "domain.registry",
+            "execution.registry",
+            "provider.registry",
+            "workflow.registry",
+        ),
+        enabled_modules=("canonical", "orchestration"),
+    )
+
+
 def _build_graph(
     *,
     policies: tuple[DomainPermissionPolicy, ...] = (GENERAL_POLICY,),
@@ -388,17 +405,7 @@ def _build_graph(
     )
 
     container = ApplicationContainer.build(
-        CompositionConfiguration(
-            required_services=(
-                *ORCHESTRATION_SERVICE_IDS,
-                "agent.runtime.integration",
-                "domain.registry",
-                "execution.registry",
-                "provider.registry",
-                "workflow.registry",
-            ),
-            enabled_modules=("canonical", "orchestration"),
-        ),
+        _composition_configuration(),
         modules=(canonical_module, orchestration_module),
     )
 
@@ -1005,6 +1012,174 @@ def test_scenario_l_orchestration_and_canonical_services_coexist() -> None:
     )
     assert graph.container.get_service("domain.registry") is not None
     assert graph.container.get_service("agent.runtime.integration") is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Scenario M — Audit V1 MAJOR-01: orchestration roles are not cross-wirable
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _cross_wired_container(
+    graph: OrchestrationGraph, domain_router: object, agent_router: object
+) -> ApplicationContainer:
+    """Build the container on the real composition path with a cross-wired role."""
+
+    return ApplicationContainer.build(
+        _composition_configuration(),
+        modules=(
+            build_orchestration_composition_module(
+                intent_resolver=DeterministicIntentResolver(),
+                context_resolver=graph.context_resolver,
+                domain_router=domain_router,
+                agent_router=agent_router,
+                policy=graph.policy,
+                decision_repository=graph.repository,
+                event_sink=graph.sink,
+                orchestrator=graph.orchestrator,
+            ),
+        ),
+    )
+
+
+def test_scenario_m_real_graph_reaches_ready() -> None:
+    """The remediation must not stop a correct graph from composing."""
+
+    graph = _build_graph()
+
+    assert graph.container.state is ContainerState.READY
+
+
+@pytest.mark.parametrize(
+    ("domain_role", "agent_role"),
+    [("domain_router", "domain_router"), ("agent_router", "agent_router")],
+)
+def test_scenario_m_cross_wired_roles_can_never_reach_ready(
+    domain_role: str, agent_role: str
+) -> None:
+    """Audit V1 MAJOR-01: the exact cross-wire must fail before ``READY``."""
+
+    graph = _build_graph()
+
+    with pytest.raises(TypeError) as captured:
+        _cross_wired_container(
+            graph, getattr(graph, domain_role), getattr(graph, agent_role)
+        )
+
+    assert "orchestration" in str(captured.value)
+
+
+def test_scenario_m_domain_router_cannot_claim_the_agent_router_identity() -> None:
+    graph = _build_graph()
+
+    with pytest.raises(TypeError):
+        _cross_wired_container(graph, graph.domain_router, graph.domain_router)
+
+
+def test_scenario_m_agent_router_cannot_claim_the_domain_router_identity() -> None:
+    graph = _build_graph()
+
+    with pytest.raises(TypeError):
+        _cross_wired_container(graph, graph.agent_router, graph.agent_router)
+
+
+def test_scenario_m_role_methods_are_distinct_over_the_real_routers() -> None:
+    graph = _build_graph()
+
+    assert isinstance(graph.domain_router, DomainRouter)
+    assert not isinstance(graph.domain_router, AgentRouter)
+    assert isinstance(graph.agent_router, AgentRouter)
+    assert not isinstance(graph.agent_router, DomainRouter)
+
+
+def test_scenario_m_real_graph_still_routes_after_the_remediation() -> None:
+    graph = _build_graph()
+
+    result = graph.orchestrator.orchestrate(
+        _request("request-m", input_payload={"question": "What changed?"})
+    )
+
+    assert result.status is OrchestrationStatus.ROUTED
+    assert result.primary_domain == "domain:general"
+    assert result.route is ExecutionRoute.DIRECT_RESPONSE
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Scenario N — Audit V1 MAJOR-02: canonical agent selection authority
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class _FakeRegistryService:
+    """A noncanonical authority able to fabricate an agent identifier."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def resolve_agent(self, requirement, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        return SimpleNamespace(
+            selected=SimpleNamespace(
+                agent_id="forged.agent",
+                version=SimpleNamespace(canonical=lambda: "9.9.9"),
+            )
+        )
+
+
+def test_scenario_n_noncanonical_agent_authority_is_rejected() -> None:
+    """Audit V1 MAJOR-02: a fake selector must never reach agent selection."""
+
+    fake = _FakeRegistryService()
+
+    with pytest.raises(TypeError) as captured:
+        CanonicalAgentRouter(registry_service=fake)  # type: ignore[arg-type]
+
+    assert fake.calls == 0
+    assert AgentRegistryService.__name__ in str(captured.value)
+
+
+def test_scenario_n_real_canonical_agent_authority_is_accepted() -> None:
+    graph = _build_graph(agent_capabilities=("knowledge.read",))
+
+    assert isinstance(graph.agent_router, AgentRouter)
+    assert graph.container.state is ContainerState.READY
+
+    result = graph.orchestrator.orchestrate(
+        _request(
+            "request-n-real",
+            input_payload={"goal": {"title": "Complete task"}},
+            capabilities=("knowledge.read",),
+        )
+    )
+
+    assert result.route is ExecutionRoute.AUTONOMOUS_AGENT
+    assert result.agent_id == "agent.alpha"
+    assert graph.agent_service.resolver.attempts == 1
+
+
+def test_scenario_n_no_compatible_canonical_agent_still_escalates() -> None:
+    """The canonical no-match path stays owned by the real registry service."""
+
+    graph = _build_graph(agent_capabilities=("knowledge.read",))
+    request = _request(
+        "request-n-none",
+        input_payload={"goal": {"title": "Complete task"}},
+        capabilities=("operation.execute",),
+    )
+
+    decision = graph.agent_router.route_agent(
+        request=request,
+        intent=IntentResolution(
+            intent=IntentKind.GOAL,
+            needs_clarification=False,
+            source_kind="structured_input",
+        ),
+        context=graph.context_resolver.resolve_base(request),
+        domain=DomainRouteDecision(status="resolved", primary_domain="domain:general"),
+    )
+
+    assert decision.route is ExecutionRoute.HUMAN_ESCALATION
+    assert decision.agent_id is None
+    assert "AGENT_ROUTING_NO_COMPATIBLE_AGENT" in decision.reason_codes
+    assert graph.agent_service.resolver.attempts == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════
