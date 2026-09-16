@@ -23,26 +23,55 @@ from cmm.orchestration.contracts import (
 )
 from cmm.orchestration.errors import ContextResolutionError
 from cmm.runtime.sessions import (
+    FileSessionStore,
     InMemorySessionStore,
     SharedSessionState,
 )
 
 
-class _SpySessionStore:
-    """Canonical session-store boundary with call recording for assertions."""
+class _SpySessionStore(InMemorySessionStore):
+    """Official in-memory session authority with call recording for assertions.
+
+    It extends the sanctioned canonical store rather than replacing it, so the
+    resolver's canonical session boundary stays enforceable.
+    """
 
     def __init__(self) -> None:
-        self._inner = InMemorySessionStore()
+        super().__init__()
         self.loaded: list[str] = []
         self.saved: list[SharedSessionState] = []
 
     def load(self, session_id: str) -> SharedSessionState | None:
         self.loaded.append(session_id)
-        return self._inner.load(session_id)
+        return super().load(session_id)
 
     def save(self, state: SharedSessionState) -> SharedSessionState:
         self.saved.append(state)
-        return self._inner.save(state)
+        return super().save(state)
+
+
+class _BrokenSessionStore(InMemorySessionStore):
+    """Official session authority whose persistence backend is unavailable."""
+
+    def load(self, session_id: str) -> SharedSessionState | None:
+        raise RuntimeError("store unavailable")
+
+    def save(self, state: SharedSessionState) -> SharedSessionState:
+        raise RuntimeError("store unavailable")
+
+
+class _FakeSessionStore:
+    """A session-like object that is not canonical session authority."""
+
+    def __init__(self) -> None:
+        self.loaded: list[str] = []
+
+    def load(self, session_id: str) -> SharedSessionState | None:
+        self.loaded.append(session_id)
+        return SharedSessionState(session_id=session_id, status="ACTIVE", revision=99)
+
+    def save(self, state: SharedSessionState) -> SharedSessionState:
+        return state
 
 
 class _Reader:
@@ -146,17 +175,56 @@ def test_missing_session_store_with_a_requested_session_fails_closed() -> None:
 
 
 def test_session_store_failure_fails_closed() -> None:
-    class _BrokenStore:
-        def load(self, session_id: str) -> SharedSessionState | None:
-            raise RuntimeError("store unavailable")
-
-        def save(self, state: SharedSessionState) -> SharedSessionState:
-            raise RuntimeError("store unavailable")
-
     with pytest.raises(ContextResolutionError):
-        DefaultContextResolver(session_store=_BrokenStore()).resolve_base(
+        DefaultContextResolver(session_store=_BrokenSessionStore()).resolve_base(
             _request(session_id="session-1")
         )
+
+
+# ── Canonical session authority ──────────────────────────────────────────────
+
+
+def test_official_session_stores_are_accepted() -> None:
+    """Both sanctioned canonical session authorities stay usable."""
+
+    assert isinstance(
+        DefaultContextResolver(session_store=InMemorySessionStore()),
+        ContextResolver,
+    )
+    assert isinstance(
+        DefaultContextResolver(session_store=FileSessionStore(root=None)),
+        ContextResolver,
+    )
+
+
+def test_noncanonical_session_store_is_rejected() -> None:
+    """A session-like object must not be able to stand in for session authority."""
+
+    with pytest.raises(TypeError) as captured:
+        DefaultContextResolver(session_store=_FakeSessionStore())  # type: ignore[arg-type]
+
+    message = str(captured.value)
+    assert "session_store" in message
+    assert "_FakeSessionStore" in message
+    assert "0x" not in message
+    assert "object at" not in message
+
+
+def test_rejected_session_store_is_never_consulted() -> None:
+    fake = _FakeSessionStore()
+
+    with pytest.raises(TypeError):
+        DefaultContextResolver(session_store=fake)  # type: ignore[arg-type]
+
+    assert fake.loaded == []
+
+
+def test_missing_session_store_stays_acceptable() -> None:
+    """``None`` stays valid for requests that reference no session."""
+
+    resolver = DefaultContextResolver(session_store=None)
+
+    assert resolver.resolve_base(_request()).session_ref is None
 
 
 def test_domain_stage_performs_no_additional_source_reads() -> None:

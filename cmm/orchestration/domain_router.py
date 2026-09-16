@@ -35,7 +35,13 @@ from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.domains.enums import DomainResolutionStatus
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import DomainPermissionRequest
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.profile_registry import DomainProfileRegistry
+from cmm.domains.registry import DomainRegistry
+from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolution_contracts import DomainResolutionSignal
+from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.orchestration.contracts import (
     DomainRouteDecision,
@@ -264,21 +270,65 @@ def _domain_signals(
     return tuple(signals)
 
 
+def _require_canonical(
+    name: str,
+    collaborator: object,
+    canonical_type: type,
+    *,
+    required: bool = False,
+) -> None:
+    """Fail closed unless *collaborator* is ``None`` or a canonical owner.
+
+    ``CanonicalDomainRouter`` is a facade over Domain Intelligence: it must not
+    read domain availability, resolution results or permission evidence from an
+    arbitrary object that merely happens to expose the same method names.  Each
+    collaborator that represents a canonical source of truth is therefore checked
+    against its canonical type at construction time.
+
+    The message names the expected canonical type and the actual implementation
+    type only; no object repr is interpolated, so no collaborator state leaks.
+    """
+
+    if collaborator is None:
+        if required:
+            raise TypeError(f"{name} must be the canonical {canonical_type.__name__}")
+        return
+    if not isinstance(collaborator, canonical_type):
+        raise TypeError(
+            f"{name} must be the canonical {canonical_type.__name__}, "
+            f"got {type(collaborator).__name__}"
+        )
+
+
 class CanonicalDomainRouter:
     """Orchestration facade over canonical Domain Intelligence."""
 
     def __init__(
         self,
         *,
-        resolver: Any,
-        registry: Any | None = None,
-        context_builder: Any | None = None,
-        profile_registry: Any | None = None,
-        permission_registry: Any | None = None,
-        permission_resolver: Any | None = None,
+        resolver: DefaultDomainResolver,
+        registry: DomainRegistry | None = None,
+        context_builder: DomainResolutionContextBuilder | None = None,
+        profile_registry: DomainProfileRegistry | None = None,
+        permission_registry: DomainPermissionRegistry | None = None,
+        permission_resolver: DomainPermissionResolver | None = None,
     ) -> None:
-        if resolver is None:
-            raise TypeError("resolver must be a canonical Domain resolver")
+        _require_canonical("resolver", resolver, DefaultDomainResolver, required=True)
+        _require_canonical("registry", registry, DomainRegistry)
+        _require_canonical(
+            "context_builder", context_builder, DomainResolutionContextBuilder
+        )
+        # ``DomainProfileRegistry`` is the closed Phase 10 runtime-checkable
+        # Protocol seam, so a legitimate canonical implementation remains
+        # acceptable while an unrelated object is still rejected.
+        _require_canonical("profile_registry", profile_registry, DomainProfileRegistry)
+        _require_canonical(
+            "permission_registry", permission_registry, DomainPermissionRegistry
+        )
+        _require_canonical(
+            "permission_resolver", permission_resolver, DomainPermissionResolver
+        )
+
         if (permission_registry is None) is not (permission_resolver is None):
             raise TypeError(
                 "permission_registry and permission_resolver must be provided "

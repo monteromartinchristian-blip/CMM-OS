@@ -33,15 +33,23 @@ from cmm.orchestration.contracts import (
     ResolvedContext,
 )
 from cmm.orchestration.errors import ContextResolutionError
+from cmm.runtime.sessions import FileSessionStore, InMemorySessionStore
 
 if TYPE_CHECKING:
     from cmm.runtime.sessions import SessionStore
 
 __all__ = [
+    "SANCTIONED_SESSION_STORES",
     "ContextReferenceReader",
     "ContextResolver",
     "DefaultContextResolver",
 ]
+
+#: The official ``cmm.runtime.sessions`` session authorities.  ``SessionStore``
+#: itself is a static typing Protocol without a runtime check, so the sanctioned
+#: runtime implementations are named explicitly rather than relaxing canonical
+#: session authority to a name-based duck type.
+SANCTIONED_SESSION_STORES: tuple[type, ...] = (InMemorySessionStore, FileSessionStore)
 
 #: The caller context keys Phase 11.2 forwards.  Every other key is withheld.
 ALLOWED_CALLER_CONTEXT_KEYS = frozenset({"context_refs"})
@@ -102,7 +110,14 @@ def _references(value: object, field_name: str) -> tuple[str, ...]:
 
 
 class DefaultContextResolver:
-    """Read-only coordinator over canonical context sources."""
+    """Read-only coordinator over canonical context sources.
+
+    The session collaborator is canonical session authority, so it is validated
+    by type at construction time: an arbitrary session-like object that merely
+    exposes ``load``/``save`` must never be able to stand in for the canonical
+    shared session store.  The reference readers, by contrast, are deliberately
+    structural read-only adapters (see :class:`ContextReferenceReader`).
+    """
 
     def __init__(
         self,
@@ -114,6 +129,17 @@ class DefaultContextResolver:
         knowledge_reader: ContextReferenceReader | None = None,
         recent_event_reader: ContextReferenceReader | None = None,
     ) -> None:
+        if session_store is not None and not isinstance(
+            session_store, SANCTIONED_SESSION_STORES
+        ):
+            sanctioned = ", ".join(
+                store.__name__ for store in SANCTIONED_SESSION_STORES
+            )
+            raise TypeError(
+                "session_store must be a canonical shared session store "
+                f"({sanctioned}), got {type(session_store).__name__}"
+            )
+
         self._session_store = session_store
         self._readers: tuple[tuple[str, ContextReferenceReader | None], ...] = (
             (GOAL_REFERENCE_PREFIX, goal_reader),

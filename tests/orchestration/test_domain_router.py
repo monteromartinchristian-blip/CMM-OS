@@ -22,7 +22,10 @@ from cmm.domains.permission_contracts import DomainPermissionPolicy
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.profile_contracts import DomainProfileDefinition
-from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
+from cmm.domains.profile_registry import (
+    DomainProfileRegistry,
+    InMemoryDomainProfileRegistry,
+)
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolution_contracts import DomainResolutionSignal
@@ -168,18 +171,24 @@ def test_router_requires_real_inputs() -> None:
 
 
 def test_router_delegates_to_the_canonical_domain_resolver() -> None:
-    class _RecordingResolver:
-        def __init__(self, inner: DefaultDomainResolver) -> None:
-            self._inner = inner
+    class _RecordingResolver(DefaultDomainResolver):
+        """Canonical resolver subclass recording delegation for assertions."""
+
+        def __init__(self) -> None:
+            super().__init__(
+                fallback_domain=GENERAL,
+                clock=lambda: NOW,
+                id_factory=lambda: "resolution-1",
+            )
             self.calls = 0
             self.last_context = None
 
         def resolve(self, context):  # type: ignore[no-untyped-def]
             self.calls += 1
             self.last_context = context
-            return self._inner.resolve(context)
+            return super().resolve(context)
 
-    recorder = _RecordingResolver(_resolver())
+    recorder = _RecordingResolver()
     router = _router(resolver=recorder)
 
     decision = _route_domain(router, _request(input={"question": "What changed?"}))
@@ -191,7 +200,9 @@ def test_router_delegates_to_the_canonical_domain_resolver() -> None:
 
 
 def test_router_fails_closed_when_the_canonical_resolver_raises() -> None:
-    class _BrokenResolver:
+    class _BrokenResolver(DefaultDomainResolver):
+        """Canonical resolver subclass whose resolution backend is unavailable."""
+
         def resolve(self, context):  # type: ignore[no-untyped-def]
             raise RuntimeError("resolver unavailable")
 
@@ -204,7 +215,9 @@ def test_router_fails_closed_when_the_canonical_resolver_raises() -> None:
 
 
 def test_router_rejects_a_foreign_resolver_result() -> None:
-    class _ForeignResolver:
+    class _ForeignResolver(DefaultDomainResolver):
+        """Canonical resolver subclass returning a noncanonical result shape."""
+
         def resolve(self, context):  # type: ignore[no-untyped-def]
             return {"status": "resolved"}
 
@@ -212,6 +225,109 @@ def test_router_rejects_a_foreign_resolver_result() -> None:
 
     with pytest.raises(DomainRoutingError):
         _route_domain(router, _request(input={"question": "What changed?"}))
+
+
+# ── Canonical collaborator boundaries (Audit V1 MAJOR-02 review) ─────────────
+
+
+class _FakeDomainResolver:
+    """A resolver-like object that is not canonical Domain resolution authority."""
+
+    def resolve(self, context):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical resolver must never be consulted")
+
+
+class _FakeDomainRegistry:
+    """A registry-like object that is not the canonical Domain registry."""
+
+    def snapshot(self):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical registry must never be consulted")
+
+
+class _FakeDomainResolutionContextBuilder:
+    """A builder-like object that is not the canonical resolution context builder."""
+
+    def build(self, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical builder must never be consulted")
+
+
+class _FakeDomainProfileRegistry:
+    """A profile-registry-like object that does not implement the canonical seam."""
+
+    def get_by_domain(self, domain_id):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical profile registry must never be used")
+
+
+class _FakeDomainPermissionRegistry:
+    """A permission-registry-like object that is not canonical permission authority."""
+
+    def active_for_domain(self, domain_id):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical registry must never be consulted")
+
+
+class _FakeDomainPermissionResolver:
+    """A permission-resolver-like object that is not canonical authority."""
+
+    def resolve(self, request, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("a noncanonical resolver must never be consulted")
+
+
+@pytest.mark.parametrize(
+    ("collaborator", "fake"),
+    [
+        ("resolver", _FakeDomainResolver),
+        ("registry", _FakeDomainRegistry),
+        ("context_builder", _FakeDomainResolutionContextBuilder),
+        ("profile_registry", _FakeDomainProfileRegistry),
+        ("permission_registry", _FakeDomainPermissionRegistry),
+        ("permission_resolver", _FakeDomainPermissionResolver),
+    ],
+)
+def test_router_rejects_a_noncanonical_collaborator(
+    collaborator: str, fake: type
+) -> None:
+    """Each canonical source of truth is a runtime boundary, not a naming convention."""
+
+    with pytest.raises(TypeError) as captured:
+        _router(**{collaborator: fake()})
+
+    message = str(captured.value)
+    assert collaborator in message
+    assert fake.__name__ in message
+    assert "0x" not in message
+    assert "object at" not in message
+
+
+def test_router_requires_the_canonical_resolver() -> None:
+    with pytest.raises(TypeError) as captured:
+        _router(resolver=None)
+
+    assert "resolver" in str(captured.value)
+
+
+def test_router_accepts_every_canonical_collaborator() -> None:
+    """The canonical graph stays fully usable; nothing legitimate was narrowed out."""
+
+    profiles = InMemoryDomainProfileRegistry()
+    permission_registry = DomainPermissionRegistry()
+    router = _router(
+        profile_registry=profiles,
+        permission_registry=permission_registry,
+        permission_resolver=DomainPermissionResolver(
+            permission_registry, trust_policy_lookup=None
+        ),
+    )
+
+    assert isinstance(router, DomainRouter)
+
+
+def test_canonical_profile_registry_seam_is_preserved() -> None:
+    """``DomainProfileRegistry`` stays the deliberate closed-phase Protocol seam."""
+
+    profiles = InMemoryDomainProfileRegistry()
+
+    assert isinstance(profiles, DomainProfileRegistry)
+    assert isinstance(_router(profile_registry=profiles), DomainRouter)
 
 
 # ── Canonical selection ──────────────────────────────────────────────────────
