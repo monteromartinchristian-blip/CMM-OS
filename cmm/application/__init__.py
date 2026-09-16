@@ -16,3 +16,61 @@ no direct external network I/O.  The HTTP/OpenAPI/SSE adapter lives in
 
 See ``docs/reference/phase-11-application-backend.md``.
 """
+
+from __future__ import annotations
+
+from cmm.application.contracts import (
+    APPLICATION_API_VERSION,
+    COMMAND_OPERATIONS,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
+    MAX_IDENTIFIER_LENGTH,
+    MAX_MESSAGE_LENGTH,
+    MAX_METADATA_DEPTH,
+    MAX_METADATA_ITEMS,
+    MAX_STRING_LENGTH,
+    QUERY_OPERATIONS,
+    ApplicationCancellationRequest,
+    ApplicationCapability,
+    ApplicationCommand,
+    ApplicationError,
+    ApplicationErrorCode,
+    ApplicationHealth,
+    ApplicationMessage,
+    ApplicationOperation,
+    ApplicationQuery,
+    ApplicationRequest,
+    ApplicationResponse,
+    ApplicationSession,
+    ApplicationStatus,
+    ApplicationStreamEvent,
+    CapabilityStatus,
+    StreamEventKind,
+)
+
+__all__ = [
+    "APPLICATION_API_VERSION",
+    "COMMAND_OPERATIONS",
+    "MAX_IDEMPOTENCY_KEY_LENGTH",
+    "MAX_IDENTIFIER_LENGTH",
+    "MAX_MESSAGE_LENGTH",
+    "MAX_METADATA_DEPTH",
+    "MAX_METADATA_ITEMS",
+    "MAX_STRING_LENGTH",
+    "QUERY_OPERATIONS",
+    "ApplicationCancellationRequest",
+    "ApplicationCapability",
+    "ApplicationCommand",
+    "ApplicationError",
+    "ApplicationErrorCode",
+    "ApplicationHealth",
+    "ApplicationMessage",
+    "ApplicationOperation",
+    "ApplicationQuery",
+    "ApplicationRequest",
+    "ApplicationResponse",
+    "ApplicationSession",
+    "ApplicationStatus",
+    "ApplicationStreamEvent",
+    "CapabilityStatus",
+    "StreamEventKind",
+]
