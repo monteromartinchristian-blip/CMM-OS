@@ -372,8 +372,7 @@ def test_only_orchestration_may_depend_on_the_platform_package() -> None:
                     consumers.add(package)
 
     assert consumers <= {"orchestration"}, (
-        "only cmm.orchestration may depend on cmm.platform: "
-        f"{sorted(consumers)}"
+        f"only cmm.orchestration may depend on cmm.platform: {sorted(consumers)}"
     )
 
 
