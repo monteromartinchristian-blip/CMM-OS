@@ -94,6 +94,40 @@ SANCTIONED_CANONICAL_ADAPTERS: dict[str, tuple[str, ...]] = {
     "sessions.py": ("cmm.runtime.sessions",),
 }
 
+#: Canonical subsystem packages the transport-neutral core must never name: they
+#: own domain, agent, cognitive, execution, session and workflow authority, and
+#: the application core adapts public requests without owning any of it.
+CANONICAL_SUBSYSTEM_PACKAGES = (
+    "cmm.agent_runtime",
+    "cmm.cognitive",
+    "cmm.domains",
+    "cmm.execution",
+    "cmm.runtime",
+    "cmm.workflows",
+)
+
+#: The one composition root of the application package.  Phase 11.4 adds the
+#: local runtime a standalone CLI starts from, and a composition root must name
+#: every canonical component it wires — Phase 11.3 had no composition root, so
+#: its core allowlists never had to describe one.  The exemption is exact and
+#: additive: one module, canonical subsystem packages only.  Every other module
+#: of the package keeps the frozen core allowlists, and
+#: ``test_the_composition_root_exemption_stays_exact`` below keeps it that way.
+COMPOSITION_ROOT_MODULES: dict[str, tuple[str, ...]] = {
+    "local_runtime.py": CANONICAL_SUBSYSTEM_PACKAGES,
+}
+
+#: The external root the one composition root may name: ``kernel`` owns the
+#: canonical provider registry the local graph binds.
+COMPOSITION_ROOT_EXTERNAL_ROOTS = frozenset({"kernel"})
+
+#: The one provider artefact the composition root may name: the canonical
+#: provider registry it binds into the platform composition.  Binding a registry
+#: is not routing — the composition root resolves no provider and selects no
+#: model — and the transport-neutral core still may not name it at all.
+COMPOSITION_ROOT_PROVIDER_MODULES = ("kernel.llm.provider_registry",)
+COMPOSITION_ROOT_PROVIDER_SYMBOLS = ("ProviderRegistry",)
+
 #: Exact allowlist of the standard-library roots the core may import.  A new
 #: root is a new dependency of the transport-neutral core and must be frozen
 #: here.  ``threading`` is frozen for exactly one use: the single private
@@ -340,19 +374,44 @@ def test_application_package_internal_imports_are_the_frozen_allowlist() -> None
 
     for path in _package_files():
         sanctioned = SANCTIONED_CANONICAL_ADAPTERS.get(path.name, ())
+        composed = COMPOSITION_ROOT_MODULES.get(path.name, ())
         for module in _imported_modules(path):
             if not module.startswith("cmm."):
                 continue
-            allowed = ALLOWED_INTERNAL_IMPORTS + sanctioned
+            allowed = ALLOWED_INTERNAL_IMPORTS + sanctioned + composed
             if not any(
                 module == entry or module.startswith(f"{entry}.") for entry in allowed
             ):
                 offenders.append(f"{path.name} -> {module}")
 
     assert not offenders, (
-        "cmm.application may import cmm.platform, cmm.orchestration and its "
-        f"sanctioned canonical adapter only: {sorted(offenders)}"
+        "cmm.application may import cmm.platform, cmm.orchestration, its "
+        "sanctioned canonical adapter and the one composition root's canonical "
+        f"components only: {sorted(offenders)}"
     )
+
+
+def test_the_composition_root_exemption_stays_exact() -> None:
+    """One module is the composition root; the transport-neutral core stays pure.
+
+    The set of application modules that name a canonical subsystem package must
+    be exactly the sanctioned adapter plus the composition root, so the
+    composition exemption can never spread silently to the core.
+    """
+
+    reachers = {
+        path.name
+        for path in _package_files()
+        if any(
+            module == package or module.startswith(f"{package}.")
+            for module in _imported_modules(path)
+            for package in (*CANONICAL_SUBSYSTEM_PACKAGES, "kernel")
+        )
+    }
+
+    assert reachers == set(COMPOSITION_ROOT_MODULES) | set(
+        SANCTIONED_CANONICAL_ADAPTERS
+    ), f"unexpected canonical reach inside cmm.application: {sorted(reachers)}"
 
 
 def test_canonical_session_adapter_exemption_stays_exact() -> None:
@@ -378,12 +437,16 @@ def test_application_package_external_imports_are_the_frozen_allowlist() -> None
     offenders: list[str] = []
 
     for path in _package_files():
+        composed = path.name in COMPOSITION_ROOT_MODULES
         for module in _imported_modules(path):
             root = module.split(".")[0]
             if root == "cmm":
                 continue
-            if root not in ALLOWED_EXTERNAL_IMPORT_ROOTS:
-                offenders.append(f"{path.name} -> {module}")
+            if root in ALLOWED_EXTERNAL_IMPORT_ROOTS:
+                continue
+            if composed and root in COMPOSITION_ROOT_EXTERNAL_ROOTS:
+                continue
+            offenders.append(f"{path.name} -> {module}")
 
     assert not offenders, f"unfrozen application-core import: {sorted(offenders)}"
 
@@ -522,7 +585,10 @@ def test_application_package_imports_no_provider_or_model_routing() -> None:
     offenders: list[str] = []
 
     for path in _package_files():
+        composed = path.name in COMPOSITION_ROOT_MODULES
         for module in _imported_modules(path):
+            if composed and module in COMPOSITION_ROOT_PROVIDER_MODULES:
+                continue
             lowered = module.lower()
             for fragment in FORBIDDEN_ROUTING_MODULE_FRAGMENTS:
                 if fragment in lowered:
@@ -535,7 +601,11 @@ def test_application_package_imports_no_provider_or_model_routing_symbol() -> No
     offenders: list[str] = []
 
     for path in _package_files():
-        for symbol in _imported_symbols(path) & set(FORBIDDEN_ROUTING_SYMBOLS):
+        composed = path.name in COMPOSITION_ROOT_MODULES
+        symbols = _imported_symbols(path)
+        if composed:
+            symbols -= set(COMPOSITION_ROOT_PROVIDER_SYMBOLS)
+        for symbol in symbols & set(FORBIDDEN_ROUTING_SYMBOLS):
             offenders.append(f"{path.name} -> {symbol}")
 
     assert not offenders, f"provider/model routing symbol imported: {sorted(offenders)}"

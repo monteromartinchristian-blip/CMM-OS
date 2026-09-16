@@ -120,6 +120,7 @@ from cmm.application import (
     build_default_capabilities,
 )
 from cmm.application.errors import GENERIC_FAILURE_MESSAGE
+from cmm.application.local_runtime import build_local_application_runtime
 from cmm.application.platform_module import ORCHESTRATOR_DEPENDENCY_ID
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainKind
@@ -709,6 +710,59 @@ def test_scenario_a_application_module_alone_cannot_become_ready() -> None:
             ),
             modules=(module,),
         )
+
+
+def test_scenario_a_the_production_local_runtime_composes_this_same_graph() -> None:
+    """The Phase 11.4 startup graph and this acceptance graph can not drift.
+
+    ``build_local_application_runtime()`` is the composition a standalone client
+    starts from.  It must reach the same connected shape this module asserts
+    about its own fixture: the real container ready, the one gateway bound as
+    ``application.gateway`` with the canonical metadata and orchestrator
+    dependency, and a health projection over the very same canonical services.
+    """
+
+    runtime = build_local_application_runtime()
+    backend = _build_backend()
+
+    assert runtime.container.state is ContainerState.READY
+    assert runtime.container.failure() is None
+    assert type(runtime.gateway) is ApplicationGateway
+    assert type(runtime.orchestrator) is Orchestrator
+    assert runtime.container.get_service(APPLICATION_SERVICE_ID) is runtime.gateway
+    assert runtime.container.get_service("orchestration.orchestrator") is (
+        runtime.orchestrator
+    )
+
+    services = {
+        service["service_id"]: service
+        for service in runtime.container.snapshot().to_dict()["services"]
+    }
+    application = services[APPLICATION_SERVICE_ID]
+
+    assert application["owner"] == APPLICATION_OWNER
+    assert application["contract_version"] == APPLICATION_CONTRACT_VERSION
+    assert application["schema_version"] == APPLICATION_SCHEMA_VERSION
+    assert application["authority"] == APPLICATION_AUTHORITY
+    assert application["mode"] == "local"
+    assert application["dependency_ids"] == [ORCHESTRATOR_DEPENDENCY_ID]
+
+    health = runtime.gateway.handle(
+        ApplicationQuery(
+            request_id="request-production-graph",
+            api_version=APPLICATION_API_VERSION,
+            operation=ApplicationOperation.HEALTH_GET,
+        )
+    )
+
+    assert health.status is ApplicationStatus.SUCCESS
+    assert health.data is not None
+    assert health.data["platform_ready"] is True
+    # The production composition's readiness owner is the same canonical
+    # service set this acceptance's platform container declares.
+    assert set(health.data["services"]) == {
+        service.service_id for service in backend.platform_container.snapshot().services
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════
