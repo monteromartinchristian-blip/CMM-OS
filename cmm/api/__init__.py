@@ -14,11 +14,20 @@ See ``docs/reference/phase-11-application-backend.md``.
 
 from __future__ import annotations
 
+from cmm.api.app import (
+    IDEMPOTENCY_KEY_HEADER,
+    REQUEST_ID_HEADER,
+    create_app,
+)
 from cmm.api.errors import (
+    REASON_INTERNAL_DEFECT,
     REASON_INVALID_IDEMPOTENCY_KEY,
     REASON_INVALID_REQUEST_BODY,
     REASON_INVALID_REQUEST_CONTRACT,
     REASON_INVALID_REQUEST_ID,
+    REASON_METHOD_NOT_ALLOWED,
+    REASON_UNKNOWN_ROUTE,
+    framework_error,
     http_status_for,
     invalid_request_error,
     status_code_for,
@@ -41,10 +50,15 @@ from cmm.api.models import (
 )
 
 __all__ = [
+    "IDEMPOTENCY_KEY_HEADER",
+    "REASON_INTERNAL_DEFECT",
     "REASON_INVALID_IDEMPOTENCY_KEY",
     "REASON_INVALID_REQUEST_BODY",
     "REASON_INVALID_REQUEST_CONTRACT",
     "REASON_INVALID_REQUEST_ID",
+    "REASON_METHOD_NOT_ALLOWED",
+    "REASON_UNKNOWN_ROUTE",
+    "REQUEST_ID_HEADER",
     "ApiVersion",
     "ApplicationCapabilityModel",
     "ApplicationErrorModel",
@@ -54,7 +68,9 @@ __all__ = [
     "CreateSessionBody",
     "MessageBody",
     "capability_model_from",
+    "create_app",
     "error_model_from",
+    "framework_error",
     "health_model_from",
     "http_status_for",
     "invalid_request_error",

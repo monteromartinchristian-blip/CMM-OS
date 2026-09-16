@@ -28,16 +28,23 @@ from cmm.application import (
     ApplicationError,
     ApplicationErrorCode,
     ApplicationOperation,
+    ApplicationResourceNotFoundError,
     ApplicationResponse,
+    ApplicationServiceError,
     ApplicationStatus,
+    InternalApplicationError,
     InvalidApplicationRequestError,
 )
 
 __all__ = [
+    "REASON_INTERNAL_DEFECT",
     "REASON_INVALID_IDEMPOTENCY_KEY",
     "REASON_INVALID_REQUEST_BODY",
     "REASON_INVALID_REQUEST_CONTRACT",
     "REASON_INVALID_REQUEST_ID",
+    "REASON_METHOD_NOT_ALLOWED",
+    "REASON_UNKNOWN_ROUTE",
+    "framework_error",
     "http_status_for",
     "invalid_request_error",
     "status_code_for",
@@ -55,6 +62,15 @@ REASON_INVALID_REQUEST_BODY = "INVALID_REQUEST_BODY"
 
 #: The public application contract rejected the values built from the request.
 REASON_INVALID_REQUEST_CONTRACT = "INVALID_REQUEST_CONTRACT"
+
+#: No public route serves the requested path.
+REASON_UNKNOWN_ROUTE = "UNKNOWN_ROUTE"
+
+#: The requested method is not part of the public surface.
+REASON_METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"
+
+#: A framework status no public route can produce.
+REASON_INTERNAL_DEFECT = "INTERNAL_DEFECT"
 
 #: Frozen public error-code to HTTP status map.
 _STATUS_CODES: Mapping[ApplicationErrorCode, int] = {
@@ -82,6 +98,13 @@ _SUCCESS_STATUS_CODES: Mapping[ApplicationOperation, int] = {
 
 #: Status of every other successful operation.
 _DEFAULT_SUCCESS_STATUS = 200
+
+#: Framework routing status to the typed public failure that reports it.  Only
+#: routing outcomes are listed; anything else is an internal defect.
+_FRAMEWORK_ROUTING_FAILURES: Mapping[int, tuple[type[ApplicationServiceError], str]] = {
+    404: (ApplicationResourceNotFoundError, REASON_UNKNOWN_ROUTE),
+    405: (InvalidApplicationRequestError, REASON_METHOD_NOT_ALLOWED),
+}
 
 
 def status_code_for(error_code: ApplicationErrorCode) -> int:
@@ -137,3 +160,19 @@ def invalid_request_error(reason_code: str) -> ApplicationError:
     return InvalidApplicationRequestError(
         details={"reason_code": reason_code}
     ).to_public_error()
+
+
+def framework_error(status_code: int) -> ApplicationError:
+    """Return the safe public error for one framework routing status.
+
+    Only the routing outcomes a public surface can produce are translated.  Any
+    other framework status is reported as ``INTERNAL_FAILURE`` with the generic
+    message, so an unexpected status can never be echoed to a client.
+    """
+
+    if isinstance(status_code, bool) or not isinstance(status_code, int):
+        raise TypeError("status_code must be an int")
+    failure, reason = _FRAMEWORK_ROUTING_FAILURES.get(
+        status_code, (InternalApplicationError, REASON_INTERNAL_DEFECT)
+    )
+    return failure(details={"reason_code": reason}).to_public_error()
