@@ -115,9 +115,16 @@ _OPERATION_INPUT: tuple[tuple[str, str], ...] = (("command", "operation"),)
 
 @runtime_checkable
 class DomainRouter(Protocol):
-    """Orchestration-facing domain routing boundary."""
+    """Orchestration-facing domain routing boundary.
 
-    def route(
+    The role method is named after the role on purpose: a runtime Protocol check
+    verifies member presence rather than callable signature, so two orchestration
+    roles that both exposed a generic ``route`` would satisfy each other and a
+    cross-wired graph would survive composition and fail only on the first real
+    request.
+    """
+
+    def route_domain(
         self,
         request: OrchestrationRequest,
         intent: IntentResolution,
@@ -287,7 +294,7 @@ class CanonicalDomainRouter:
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def route(
+    def route_domain(
         self,
         request: OrchestrationRequest,
         intent: IntentResolution,

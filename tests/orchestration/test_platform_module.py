@@ -79,12 +79,12 @@ class _ContextResolver:
 
 
 class _DomainRouter:
-    def route(self, request, intent, context) -> DomainRouteDecision:
+    def route_domain(self, request, intent, context) -> DomainRouteDecision:
         return DomainRouteDecision(status="resolved", primary_domain="domain:general")
 
 
 class _AgentRouter:
-    def route(self, *, request, intent, context, domain) -> AgentRouteDecision:
+    def route_agent(self, *, request, intent, context, domain) -> AgentRouteDecision:
         return AgentRouteDecision(route=ExecutionRoute.DIRECT_RESPONSE)
 
 
@@ -292,7 +292,7 @@ def test_cross_wired_roles_are_rejected_before_the_container_reaches_ready(
             ),
         )
 
-    assert f"orchestration.{wrong_role}" in str(captured.value)
+    assert f"orchestration.{role}" in str(captured.value)
 
 
 def test_unrelated_object_cannot_claim_an_orchestration_identity() -> None:

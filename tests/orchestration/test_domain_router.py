@@ -142,9 +142,11 @@ def _intent(kind: IntentKind = IntentKind.QUESTION) -> IntentResolution:
     )
 
 
-def _route(router: CanonicalDomainRouter, request: OrchestrationRequest, **kwargs):
+def _route_domain(
+    router: CanonicalDomainRouter, request: OrchestrationRequest, **kwargs
+):
     intent = kwargs.pop("intent", _intent())
-    return router.route(request, intent, _base_context())
+    return router.route_domain(request, intent, _base_context())
 
 
 # ── Delegation ───────────────────────────────────────────────────────────────
@@ -158,11 +160,11 @@ def test_router_requires_real_inputs() -> None:
     router = _router()
 
     with pytest.raises(TypeError):
-        router.route(object(), _intent(), _base_context())  # type: ignore[arg-type]
+        router.route_domain(object(), _intent(), _base_context())  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        router.route(_request(), object(), _base_context())  # type: ignore[arg-type]
+        router.route_domain(_request(), object(), _base_context())  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        router.route(_request(), _intent(), object())  # type: ignore[arg-type]
+        router.route_domain(_request(), _intent(), object())  # type: ignore[arg-type]
 
 
 def test_router_delegates_to_the_canonical_domain_resolver() -> None:
@@ -180,7 +182,7 @@ def test_router_delegates_to_the_canonical_domain_resolver() -> None:
     recorder = _RecordingResolver(_resolver())
     router = _router(resolver=recorder)
 
-    decision = _route(router, _request(input={"question": "What changed?"}))
+    decision = _route_domain(router, _request(input={"question": "What changed?"}))
 
     assert recorder.calls == 1
     assert decision.status
@@ -196,7 +198,7 @@ def test_router_fails_closed_when_the_canonical_resolver_raises() -> None:
     router = _router(resolver=_BrokenResolver())
 
     with pytest.raises(DomainRoutingError) as captured:
-        _route(router, _request(input={"question": "What changed?"}))
+        _route_domain(router, _request(input={"question": "What changed?"}))
 
     assert captured.value.category == "domain"
 
@@ -209,14 +211,14 @@ def test_router_rejects_a_foreign_resolver_result() -> None:
     router = _router(resolver=_ForeignResolver())
 
     with pytest.raises(DomainRoutingError):
-        _route(router, _request(input={"question": "What changed?"}))
+        _route_domain(router, _request(input={"question": "What changed?"}))
 
 
 # ── Canonical selection ──────────────────────────────────────────────────────
 
 
 def test_simple_question_resolves_to_the_general_domain() -> None:
-    decision = _route(_router(), _request(input={"question": "What changed?"}))
+    decision = _route_domain(_router(), _request(input={"question": "What changed?"}))
 
     assert decision.status == DomainResolutionStatus.INSUFFICIENT_INFORMATION.value
     assert decision.primary_domain == "domain:general"
@@ -234,7 +236,7 @@ def test_primary_and_supporting_domains_are_preserved() -> None:
         }
     )
 
-    decision = _route(_router(), request)
+    decision = _route_domain(_router(), request)
 
     assert decision.status == DomainResolutionStatus.RESOLVED.value
     assert decision.primary_domain == "domain:health"
@@ -245,7 +247,7 @@ def test_primary_and_supporting_domains_are_preserved() -> None:
 def test_ambiguous_domains_require_clarification() -> None:
     request = _request(context={"explicit_domains": ["health", "university"]})
 
-    decision = _route(_router(), request)
+    decision = _route_domain(_router(), request)
 
     assert decision.status == DomainResolutionStatus.AMBIGUOUS.value
     assert decision.needs_clarification is True
@@ -267,7 +269,7 @@ def test_blocked_canonical_resolution_is_not_a_clarification() -> None:
     registry = _domain_registry("general")
     router = _router(registry=registry)
 
-    decision = _route(router, request)
+    decision = _route_domain(router, request)
 
     assert decision.status == DomainResolutionStatus.BLOCKED.value
     assert decision.needs_clarification is False
@@ -277,7 +279,7 @@ def test_blocked_canonical_resolution_is_not_a_clarification() -> None:
 def test_no_domain_candidate_requires_clarification() -> None:
     router = _router(registry=_domain_registry())
 
-    decision = _route(router, _request(input={"question": "What changed?"}))
+    decision = _route_domain(router, _request(input={"question": "What changed?"}))
 
     assert decision.status == DomainResolutionStatus.UNSUPPORTED.value
     assert decision.needs_clarification is True
@@ -301,7 +303,7 @@ def test_profile_reference_comes_from_the_canonical_profile_registry() -> None:
         }
     )
 
-    decision = _route(_router(profile_registry=profiles), request)
+    decision = _route_domain(_router(profile_registry=profiles), request)
 
     assert decision.profile_id == "health.default"
 
@@ -320,7 +322,7 @@ def test_router_ignores_caller_asserted_domain_availability() -> None:
         },
     )
 
-    decision = _route(_router(registry=_domain_registry("general")), request)
+    decision = _route_domain(_router(registry=_domain_registry("general")), request)
 
     assert decision.primary_domain is None
     assert decision.status == DomainResolutionStatus.BLOCKED.value
@@ -367,7 +369,7 @@ def test_allow_evidence_is_projected() -> None:
     )
     router = _permission_router(policy)
 
-    decision = _route(
+    decision = _route_domain(
         router,
         _command_request(context=_health_signal_context()),
         intent=_intent(IntentKind.COMMAND),
@@ -388,7 +390,7 @@ def test_canonical_deny_evidence_is_projected_verbatim() -> None:
     )
     router = _permission_router(policy)
 
-    decision = _route(
+    decision = _route_domain(
         router,
         _command_request(context=_health_signal_context()),
         intent=_intent(IntentKind.COMMAND),
@@ -408,7 +410,7 @@ def test_canonical_approval_evidence_is_projected() -> None:
     )
     router = _permission_router(policy)
 
-    decision = _route(
+    decision = _route_domain(
         router,
         _command_request(context=_health_signal_context()),
         intent=_intent(IntentKind.COMMAND),
@@ -427,7 +429,7 @@ def test_absence_of_canonical_policy_is_not_a_deny() -> None:
         ),
     )
 
-    decision = _route(
+    decision = _route_domain(
         router,
         _command_request(context=_health_signal_context()),
         intent=_intent(IntentKind.COMMAND),
@@ -462,7 +464,7 @@ def test_side_effecting_intent_without_its_canonical_identifier_has_no_evidence(
         context=_health_signal_context(),
     )
 
-    decision = _route(router, request, intent=_intent(IntentKind.COMMAND))
+    decision = _route_domain(router, request, intent=_intent(IntentKind.COMMAND))
 
     assert decision.permission_disposition is None
 
@@ -476,7 +478,7 @@ def test_read_only_intents_do_not_claim_permission_evidence() -> None:
     )
     router = _permission_router(policy)
 
-    decision = _route(router, _request(input={"question": "What changed?"}))
+    decision = _route_domain(router, _request(input={"question": "What changed?"}))
 
     assert decision.permission_disposition is None
 
@@ -496,7 +498,7 @@ def test_permission_evidence_is_skipped_without_a_session() -> None:
         session_id=None,
     )
 
-    decision = _route(router, request, intent=_intent(IntentKind.COMMAND))
+    decision = _route_domain(router, request, intent=_intent(IntentKind.COMMAND))
 
     assert decision.permission_disposition is None
 
@@ -535,7 +537,7 @@ def test_supporting_domains_are_submitted_to_the_canonical_permission_resolver()
         },
     )
 
-    decision = _route(router, request, intent=_intent(IntentKind.COMMAND))
+    decision = _route_domain(router, request, intent=_intent(IntentKind.COMMAND))
 
     assert decision.supporting_domains == ("domain:university",)
     assert recorder.supporting_domains == ("domain:university",)
@@ -545,7 +547,7 @@ def test_supporting_domains_are_submitted_to_the_canonical_permission_resolver()
 
 
 def test_projection_exposes_only_safe_references() -> None:
-    decision = _route(_router(), _request(input={"question": "What changed?"}))
+    decision = _route_domain(_router(), _request(input={"question": "What changed?"}))
 
     payload = decision.to_dict()
 
@@ -570,7 +572,9 @@ def test_routing_is_deterministic() -> None:
     router = _router()
     request = _request(input={"question": "What changed?"})
 
-    assert _route(router, request).to_dict() == _route(router, request).to_dict()
+    assert _route_domain(router, request).to_dict() == (
+        _route_domain(router, request).to_dict()
+    )
 
 
 # ── Architecture ─────────────────────────────────────────────────────────────

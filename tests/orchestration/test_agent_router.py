@@ -148,14 +148,14 @@ def _domain(primary: str | None = "domain:general") -> DomainRouteDecision:
     return DomainRouteDecision(status="resolved", primary_domain=primary)
 
 
-def _route(
+def _route_agent(
     router: CanonicalAgentRouter,
     intent: IntentKind,
     *,
     request: OrchestrationRequest | None = None,
     domain: DomainRouteDecision | None = None,
 ):
-    return router.route(
+    return router.route_agent(
         request=request or _request(),
         intent=_intent(intent),
         context=ResolvedContext(request_id="request-1", stage="domain"),
@@ -174,21 +174,21 @@ def test_router_requires_real_inputs() -> None:
     router = CanonicalAgentRouter()
 
     with pytest.raises(TypeError):
-        router.route(
+        router.route_agent(
             request=object(),  # type: ignore[arg-type]
             intent=_intent(IntentKind.QUESTION),
             context=ResolvedContext(request_id="request-1", stage="domain"),
             domain=_domain(),
         )
     with pytest.raises(TypeError):
-        router.route(
+        router.route_agent(
             request=_request(),
             intent=object(),  # type: ignore[arg-type]
             context=ResolvedContext(request_id="request-1", stage="domain"),
             domain=_domain(),
         )
     with pytest.raises(TypeError):
-        router.route(
+        router.route_agent(
             request=_request(),
             intent=_intent(IntentKind.QUESTION),
             context=object(),  # type: ignore[arg-type]
@@ -212,7 +212,7 @@ def test_router_requires_real_inputs() -> None:
     ],
 )
 def test_route_matrix_is_frozen(intent: IntentKind, expected: ExecutionRoute) -> None:
-    decision = _route(CanonicalAgentRouter(), intent)
+    decision = _route_agent(CanonicalAgentRouter(), intent)
 
     assert decision.route is expected
 
@@ -221,14 +221,14 @@ def test_route_matrix_is_independent_of_the_selected_domain() -> None:
     router = CanonicalAgentRouter()
 
     for primary in ("domain:general", "domain:health", None):
-        decision = _route(router, IntentKind.QUESTION, domain=_domain(primary))
+        decision = _route_agent(router, IntentKind.QUESTION, domain=_domain(primary))
         assert decision.route is ExecutionRoute.DIRECT_RESPONSE
 
 
 def test_continuation_carries_the_referenced_workflow() -> None:
     request = _request(input={"continuation_id": "workflow-1"})
 
-    decision = _route(CanonicalAgentRouter(), IntentKind.CONTINUATION, request=request)
+    decision = _route_agent(CanonicalAgentRouter(), IntentKind.CONTINUATION, request=request)
 
     assert decision.route is ExecutionRoute.WORKFLOW
     assert decision.workflow_id == "workflow-1"
@@ -237,7 +237,7 @@ def test_continuation_carries_the_referenced_workflow() -> None:
 def test_cancellation_carries_the_referenced_workflow() -> None:
     request = _request(input={"cancel_target_id": "workflow-2"})
 
-    decision = _route(CanonicalAgentRouter(), IntentKind.CANCELLATION, request=request)
+    decision = _route_agent(CanonicalAgentRouter(), IntentKind.CANCELLATION, request=request)
 
     assert decision.route is ExecutionRoute.WORKFLOW
     assert decision.workflow_id == "workflow-2"
@@ -248,7 +248,7 @@ def test_workflow_request_carries_the_declared_workflow_identifier() -> None:
         input={"workflow_request": {"workflow_type": "review", "workflow_id": "wf-9"}}
     )
 
-    decision = _route(
+    decision = _route_agent(
         CanonicalAgentRouter(), IntentKind.WORKFLOW_REQUEST, request=request
     )
 
@@ -258,7 +258,7 @@ def test_workflow_request_carries_the_declared_workflow_identifier() -> None:
 def test_workflow_request_without_an_identifier_does_not_invent_one() -> None:
     request = _request(input={"workflow_request": {"workflow_type": "review"}})
 
-    decision = _route(
+    decision = _route_agent(
         CanonicalAgentRouter(), IntentKind.WORKFLOW_REQUEST, request=request
     )
 
@@ -276,7 +276,7 @@ def test_autonomous_goal_delegates_to_the_canonical_registry_service() -> None:
         requested_capabilities=("knowledge.read",),
     )
 
-    decision = _route(router, IntentKind.GOAL, request=request)
+    decision = _route_agent(router, IntentKind.GOAL, request=request)
 
     assert decision.route is ExecutionRoute.AUTONOMOUS_AGENT
     assert decision.agent_id == "agent.alpha"
@@ -291,7 +291,7 @@ def test_autonomous_goal_records_the_canonical_resolution_attempt() -> None:
         requested_capabilities=("knowledge.read",),
     )
 
-    _route(router, IntentKind.GOAL, request=request)
+    _route_agent(router, IntentKind.GOAL, request=request)
 
     assert service.resolver.attempts == 1
 
@@ -304,7 +304,7 @@ def test_no_compatible_agent_escalates_without_inventing_an_agent() -> None:
         requested_capabilities=("operation.execute",),
     )
 
-    decision = _route(router, IntentKind.GOAL, request=request)
+    decision = _route_agent(router, IntentKind.GOAL, request=request)
 
     assert decision.route is ExecutionRoute.HUMAN_ESCALATION
     assert decision.agent_id is None
@@ -316,7 +316,7 @@ def test_autonomous_goal_without_declared_capabilities_escalates() -> None:
     router = CanonicalAgentRouter(registry_service=service)
     request = _request(input={"goal": {"title": "Complete task"}})
 
-    decision = _route(router, IntentKind.GOAL, request=request)
+    decision = _route_agent(router, IntentKind.GOAL, request=request)
 
     assert decision.route is ExecutionRoute.HUMAN_ESCALATION
     assert decision.agent_id is None
@@ -329,7 +329,7 @@ def test_autonomous_goal_without_a_registry_service_escalates() -> None:
         requested_capabilities=("knowledge.read",),
     )
 
-    decision = _route(
+    decision = _route_agent(
         CanonicalAgentRouter(registry_service=None), IntentKind.GOAL, request=request
     )
 
@@ -349,7 +349,7 @@ def test_registry_failure_fails_closed() -> None:
     )
 
     with pytest.raises(AgentRoutingError) as captured:
-        _route(router, IntentKind.GOAL, request=request)
+        _route_agent(router, IntentKind.GOAL, request=request)
 
     assert captured.value.category == "agent"
 
@@ -378,7 +378,7 @@ def test_non_agent_routes_do_not_consult_the_agent_registry(
 
     service = _RecordingService()
 
-    _route(CanonicalAgentRouter(registry_service=service), intent)
+    _route_agent(CanonicalAgentRouter(registry_service=service), intent)
 
     assert service.calls == 0
 
@@ -400,8 +400,8 @@ def test_routing_is_deterministic() -> None:
         requested_capabilities=("knowledge.read",),
     )
 
-    assert _route(router, IntentKind.GOAL, request=request).to_dict() == (
-        _route(router, IntentKind.GOAL, request=request).to_dict()
+    assert _route_agent(router, IntentKind.GOAL, request=request).to_dict() == (
+        _route_agent(router, IntentKind.GOAL, request=request).to_dict()
     )
 
 

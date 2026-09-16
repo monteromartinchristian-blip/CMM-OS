@@ -518,13 +518,13 @@ def test_serialized_orchestration_values_never_carry_hidden_reasoning() -> None:
             return ResolvedContext(request_id=request.request_id, stage="domain")
 
     class _Domain:
-        def route(self, request, intent, context) -> DomainRouteDecision:
+        def route_domain(self, request, intent, context) -> DomainRouteDecision:
             return DomainRouteDecision(
                 status="resolved", primary_domain="domain:general"
             )
 
     class _Agent:
-        def route(self, *, request, intent, context, domain) -> AgentRouteDecision:
+        def route_agent(self, *, request, intent, context, domain) -> AgentRouteDecision:
             return AgentRouteDecision(route=ExecutionRoute.DIRECT_RESPONSE)
 
     class _Policy:
@@ -667,3 +667,91 @@ def test_official_agent_router_cannot_claim_the_domain_router_role() -> None:
 
     assert isinstance(router, AgentRouter)
     assert not isinstance(router, DomainRouter)
+
+
+def _official_role_implementations() -> tuple[tuple[str, object, type], ...]:
+    """Return every official implementation paired with its intended runtime role."""
+
+    from cmm.orchestration.agent_router import AgentRouter, CanonicalAgentRouter
+    from cmm.orchestration.context import ContextResolver, DefaultContextResolver
+    from cmm.orchestration.decision_repository import (
+        InMemoryOrchestrationDecisionRepository,
+        OrchestrationDecisionRepository,
+    )
+    from cmm.orchestration.domain_router import DomainRouter
+    from cmm.orchestration.events import (
+        OrchestrationEventSink,
+        RecordingOrchestrationEventSink,
+    )
+    from cmm.orchestration.intent import (
+        DeterministicIntentResolver,
+        IntentResolver,
+    )
+    from cmm.orchestration.orchestrator import Orchestrator, OrchestratorProtocol
+    from cmm.orchestration.policy import (
+        DefaultOrchestrationPolicy,
+        OrchestrationPolicy,
+    )
+
+    domain_router = _official_domain_router()
+    agent_router = CanonicalAgentRouter()
+    context_resolver = DefaultContextResolver(session_store=None)
+    repository = InMemoryOrchestrationDecisionRepository()
+    sink = RecordingOrchestrationEventSink()
+    policy = DefaultOrchestrationPolicy()
+    intent_resolver = DeterministicIntentResolver()
+    orchestrator = Orchestrator(
+        intent_resolver=intent_resolver,
+        context_resolver=context_resolver,
+        domain_router=domain_router,
+        agent_router=agent_router,
+        policy=policy,
+        decision_repository=repository,
+        event_sink=sink,
+    )
+
+    return (
+        ("DeterministicIntentResolver", intent_resolver, IntentResolver),
+        ("DefaultContextResolver", context_resolver, ContextResolver),
+        ("CanonicalDomainRouter", domain_router, DomainRouter),
+        ("CanonicalAgentRouter", agent_router, AgentRouter),
+        ("DefaultOrchestrationPolicy", policy, OrchestrationPolicy),
+        (
+            "InMemoryOrchestrationDecisionRepository",
+            repository,
+            OrchestrationDecisionRepository,
+        ),
+        ("RecordingOrchestrationEventSink", sink, OrchestrationEventSink),
+        ("Orchestrator", orchestrator, OrchestratorProtocol),
+    )
+
+
+def test_every_official_implementation_satisfies_its_intended_role() -> None:
+    for label, implementation, intended in _official_role_implementations():
+        assert isinstance(implementation, intended), (
+            f"{label} must satisfy {intended.__name__}"
+        )
+
+
+def test_no_official_implementation_satisfies_another_orchestration_role() -> None:
+    """Audit V1 MAJOR-01: stable orchestration roles are pairwise exclusive.
+
+    A runtime Protocol check only verifies member presence, so an implementation
+    satisfying two stable roles would still be cross-wirable.  Every official
+    implementation must therefore satisfy exactly its own role.
+    """
+
+    implementations = _official_role_implementations()
+    contracts = tuple(contract for _, _, contract in implementations)
+
+    collisions: list[str] = []
+    for label, implementation, intended in implementations:
+        for contract in contracts:
+            if contract is intended:
+                continue
+            if isinstance(implementation, contract):
+                collisions.append(f"{label} -> {contract.__name__}")
+
+    assert not collisions, (
+        f"orchestration roles are not pairwise exclusive: {collisions}"
+    )

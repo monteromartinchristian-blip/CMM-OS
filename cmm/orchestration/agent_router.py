@@ -92,9 +92,16 @@ def _workflow_reference(request: OrchestrationRequest) -> str | None:
 
 @runtime_checkable
 class AgentRouter(Protocol):
-    """Execution-path selection boundary."""
+    """Execution-path selection boundary.
 
-    def route(
+    The role method is named after the role on purpose: a runtime Protocol check
+    verifies member presence rather than callable signature, so two orchestration
+    roles that both exposed a generic ``route`` would satisfy each other and a
+    cross-wired graph would survive composition and fail only on the first real
+    request.
+    """
+
+    def route_agent(
         self,
         *,
         request: OrchestrationRequest,
@@ -112,7 +119,7 @@ class CanonicalAgentRouter:
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def route(
+    def route_agent(
         self,
         *,
         request: OrchestrationRequest,

@@ -102,7 +102,7 @@ class _DomainRouter:
         self._decision = decision
         self.calls = 0
 
-    def route(self, request, intent, context) -> DomainRouteDecision:
+    def route_domain(self, request, intent, context) -> DomainRouteDecision:
         self.calls += 1
         return self._decision
 
@@ -112,7 +112,7 @@ class _AgentRouter:
         self._decision = decision
         self.calls = 0
 
-    def route(self, *, request, intent, context, domain) -> AgentRouteDecision:
+    def route_agent(self, *, request, intent, context, domain) -> AgentRouteDecision:
         self.calls += 1
         return self._decision
 
@@ -505,7 +505,7 @@ def test_required_event_emission_failure_fails_closed() -> None:
 
 def test_unexpected_collaborator_failure_fails_closed() -> None:
     class _ExplodingDomainRouter:
-        def route(self, request, intent, context):
+        def route_domain(self, request, intent, context):
             raise RuntimeError("unexpected internal defect")
 
     orchestrator, _ = _graph()

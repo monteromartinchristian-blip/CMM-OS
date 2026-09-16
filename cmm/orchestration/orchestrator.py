@@ -252,7 +252,7 @@ class Orchestrator:
         resolution: IntentResolution,
         context: ResolvedContext,
     ) -> DomainRouteDecision:
-        decision = self._domain_router.route(request, resolution, context)
+        decision = self._domain_router.route_domain(request, resolution, context)
         if not isinstance(decision, DomainRouteDecision):
             raise OrchestrationError(
                 "Domain routing returned an unexpected value",
@@ -285,7 +285,7 @@ class Orchestrator:
         context: ResolvedContext,
         domain: DomainRouteDecision,
     ) -> AgentRouteDecision:
-        decision = self._agent_router.route(
+        decision = self._agent_router.route_agent(
             request=request, intent=resolution, context=context, domain=domain
         )
         if not isinstance(decision, AgentRouteDecision):
