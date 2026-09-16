@@ -68,6 +68,9 @@ from cmm.application.idempotency import (
     InMemoryIdempotencyRepository,
     fingerprint_command,
 )
+from cmm.application.sessions import (
+    SessionApplicationService,
+)
 
 __all__ = [
     "APPLICATION_API_VERSION",
@@ -108,6 +111,7 @@ __all__ = [
     "InternalApplicationError",
     "InvalidApplicationRequestError",
     "PolicyDeniedApplicationError",
+    "SessionApplicationService",
     "StreamEventKind",
     "UnsupportedApplicationVersionError",
     "failed_response",
