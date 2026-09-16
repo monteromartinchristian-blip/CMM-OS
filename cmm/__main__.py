@@ -200,6 +200,7 @@ def main(
             args,
             application=application,
             doctor=doctor,
+            stdin=sys.stdin if stdin is None else stdin,
             stdout=sys.stdout if stdout is None else stdout,
             stderr=sys.stderr if stderr is None else stderr,
         )
@@ -254,15 +255,17 @@ def _run_phase11_4_command(
     *,
     application: CliApplicationAdapter | None,
     doctor: CliDoctor | None,
+    stdin: TextIO,
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
     """Run one Phase 11.4 command, starting the platform only when it is needed.
 
     A reserved capability is answered from the frozen command table, so this
-    build never starts the platform to say that nothing can answer.  An
-    operational command resolves its dependencies -- the caller's, or a freshly
-    composed local runtime -- and hands them to the explicit dispatcher.
+    build never starts the platform to say that nothing can answer -- and it
+    reads no standard input either.  An operational command resolves its
+    dependencies -- the caller's, or a freshly composed local runtime -- and
+    hands them to the explicit dispatcher.
     """
 
     command_id = phase11_4_command_id(args)
@@ -283,6 +286,7 @@ def _run_phase11_4_command(
         args,
         application=resolved_application,
         doctor=resolved_doctor,
+        stdin=stdin,
         stdout=stdout,
         stderr=stderr,
     )

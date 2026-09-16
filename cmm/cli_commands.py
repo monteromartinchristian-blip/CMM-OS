@@ -28,6 +28,7 @@ See ``docs/reference/phase-11-cli.md``.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TextIO
@@ -37,6 +38,7 @@ from cmm.cli_contracts import (
     CliAvailability,
     CliCommandDescriptor,
     CliError,
+    CliExitCode,
     CliOutputFormat,
     CliResult,
     cli_exit_for_result,
@@ -490,12 +492,43 @@ CAPABILITY_UNAVAILABLE_CODE = "CAPABILITY_UNAVAILABLE"
 #: asked for and states the fact; it never suggests the command ran.
 UNAVAILABLE_MESSAGE_TEMPLATE = "{capability} is not available in this platform build."
 
-#: The public code of a command this build declares available but does not wire.
+#: The public code of a request this build declares available but does not wire.
 UNWIRED_COMMAND_CODE = "INTERNAL_FAILURE"
 
 #: The public message of an available command without a dispatch branch.  It
 #: carries no internal content.
 UNWIRED_COMMAND_MESSAGE = "The command has no canonical handler in this platform build"
+
+#: The frozen public code and status of a request the CLI itself must refuse.
+#: Both are the canonical public names, so the frozen exit table resolves them
+#: without the presentation layer importing a lower owner.
+INVALID_REQUEST_CODE = "INVALID_REQUEST"
+CANCELLED_CODE = "CANCELLED"
+CANCELLED_STATUS = "cancelled"
+
+#: The message of a one-shot command that was given two request texts at once.
+ASK_INPUT_CONFLICT_MESSAGE = (
+    "Ask accepts its request text either as an argument or on stdin, not both"
+)
+
+#: The message of a one-shot command that was given no request text at all.
+ASK_INPUT_MISSING_MESSAGE = "Ask requires its request text as an argument or on stdin"
+
+#: The message of an interrupted local interaction.  It states the local fact
+#: and never claims a canonical request was cancelled: the CLI owns no
+#: cancellation path, so a claim like that would be a lie.
+INTERRUPTED_MESSAGE = (
+    "The local CLI interaction was interrupted; no canonical cancellation was requested"
+)
+
+#: The message of a text option the caller left empty.
+EMPTY_OPTION_MESSAGE_TEMPLATE = "{command} requires {option} to be a non-empty value"
+
+#: The lines a chat loop reads as a local termination request.
+CHAT_EXIT_COMMANDS: tuple[str, ...] = ("/exit", "/quit")
+
+#: The presentation status of a chat loop that terminated with failed turns.
+CHAT_DEGRADED_STATUS = "degraded"
 
 
 def _capability_label(command_id: str) -> str:
@@ -606,6 +639,7 @@ def dispatch_phase11_4(
     doctor: CliDoctor,
     stdout: TextIO,
     stderr: TextIO,
+    stdin: TextIO | None = None,
 ) -> int:
     """Dispatch one Phase 11.4 command and return its frozen process exit code.
 
@@ -620,6 +654,10 @@ def dispatch_phase11_4(
     frozen identity; the ordinary root entry point answers reserved capabilities
     before a runtime is ever composed, and reaches here only for the commands
     that genuinely need the application.
+
+    *stdin* is the stream the interactive commands read; it is optional and only
+    the conversational commands ever touch it, so every other command stays a
+    pure function of its arguments.
     """
 
     command_id = phase11_4_command_id(args)
@@ -632,7 +670,293 @@ def dispatch_phase11_4(
         result = application.status()
     elif command_id == "doctor":
         result = doctor.run()
+    elif command_id == "ask":
+        return _run_ask(
+            args,
+            application=application,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    elif command_id == "chat":
+        return _run_chat(
+            args,
+            application=application,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
     else:
         result = _unwired_command_result(command_id)
 
     return emit_phase11_4_result(result, args, stdout=stdout, stderr=stderr)
+
+
+# ── The conversational commands ──────────────────────────────────────────────
+
+
+def _invalid_request_result(command_id: str, message: str) -> CliResult:
+    """Return the fail-closed result of a request the CLI itself must refuse."""
+
+    return CliResult(
+        command=command_id,
+        ok=False,
+        status=INVALID_REQUEST_CODE.lower(),
+        error=CliError(code=INVALID_REQUEST_CODE, message=message),
+    )
+
+
+def _interrupted_result(command_id: str) -> CliResult:
+    """Return the result of a local interaction the user interrupted."""
+
+    return CliResult(
+        command=command_id,
+        ok=False,
+        status=CANCELLED_STATUS,
+        error=CliError(code=CANCELLED_CODE, message=INTERRUPTED_MESSAGE),
+    )
+
+
+def _optional_text_option(
+    args: argparse.Namespace, name: str, *, command_id: str
+) -> str | CliResult | None:
+    """Return one optional text option, the command's refusal, or ``None``.
+
+    A blank value is refused instead of being read as absent: the caller asked
+    for something specific, and the CLI will not guess which of the two they
+    meant.
+    """
+
+    value = getattr(args, name, None)
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return _invalid_request_result(
+        command_id,
+        EMPTY_OPTION_MESSAGE_TEMPLATE.format(
+            command=_capability_label(command_id),
+            option=f"--{name.replace('_', '-')}",
+        ),
+    )
+
+
+def _piped_text(stdin: TextIO | None) -> str:
+    """Return the request text a piped standard input supplies, or ``""``.
+
+    An interactive terminal is never read: ``ask`` is a scriptable command and
+    must not block on input nobody piped into it.  A stream that can not be read
+    supplies nothing rather than turning a usability limit into a defect of the
+    request.
+    """
+
+    stream = sys.stdin if stdin is None else stdin
+    if bool(getattr(stream, "isatty", _not_interactive)()):
+        return ""
+
+    try:
+        piped = stream.read()
+    except (OSError, ValueError):
+        return ""
+
+    return piped.strip() if isinstance(piped, str) else ""
+
+
+def _not_interactive() -> bool:
+    """Return ``False`` for a stream that publishes no terminal state."""
+
+    return False
+
+
+def _one_shot_text(args: argparse.Namespace, stdin: TextIO | None) -> str | CliResult:
+    """Return the one request text of a one-shot command, or its refusal.
+
+    ``ask`` is scriptable input, so it takes its text from exactly one place:
+    the positional argument or a piped standard input.  Both at once is an
+    ambiguous request and neither is an empty one, and each is refused before
+    any canonical request exists -- a one-shot command never guesses.
+    """
+
+    argument = getattr(args, "text", None)
+    provided = argument.strip() if isinstance(argument, str) else ""
+    piped = _piped_text(stdin)
+
+    if provided and piped:
+        return _invalid_request_result("ask", ASK_INPUT_CONFLICT_MESSAGE)
+    if provided or piped:
+        return provided or piped
+    return _invalid_request_result("ask", ASK_INPUT_MISSING_MESSAGE)
+
+
+def _run_ask(
+    args: argparse.Namespace,
+    *,
+    application: CliApplicationAdapter,
+    stdin: TextIO | None,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Run one one-shot request through the canonical application boundary."""
+
+    session_id = _optional_text_option(args, "session_id", command_id="ask")
+    idempotency_key = _optional_text_option(args, "idempotency_key", command_id="ask")
+    for option in (session_id, idempotency_key):
+        if isinstance(option, CliResult):
+            return emit_phase11_4_result(option, args, stdout=stdout, stderr=stderr)
+
+    text = _one_shot_text(args, stdin)
+    if isinstance(text, CliResult):
+        return emit_phase11_4_result(text, args, stdout=stdout, stderr=stderr)
+
+    try:
+        result = application.ask(
+            text=text,
+            actor_id=args.actor_id,
+            session_id=session_id,
+            idempotency_key=idempotency_key,
+        )
+    except KeyboardInterrupt:
+        # The user stopped waiting locally.  Whether the canonical request ran
+        # is unknown to the CLI, so it reports only what it knows: this local
+        # interaction was cancelled, and no canonical cancellation was sent.
+        result = _interrupted_result("ask")
+
+    return emit_phase11_4_result(result, args, stdout=stdout, stderr=stderr)
+
+
+def _read_chat_line(stdin: TextIO | None) -> str | None:
+    """Return the next line of a chat input, or ``None`` at end of input."""
+
+    stream = sys.stdin if stdin is None else stdin
+    line = stream.readline()
+    if not line:
+        return None
+    return line
+
+
+def _chat_termination_result(
+    session_id: str,
+    *,
+    submitted: int,
+    failed: int,
+    termination: str,
+) -> CliResult:
+    """Return the result that describes one locally terminated chat loop.
+
+    The result describes the *local* loop, not the platform: a chat that ends on
+    request or at end of input ended as asked, and every turn's own outcome was
+    already reported in its own document.  The turn counts are published so a
+    caller can tell an uneventful conversation from a degraded one.
+    """
+
+    return CliResult(
+        command="chat",
+        ok=True,
+        status="success" if failed == 0 else CHAT_DEGRADED_STATUS,
+        data={
+            "session_id": session_id,
+            "submitted": submitted,
+            "failed": failed,
+            "termination": termination,
+        },
+        metadata={"quiet_value": session_id},
+    )
+
+
+def _run_chat_loop(
+    args: argparse.Namespace,
+    *,
+    application: CliApplicationAdapter,
+    session_id: str,
+    stdin: TextIO | None,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Read, submit and render one line at a time in one canonical session."""
+
+    submitted = 0
+    failed = 0
+
+    while True:
+        line = _read_chat_line(stdin)
+        if line is None:
+            termination = "eof"
+            break
+
+        text = line.rstrip("\r\n")
+        if not text.strip():
+            continue
+        if text.strip() in CHAT_EXIT_COMMANDS:
+            termination = text.strip().lstrip("/")
+            break
+
+        result = application.submit_message(
+            text=text,
+            actor_id=args.actor_id,
+            session_id=session_id,
+        )
+        submitted += 1
+        exit_code = emit_phase11_4_result(result, args, stdout=stdout, stderr=stderr)
+        if result.ok:
+            continue
+
+        failed += 1
+        if exit_code == int(CliExitCode.INTERNAL_FAILURE):
+            # An internal failure is terminal for local interaction: repeating
+            # the same call against a defect produces the same defect, and the
+            # loop must not spin on it.
+            return exit_code
+
+    return emit_phase11_4_result(
+        _chat_termination_result(
+            session_id, submitted=submitted, failed=failed, termination=termination
+        ),
+        args,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def _run_chat(
+    args: argparse.Namespace,
+    *,
+    application: CliApplicationAdapter,
+    stdin: TextIO | None,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Run the minimal interactive loop over one canonical session.
+
+    The loop keeps no conversation of its own: no transcript, no history file,
+    no editing, no regeneration, no attachments and no local notion of a
+    message.  It resolves one canonical session (creating exactly one when the
+    caller named none), submits each line through the canonical boundary and
+    renders what comes back, so every turn is the platform's answer rather than
+    the CLI's memory of one.
+    """
+
+    session_id = _optional_text_option(args, "session_id", command_id="chat")
+    if isinstance(session_id, CliResult):
+        return emit_phase11_4_result(session_id, args, stdout=stdout, stderr=stderr)
+
+    try:
+        resolved = application.resolve_session(
+            session_id=session_id,
+            actor_id=args.actor_id,
+            command="chat",
+        )
+        if isinstance(resolved, CliResult):
+            return emit_phase11_4_result(resolved, args, stdout=stdout, stderr=stderr)
+
+        return _run_chat_loop(
+            args,
+            application=application,
+            session_id=resolved,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    except KeyboardInterrupt:
+        return emit_phase11_4_result(
+            _interrupted_result("chat"), args, stdout=stdout, stderr=stderr
+        )

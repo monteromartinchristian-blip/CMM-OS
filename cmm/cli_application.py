@@ -209,6 +209,32 @@ class CliApplicationAdapter:
             )
         )
 
+    def resolve_session(
+        self,
+        *,
+        session_id: str | None,
+        actor_id: str | None,
+        command: str,
+    ) -> str | CliResult:
+        """Return the canonical session identity one command will use.
+
+        An explicit identity is used exactly as given: the canonical boundary
+        validates it when the first request is submitted, because the CLI owns
+        no session store and probes none.  Without one, exactly one canonical
+        session is created through the gateway, and a creation that fails or
+        publishes no identity becomes the command's own safe result -- so a
+        message is never submitted into a session that was never established.
+        """
+
+        if session_id is not None:
+            return _require_text(session_id, field="session_id")
+
+        created = self.create_session(actor_id=actor_id)
+        if created.error is not None or created.status is not ApplicationStatus.SUCCESS:
+            return self._to_cli_result(command, created)
+
+        return self._session_id_of(created, command=command)
+
     def ask(
         self,
         *,
@@ -222,18 +248,13 @@ class CliApplicationAdapter:
         checked_text = _require_text(text, field="text")
         checked_actor = _require_text(actor_id, field="actor_id")
 
-        if session_id is None:
-            created = self.create_session(actor_id=checked_actor)
-            if (
-                created.error is not None
-                or created.status is not ApplicationStatus.SUCCESS
-            ):
-                return self._to_cli_result("ask", created)
-            resolved_session = self._session_id_of(created, command="ask")
-            if isinstance(resolved_session, CliResult):
-                return resolved_session
-        else:
-            resolved_session = _require_text(session_id, field="session_id")
+        resolved_session = self.resolve_session(
+            session_id=session_id,
+            actor_id=checked_actor,
+            command="ask",
+        )
+        if isinstance(resolved_session, CliResult):
+            return resolved_session
 
         return self._submit(
             command="ask",

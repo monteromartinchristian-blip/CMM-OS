@@ -30,6 +30,7 @@ from cmm.application import (
     ApplicationGateway,
     ApplicationOperation,
     ApplicationRequest,
+    ApplicationResponse,
     ApplicationStatus,
 )
 from cmm.application.local_runtime import build_local_application_runtime
@@ -485,3 +486,87 @@ def test_create_session_returns_the_application_response(
     assert created.status is ApplicationStatus.SUCCESS
     assert created.data["session_id"] == "session-1"
     assert created.data["revision"] == 1
+
+
+# ── session resolution ───────────────────────────────────────────────────────
+
+
+def test_resolve_session_creates_exactly_one_canonical_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, recorder, _ = _adapter(monkeypatch)
+
+    session_id = adapter.resolve_session(
+        session_id=None, actor_id=ACTOR_ID, command="chat"
+    )
+
+    assert isinstance(session_id, str)
+    assert session_id
+    assert recorder.operations == [ApplicationOperation.SESSION_CREATE]
+    assert recorder.requests[0].channel is ApplicationChannel.CLI
+
+
+def test_resolve_session_reuses_an_explicit_identity_without_reading_the_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, recorder, _ = _adapter(monkeypatch)
+
+    session_id = adapter.resolve_session(
+        session_id="session-1", actor_id=ACTOR_ID, command="chat"
+    )
+
+    assert session_id == "session-1"
+    assert recorder.requests == []
+
+
+def test_resolve_session_reports_a_failed_creation_as_the_command_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, _, runtime = _adapter(monkeypatch)
+
+    def _defective_create_session(session_id: str) -> Any:
+        raise ValueError(RAW_DEFECT_TEXT)
+
+    monkeypatch.setattr(
+        vars(runtime.gateway)["_sessions"], "create_session", _defective_create_session
+    )
+
+    outcome = adapter.resolve_session(
+        session_id=None, actor_id=ACTOR_ID, command="chat"
+    )
+
+    assert isinstance(outcome, CliResult)
+    assert outcome.command == "chat"
+    assert outcome.ok is False
+    assert outcome.error is not None
+    assert outcome.error.code == ApplicationErrorCode.INTERNAL_FAILURE.value
+    assert RAW_DEFECT_TEXT not in json.dumps(outcome.to_dict())
+
+
+def test_resolve_session_fails_closed_without_a_session_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, _, runtime = _adapter(monkeypatch)
+
+    def _identityless_create_session(session_id: str) -> ApplicationResponse:
+        return ApplicationResponse(
+            request_id="request-1",
+            api_version=APPLICATION_API_VERSION,
+            status=ApplicationStatus.SUCCESS,
+            data={},
+        )
+
+    monkeypatch.setattr(
+        vars(runtime.gateway)["_sessions"],
+        "create_session",
+        _identityless_create_session,
+    )
+
+    outcome = adapter.resolve_session(
+        session_id=None, actor_id=ACTOR_ID, command="chat"
+    )
+
+    assert isinstance(outcome, CliResult)
+    assert outcome.ok is False
+    assert outcome.error is not None
+    assert outcome.error.code == ApplicationErrorCode.INTERNAL_FAILURE.value
