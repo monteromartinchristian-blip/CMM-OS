@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -102,6 +103,7 @@ from cmm.application import (
     CANCELLATION_UNAVAILABLE_MESSAGE,
     MAX_MESSAGE_LENGTH,
     REASON_CANCELLATION_UNAVAILABLE,
+    ApplicationCommand,
     ApplicationErrorCode,
     ApplicationGateway,
     ApplicationOperation,
@@ -110,6 +112,7 @@ from cmm.application import (
     CapabilityApplicationService,
     CapabilityStatus,
     HealthApplicationService,
+    IdempotencyRecord,
     InMemoryIdempotencyRepository,
     RequestApplicationService,
     SessionApplicationService,
@@ -1399,6 +1402,246 @@ def test_scenario_j_same_key_against_another_session_is_a_conflict() -> None:
     )
     assert _request_received_ids(backend) == ["request-j"]
     assert backend.repository.list_for_session(OTHER_SESSION_ID) == ()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Scenarios I/J (concurrent) — atomic keyed idempotency, Audit V1 MAJOR-01
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Bound on the forced lookup race.  Against a gateway without an atomic keyed
+#: critical section both callers reach the lookup together and the gate releases
+#: immediately.  Against an atomic one the second caller can not reach the
+#: lookup while the first is in flight, so the gate expires for the caller that
+#: owns the critical section: the serialized outcome, not a defect.
+_LOOKUP_GATE_TIMEOUT = 1.0
+
+#: Bound on every worker join.  A worker that outlives the bound fails the test
+#: instead of hanging the suite.
+_WORKER_JOIN_TIMEOUT = 10.0
+
+
+def _run_concurrently(targets: Sequence[Callable[[], Any]]) -> list[Any]:
+    """Run *targets* on their own threads and return their results in order.
+
+    Every worker is joined with a bounded timeout, a worker that is still alive
+    afterwards fails the test, and a worker exception is re-raised here so a
+    broken worker is never mistaken for a passing race.
+    """
+
+    results: list[Any] = [None] * len(targets)
+    defects: list[BaseException] = []
+
+    def _run(index: int, target: Callable[[], Any]) -> None:
+        try:
+            results[index] = target()
+        except BaseException as exc:  # noqa: BLE001 - re-asserted below
+            defects.append(exc)
+
+    threads = [
+        threading.Thread(
+            target=_run, args=(index, target), name=f"backend-worker-{index}"
+        )
+        for index, target in enumerate(targets)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=_WORKER_JOIN_TIMEOUT)
+
+    stalled = sorted(thread.name for thread in threads if thread.is_alive())
+    assert not stalled, (
+        f"concurrent workers must finish within {_WORKER_JOIN_TIMEOUT}s: {stalled}"
+    )
+    assert not defects, f"concurrent workers raised: {defects!r}"
+
+    return results
+
+
+def _observe_stored_records(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: ApplicationBackend,
+    stored: list[IdempotencyRecord],
+) -> None:
+    """Record every idempotency record the official repository stores."""
+
+    stored_put = backend.idempotency.put
+
+    def observed_put(record: IdempotencyRecord) -> None:
+        stored_put(record)
+        stored.append(record)
+
+    monkeypatch.setattr(backend.idempotency, "put", observed_put)
+
+
+def _force_repository_lookup_race(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: ApplicationBackend,
+) -> None:
+    """Force the concurrent interleaving Independent Audit V1 reproduced.
+
+    Audit V1 showed that two concurrent same-key commands can both observe
+    ``get(key) -> None`` before either stores its result, and reproduced it by
+    synchronizing two gateway calls right after the repository lookup.  This
+    test-only gate reproduces exactly that window on the real composed graph.
+    The gate never serializes the callers itself, so it can not stand in for the
+    atomic critical section under test.  It is local to this file for the same
+    reason the graph fixture is: no cross-module test import.
+    """
+
+    barrier = threading.Barrier(2, timeout=_LOOKUP_GATE_TIMEOUT)
+    stored_lookup = backend.idempotency.get
+
+    def gated_lookup(key: str) -> IdempotencyRecord | None:
+        record = stored_lookup(key)
+        if record is None:
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                # The atomic critical section admits one keyed caller at a time,
+                # so the second party never arrives and the gate expires for the
+                # caller inside the section.  That is the serialized outcome.
+                pass
+        return record
+
+    monkeypatch.setattr(backend.idempotency, "get", gated_lookup)
+
+
+def _message_command(
+    *,
+    request_id: str,
+    idempotency_key: str,
+    content: str = MESSAGE_CONTENT,
+) -> ApplicationCommand:
+    """Shape one keyed message command exactly as the v1 adapter shapes it.
+
+    The identity, content type and payload keys mirror ``cmm.api``'s message
+    builder; the message identity is supplied explicitly so two callers of one
+    key describe one canonical message rather than two.
+    """
+
+    return ApplicationCommand(
+        request_id=request_id,
+        api_version=APPLICATION_API_VERSION,
+        operation=ApplicationOperation.MESSAGE_SUBMIT,
+        actor_id=ACTOR_ID,
+        session_id=SESSION_ID,
+        idempotency_key=idempotency_key,
+        payload={
+            "message_id": f"message-{idempotency_key}",
+            "content": content,
+            "content_type": "text/plain",
+            "metadata": {},
+        },
+    )
+
+
+def test_scenario_i_concurrent_equivalent_commands_reach_the_owner_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two simultaneous equivalent keyed commands are one canonical operation.
+
+    Audit V1 reproduced duplicate canonical processing by letting two same-key
+    commands both observe an absent idempotency record.  This connected scenario
+    forces the same interleaving through the real gateway over the real
+    Orchestrator and asserts the canonical effects, not only the responses: one
+    ``orchestration.request_received`` event, one canonical decision record and
+    one idempotency record.
+    """
+
+    backend = _build_backend()
+    _client_with_sessions(backend, SESSION_ID)
+    stored: list[IdempotencyRecord] = []
+    _observe_stored_records(monkeypatch, backend, stored)
+    _force_repository_lookup_race(monkeypatch, backend)
+
+    responses = _run_concurrently(
+        (
+            lambda: backend.gateway.handle(
+                _message_command(
+                    request_id="request-race-1", idempotency_key="key-race"
+                )
+            ),
+            lambda: backend.gateway.handle(
+                _message_command(
+                    request_id="request-race-2", idempotency_key="key-race"
+                )
+            ),
+        )
+    )
+
+    received = _request_received_ids(backend)
+    decisions = backend.repository.list_for_session(SESSION_ID)
+
+    # One keyed command reached the canonical owner; the other replayed the one
+    # stored safe response.
+    assert len(received) == 1
+    assert len(decisions) == 1
+    assert len(stored) == 1
+    assert backend.idempotency.get("key-race") is stored[0]
+
+    # Both callers observe the same one-operation result, honestly at the
+    # clarification boundary this graph reaches, and neither is a conflict.
+    assert {response.status for response in responses} == {
+        ApplicationStatus.NEEDS_CLARIFICATION
+    }
+    assert responses[0] == responses[1]
+    assert decisions[0].request_id == received[0]
+    assert responses[0].request_id == received[0]
+
+    # The replay bypassed no authority and executed nothing downstream.
+    assert backend.execution_probe.calls == []
+    assert backend.agent_service.resolver.attempts == 0
+
+
+def test_scenario_j_concurrent_conflicting_commands_reject_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A simultaneous same-key conflicting command never reaches the owner.
+
+    Same key, materially different content: at most one canonical execution,
+    exactly one ``IDEMPOTENCY_CONFLICT`` and no second canonical decision.
+    """
+
+    backend = _build_backend()
+    _client_with_sessions(backend, SESSION_ID)
+    stored: list[IdempotencyRecord] = []
+    _observe_stored_records(monkeypatch, backend, stored)
+    _force_repository_lookup_race(monkeypatch, backend)
+
+    responses = _run_concurrently(
+        (
+            lambda: backend.gateway.handle(
+                _message_command(
+                    request_id="request-race-1", idempotency_key="key-race"
+                )
+            ),
+            lambda: backend.gateway.handle(
+                _message_command(
+                    request_id="request-race-2",
+                    idempotency_key="key-race",
+                    content="A materially different question",
+                )
+            ),
+        )
+    )
+
+    conflicts = [
+        response
+        for response in responses
+        if response.status is ApplicationStatus.FAILED
+        and response.error is not None
+        and response.error.code is ApplicationErrorCode.IDEMPOTENCY_CONFLICT
+    ]
+
+    assert len(conflicts) == 1
+    assert len(_request_received_ids(backend)) == 1
+    assert len(backend.repository.list_for_session(SESSION_ID)) == 1
+    assert len(stored) == 1
+
+    # The rejected command changed no canonical state and leaked no content.
+    assert "A materially different question" not in json.dumps(conflicts[0].to_dict())
+    assert backend.execution_probe.calls == []
+    assert backend.agent_service.resolver.attempts == 0
 
 
 # ══════════════════════════════════════════════════════════════════════════
