@@ -61,7 +61,10 @@ PUBLIC_LAYERS = ("cmm.application", "cmm.api")
 #: transport and owns no platform truth of its own.  Nothing else in the tree
 #: may import the backend, and this list stays exact — the guard below fails if
 #: a listed module stops existing or stops importing the backend.
-CLI_ADAPTER_MODULES = (REPO_ROOT / "cmm" / "cli_contracts.py",)
+CLI_ADAPTER_MODULES = (
+    REPO_ROOT / "cmm" / "cli_contracts.py",
+    REPO_ROOT / "cmm" / "cli_application.py",
+)
 
 #: Layers the design places below the application backend.
 LOWER_LAYERS = (
