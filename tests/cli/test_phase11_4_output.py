@@ -235,6 +235,62 @@ def test_human_error_never_prints_a_traceback() -> None:
     assert "RuntimeError" not in text
 
 
+def test_human_rendering_handles_a_frozen_nested_result() -> None:
+    """A real result is frozen all the way down; human mode still renders it."""
+
+    result = CliResult(
+        command="status",
+        ok=True,
+        status="success",
+        data={
+            "platform_state": "ok",
+            "capabilities": [
+                {"capability_id": "orchestration", "status": "available"},
+                {"capability_id": "sessions", "status": "available"},
+            ],
+            "metadata_note": {"nested": {"deeper": [1, 2]}},
+        },
+        metadata={"request_id": "request-3", "quiet_value": "ok"},
+    )
+
+    text = render_cli_result(result, output_format=CliOutputFormat.HUMAN)
+    verbose = render_cli_result(
+        result, output_format=CliOutputFormat.HUMAN, verbose=True
+    )
+
+    assert text.splitlines()[0] == "status: success"
+    assert "platform_state: ok" in text
+    assert (
+        'capabilities: [{"capability_id":"orchestration","status":"available"},'
+        '{"capability_id":"sessions","status":"available"}]'
+    ) in text
+    assert 'metadata_note: {"nested":{"deeper":[1,2]}}' in text
+    assert "metadata: " in verbose
+    assert render_cli_result(
+        result, output_format=CliOutputFormat.HUMAN, quiet=True
+    ) == ("ok")
+
+
+def test_human_failure_rendering_handles_frozen_details() -> None:
+    result = CliResult(
+        command="doctor",
+        ok=False,
+        status="failed",
+        error=CliError(
+            code="DEPENDENCY_UNHEALTHY",
+            message="Doctor reported failing canonical checks",
+            details={"failed": ["application.health"], "counts": {"fail": 1}},
+        ),
+    )
+
+    text = render_cli_result(result, output_format=CliOutputFormat.HUMAN, verbose=True)
+
+    assert text.splitlines()[0] == (
+        "DEPENDENCY_UNHEALTHY: Doctor reported failing canonical checks"
+    )
+    assert 'details: {"counts":{"fail":1},"failed":["application.health"]}' in text
+
+
 # ── Quiet ────────────────────────────────────────────────────────────────────
 
 

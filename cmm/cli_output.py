@@ -8,10 +8,11 @@ exit code it was given rather than deciding one, so exit-code policy stays with
 the dispatcher that owns it.
 
 Determinism is the contract: JSON uses canonical sorted compact encoding, YAML
-uses ``yaml.safe_dump`` with sorted keys over the same document, and human mode
-prints the command, its status and the data entries in sorted key order.  Both
-structured representations carry the identical semantic document as
-``CliResult.to_dict()``, so no representation can drift from another.
+uses ``yaml.safe_dump`` with sorted keys, and human mode prints the command, its
+status and the data entries in sorted key order.  Every representation reads the
+identical semantic document as ``CliResult.to_dict()`` -- the thawed, plain and
+JSON-native form of the frozen result -- so no representation can drift from
+another, and rendering never has to reach into a frozen value to format it.
 
 Quiet mode suppresses non-essential commentary: a human success prints only the
 handler-declared primary value (``metadata["quiet_value"]``) or nothing at all,
@@ -107,26 +108,30 @@ def _human_value(value: object) -> str:
 
 
 def _render_human_success(result: CliResult, *, quiet: bool, verbose: bool) -> str:
+    document = result.to_dict()
+    data = document["data"]
+    metadata = document["metadata"]
+
     if quiet:
-        quiet_value = result.metadata.get(QUIET_VALUE_KEY)
+        quiet_value = metadata.get(QUIET_VALUE_KEY)
         return "" if quiet_value is None else _human_value(quiet_value)
 
     lines = [f"{result.command}: {result.status}"]
-    for key in sorted(result.data):
-        lines.append(f"{key}: {_human_value(result.data[key])}")
-    if verbose and result.metadata:
-        lines.append(f"metadata: {_compact_json(dict(result.metadata))}")
+    for key in sorted(data):
+        lines.append(f"{key}: {_human_value(data[key])}")
+    if verbose and metadata:
+        lines.append(f"metadata: {_compact_json(metadata)}")
     return "\n".join(lines)
 
 
 def _render_human_failure(result: CliResult, *, verbose: bool) -> str:
-    error = result.error
+    error = result.to_dict()["error"]
     if error is None:
         return f"{UNREPORTED_FAILURE_CODE}: {UNREPORTED_FAILURE_MESSAGE}"
 
-    lines = [f"{error.code}: {error.message}"]
-    if verbose and error.details:
-        lines.append(f"details: {_compact_json(dict(error.details))}")
+    lines = [f"{error['code']}: {error['message']}"]
+    if verbose and error["details"]:
+        lines.append(f"details: {_compact_json(error['details'])}")
     return "\n".join(lines)
 
 
