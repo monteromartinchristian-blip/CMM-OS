@@ -32,16 +32,32 @@ from cmm.orchestration.contracts import (
     PolicyDisposition,
     ResolvedContext,
 )
+from cmm.orchestration.errors import (
+    AgentRoutingError,
+    ContextResolutionError,
+    DecisionPersistenceError,
+    DomainRoutingError,
+    IntentResolutionError,
+    OrchestrationError,
+    OrchestrationPolicyError,
+)
 
 __all__ = [
     "AgentRouteDecision",
+    "AgentRoutingError",
+    "ContextResolutionError",
+    "DecisionPersistenceError",
     "DomainRouteDecision",
+    "DomainRoutingError",
     "ExecutionRoute",
     "IntentKind",
     "IntentResolution",
+    "IntentResolutionError",
     "OrchestrationChannel",
     "OrchestrationDecisionRecord",
+    "OrchestrationError",
     "OrchestrationPolicyDecision",
+    "OrchestrationPolicyError",
     "OrchestrationRequest",
     "OrchestrationResult",
     "OrchestrationStatus",
