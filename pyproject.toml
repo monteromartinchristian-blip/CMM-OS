@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.115,<1",
     "libcst>=1.0",
     "pypdf>=4.0",
+    "PyYAML>=6.0,<7",
     "typing-extensions>=4.0",
 ]
 
