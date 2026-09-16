@@ -68,6 +68,10 @@ from cmm.application.errors import (
     failed_response,
     safe_error_from_exception,
 )
+from cmm.application.gateway import (
+    CANCELLATION_UNAVAILABLE_MESSAGE,
+    ApplicationGateway,
+)
 from cmm.application.health import (
     HEALTH_STATUS_DEGRADED,
     HEALTH_STATUS_OK,
@@ -88,6 +92,7 @@ from cmm.application.sessions import (
 
 __all__ = [
     "APPLICATION_API_VERSION",
+    "CANCELLATION_UNAVAILABLE_MESSAGE",
     "COMMAND_OPERATIONS",
     "HEALTH_STATUS_DEGRADED",
     "HEALTH_STATUS_OK",
@@ -107,6 +112,7 @@ __all__ = [
     "ApplicationConflictError",
     "ApplicationError",
     "ApplicationErrorCode",
+    "ApplicationGateway",
     "ApplicationHealth",
     "ApplicationMessage",
     "ApplicationOperation",
