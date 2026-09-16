@@ -186,7 +186,7 @@ Orchestration Layer.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-016` | Canonical Request Orchestration. CMM OS shall coordinate each application request through one explicit, fail-closed Orchestrator that resolves request intent and authorized context, delegates domain selection to canonical Domain Intelligence, selects a bounded execution route, delegates agent selection to canonical Agent Runtime authority, preserves restrictive permission/approval/autonomy semantics, records safe orchestration decisions, emits safe lifecycle events through an injected sink, and returns a structured orchestration result without duplicating domain, agent, workflow, execution, validation, session, memory, knowledge, provider or event-system ownership. | `SRC-R11` (detailed Phase 11 roadmap §11.2); `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` §45 | Phase 11.2 | `cmm/orchestration/__init__.py`; `contracts.py`; `errors.py`; `intent.py`; `context.py`; `domain_router.py`; `agent_router.py`; `policy.py`; `decision_repository.py`; `events.py`; `orchestrator.py`; `platform_module.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
+| `F11-016` | Canonical Request Orchestration. CMM OS shall coordinate each application request through one explicit, fail-closed Orchestrator that resolves request intent and authorized context, delegates domain selection to canonical Domain Intelligence, selects a bounded execution route, delegates agent selection to canonical Agent Runtime authority, preserves restrictive permission/approval/autonomy semantics, records safe orchestration decisions, emits safe lifecycle events through an injected sink, and returns a structured orchestration result without duplicating domain, agent, workflow, execution, validation, session, memory, knowledge, provider or event-system ownership. | `SRC-R11` (detailed Phase 11 roadmap §11.2); `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` §45 | Phase 11.2 | `cmm/orchestration/__init__.py`; `contracts.py`; `errors.py`; `intent.py`; `context.py`; `domain_router.py`; `agent_router.py`; `policy.py`; `decision_repository.py`; `events.py`; `orchestrator.py`; `platform_module.py` | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
 
 ### 4.6 `F11-016` traceability
 
@@ -201,11 +201,13 @@ Orchestration Layer.
 | Reference documentation | `docs/reference/phase-11-orchestration-layer.md` |
 | Design specification | `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` |
 | Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-orchestration-layer-implementation-plan.md` |
-| Reused canonical owners | `cmm.domains.resolver.DefaultDomainResolver`; `cmm.domains.registry.DomainRegistry`; `cmm.domains.resolution_builder.DomainResolutionContextBuilder`; `cmm.domains.permission_registry.DomainPermissionRegistry`; `cmm.domains.permission_resolution.DomainPermissionResolver`; `cmm.domains.profile_registry.InMemoryDomainProfileRegistry`; `cmm.agent_runtime.agent_registry_service.AgentRegistryService`; `cmm.agent_runtime.agent_resolver.AgentResolver`; `cmm.agent_runtime.agent_registry_store.InMemoryAgentRegistryStore`; `cmm.runtime.sessions.SessionStore` / `InMemorySessionStore`; `cmm.platform.contracts.ErrorResult`; Phase 11.1 `StaticCompositionModule` / `ApplicationContainer` |
+| Reused canonical owners | `cmm.domains.resolver.DefaultDomainResolver`; `cmm.domains.registry.DomainRegistry`; `cmm.domains.resolution_builder.DomainResolutionContextBuilder`; `cmm.domains.permission_registry.DomainPermissionRegistry`; `cmm.domains.permission_resolution.DomainPermissionResolver`; `cmm.domains.profile_registry.DomainProfileRegistry` / `InMemoryDomainProfileRegistry`; `cmm.agent_runtime.agent_registry_service.AgentRegistryService`; `cmm.agent_runtime.agent_resolver.AgentResolver`; `cmm.agent_runtime.agent_registry_store.InMemoryAgentRegistryStore`; `cmm.runtime.sessions.SessionStore` / `InMemorySessionStore` / `FileSessionStore`; `cmm.platform.contracts.ErrorResult`; Phase 11.1 `StaticCompositionModule` / `ApplicationContainer` |
 | Inherited requirements reused | `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
 | Inherited acceptance regressions | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
-| Audit status | independent audit not yet performed |
+| Remediation design | `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md` |
+| Remediation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md` |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` (this document's §2 vocabulary for exactly the Remediation V1 state: implementation exists, a recorded independent audit `FAIL` exists, findings are remediated, independent re-audit closure still pending) |
+| Audit status | `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`) against `AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b`; Remediation V1 applied; independent re-audit pending |
 
 Phase 11.2 introduces exactly one new persistence owner
 (`OrchestrationDecisionRepository`, in-memory only) because orchestration
@@ -383,9 +385,13 @@ closed Phase 11.1 integration core and are not modified by Phase 11.2. The
 Phase 11.2 orchestration layer is a separate subphase and is reported here:
 
 ```text
-PHASE11_2=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_016=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_102=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_2=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MAJOR_02=REMEDIATED_PENDING_REAUDIT
+
+F11_016=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_102=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_102=PASS
 
 PHASE11_1=CLOSED
@@ -398,10 +404,36 @@ F11_014=VERIFIED_EXISTING
 DP_134=VERIFIED_EXISTING
 AT_DP_134=PASS
 
-BLOCKERS=NONE_RECORDED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
+AUDIT_STATUS=REMEDIATION_V1_APPLIED_PENDING_INDEPENDENT_REAUDIT
 ```
+
+Independent Audit V1 remains recorded historical evidence and is not rewritten:
+
+```text
+INDEPENDENT_AUDIT_V1=FAIL
+
+BLOCKERS=0
+MAJORS=2
+MINORS=0
+
+MAJOR_01=UNSAFE_ORCHESTRATION_ROLE_RUNTIME_CONTRACTS
+MAJOR_02=CANONICAL_AGENT_AUTHORITY_NOT_ENFORCED
+
+F11_016=IMPLEMENTED_REMEDIATION_REQUIRED
+DP_102=NOT_VERIFIED
+AT_DP_102=PASS
+
+AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b
+AUDITED_TREE=989706d15ba78b8333b1e9b3634f820e9180f5bf
+AUDIT_BUNDLE_SHA256=85127ed1e9a437e30984f930b60fba79b7ae28959baf3296f86665ce11b93fc9
+
+CLOSURE_ELIGIBLE=NO
+```
+
+`INDEPENDENT_AUDIT_V1=PASS`, `DP_102=VERIFIED_EXISTING` and
+`CLOSURE_ELIGIBLE=YES` may only be recorded after an independent re-audit of the
+Remediation V1 exact-HEAD bundle.
 
 Phase 11.2 does not reopen Phase 11.1 or Phase 11.34. No closed-phase production
 semantics were changed: the Phase 11.1 composition core is **extended** by one
@@ -437,4 +469,5 @@ not silently pulled forward):
 
 Implementation decisions and deviations are recorded in
 [`docs/reference/phase-11-orchestration-layer.md`](phase-11-orchestration-layer.md)
-§17.
+§18; the Audit V1 Remediation V1 record, including the canonical collaborator
+classification table, is in the same document §17.

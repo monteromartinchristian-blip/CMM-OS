@@ -1,18 +1,28 @@
 # Phase 11 — Orchestration Layer reference
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 **Phase:** 11.2 — Orchestration Layer
 **Requirement:** `F11-016 — Canonical Request Orchestration`
 **Design Point:** `DP-102 — Fail-Closed Canonical Request Orchestration Pipeline`
 **Acceptance Test:** `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-16-phase-11.2-orchestration-layer-implementation-plan.md`
+**Remediation design:** `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md`
+**Remediation plan:** `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md`
+**Independent Audit V1:** `docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md` — `FAIL`, `MAJORS=2`
 **Production package:** `cmm/orchestration/` (12 modules)
 **Implementation base:** `b3aa5e3b8a7538874cbeba91030417bf4859feeb`
 **Starting HEAD:** `89edfbb5ef1c134c37465e85d9a9b452aa1d3ac0`
 
-Phase 11.2 is **implemented and awaiting independent audit**. It is **not**
-closed, **not** independently verified, and **not** `CLOSURE_ELIGIBLE`.
+Phase 11.2 is **implemented, Remediation V1 applied, and awaiting independent
+re-audit**. It is **not** closed, **not** independently verified, and **not**
+`CLOSURE_ELIGIBLE`.
+
+Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`,
+`MAJORS=2`, `MINORS=0` against `AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b`.
+Remediation V1 addresses exactly those two MAJOR findings; its result is recorded
+in [§17](#17-audit-v1-remediation-v1). Audit V1 remains historical evidence and
+has not been rewritten.
 
 ## 1. Purpose and ownership boundary
 
@@ -28,9 +38,9 @@ future clients / future 11.3 Application Backend
                 │
                 ├── IntentResolver
                 ├── ContextResolver
-                ├── DomainRouter
+                ├── DomainRouter          (route_domain)
                 ├── OrchestrationPolicy
-                └── AgentRouter
+                └── AgentRouter           (route_agent)
                 ↓
         OrchestrationResult
                 ↓
@@ -230,6 +240,18 @@ resolve_domain_context(request, base, domain)  -> ResolvedContext(stage="domain"
   (`session:<id>`, reason `CONTEXT_SESSION_NOT_FOUND`) and is never invented.
   A referenced session with no composed canonical store fails closed with
   `ContextResolutionError`.
+* the session collaborator is validated by type at construction: a request that
+  references a session may only be served by a sanctioned canonical
+  `cmm.runtime.sessions` store (`InMemorySessionStore` / `FileSessionStore`), so
+  an arbitrary session-like object cannot stand in for session authority. The
+  `SessionStore` Protocol carries no runtime check, so the sanctioned
+  implementations are named explicitly rather than relaxing authority to a
+  name-based duck type. `None` remains valid for requests that reference no
+  session. See [§17](#17-audit-v1-remediation-v1).
+* the `ContextReferenceReader` collaborators are deliberately **structural**
+  read-only adapters: each owns no state, cannot mutate a canonical source and
+  only returns safe reference strings, so a legitimate adapter stays acceptable
+  while a non-conforming object still fails closed with `ContextResolutionError`.
 * `resolve_domain_context` requires a real `DomainRouteDecision` carrying a
   selected primary domain, so domain-specific context can never be loaded before
   domain selection. It adds only the canonical domain references and the
@@ -241,6 +263,14 @@ resolve_domain_context(request, base, domain)  -> ResolvedContext(stage="domain"
 `CanonicalDomainRouter` is a facade over Domain Intelligence. It reimplements no
 scoring weight, fallback rule, ambiguity rule, permission semantic or
 cross-domain authority.
+
+Every collaborator is validated at construction against its canonical type, so
+the router can only read domain availability, resolution results and permission
+evidence from canonical Domain Intelligence — never from an object that merely
+exposes the same method names. The one deliberate exception is
+`profile_registry`, which stays the closed Phase 10 runtime-checkable
+`DomainProfileRegistry` Protocol seam. See
+[§17](#17-audit-v1-remediation-v1) for the full collaborator classification.
 
 * the canonical `DomainRegistry` snapshot feeds the canonical
   `DomainResolutionContextBuilder`, which derives `available_domains` and
@@ -297,7 +327,7 @@ approval references, canonical trace references and reason codes.
 ## 8. Canonical execution-path and agent routing
 
 `CanonicalAgentRouter` retains the roadmap name; its Phase 11.2 responsibility is
-execution-path selection.
+execution-path selection. Its role method is `route_agent(...)`.
 
 | Intent | Route |
 | --- | --- |
@@ -313,9 +343,17 @@ execution-path selection.
 | `configuration_change` | `human_escalation` (Phase 11.2 owns no configuration authority) |
 | `unknown` | `none` |
 
-The router performs **no** agent scoring. For `autonomous_agent` it builds the
-canonical `AgentRequirement` from the request's declared
-`requested_capabilities` and calls `AgentRegistryService.resolve_agent(...)`:
+The router performs **no** agent scoring. Agent compatibility and selection stay
+owned by the canonical `cmm.agent_runtime.agent_registry_service.AgentRegistryService`
+/ `AgentResolver`, and no other agent-selection authority is accepted: the
+constructor rejects a noncanonical `registry_service` with a safe `TypeError`
+before any routing can occur, so a fake authority can never fabricate an agent
+identifier (see [§17](#17-audit-v1-remediation-v1)). `registry_service=None`
+stays valid for routes that require no agent selection.
+
+For `autonomous_agent` it builds the canonical `AgentRequirement` from the
+request's declared `requested_capabilities` and calls
+`AgentRegistryService.resolve_agent(...)`:
 
 * a selected canonical descriptor is carried into the result as `agent_id` and
   `agent_version`;
@@ -421,6 +459,14 @@ seven frozen collaborators — `intent_resolver`, `context_resolver`,
 by keyword. There is no runtime service locator and no
 `ApplicationContainer.get*()` call during request orchestration.
 
+Every injected collaborator is validated at construction time against its
+declared orchestration role, so role safety holds even for a directly
+constructed `Orchestrator` that never passed through Phase 11.1 composition. A
+cross-wired graph therefore fails with a safe `TypeError` before any request is
+processed; the message names the collaborator, the expected role and the actual
+implementation type, and never interpolates an object repr. See
+[§17](#17-audit-v1-remediation-v1).
+
 Frozen pipeline:
 
 ```text
@@ -501,6 +547,13 @@ unrelated object can never claim an orchestration service identity;
 No orchestration binding claims provider, domain, agent, workflow, execution,
 validation, memory or knowledge authority.
 
+The eight service IDs, their contract versions and their authority labels are
+unchanged by Remediation V1. What changed is that the two router role contracts
+became runtime-discriminating (`route_domain` / `route_agent`), so a service for
+one role can no longer satisfy another role's contract. A cross-wired graph is
+now rejected by the module builder — before `ApplicationContainer` can reach
+`READY` — instead of failing only on the first real request.
+
 ## 14. Security posture and side-effect boundary
 
 The Orchestration Layer is a privilege boundary:
@@ -536,16 +589,22 @@ The API and application backend remain **Phase 11.3**.
 
 ## 16. Testing
 
+Counts below are the Remediation V1 implementation-machine results. The Audit V1
+counts (426 focused / 23 `AT-DP-102` / 51 architecture gates) are superseded
+because Remediation V1 added permanent tests; they remain valid evidence for the
+audited HEAD `5ebc8d064fa3f29825c179eff7f41df204dc837b`.
+
 | Suite | Command | Result |
 | --- | --- | --- |
-| Focused orchestration | `python -m pytest -q tests/orchestration` | 426 passed |
-| `AT-DP-102` | `python -m pytest -q tests/orchestration/test_phase11_2_dp102_acceptance.py` | 23 passed |
-| Affected subsystems | `python -m pytest -q tests/orchestration tests/platform tests/agent_runtime tests/domains tests/validation tests/workflows tests/execution tests/runtime tests/llm` | 17750 passed |
-| Global suite | `python -m pytest -q` | 19045 passed |
+| Focused orchestration | `python -m pytest -q tests/orchestration` | 498 passed |
+| `AT-DP-102` | `python -m pytest -q tests/orchestration/test_phase11_2_dp102_acceptance.py` | 33 passed |
+| Affected subsystems | `python -m pytest -q tests/orchestration tests/platform tests/agent_runtime tests/domains tests/validation tests/workflows tests/execution tests/runtime tests/llm` | 17822 passed |
+| Global suite | `python -m pytest -q` | 19117 passed |
 | Inherited `AT-DP-101` | `tests/platform/test_phase11_1_dp101_acceptance.py` | 31 passed |
 | Inherited `AT-DP-134` | `tests/llm/test_provider_registry_dp134_acceptance.py` | 67 passed |
 
-`AT-DP-102` covers the twelve connected scenarios:
+`AT-DP-102` covers the twelve original connected scenarios plus the two
+Remediation V1 scenarios:
 
 | Scenario | Proves |
 | --- | --- |
@@ -561,16 +620,136 @@ The API and application backend remain **Phase 11.3**.
 | J — multichannel | `conversation`/`cli`/`internal`/`api` share one routing core; the channel can only narrow |
 | K — decision persistence | every terminal decision recorded exactly once, with safe facts only |
 | L — composition | `ApplicationContainer` reaches `READY`, contracts satisfied, graph acyclic, snapshot serializes, duplicate authority rejected |
+| M — role identity (Remediation V1) | the real Domain/Agent routers are not interchangeable; both cross-wires are rejected before `READY`; a correct real graph still reaches `READY` and still routes |
+| N — canonical agent authority (Remediation V1) | a noncanonical registry service is rejected before it is consulted; the real `AgentRegistryService` is accepted and still performs selection; a canonical no-match still escalates without an invented agent |
 
-Architecture gates (`tests/orchestration/test_architecture.py`, 51 tests) cover
+Architecture gates (`tests/orchestration/test_architecture.py`, 72 tests) cover
 no duplicate canonical owner, no reverse dependency, no Phase 11.3 API/backend
 leakage, no Model Gateway/provider routing, no import-time mutation, no
-hidden-reasoning field, no runtime service locator and no new Event Bus /
-scheduler / queue. They were proven non-vacuous by injecting a deliberate
-violation (a duplicate `DomainRegistry`, an `EventBus`, an extra module and an
-import-time call) and observing five gates fail, then removing the probe.
+hidden-reasoning field, no runtime service locator, no new Event Bus /
+scheduler / queue, and — added by Remediation V1 — discriminating role methods,
+pairwise runtime-role exclusivity, no generic `route` method on the official
+routers, no dynamic `getattr` role fallback, no generic authority framework and
+no role-marker attribute. The original gates were proven non-vacuous by
+injecting a deliberate violation (a duplicate `DomainRegistry`, an `EventBus`,
+an extra module and an import-time call) and observing five gates fail, then
+removing the probe.
 
-## 17. Deviations and implementation decisions
+## 17. Audit V1 Remediation V1
+
+Independent Audit V1 (`FAIL`, `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`) reproduced
+two architectural defects. Remediation V1 corrects exactly those two and adds no
+capability, no subsystem and no new infrastructure.
+
+```text
+MAJOR_01=UNSAFE_ORCHESTRATION_ROLE_RUNTIME_CONTRACTS
+MAJOR_02=CANONICAL_AGENT_AUTHORITY_NOT_ENFORCED
+```
+
+### 17.1 MAJOR-01 — role contracts were not runtime-discriminating
+
+`DomainRouter` and `AgentRouter` both exposed only a method named `route`. A
+runtime `@runtime_checkable Protocol` check verifies **member presence**, not
+callable signature, so each role satisfied the other. A cross-wired graph passed
+composition, reached `ApplicationContainer.READY`, and failed only on the first
+real orchestration request.
+
+Remediation:
+
+* the role methods are now explicit and distinct — `DomainRouter.route_domain(...)`
+  and `AgentRouter.route_agent(...)`; the official implementations
+  (`CanonicalDomainRouter`, `CanonicalAgentRouter`) expose exactly those names and
+  keep **no** generic `route` alias;
+* the Orchestrator calls `domain_router.route_domain(...)` and
+  `agent_router.route_agent(...)`; there is no `getattr(..., "route")` fallback;
+* `Orchestrator.__init__` validates all seven injected collaborators against their
+  frozen roles at construction time, so role safety does not depend on Phase 11.1
+  composition. A cross-wired direct construction fails immediately;
+* the eight composition service IDs, contract versions and authority labels are
+  unchanged — the Phase 11.1 `runtime_contract` mechanism was already correct, it
+  had simply been given two colliding contracts;
+* a permanent pairwise runtime-role test asserts that each official
+  implementation satisfies its intended role and no other stable orchestration
+  role (`IntentResolver`, `ContextResolver`, `DomainRouter`, `AgentRouter`,
+  `OrchestrationPolicy`, `OrchestrationDecisionRepository`,
+  `OrchestrationEventSink`, `OrchestratorProtocol`). No second structural
+  collision exists, and no marker hack was needed.
+
+### 17.2 MAJOR-02 — canonical agent authority was a naming convention
+
+`CanonicalAgentRouter` accepted `registry_service: Any | None` and trusted any
+object exposing `resolve_agent(...)`. A fake service could return
+`agent_id="forged.agent"` and the router accepted it as canonical agent
+selection, because the outer binding only checked that the router satisfied the
+`AgentRouter` role.
+
+Remediation: `registry_service` is now typed and runtime-validated as
+`cmm.agent_runtime.agent_registry_service.AgentRegistryService | None`. A
+noncanonical authority is rejected with a safe `TypeError` at construction, before
+it can be consulted; a real `AgentRegistryService` is accepted; `None` remains
+valid for routes that need no agent selection. No `test_mode`,
+`allow_fake_registry`, `unsafe_adapter`, `skip_validation` or `trust_registry`
+escape hatch exists. Agent compatibility and selection remain owned by
+`AgentRegistryService` / `AgentResolver`; Phase 11.2 reimplements no scoring and
+never calls Agent Runtime execution.
+
+### 17.3 Analogous canonical collaborator review
+
+Audit V1 additionally required review of the analogous collaborators. Every
+reviewed Domain/Context collaborator is classified below. `tightened` means a
+runtime/type boundary was enforced; `unchanged` means the seam was reviewed and
+deliberately left as it is.
+
+| Collaborator | Canonical type | Classification | Action |
+| --- | --- | --- | --- |
+| `CanonicalAgentRouter.registry_service` | `cmm.agent_runtime.agent_registry_service.AgentRegistryService` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `CanonicalDomainRouter.resolver` | `cmm.domains.resolver.DefaultDomainResolver` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `CanonicalDomainRouter.registry` | `cmm.domains.registry.DomainRegistry` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `CanonicalDomainRouter.context_builder` | `cmm.domains.resolution_builder.DomainResolutionContextBuilder` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `CanonicalDomainRouter.profile_registry` | `cmm.domains.profile_registry.DomainProfileRegistry` | `CANONICAL_PROTOCOL_SEAM` | tightened to the existing closed Phase 10 runtime-checkable Protocol |
+| `CanonicalDomainRouter.permission_registry` | `cmm.domains.permission_registry.DomainPermissionRegistry` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `CanonicalDomainRouter.permission_resolver` | `cmm.domains.permission_resolution.DomainPermissionResolver` | `CANONICAL_CONCRETE_OWNER` | tightened |
+| `DefaultContextResolver.session_store` | `cmm.runtime.sessions.InMemorySessionStore` / `FileSessionStore` | `CANONICAL_CONCRETE_OWNER` | tightened to the sanctioned canonical implementations |
+| `DefaultContextResolver.*_reader` | `cmm.orchestration.context.ContextReferenceReader` | `DELIBERATE_READ_ONLY_ADAPTER` | unchanged (already structural, role-discriminating, fails closed) |
+
+Notes on this table:
+
+* `SessionStore` is a **static typing** Protocol with no runtime check, so it
+  cannot be used in an `isinstance` boundary. The sanctioned runtime
+  implementations are therefore named explicitly. No new Session Store interface
+  was created and no change was made outside `cmm/orchestration/`.
+* The domain collaborators were unrestricted `Any` while representing real
+  sources of truth, so they were tightened and each gained a fake-authority
+  rejection test. The fakes raise if consulted, so the tests also prove the
+  rejected authority is never reached.
+* `profile_registry` is not tightened to a concrete class: Phase 10 deliberately
+  defines `DomainProfileRegistry` as a runtime-checkable Protocol, so the seam is
+  preserved and merely validated against that Protocol instead of `Any`.
+* `ContextReferenceReader` owns no source-of-truth state, cannot mutate a
+  canonical source and only returns safe reference strings, so it stays
+  structural by design; a legitimate adapter is asserted to be accepted and a
+  non-conforming object to fail closed.
+
+No generic authority/role framework was introduced: there is no
+`RoleRegistry`, `RuntimeContractRegistry`, `AuthorityTypeRegistry`,
+`AdapterTrustRegistry`, `CanonicalAuthorityRegistry`, `CanonicalOwnerResolver`
+or role-marker attribute anywhere in `cmm/` or `tests/`, and an architecture
+gate asserts it. Validation consists of three small module-private helpers
+(`_require_role` in `orchestrator.py`, `_require_canonical` in
+`domain_router.py`, and the inline canonical-authority check in
+`agent_router.py`) plus one inline session-store check in `context.py`.
+
+### 17.4 Behaviour deliberately unchanged
+
+* the Audit V1 event-failure observation (a terminal event emission failure
+  yields a `FAILED` public result while a route decision record already exists)
+  received no severity and was **not** redesigned: no transactionality, rollback
+  or outcome-record semantics were added, and the recorded data model still
+  records the route decision rather than a delivery outcome;
+* Phase 11.1 and Phase 11.34 production semantics are untouched;
+* no production file outside `cmm/orchestration/` changed.
+
+## 18. Deviations and implementation decisions
 
 The committed design, plan, scope and acceptance criteria were followed. The
 following implementation decisions are recorded as required:
@@ -623,11 +802,24 @@ following implementation decisions are recorded as required:
 10. **Ruff invocation.** `CONTRIBUTING.md` defines the canonical Ruff invocation
     as scoped to changed Python files; Phase 11.2 is validated with that
     canonical scoped invocation and does not clean unrelated baseline debt.
+11. **Remediation V1 removed the generic `route` role method.** `route_domain`
+    and `route_agent` replaced it rather than sitting beside it, because a
+    compatibility alias would recreate the runtime structural overlap the
+    remediation exists to remove. No legacy consumer was found: `cmm_agent`
+    never imports `cmm.orchestration`, and `cmm_agent.router.IntentRouter`
+    (whose narrow `route(goal)` surface is a different, historical seam) is
+    neither touched nor repurposed.
+12. **Remediation V1 tightened four Domain collaborators that were previously
+    unrestricted `Any`.** Audit V1 explicitly required this review
+    (`docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md` §6.5),
+    and the remediation design names the canonical target type for each. No
+    Domain Intelligence algorithm, registry or resolver was modified; only the
+    orchestration facade's constructor contract changed.
 
 No deviation changes the architecture, widens the scope, replaces a canonical
 subsystem owner, or pulls Phase 11.3 work forward.
 
-## 18. Traceability
+## 19. Traceability
 
 | Item | Value |
 | --- | --- |
@@ -640,15 +832,26 @@ subsystem owner, or pulls Phase 11.3 work forward.
 | Inherited acceptance | `AT-DP-101`, `AT-DP-134` (unchanged, green) |
 | Design specification | `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` |
 | Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-orchestration-layer-implementation-plan.md` |
+| Remediation design | `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md` |
+| Remediation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md` |
+| Independent Audit V1 | `docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md` — `FAIL`, `MAJORS=2` |
+| Audited HEAD (Audit V1) | `5ebc8d064fa3f29825c179eff7f41df204dc837b` |
+| Audit V1 tree | `989706d15ba78b8333b1e9b3634f820e9180f5bf` |
+| Audit V1 bundle SHA-256 | `85127ed1e9a437e30984f930b60fba79b7ae28959baf3296f86665ce11b93fc9` |
 | Implementation base | `b3aa5e3b8a7538874cbeba91030417bf4859feeb` |
 | Starting HEAD | `89edfbb5ef1c134c37465e85d9a9b452aa1d3ac0` |
+| Remediation starting HEAD | `5a5403b83b77271479e7434111fb4865e68535fe` |
 
-Phase state before independent audit:
+Phase state before independent re-audit:
 
 ```text
-PHASE11_2=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_016=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_102=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_2=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MAJOR_02=REMEDIATED_PENDING_REAUDIT
+
+F11_016=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_102=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_102=PASS
 
 PHASE11_1=CLOSED
@@ -658,4 +861,10 @@ AT_DP_101=PASS
 PHASE11_34=CLOSED
 DP_134=VERIFIED_EXISTING
 AT_DP_134=PASS
+
+CLOSURE_ELIGIBLE=NO
 ```
+
+Audit V1 remains recorded as `FAIL` with `MAJORS=2`. Neither MAJOR is claimed
+verified: exclusive verification of the remediation belongs to the independent
+re-audit of the new exact-HEAD bundle.

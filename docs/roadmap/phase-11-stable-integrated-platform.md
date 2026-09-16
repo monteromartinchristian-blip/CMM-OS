@@ -499,21 +499,24 @@ Configure decisions according to:
 
 ### 11.2 implementation status
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 
 Implemented by the `cmm/orchestration/` orchestration-layer package:
 
 - requirement `F11-016 — Canonical Request Orchestration`;
 - Design Point `DP-102 — Fail-Closed Canonical Request Orchestration Pipeline`;
 - acceptance test `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`
-  (12 connected scenarios A–L over real canonical components);
+  (12 connected scenarios A–L over real canonical components, plus the two
+  Remediation V1 scenarios M–N);
 - architecture gates — `tests/orchestration/test_architecture.py`;
-- reference documentation — [`docs/reference/phase-11-orchestration-layer.md`](../reference/phase-11-orchestration-layer.md).
+- reference documentation — [`docs/reference/phase-11-orchestration-layer.md`](../reference/phase-11-orchestration-layer.md);
+- remediation design — `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md`;
+- remediation plan — `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md`.
 
 The layer coordinates existing canonical owners and duplicates none of them:
 intent resolution is Phase 11.2-owned and deterministic; context resolution is a
-read-only two-stage projection over `cmm.runtime.sessions.SessionStore` and
-explicit read-only seams; domain selection delegates to
+read-only two-stage projection over the canonical `cmm.runtime.sessions`
+session authority and explicit read-only seams; domain selection delegates to
 `cmm.domains.resolver.DefaultDomainResolver` and canonical Domain permission
 resources; execution-path selection delegates agent selection to
 `cmm.agent_runtime.agent_registry_service.AgentRegistryService` /
@@ -534,18 +537,67 @@ Phase 11.1 test adjustment is the documented dependency-direction exemption for
 the new `cmm.orchestration` package, with a stronger gate confirming that
 `cmm.orchestration` is the one sanctioned `cmm.platform` consumer.
 
-Before independent audit the recorded state is:
+#### 11.2 Audit V1 and Remediation V1
+
+Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`,
+`MAJORS=2`, `MINORS=0`) against `AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b`
+with report `docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md`:
 
 ```text
-PHASE11_2=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_016=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_102=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-AT_DP_102=PASS
+MAJOR_01=UNSAFE_ORCHESTRATION_ROLE_RUNTIME_CONTRACTS
+MAJOR_02=CANONICAL_AGENT_AUTHORITY_NOT_ENFORCED
 ```
 
-This is not a closure and not a verification claim. Only the subsequent
-independent audit may return `DP-102=VERIFIED_EXISTING`,
-`F11_016=VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE=YES`.
+Remediation V1 corrects exactly those two MAJOR findings and adds no capability,
+subsystem or infrastructure:
+
+- the ambiguous `route` role method was replaced by explicit
+  `DomainRouter.route_domain(...)` / `AgentRouter.route_agent(...)` with no
+  compatibility alias, so the two runtime role contracts are now discriminating
+  and a cross-wired graph is rejected before `ApplicationContainer.READY`;
+- `Orchestrator.__init__` validates all seven injected collaborators against their
+  frozen roles at construction time;
+- `CanonicalAgentRouter` accepts only a canonical
+  `cmm.agent_runtime.agent_registry_service.AgentRegistryService` (or `None`), so
+  a fake registry service can no longer fabricate an agent selection;
+- the analogous canonical collaborators of `CanonicalDomainRouter` and
+  `DefaultContextResolver` were reviewed and their canonical boundaries tightened
+  (full classification table in
+  [`docs/reference/phase-11-orchestration-layer.md`](../reference/phase-11-orchestration-layer.md)
+  §17).
+
+The eight orchestration composition service IDs, contract versions and authority
+labels are unchanged; Phase 11.1 `runtime_contract` usage is preserved.
+
+Before independent re-audit the recorded state is:
+
+```text
+PHASE11_2=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MAJOR_02=REMEDIATED_PENDING_REAUDIT
+
+F11_016=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_102=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+AT_DP_102=PASS
+
+PHASE11_1=CLOSED
+DP_101=VERIFIED_EXISTING
+AT_DP_101=PASS
+
+PHASE11_34=CLOSED
+DP_134=VERIFIED_EXISTING
+AT_DP_134=PASS
+
+CLOSURE_ELIGIBLE=NO
+```
+
+This is not a closure and not a verification claim. Independent Audit V1 stays
+recorded as `FAIL`, `MAJORS=2`. Only the subsequent independent re-audit of the
+Remediation V1 exact-HEAD bundle may return
+`MAJOR_01=VERIFIED_REMEDIATED`, `MAJOR_02=VERIFIED_REMEDIATED`,
+`DP-102=VERIFIED_EXISTING`, `F11_016=VERIFIED_EXISTING` and
+`CLOSURE_ELIGIBLE=YES`.
 
 ---
 
