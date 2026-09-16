@@ -62,6 +62,12 @@ from cmm.application.errors import (
     failed_response,
     safe_error_from_exception,
 )
+from cmm.application.idempotency import (
+    IdempotencyRecord,
+    IdempotencyRepository,
+    InMemoryIdempotencyRepository,
+    fingerprint_command,
+)
 
 __all__ = [
     "APPLICATION_API_VERSION",
@@ -96,11 +102,15 @@ __all__ = [
     "CapabilityUnavailableError",
     "ConcurrencyConflictError",
     "IdempotencyConflictError",
+    "IdempotencyRecord",
+    "IdempotencyRepository",
+    "InMemoryIdempotencyRepository",
     "InternalApplicationError",
     "InvalidApplicationRequestError",
     "PolicyDeniedApplicationError",
     "StreamEventKind",
     "UnsupportedApplicationVersionError",
     "failed_response",
+    "fingerprint_command",
     "safe_error_from_exception",
 ]
