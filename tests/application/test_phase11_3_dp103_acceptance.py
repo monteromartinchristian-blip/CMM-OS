@@ -46,6 +46,7 @@ See ``docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -1020,8 +1021,23 @@ def test_scenario_e_application_layer_projects_and_never_reselects() -> None:
     assert backend.agent_service.resolver.attempts == 0
     assert backend.execution_probe.calls == []
 
-    # The gateway owns no domain/agent authority object at all.
-    collaborators = list(vars(backend.gateway).values())
+    # The gateway owns no domain/agent authority object at all.  Its instance
+    # surface is exactly the five official collaborators plus the one private
+    # in-process lock over the keyed idempotency critical section: a further
+    # collaborator or a second concurrency object fails here.
+    owned = vars(backend.gateway)
+    assert set(owned) == {
+        "_sessions",
+        "_requests",
+        "_capabilities",
+        "_health",
+        "_idempotency",
+        "_idempotency_lock",
+    }
+    assert type(owned["_idempotency_lock"]) is type(threading.Lock())
+    collaborators = [
+        value for name, value in owned.items() if name != "_idempotency_lock"
+    ]
     assert {type(collaborator) for collaborator in collaborators} == {
         SessionApplicationService,
         RequestApplicationService,
