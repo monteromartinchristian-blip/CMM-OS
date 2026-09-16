@@ -41,6 +41,10 @@ from cmm.orchestration.decision_repository import (
     InMemoryOrchestrationDecisionRepository,
     OrchestrationDecisionRepository,
 )
+from cmm.orchestration.domain_router import (
+    CanonicalDomainRouter,
+    DomainRouter,
+)
 from cmm.orchestration.errors import (
     AgentRoutingError,
     ContextResolutionError,
@@ -66,6 +70,7 @@ __all__ = [
     "ALLOWED_EVENT_TYPES",
     "AgentRouteDecision",
     "AgentRoutingError",
+    "CanonicalDomainRouter",
     "ContextReferenceReader",
     "ContextResolutionError",
     "ContextResolver",
@@ -73,6 +78,7 @@ __all__ = [
     "DefaultContextResolver",
     "DeterministicIntentResolver",
     "DomainRouteDecision",
+    "DomainRouter",
     "DomainRoutingError",
     "ExecutionRoute",
     "InMemoryOrchestrationDecisionRepository",
