@@ -45,12 +45,20 @@ from cmm.orchestration.errors import (
     OrchestrationError,
     OrchestrationPolicyError,
 )
+from cmm.orchestration.events import (
+    ALLOWED_EVENT_TYPES,
+    OrchestrationEventSink,
+    RecordedOrchestrationEvent,
+    RecordingOrchestrationEventSink,
+    validate_orchestration_event,
+)
 from cmm.orchestration.intent import (
     DeterministicIntentResolver,
     IntentResolver,
 )
 
 __all__ = [
+    "ALLOWED_EVENT_TYPES",
     "AgentRouteDecision",
     "AgentRoutingError",
     "ContextResolutionError",
@@ -68,11 +76,15 @@ __all__ = [
     "OrchestrationDecisionRecord",
     "OrchestrationDecisionRepository",
     "OrchestrationError",
+    "OrchestrationEventSink",
     "OrchestrationPolicyDecision",
     "OrchestrationPolicyError",
     "OrchestrationRequest",
     "OrchestrationResult",
     "OrchestrationStatus",
     "PolicyDisposition",
+    "RecordedOrchestrationEvent",
+    "RecordingOrchestrationEventSink",
     "ResolvedContext",
+    "validate_orchestration_event",
 ]
