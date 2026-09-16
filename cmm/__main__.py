@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
+from cmm.cli_commands import register_phase11_4_cli
 from cmm.development import (
     AutonomousDevelopmentService,
     DevelopmentService,
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_validation_cli(subparsers)
     register_domain_cli(subparsers)
+    register_phase11_4_cli(subparsers)
 
     # Phase 9.22 - Agent Runtime CLI (`cmm agent ...`). Listed here only for
     # discoverability in `cmm --help`; actual dispatch happens earlier in
