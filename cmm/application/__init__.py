@@ -83,6 +83,15 @@ from cmm.application.idempotency import (
     InMemoryIdempotencyRepository,
     fingerprint_command,
 )
+from cmm.application.platform_module import (
+    APPLICATION_AUTHORITY,
+    APPLICATION_CONTRACT_VERSION,
+    APPLICATION_MODULE_ID,
+    APPLICATION_OWNER,
+    APPLICATION_SCHEMA_VERSION,
+    APPLICATION_SERVICE_ID,
+    build_application_composition_module,
+)
 from cmm.application.requests import (
     RequestApplicationService,
 )
@@ -92,6 +101,12 @@ from cmm.application.sessions import (
 
 __all__ = [
     "APPLICATION_API_VERSION",
+    "APPLICATION_AUTHORITY",
+    "APPLICATION_CONTRACT_VERSION",
+    "APPLICATION_MODULE_ID",
+    "APPLICATION_OWNER",
+    "APPLICATION_SCHEMA_VERSION",
+    "APPLICATION_SERVICE_ID",
     "CANCELLATION_UNAVAILABLE_MESSAGE",
     "COMMAND_OPERATIONS",
     "HEALTH_STATUS_DEGRADED",
@@ -141,6 +156,7 @@ __all__ = [
     "SessionApplicationService",
     "StreamEventKind",
     "UnsupportedApplicationVersionError",
+    "build_application_composition_module",
     "build_default_capabilities",
     "failed_response",
     "fingerprint_command",
