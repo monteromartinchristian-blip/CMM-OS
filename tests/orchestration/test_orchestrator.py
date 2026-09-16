@@ -526,6 +526,41 @@ def test_unexpected_collaborator_failure_fails_closed() -> None:
     assert result.error.category == "orchestration"
 
 
+# ── Construction-time role identity (Audit V1 MAJOR-01) ──────────────────────
+
+
+def test_direct_construction_rejects_a_domain_router_as_the_agent_router() -> None:
+    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
+
+    with pytest.raises(TypeError):
+        Orchestrator(
+            intent_resolver=_IntentResolver(_resolution()),
+            context_resolver=_ContextResolver(),
+            domain_router=_DomainRouter(_resolved_domain()),
+            agent_router=_DomainRouter(_resolved_domain()),  # type: ignore[arg-type]
+            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
+            decision_repository=InMemoryOrchestrationDecisionRepository(),
+            event_sink=RecordingOrchestrationEventSink(),
+        )
+
+
+def test_direct_construction_rejects_an_agent_router_as_the_domain_router() -> None:
+    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
+
+    route = AgentRouteDecision(route=ExecutionRoute.NONE)
+
+    with pytest.raises(TypeError):
+        Orchestrator(
+            intent_resolver=_IntentResolver(_resolution()),
+            context_resolver=_ContextResolver(),
+            domain_router=_AgentRouter(route),  # type: ignore[arg-type]
+            agent_router=_AgentRouter(route),
+            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
+            decision_repository=InMemoryOrchestrationDecisionRepository(),
+            event_sink=RecordingOrchestrationEventSink(),
+        )
+
+
 def test_failed_result_exposes_no_traceback() -> None:
     orchestrator, _ = _graph(intent_resolver=_BrokenIntentResolver())
 

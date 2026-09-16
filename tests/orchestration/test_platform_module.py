@@ -249,6 +249,52 @@ def test_builder_rejects_a_cross_role_object() -> None:
         build_orchestration_composition_module(**collaborators)  # type: ignore[arg-type]
 
 
+# ── Runtime role identity (Audit V1 MAJOR-01) ────────────────────────────────
+
+
+def test_composition_rejects_a_domain_router_wired_as_the_agent_router() -> None:
+    """A domain router must not be able to claim the agent-router service identity."""
+
+    collaborators = _collaborators()
+    collaborators["agent_router"] = collaborators["domain_router"]
+
+    with pytest.raises(TypeError):
+        build_orchestration_composition_module(**collaborators)  # type: ignore[arg-type]
+
+
+def test_composition_rejects_an_agent_router_wired_as_the_domain_router() -> None:
+    """An agent router must not be able to claim the domain-router service identity."""
+
+    collaborators = _collaborators()
+    collaborators["domain_router"] = collaborators["agent_router"]
+
+    with pytest.raises(TypeError):
+        build_orchestration_composition_module(**collaborators)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("role", "wrong_role"),
+    [("agent_router", "domain_router"), ("domain_router", "agent_router")],
+)
+def test_cross_wired_roles_are_rejected_before_the_container_reaches_ready(
+    role: str, wrong_role: str
+) -> None:
+    """Audit V1 MAJOR-01: a cross-wired graph must never reach ``READY``."""
+
+    collaborators = _collaborators()
+    collaborators[role] = collaborators[wrong_role]
+
+    with pytest.raises(TypeError) as captured:
+        ApplicationContainer.build(
+            _orchestration_configuration(),
+            modules=(
+                build_orchestration_composition_module(**collaborators),  # type: ignore[arg-type]
+            ),
+        )
+
+    assert f"orchestration.{wrong_role}" in str(captured.value)
+
+
 def test_unrelated_object_cannot_claim_an_orchestration_identity() -> None:
     """A hand-built binding is still bounded by the declared runtime contract."""
 

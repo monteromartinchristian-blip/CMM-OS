@@ -633,3 +633,37 @@ def test_orchestration_defines_no_scheduler_or_queue(token: str) -> None:
     ]
 
     assert not offenders, f"Phase 11.2 must not introduce a scheduler: {offenders}"
+
+
+# ── 9. Orchestration runtime roles are discriminating ────────────────────────
+
+
+def _official_domain_router():
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.orchestration.domain_router import CanonicalDomainRouter
+
+    return CanonicalDomainRouter(resolver=DefaultDomainResolver())
+
+
+def test_official_domain_router_cannot_claim_the_agent_router_role() -> None:
+    """Audit V1 MAJOR-01: distinct roles must not be structurally interchangeable."""
+
+    from cmm.orchestration.agent_router import AgentRouter
+    from cmm.orchestration.domain_router import DomainRouter
+
+    router = _official_domain_router()
+
+    assert isinstance(router, DomainRouter)
+    assert not isinstance(router, AgentRouter)
+
+
+def test_official_agent_router_cannot_claim_the_domain_router_role() -> None:
+    """Audit V1 MAJOR-01: distinct roles must not be structurally interchangeable."""
+
+    from cmm.orchestration.agent_router import AgentRouter, CanonicalAgentRouter
+    from cmm.orchestration.domain_router import DomainRouter
+
+    router = CanonicalAgentRouter()
+
+    assert isinstance(router, AgentRouter)
+    assert not isinstance(router, DomainRouter)
