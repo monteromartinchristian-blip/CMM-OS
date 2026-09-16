@@ -224,6 +224,42 @@ Phase 11.2 does not implement the Phase 11.3 Application Backend; the API,
 application services, streaming, pagination, idempotency and concurrency remain
 Phase 11.3 scope.
 
+### 4.7 `F11-017` — Canonical Application Backend
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix, `F11-014` is owned
+by §4.1, `F11-015` by §4.3 and `F11-016` by §4.5 of this document. `F11-017` is
+the next non-colliding Phase 11 functional identifier, assigned to Phase 11.3 —
+Application Backend.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-017` | Canonical Application Backend. CMM OS shall expose stable application-facing capabilities through one version-aware, transport-neutral, fail-closed application backend that composes through the canonical Phase 11.1 `ApplicationContainer`, routes user-request processing through the canonical Phase 11.2 `Orchestrator`, exposes explicit public request, response and error contracts, separates application commands from application queries, prevents transport handlers from bypassing application services, prevents application services from re-owning canonical domain, agent, workflow, execution, validation, session, memory, knowledge, provider or orchestration authorities, maps internal failures to safe public errors, supports explicit API versioning, provides deterministic OpenAPI metadata for the HTTP adapter, supports public streaming and cancellation contracts without creating a new event system or inference runtime, supports repeatable command idempotency through a narrow backend-owned seam without introducing durable storage, respects canonical session revision/concurrency semantics rather than inventing a global concurrency subsystem, rejects unavailable or not-yet-owned capabilities explicitly, exposes no secrets, raw internal exceptions, hidden reasoning or raw sensitive context, and remains local-first and independently testable without network access. | `SRC-R11` (detailed Phase 11 roadmap §11.3); `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md` §3–§5 | Phase 11.3 | `cmm/application/__init__.py`; `contracts.py`; `errors.py`; `idempotency.py`; `sessions.py`; `requests.py`; `health.py`; `capabilities.py`; `gateway.py`; `platform_module.py`; `cmm/api/__init__.py`; `app.py`; `models.py`; `errors.py`; `streaming.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` |
+
+### 4.8 `F11-017` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-017 — Canonical Application Backend` |
+| Design Point | `DP-103 — Versioned, Fail-Closed Application Gateway` |
+| Acceptance test | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` |
+| Production packages | `cmm/application/` (10 modules); `cmm/api/` (5 modules) |
+| Focused suites | `tests/application/`; `tests/api/` |
+| Architecture gates | `tests/application/test_architecture.py`; `tests/api/test_architecture.py` |
+| OpenAPI gate | `tests/api/test_openapi.py` |
+| Reference documentation | `docs/reference/phase-11-application-backend.md` |
+| Design specification | `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md` |
+| Reused canonical owners | Phase 11.1 `ApplicationContainer` / `StaticCompositionModule` / `ServiceBinding`; Phase 11.2 `Orchestrator` and its collaborators; `cmm.runtime.sessions.SessionStore` / `InMemorySessionStore` / `FileSessionStore`; canonical `cmm.domains` and `cmm.agent_runtime` authority reached only through the Orchestrator |
+| Inherited requirements reused | `F11-015` / `DP-101` (Phase 11.1), `F11-016` / `DP-102` (Phase 11.2) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
+| Inherited acceptance regressions | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
+| Independent audit | not yet performed — `F11-017` is pre-audit documentation only |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+
+`F11-017` is deliberately **not** `VERIFIED_EXISTING`: the implementation exists
+and `AT-DP-103` is green on the committed HEAD, but no independent audit of an
+exact-HEAD bundle has been performed, so `DP-103` is not verified and closure is
+not eligible.
+
 ## 5. Current lifecycle status
 
 ```text
@@ -486,3 +522,81 @@ Implementation decisions and deviations are recorded in
 [`docs/reference/phase-11-orchestration-layer.md`](phase-11-orchestration-layer.md)
 §18; the Audit V1 Remediation V1 record, including the canonical collaborator
 classification table, is in the same document §17.
+
+## 10. Phase 11.3 — Application Backend current status
+
+Sections 5, 6, 8 and 9 record the closed Phase 11.34 Provider Registry, the
+closed Phase 11.1 integration core and the closed Phase 11.2 orchestration layer
+and are not modified by Phase 11.3. The Phase 11.3 application backend is a
+separate subphase and is reported here:
+
+```text
+PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+
+F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_103=PASS
+
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+
+PHASE11_2=CLOSED
+PHASE11_1=CLOSED
+PHASE11_34=CLOSED
+
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=INDEPENDENT_AUDIT_NOT_YET_PERFORMED
+```
+
+Phase 11.3 introduces exactly one new requirement identifier (`F11-017`), one
+Design Point (`DP-103`), one connected acceptance test (`AT-DP-103`) and two new
+packages (`cmm/application/`, `cmm/api/`). It owns one new persistence-ish seam —
+the bounded, in-memory-only idempotency repository — and no durable storage,
+migration, second container, parallel registry, provider/model routing,
+Event Bus, scheduler, queue, background worker system, plugin runtime or
+authentication/authorization layer. Domain, agent, provider, session,
+orchestration and platform ownership all stay canonical, and the HTTP adapter
+reaches them only through `cmm.application`.
+
+`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` is this matrix's §2 vocabulary term. It
+records that the implementation exists, that the focused application/API suites,
+the architecture gates, the OpenAPI gate and `AT-DP-103` are green on the
+committed HEAD, and that independent audit closure is still pending. It is
+**not** a closure and **not** a verification claim: `F11_017` and `DP_103` are
+deliberately not `VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE` is deliberately `NO`
+until an independent audit of the exact-HEAD bundle passes.
+
+Phase 11.3 does not reopen Phase 11.1, Phase 11.2 or Phase 11.34. No closed-phase
+production semantics were modified: the Phase 11.1 platform gate now names its
+sanctioned consumers as the allowlist `("orchestration", "application")` instead
+of exempting `cmm.orchestration` alone, which is a documented Phase 11.1 test
+adjustment, and the closed-phase production directories are byte-identical to
+the Phase 11.3 design commit.
+
+Deferred Phase 11.3 items recorded with this requirement (implemented nowhere,
+not silently pulled forward):
+
+- domain and agent listing routes, and every route for goals, workflows,
+  operations, approvals, memory, knowledge, bots, tools, configuration, events,
+  metrics, backups and plugins — no canonical owner or safe adapter exists yet,
+  so no route fabricates behavior and capability discovery reports the honest
+  status instead;
+- request cancellation runtime — the stable public surface rejects it explicitly
+  as `CAPABILITY_UNAVAILABLE` (`503`), and the `request-cancellation` capability
+  declares the reason `NO_CANCELLABLE_OWNER`, because the synchronous
+  orchestration boundary has no active-request owner to cancel;
+- durable idempotency persistence — Phase 11.15 storage work; the official
+  in-memory repository is the only Phase 11.3 implementation;
+- Model Gateway and the Phase 11.35 Routing Policy Engine — later routing work;
+  the public path reaches no provider or model;
+- authentication/authorization and RBAC — Phase 11.13;
+- Plugin System lifecycle — Phase 11.19;
+- Event Bus, scheduler, queue, distributed tracing, metrics infrastructure and
+  pagination — later Phase 11 platform/observability work;
+- CMMChat and CMM Bots consumption of the backend — after Phase 11.3.
+
+Details, including the frozen `/v1` surface, the public error model, the
+idempotency and session-revision semantics, the SSE contract, the OpenAPI gate
+and the recorded deviations, are in
+[`docs/reference/phase-11-application-backend.md`](phase-11-application-backend.md).

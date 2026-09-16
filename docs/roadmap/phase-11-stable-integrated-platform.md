@@ -628,8 +628,9 @@ Re-audit V2 bundle SHA-256: `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77
 Audit-report commit: `773204c7df06fced504892ed33284f39eca5b63a`.
 
 Phase 11.2 is therefore closed by a dedicated docs-only closure commit. Phase
-11.3 — Application Backend is the next subphase and must begin with a fresh
-repository inspection.
+11.3 — Application Backend followed that closure and is now **implemented,
+documented and pending independent audit** (`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`);
+see *11.3 implementation status* below.
 
 ---
 
@@ -794,6 +795,112 @@ Phase 11 adds conceptual `BotService`, `CapabilityService`, and `ToolCatalogServ
 - contract tests;
 - concurrency tests;
 - API versioning.
+
+### 11.3 implementation status
+
+**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+
+Implemented by the `cmm/application/` transport-neutral application core and the
+`cmm/api/` HTTP/OpenAPI/SSE adapter:
+
+- requirement `F11-017 — Canonical Application Backend`;
+- Design Point `DP-103 — Versioned, Fail-Closed Application Gateway`;
+- acceptance test `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`
+  (44 connected tests over real canonical components, covering scenarios A–M;
+  scenario N is represented by the separate inherited gate commands, not by
+  invoking other test modules);
+- architecture gates — `tests/application/test_architecture.py` (58 tests),
+  `tests/api/test_architecture.py` (51 tests);
+- OpenAPI gate — `tests/api/test_openapi.py` (22 tests);
+- reference documentation — [`docs/reference/phase-11-application-backend.md`](../reference/phase-11-application-backend.md);
+- requirements matrix row — `F11-017` → `DP-103` → `AT-DP-103` in
+  [`docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`](../reference/phase-11-stable-integrated-platform-requirements-matrix.md);
+- design specification — `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md`;
+- implementation plan — `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md`.
+
+The subphase introduces exactly two packages and one new public surface:
+
+- `cmm/application/` — public application semantics: versioned public contracts,
+  the safe public error model, the session/request/capability/health application
+  services, the bounded in-memory idempotency seam and the one canonical
+  `ApplicationGateway`;
+- `cmm/api/` — transport adaptation only: the seven frozen `/v1` routes, HTTP
+  status mapping, OpenAPI metadata and SSE framing;
+- the frozen `/v1` surface — `GET /v1/health`, `GET /v1/capabilities`,
+  `POST /v1/sessions`, `GET /v1/sessions/{session_id}`,
+  `POST /v1/sessions/{session_id}/messages`,
+  `POST /v1/sessions/{session_id}/messages/stream` (SSE) and
+  `POST /v1/requests/{request_id}/cancel`.
+
+Phase 11.3 is a projection and adaptation layer and duplicates no canonical
+owner. User-request processing reaches the real Phase 11.2 `Orchestrator` exactly
+once per public message; domain and agent authority stay canonical and are never
+reselected in the application layer; session state, revision and concurrency stay
+with the canonical session store; provider identity, model routing and the Model
+Gateway are not reached; and there is no new Event Bus, workflow/operation/
+execution/validation engine, memory/knowledge store, auth/RBAC layer, plugin
+lifecycle, durable application storage, scheduler, queue or background worker
+system. HTTP is an adapter, never an owner: it reaches the platform only through
+`cmm.application`, and both architecture gates enforce that direction.
+
+Phase 11.3 deliberately does **not** implement the deferred surfaces: no domain
+or agent listing routes and no goals/workflows/operations/approvals/memory/
+knowledge/bots/tools/configuration/events/metrics/backups/plugins routes; request
+cancellation is exposed as a stable public surface that rejects explicitly
+(`CAPABILITY_UNAVAILABLE`, `503`, with the `request-cancellation` capability
+declaring the reason `NO_CANCELLABLE_OWNER`) instead of fabricating a
+cancellation runtime; durable idempotency persistence is deferred to Phase 11.15
+storage work; and no authentication/authorization, Model Gateway/Routing Policy
+Engine, plugin lifecycle, pagination or WebSocket surface is introduced.
+
+Pre-audit evidence observed on the committed implementation HEAD
+`2201d0009b47db7128bab895f4ad25f069712781` while preparing the Phase 11.3
+documentation (Python 3.14, `.venv`, `python -m pytest -q`):
+
+```text
+tests/application                 625 passed
+tests/api                         193 passed
+AT-DP-103                          44 passed
+```
+
+The exact-HEAD gate record, the audit bundle and the inherited acceptance runs
+(`AT-DP-102`, `AT-DP-101`, `AT-DP-134`, subsystem and global suites, Ruff, format
+check, compileall, `git diff --check`) are produced by the following
+implementation-plan task and independently re-verified by the audit.
+
+The Phase 11.1 platform architecture gate was adjusted once, as a documented
+Phase 11.1 test adjustment: it now names its sanctioned platform consumers as the
+allowlist `("orchestration", "application")` instead of exempting
+`cmm.orchestration` alone. No Phase 11.1, Phase 11.2 or Phase 11.34 production
+semantics were modified — `git diff 3a2bc9e..HEAD -- cmm/platform
+cmm/orchestration kernel/llm cmm/domains cmm/agent_runtime` produced no output —
+and `AT-DP-101`, `AT-DP-102` and `AT-DP-134` remain green and unchanged.
+
+Recorded state before independent audit:
+
+```text
+PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+
+F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_103=PASS
+
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+
+PHASE11_2=CLOSED
+PHASE11_1=CLOSED
+PHASE11_34=CLOSED
+
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=INDEPENDENT_AUDIT_NOT_YET_PERFORMED
+```
+
+This is the maximum pre-audit state. `DP-103` is deliberately not recorded as
+verified and closure is deliberately not eligible until an independent audit of
+an exact-HEAD bundle returns at least `BLOCKERS=0`, `MAJORS=0` with
+`AT-DP-103=PASS`. Implementation cannot certify its own closure.
 
 ---
 
@@ -5309,7 +5416,13 @@ A request will be able to traverse the complete system and return a structured r
 
 ---
 
-## 11.3 — Vertical Slice
+## Vertical Slice milestone
+
+Vertical Slice milestone — deferred integration milestone; not the canonical
+Phase 11.3 identifier. The canonical Phase 11.3 is the Application Backend
+defined above (`11.3 — Application Backend`, requirement `F11-017`, Design Point
+`DP-103`); this historical version-summary entry is preserved unnumbered so it
+cannot create a second Phase 11.3 or a duplicate subphase identifier.
 
 ### Objective
 
