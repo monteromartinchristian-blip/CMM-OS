@@ -622,6 +622,7 @@ def test_orchestrator_requires_exactly_the_frozen_collaborators() -> None:
         if parameter.name != "self"
     )
 
+
 # ── Construction-time role identity (Audit V1 MAJOR-01) ──────────────────────
 
 

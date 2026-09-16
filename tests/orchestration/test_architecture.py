@@ -524,7 +524,9 @@ def test_serialized_orchestration_values_never_carry_hidden_reasoning() -> None:
             )
 
     class _Agent:
-        def route_agent(self, *, request, intent, context, domain) -> AgentRouteDecision:
+        def route_agent(
+            self, *, request, intent, context, domain
+        ) -> AgentRouteDecision:
             return AgentRouteDecision(route=ExecutionRoute.DIRECT_RESPONSE)
 
     class _Policy:
