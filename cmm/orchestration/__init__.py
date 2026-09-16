@@ -32,6 +32,10 @@ from cmm.orchestration.contracts import (
     PolicyDisposition,
     ResolvedContext,
 )
+from cmm.orchestration.decision_repository import (
+    InMemoryOrchestrationDecisionRepository,
+    OrchestrationDecisionRepository,
+)
 from cmm.orchestration.errors import (
     AgentRoutingError,
     ContextResolutionError,
@@ -55,12 +59,14 @@ __all__ = [
     "DomainRouteDecision",
     "DomainRoutingError",
     "ExecutionRoute",
+    "InMemoryOrchestrationDecisionRepository",
     "IntentKind",
     "IntentResolution",
     "IntentResolutionError",
     "IntentResolver",
     "OrchestrationChannel",
     "OrchestrationDecisionRecord",
+    "OrchestrationDecisionRepository",
     "OrchestrationError",
     "OrchestrationPolicyDecision",
     "OrchestrationPolicyError",
