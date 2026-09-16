@@ -86,7 +86,10 @@ SANCTIONED_CANONICAL_ADAPTERS: dict[str, tuple[str, ...]] = {
 
 #: Exact allowlist of the standard-library roots the core may import.  A new
 #: root is a new dependency of the transport-neutral core and must be frozen
-#: here.
+#: here.  ``threading`` is frozen for exactly one use: the single private
+#: in-process lock ``ApplicationGateway`` owns over the keyed idempotency
+#: critical section.  No third-party dependency and no concurrency subsystem is
+#: authorized by it.
 ALLOWED_EXTERNAL_IMPORT_ROOTS = frozenset(
     {
         "__future__",
@@ -98,6 +101,7 @@ ALLOWED_EXTERNAL_IMPORT_ROOTS = frozenset(
         "json",
         "math",
         "re",
+        "threading",
         "types",
         "typing",
         "uuid",
