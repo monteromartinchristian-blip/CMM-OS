@@ -629,9 +629,11 @@ Audit-report commit: `773204c7df06fced504892ed33284f39eca5b63a`.
 
 Phase 11.2 is therefore closed by a dedicated docs-only closure commit. Phase
 11.3 — Application Backend followed that closure, was independently audited
-(`INDEPENDENT_AUDIT_V1=FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`), was
-remediated under Remediation V1 and is now **implemented, remediated and pending
-independent re-audit** (`IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`); see *11.3
+(`INDEPENDENT_AUDIT_V1=FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`), remediated
+under Remediation V1, and independently re-audited with final
+`INDEPENDENT_REAUDIT_V1=PASS`, `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP_103=VERIFIED_EXISTING`, `AT_DP_103=PASS` and `CLOSURE_ELIGIBLE=YES`.
+Phase 11.3 is closed by the dedicated docs-only closure commit; see *11.3
 implementation status* below.
 
 ---
@@ -800,7 +802,7 @@ Phase 11 adds conceptual `BotService`, `CapabilityService`, and `ToolCatalogServ
 
 ### 11.3 implementation status
 
-**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`
 
 Implemented by the `cmm/application/` transport-neutral application core and the
 `cmm/api/` HTTP/OpenAPI/SSE adapter:
@@ -934,16 +936,23 @@ semantics were modified — `git diff 3a2bc9e..HEAD -- cmm/platform
 cmm/orchestration kernel/llm cmm/domains cmm/agent_runtime` produced no output —
 and `AT-DP-101`, `AT-DP-102` and `AT-DP-134` remain green and unchanged.
 
-Recorded state before the independent re-audit:
+Final independently re-audited closure state:
 
 ```text
-PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+PHASE11_3=CLOSED
 
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MINOR_01=REMEDIATED_PENDING_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
 
-F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MAJOR_01=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+
+F11_017=VERIFIED_EXISTING
+DP_103=VERIFIED_EXISTING
 AT_DP_103=PASS
 
 AT_DP_102=PASS
@@ -954,19 +963,21 @@ PHASE11_2=CLOSED
 PHASE11_1=CLOSED
 PHASE11_34=CLOSED
 
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=INDEPENDENT_AUDIT_V1_FAIL_REMEDIATION_V1_PENDING_REAUDIT
-NEXT=INDEPENDENT_REAUDIT_CHATGPT
+AUDITED_HEAD=4525f72391792e623730af69e95bcd054ce3cddf
+AUDITED_TREE=0b650c8133111754452940c74a1bc72f24a0df23
+REAUDIT_BUNDLE_SHA256=152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618
+REAUDIT_V1_REPORT_COMMIT=c21f2e257a1995b748b78b65b622ff68ca3e6d38
+
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_4_CLI
 ```
 
-This is the maximum pre-re-audit state. The historical Audit V1 verdict
-(`INDEPENDENT_AUDIT_V1=FAIL`, `MAJOR_01`, `MINOR_01`) is preserved unchanged and
-is never rewritten as `PASS`; `MAJOR_01` and `MINOR_01` are
-`REMEDIATED_PENDING_REAUDIT`, never `VERIFIED_REMEDIATED`; `DP_103` is
-deliberately not recorded as verified and closure is deliberately not eligible
-until an independent re-audit of an exact-HEAD Remediation V1 bundle returns at
-least `BLOCKERS=0`, `MAJORS=0`, `MINORS=0` with `AT-DP-103=PASS`. Implementation
-cannot certify its own closure, and Phase 11.4 does not begin here.
+Historical Audit V1 `FAIL` remains immutable. Independent Re-audit V1 verified
+both findings as remediated and is the authority for `F11_017`,
+`DP_103`, `AT_DP_103` and closure eligibility. Phase 11.4 — CLI must begin with
+a fresh repository inspection only after this docs-only closure commit is
+verified and the worktree is clean.
 
 ---
 

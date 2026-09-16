@@ -1,6 +1,6 @@
 # Phase 11 — Application Backend reference
 
-**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`
 **Phase:** 11.3 — Application Backend
 **Requirement:** `F11-017 — Canonical Application Backend`
 **Design Point:** `DP-103 — Versioned, Fail-Closed Application Gateway`
@@ -18,35 +18,42 @@
 **First implementation commit:** `ffadb94` — `build(application): add phase 11.3 http boundary`
 **AT-DP-103 implementation milestone HEAD:** `2201d0009b47db7128bab895f4ad25f069712781` — an intermediate implementation milestone observed while preparing the first documentation, not the exact audit candidate
 **Independent Audit V1:** `docs/audits/phase-11.3-application-backend-independent-audit-v1.md` — `FAIL`; audited HEAD `5fd8cc3b171faec88b802be920ad09ac53224e75`; audited tree `1cfbe114369ac89d1c2563a9787c5ebf096c64df`; bundle SHA-256 `17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199`; report commit `c111a57` — immutable and unmodified
-**Remediation V1:** implemented and committed; `MAJOR_01=REMEDIATED_PENDING_REAUDIT`, `MINOR_01=REMEDIATED_PENDING_REAUDIT`; independent re-audit of the exact-HEAD remediation bundle is pending
+**Remediation V1:** implemented and independently re-audited; `MAJOR_01=VERIFIED_REMEDIATED`, `MINOR_01=VERIFIED_REMEDIATED`
+**Independent Re-audit V1:** `docs/audits/phase-11.3-application-backend-independent-reaudit-v1.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `F11_017=VERIFIED_EXISTING`; `DP_103=VERIFIED_EXISTING`; `AT_DP_103=PASS`; audited HEAD `4525f72391792e623730af69e95bcd054ce3cddf`; audited tree `0b650c8133111754452940c74a1bc72f24a0df23`; bundle SHA-256 `152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618`; report commit `c21f2e257a1995b748b78b65b622ff68ca3e6d38`; `CLOSURE_ELIGIBLE=YES`
 
-Phase 11.3 is **implemented, independently audited (`INDEPENDENT_AUDIT_V1=FAIL`),
-remediated under Remediation V1 and pending independent re-audit**. Audit V1
-recorded `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`: the keyed idempotency boundary was
-not atomic under concurrent equivalent commands (`MAJOR_01`), and the root
-`ROADMAP.md` carried an unqualified intermediate implementation HEAD
-(`MINOR_01`). Remediation V1 closed exactly those two findings — one private
-in-process lock now spans the complete keyed `get -> execute -> put` critical
-section of `ApplicationGateway`, and the historical HEAD value is qualified as
-an intermediate milestone — and added deterministic concurrent regressions.
-`DP-103` is deliberately **not** verified here: only the independent re-audit of
-an exact-HEAD bundle may declare that.
+Phase 11.3 is **implemented, independently re-audited and closed after
+Independent Re-audit V1 `PASS`**. Historical Independent Audit V1 `FAIL`
+(`BLOCKERS=0`, `MAJORS=1`, `MINORS=1`) remains immutable. Remediation V1 repaired
+exactly `MAJOR_01` and `MINOR_01`, and the independent re-audit verified both
+findings as remediated while preserving the canonical Application Backend
+architecture.
 
 ```text
-PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+PHASE11_3=CLOSED
 
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MINOR_01=REMEDIATED_PENDING_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
 
-F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MAJOR_01=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+
+F11_017=VERIFIED_EXISTING
+DP_103=VERIFIED_EXISTING
 AT_DP_103=PASS
 
 AT_DP_102=PASS
 AT_DP_101=PASS
 AT_DP_134=PASS
 
-CLOSURE_ELIGIBLE=NO
+AUDITED_HEAD=4525f72391792e623730af69e95bcd054ce3cddf
+AUDITED_TREE=0b650c8133111754452940c74a1bc72f24a0df23
+REAUDIT_BUNDLE_SHA256=152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618
+
+CLOSURE_ELIGIBLE=YES
 ```
 
 ## 1. Purpose and ownership boundary
@@ -667,58 +674,48 @@ V1, and no closed-phase production file was touched at all.
 | Remediation V1 plan | `docs/superpowers/plans/2026-09-16-phase-11.3-remediation-v1-implementation-plan.md` — commit `a185134`; SHA-256 `4cc539c7259ff2c183829f3e447f05d7c80e2e7e99dd529d15bc50f364a15778` |
 | Remediation V1 commits | `test(application): reproduce concurrent idempotency race`; `fix(application): make keyed idempotency atomic`; `test(application): freeze the threading root the atomic lock needs`; `test(application): pin the gateway's exact instance surface`; `test(application): prove atomic idempotency through dp103`; `docs(phase11): correct 11.3 implementation head wording`; `docs(phase11): record 11.3 remediation v1` |
 | Remediation V1 production diff | exactly `cmm/application/gateway.py` (one private `threading.Lock`, one atomic keyed critical section) |
-| Mapping status | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` |
-| Next step | independent re-audit of the exact-HEAD Remediation V1 bundle |
+| Mapping status | `VERIFIED_EXISTING` after Independent Re-audit V1 `PASS` |
+| Next step | verify the dedicated docs-only Phase 11.3 closure commit and clean repository state; then inspect Phase 11.4 — CLI before implementation |
 
-## 21. Pre-re-audit state
+## 21. Final independently re-audited closure state
 
-The maximum state before the independent re-audit, and the state recorded by this
-document:
+Independent Re-audit V1 returned `PASS` and is the authority for verification
+and closure eligibility:
 
 ```text
-PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+PHASE11_3=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
 
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MINOR_01=REMEDIATED_PENDING_REAUDIT
+BLOCKERS=0
+MAJORS=0
+MINORS=0
 
-F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+MAJOR_01=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+
+F11_017=VERIFIED_EXISTING
+DP_103=VERIFIED_EXISTING
 AT_DP_103=PASS
 
-CLOSURE_ELIGIBLE=NO
-NEXT=INDEPENDENT_REAUDIT_CHATGPT
-```
-
-The historical Audit V1 result is preserved unchanged and is not rewritten:
-
-```text
-INDEPENDENT_AUDIT_V1=FAIL
-BLOCKERS=0
-MAJORS=1
-MINORS=1
-MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS
-MINOR_01=STALE_UNQUALIFIED_IMPLEMENTATION_HEAD_IN_ROOT_ROADMAP
-AUDITED_HEAD=5fd8cc3b171faec88b802be920ad09ac53224e75
-AUDITED_TREE=1cfbe114369ac89d1c2563a9787c5ebf096c64df
-AUDIT_BUNDLE_SHA256=17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199
-```
-
-Inherited acceptances recorded as green and unchanged:
-
-```text
 AT_DP_102=PASS
 AT_DP_101=PASS
 AT_DP_134=PASS
-PHASE11_1=CLOSED
+
 PHASE11_2=CLOSED
+PHASE11_1=CLOSED
 PHASE11_34=CLOSED
+
+AUDITED_HEAD=4525f72391792e623730af69e95bcd054ce3cddf
+AUDITED_TREE=0b650c8133111754452940c74a1bc72f24a0df23
+REAUDIT_BUNDLE_SHA256=152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618
+REAUDIT_V1_REPORT_COMMIT=c21f2e257a1995b748b78b65b622ff68ca3e6d38
+
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_4_CLI
 ```
 
-This is not a closure and not a self-verification. `DP-103` is deliberately not
-verified and `CLOSURE_ELIGIBLE` is deliberately `NO` until an independent re-audit
-of an exact-HEAD Remediation V1 bundle returns at least `BLOCKERS=0`, `MAJORS=0`,
-`MINORS=0`, `DP-103` verified and `AT_DP-103=PASS`. Exclusive re-audit verification
-belongs to that independent re-audit; implementation self-review cannot certify
-it. The exact re-audit candidate HEAD, tree and bundle SHA-256 are recorded in the
-Remediation V1 implementation handoff, because a document cannot truthfully
-pre-record the hash of its own later commit.
+The historical Audit V1 `FAIL` remains immutable and is not rewritten; the final
+Re-audit V1 `PASS` verifies its two findings as remediated. This closure section
+changes documentation only and introduces no production semantics.
