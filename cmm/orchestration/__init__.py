@@ -69,6 +69,11 @@ from cmm.orchestration.intent import (
     DeterministicIntentResolver,
     IntentResolver,
 )
+from cmm.orchestration.policy import (
+    DefaultOrchestrationPolicy,
+    OrchestrationConfiguration,
+    OrchestrationPolicy,
+)
 
 __all__ = [
     "ALLOWED_EVENT_TYPES",
@@ -82,6 +87,7 @@ __all__ = [
     "ContextResolver",
     "DecisionPersistenceError",
     "DefaultContextResolver",
+    "DefaultOrchestrationPolicy",
     "DeterministicIntentResolver",
     "DomainRouteDecision",
     "DomainRouter",
@@ -93,10 +99,12 @@ __all__ = [
     "IntentResolutionError",
     "IntentResolver",
     "OrchestrationChannel",
+    "OrchestrationConfiguration",
     "OrchestrationDecisionRecord",
     "OrchestrationDecisionRepository",
     "OrchestrationError",
     "OrchestrationEventSink",
+    "OrchestrationPolicy",
     "OrchestrationPolicyDecision",
     "OrchestrationPolicyError",
     "OrchestrationRequest",
