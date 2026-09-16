@@ -41,18 +41,24 @@ from cmm.orchestration.errors import (
     OrchestrationError,
     OrchestrationPolicyError,
 )
+from cmm.orchestration.intent import (
+    DeterministicIntentResolver,
+    IntentResolver,
+)
 
 __all__ = [
     "AgentRouteDecision",
     "AgentRoutingError",
     "ContextResolutionError",
     "DecisionPersistenceError",
+    "DeterministicIntentResolver",
     "DomainRouteDecision",
     "DomainRoutingError",
     "ExecutionRoute",
     "IntentKind",
     "IntentResolution",
     "IntentResolutionError",
+    "IntentResolver",
     "OrchestrationChannel",
     "OrchestrationDecisionRecord",
     "OrchestrationError",
