@@ -19,6 +19,12 @@ See ``docs/reference/phase-11-application-backend.md``.
 
 from __future__ import annotations
 
+from cmm.application.capabilities import (
+    REASON_CANCELLATION_UNAVAILABLE,
+    REASON_OWNER_NOT_IMPLEMENTED,
+    CapabilityApplicationService,
+    build_default_capabilities,
+)
 from cmm.application.contracts import (
     APPLICATION_API_VERSION,
     COMMAND_OPERATIONS,
@@ -62,6 +68,11 @@ from cmm.application.errors import (
     failed_response,
     safe_error_from_exception,
 )
+from cmm.application.health import (
+    HEALTH_STATUS_DEGRADED,
+    HEALTH_STATUS_OK,
+    HealthApplicationService,
+)
 from cmm.application.idempotency import (
     IdempotencyRecord,
     IdempotencyRepository,
@@ -78,6 +89,8 @@ from cmm.application.sessions import (
 __all__ = [
     "APPLICATION_API_VERSION",
     "COMMAND_OPERATIONS",
+    "HEALTH_STATUS_DEGRADED",
+    "HEALTH_STATUS_OK",
     "MAX_IDEMPOTENCY_KEY_LENGTH",
     "MAX_IDENTIFIER_LENGTH",
     "MAX_MESSAGE_LENGTH",
@@ -85,6 +98,8 @@ __all__ = [
     "MAX_METADATA_ITEMS",
     "MAX_STRING_LENGTH",
     "QUERY_OPERATIONS",
+    "REASON_CANCELLATION_UNAVAILABLE",
+    "REASON_OWNER_NOT_IMPLEMENTED",
     "ApplicationCancellationRequest",
     "ApplicationCancelledError",
     "ApplicationCapability",
@@ -104,9 +119,11 @@ __all__ = [
     "ApplicationStatus",
     "ApplicationStreamEvent",
     "ApprovalRequiredApplicationError",
+    "CapabilityApplicationService",
     "CapabilityStatus",
     "CapabilityUnavailableError",
     "ConcurrencyConflictError",
+    "HealthApplicationService",
     "IdempotencyConflictError",
     "IdempotencyRecord",
     "IdempotencyRepository",
@@ -118,6 +135,7 @@ __all__ = [
     "SessionApplicationService",
     "StreamEventKind",
     "UnsupportedApplicationVersionError",
+    "build_default_capabilities",
     "failed_response",
     "fingerprint_command",
     "safe_error_from_exception",

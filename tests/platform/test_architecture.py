@@ -20,7 +20,13 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_PACKAGE = REPO_ROOT / "cmm" / "platform"
 CANONICAL_MODULE = PLATFORM_PACKAGE / "canonical.py"
-ORCHESTRATION_PACKAGE = REPO_ROOT / "cmm" / "orchestration"
+
+#: Packages the design places explicitly *above* ``cmm.platform``: the Phase
+#: 11.2 orchestration layer and the Phase 11.3 application backend.  They are
+#: not canonical subsystems, they consume the Phase 11.1 composition core
+#: (readiness container plus composition module contracts), and the exact
+#: allowlist below keeps that exemption bounded.
+PLATFORM_CONSUMER_PACKAGES = ("orchestration", "application")
 
 # ── Canonical imports used only to build real subsystem objects ---------------
 
@@ -335,19 +341,21 @@ def _imported_modules(path: Path) -> set[str]:
 def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
     """Dependency direction is one-way: cmm.platform -> canonical subsystems.
 
-    ``cmm.orchestration`` is excluded because Phase 11.2 is the application-level
-    coordination layer that the Phase 11.2 design places explicitly *above*
+    ``cmm.orchestration`` and ``cmm.application`` are excluded because the
+    Phase 11.2 and Phase 11.3 designs place them explicitly *above*
     ``cmm.platform`` (``cmm.orchestration -> cmm.platform + canonical
-    subsystems``).  It is not a canonical subsystem, and
-    ``test_only_orchestration_may_depend_on_the_platform_package`` below keeps
-    that exemption exact.
+    subsystems``; ``cmm.application`` consumes the Phase 11.1
+    ``ApplicationContainer`` and binds its services through the Phase 11.1
+    composition contracts).  They are not canonical subsystems, and
+    ``test_only_sanctioned_layers_may_depend_on_the_platform_package`` below
+    keeps that exemption exact.
     """
 
     offenders: list[str] = []
 
     for root in (REPO_ROOT / "cmm", REPO_ROOT / "kernel"):
         for path in _python_files(root, exclude=PLATFORM_PACKAGE):
-            if ORCHESTRATION_PACKAGE in path.parents:
+            if path.relative_to(REPO_ROOT).parts[1] in PLATFORM_CONSUMER_PACKAGES:
                 continue
             for module in _imported_modules(path):
                 if module == "cmm.platform" or module.startswith("cmm.platform."):
@@ -359,8 +367,8 @@ def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
     )
 
 
-def test_only_orchestration_may_depend_on_the_platform_package() -> None:
-    """The Phase 11.2 orchestration layer is the one sanctioned consumer."""
+def test_only_sanctioned_layers_may_depend_on_the_platform_package() -> None:
+    """Only the sanctioned application-level layers may consume the platform core."""
 
     consumers: set[str] = set()
 
@@ -371,8 +379,9 @@ def test_only_orchestration_may_depend_on_the_platform_package() -> None:
                     package = path.relative_to(REPO_ROOT).parts[1]
                     consumers.add(package)
 
-    assert consumers <= {"orchestration"}, (
-        f"only cmm.orchestration may depend on cmm.platform: {sorted(consumers)}"
+    assert consumers <= set(PLATFORM_CONSUMER_PACKAGES), (
+        "only cmm.orchestration and cmm.application may depend on cmm.platform: "
+        f"{sorted(consumers)}"
     )
 
 
