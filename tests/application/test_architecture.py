@@ -53,6 +53,16 @@ API_PACKAGE = REPO_ROOT / "cmm" / "api"
 #: below them may import them.
 PUBLIC_LAYERS = ("cmm.application", "cmm.api")
 
+#: The sanctioned sibling consumers of the backend.  ``cmm.application`` owns the
+#: boundary and ``cmm.api`` adapts it to HTTP; Phase 11.4 adds the public CLI
+#: adapter as the third sanctioned consumer.  The approved Phase 11.4 design
+#: places the CLI beside HTTP ("HTTP -> ApplicationGateway, CLI ->
+#: ApplicationGateway"): it presents the same application boundary over another
+#: transport and owns no platform truth of its own.  Nothing else in the tree
+#: may import the backend, and this list stays exact — the guard below fails if
+#: a listed module stops existing or stops importing the backend.
+CLI_ADAPTER_MODULES = (REPO_ROOT / "cmm" / "cli_contracts.py",)
+
 #: Layers the design places below the application backend.
 LOWER_LAYERS = (
     "cmm/platform",
@@ -291,7 +301,7 @@ def test_lower_layers_do_not_import_the_application_or_api_package(layer: str) -
     )
 
 
-def test_only_the_backend_packages_import_the_backend_packages() -> None:
+def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> None:
     """The whole platform tree closes the reverse dependency, not just a list."""
 
     offenders: list[str] = []
@@ -300,14 +310,29 @@ def test_only_the_backend_packages_import_the_backend_packages() -> None:
         for path in sorted(root.rglob("*.py")):
             if APPLICATION_PACKAGE in path.parents or API_PACKAGE in path.parents:
                 continue
+            if path in CLI_ADAPTER_MODULES:
+                continue
             for module in _imported_modules(path):
                 for public in PUBLIC_LAYERS:
                     if module == public or module.startswith(f"{public}."):
                         offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
 
     assert not offenders, (
-        f"only cmm.api and cmm.application may import the backend: {sorted(offenders)}"
+        "only cmm.api, cmm.application and the sanctioned CLI adapter may import "
+        f"the backend: {sorted(offenders)}"
     )
+
+
+def test_the_sanctioned_cli_adapter_allowlist_is_exact_and_live() -> None:
+    """Every allowlisted CLI module exists and really is a backend consumer."""
+
+    for path in CLI_ADAPTER_MODULES:
+        assert path.is_file(), f"stale CLI consumer allowlist entry: {path}"
+        imported = _imported_modules(path)
+        assert any(
+            module == "cmm.application" or module.startswith("cmm.application.")
+            for module in imported
+        ), f"{path.relative_to(REPO_ROOT)} no longer imports the backend"
 
 
 def test_application_package_internal_imports_are_the_frozen_allowlist() -> None:

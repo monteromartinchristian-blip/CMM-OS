@@ -48,7 +48,7 @@ DEFAULT_CAPACITY = 1024
 #: Frozen digest of the canonical document for :func:`_command`, computed from
 #: the documented semantics independently of this implementation.  A change
 #: here means an uploaded fingerprint no longer matches a stored one.
-GOLDEN_FINGERPRINT = "01642c97ab27ce4aac2418cad11cb1752572892b873816b0725be2fbd685c208"
+GOLDEN_FINGERPRINT = "8a3e0138af5c236bb67839ed91f4957621383e168d5877f9fb1e3e5e891b1f6c"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,7 +71,12 @@ def _command(**overrides: object) -> ApplicationCommand:
 
 
 def _canonical_document(command: ApplicationCommand) -> str:
-    """Return the documented canonical document, built without this module."""
+    """Return the documented canonical document, built without this module.
+
+    ``channel`` is part of the fingerprinted public field set: two otherwise
+    identical commands that originated on different channels are different
+    commands, so a keyed CLI command can never replay an API command's record.
+    """
 
     public_fields = command.to_dict()
     return json.dumps(
@@ -83,6 +88,7 @@ def _canonical_document(command: ApplicationCommand) -> str:
             "expected_session_revision": public_fields["expected_session_revision"],
             "payload": public_fields["payload"],
             "metadata": public_fields["metadata"],
+            "channel": public_fields["channel"],
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -187,6 +193,7 @@ def test_canonical_document_covers_exactly_the_fingerprinted_fields() -> None:
         "expected_session_revision",
         "payload",
         "metadata",
+        "channel",
     }
 
 

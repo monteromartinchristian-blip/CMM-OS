@@ -8,7 +8,10 @@ owners and project safe public output back.
 
 Every public value here is frozen at construction, validated against the frozen
 public limits, recursively normalized to immutable representations, and
-deterministically serializable through ``to_dict()``.
+deterministically serializable through ``to_dict()``.  One request field,
+``channel``, records the transport-neutral origin of a public request; it
+selects no authority and defaults to ``API`` so every existing transport keeps
+its current behavior.
 
 Public metadata uses one bounded, secret-free grammar: only ``None``, ``bool``,
 ``int``, finite ``float``, ``str``, mappings of those values and sequences of
@@ -44,6 +47,7 @@ __all__ = [
     "QUERY_OPERATIONS",
     "ApplicationCancellationRequest",
     "ApplicationCapability",
+    "ApplicationChannel",
     "ApplicationCommand",
     "ApplicationError",
     "ApplicationErrorCode",
@@ -120,6 +124,22 @@ class ApplicationOperation(str, Enum):
     SESSION_GET = "sessions.get"
     MESSAGE_SUBMIT = "messages.submit"
     REQUEST_CANCEL = "requests.cancel"
+
+
+class ApplicationChannel(str, Enum):
+    """Transport-neutral origin channel of one public application request.
+
+    The channel is descriptive origin only: it selects no authority, grants no
+    capability and changes no business rule.  It is carried into the canonical
+    orchestration request so the canonical pipeline sees where a request came
+    from, and it participates in the public request document so two otherwise
+    identical commands from different channels are different commands for
+    idempotency purposes.  ``API`` stays the default, so every existing
+    transport that sets nothing keeps its current behavior.
+    """
+
+    API = "api"
+    CLI = "cli"
 
 
 class ApplicationErrorCode(str, Enum):
@@ -433,6 +453,7 @@ class ApplicationRequest:
     session_id: str | None = None
     payload: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    channel: ApplicationChannel = ApplicationChannel.API
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -456,6 +477,9 @@ class ApplicationRequest:
         object.__setattr__(
             self, "metadata", _freeze_public_mapping(self.metadata, "metadata")
         )
+        object.__setattr__(
+            self, "channel", _enum_member(self.channel, ApplicationChannel, "channel")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return _request_dict(self)
@@ -472,6 +496,7 @@ def _request_dict(request: ApplicationRequest) -> dict[str, Any]:
         "session_id": request.session_id,
         "payload": _thaw(request.payload),
         "metadata": _thaw(request.metadata),
+        "channel": request.channel.value,
     }
 
 

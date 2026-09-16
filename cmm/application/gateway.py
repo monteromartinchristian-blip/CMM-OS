@@ -354,6 +354,7 @@ class ApplicationGateway:
             return self._requests.submit_message(
                 request_id=request.request_id,
                 message=_message_from_request(request),
+                channel=request.channel,
             )
 
         if operation is ApplicationOperation.REQUEST_CANCEL:

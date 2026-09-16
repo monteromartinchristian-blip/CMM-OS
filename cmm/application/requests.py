@@ -34,11 +34,13 @@ See ``docs/reference/phase-11-application-backend.md``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from cmm.application.contracts import (
     APPLICATION_API_VERSION,
     MAX_IDENTIFIER_LENGTH,
+    ApplicationChannel,
     ApplicationError,
     ApplicationErrorCode,
     ApplicationMessage,
@@ -96,6 +98,19 @@ _FAILURE_EXCEPTIONS: Mapping[ApplicationErrorCode, type[ApplicationServiceError]
     ApplicationErrorCode.CONFLICT: ApplicationConflictError,
     ApplicationErrorCode.INTERNAL_FAILURE: InternalApplicationError,
 }
+
+#: The one public application channel to canonical orchestration channel map.
+#: Channel selection policy lives here and nowhere else: a transport declares
+#: its origin, the adapter translates it, and the canonical pipeline sees the
+#: origin it has always understood.
+_APPLICATION_TO_ORCHESTRATION_CHANNEL: Mapping[
+    ApplicationChannel, OrchestrationChannel
+] = MappingProxyType(
+    {
+        ApplicationChannel.API: OrchestrationChannel.API,
+        ApplicationChannel.CLI: OrchestrationChannel.CLI,
+    }
+)
 
 
 def _request_identifier(value: object) -> str:
@@ -173,8 +188,13 @@ class RequestApplicationService:
         *,
         request_id: str,
         message: ApplicationMessage,
+        channel: ApplicationChannel = ApplicationChannel.API,
     ) -> ApplicationResponse:
         """Submit one public message and return a safe public response.
+
+        ``channel`` is the transport-neutral origin the caller's public request
+        declared.  It defaults to ``API`` so a caller that declares nothing
+        keeps the closed Phase 11.3 behavior.
 
         Raises an ``ApplicationServiceError`` when the request can not be
         accepted or the application layer must fail closed.
@@ -182,6 +202,8 @@ class RequestApplicationService:
 
         if not isinstance(message, ApplicationMessage):
             raise TypeError("message must be an ApplicationMessage")
+        if not isinstance(channel, ApplicationChannel):
+            raise TypeError("channel must be an ApplicationChannel")
         normalized_request_id = _request_identifier(request_id)
 
         # Session preconditions are evaluated before the canonical pipeline, so
@@ -190,13 +212,16 @@ class RequestApplicationService:
             message.session_id, message.expected_session_revision
         )
 
-        result = self._orchestrate(normalized_request_id, message)
+        result = self._orchestrate(normalized_request_id, message, channel)
         return self._to_application_response(normalized_request_id, message, result)
 
     # ── Canonical delegation ─────────────────────────────────────────────────
 
     def _orchestrate(
-        self, request_id: str, message: ApplicationMessage
+        self,
+        request_id: str,
+        message: ApplicationMessage,
+        channel: ApplicationChannel,
     ) -> OrchestrationResult:
         # ``to_dict`` yields the thawed, JSON-native public projection, so the
         # canonical request never receives a frozen public container and never
@@ -205,7 +230,7 @@ class RequestApplicationService:
         orchestration_request = OrchestrationRequest(
             request_id=request_id,
             user_id=message.actor_id,
-            channel=OrchestrationChannel.API,
+            channel=_APPLICATION_TO_ORCHESTRATION_CHANNEL[channel],
             session_id=message.session_id,
             input={
                 "message_id": public_message["message_id"],
