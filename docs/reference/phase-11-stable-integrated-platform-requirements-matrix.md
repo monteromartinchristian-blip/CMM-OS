@@ -41,6 +41,12 @@ it: the implementation exists, a recorded independent audit `FAIL` (or re-audit
 `FAIL`) exists, findings are remediated, and independent re-audit closure is
 still pending. It is not a closure and not a verification claim.
 
+Phase 11.3 records that same state under the explicit audit marker
+`IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`: Independent Audit V1 returned
+`FAIL` (`BLOCKERS=0`, `MAJORS=1`, `MINORS=1`), Remediation V1 closed exactly its
+two findings, and the independent re-audit of the exact-HEAD remediation bundle
+is still pending. The two spellings mean the same thing and neither is a closure.
+
 ## 3. Inherited / preassigned Phase 11 requirements (`F11-001` … `F11-013`)
 
 These rows are **pointers**. The normative requirement text, its mapping and its
@@ -233,7 +239,7 @@ Application Backend.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-017` | Canonical Application Backend. CMM OS shall expose stable application-facing capabilities through one version-aware, transport-neutral, fail-closed application backend that composes through the canonical Phase 11.1 `ApplicationContainer`, routes user-request processing through the canonical Phase 11.2 `Orchestrator`, exposes explicit public request, response and error contracts, separates application commands from application queries, prevents transport handlers from bypassing application services, prevents application services from re-owning canonical domain, agent, workflow, execution, validation, session, memory, knowledge, provider or orchestration authorities, maps internal failures to safe public errors, supports explicit API versioning, provides deterministic OpenAPI metadata for the HTTP adapter, supports public streaming and cancellation contracts without creating a new event system or inference runtime, supports repeatable command idempotency through a narrow backend-owned seam without introducing durable storage, respects canonical session revision/concurrency semantics rather than inventing a global concurrency subsystem, rejects unavailable or not-yet-owned capabilities explicitly, exposes no secrets, raw internal exceptions, hidden reasoning or raw sensitive context, and remains local-first and independently testable without network access. | `SRC-R11` (detailed Phase 11 roadmap §11.3); `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md` §3–§5 | Phase 11.3 | `cmm/application/__init__.py`; `contracts.py`; `errors.py`; `idempotency.py`; `sessions.py`; `requests.py`; `health.py`; `capabilities.py`; `gateway.py`; `platform_module.py`; `cmm/api/__init__.py`; `app.py`; `models.py`; `errors.py`; `streaming.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` |
+| `F11-017` | Canonical Application Backend. CMM OS shall expose stable application-facing capabilities through one version-aware, transport-neutral, fail-closed application backend that composes through the canonical Phase 11.1 `ApplicationContainer`, routes user-request processing through the canonical Phase 11.2 `Orchestrator`, exposes explicit public request, response and error contracts, separates application commands from application queries, prevents transport handlers from bypassing application services, prevents application services from re-owning canonical domain, agent, workflow, execution, validation, session, memory, knowledge, provider or orchestration authorities, maps internal failures to safe public errors, supports explicit API versioning, provides deterministic OpenAPI metadata for the HTTP adapter, supports public streaming and cancellation contracts without creating a new event system or inference runtime, supports repeatable command idempotency through a narrow backend-owned seam without introducing durable storage, respects canonical session revision/concurrency semantics rather than inventing a global concurrency subsystem, rejects unavailable or not-yet-owned capabilities explicitly, exposes no secrets, raw internal exceptions, hidden reasoning or raw sensitive context, and remains local-first and independently testable without network access. | `SRC-R11` (detailed Phase 11 roadmap §11.3); `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md` §3–§5 | Phase 11.3 | `cmm/application/__init__.py`; `contracts.py`; `errors.py`; `idempotency.py`; `sessions.py`; `requests.py`; `health.py`; `capabilities.py`; `gateway.py`; `platform_module.py`; `cmm/api/__init__.py`; `app.py`; `models.py`; `errors.py`; `streaming.py` | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` |
 
 ### 4.8 `F11-017` traceability
 
@@ -249,16 +255,22 @@ Application Backend.
 | Reference documentation | `docs/reference/phase-11-application-backend.md` |
 | Design specification | `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md` |
 | Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md` |
+| Remediation V1 design | `docs/superpowers/specs/2026-09-16-phase-11.3-remediation-v1-design.md` — commit `0eb802b` |
+| Remediation V1 plan | `docs/superpowers/plans/2026-09-16-phase-11.3-remediation-v1-implementation-plan.md` — commit `a185134` |
+| Remediation V1 production owner | `cmm/application/gateway.py` — one private in-process `threading.Lock` over the complete keyed `get -> execute -> put` critical section |
+| Remediation V1 regression tests | `tests/application/test_gateway.py` (three focused concurrency tests); `tests/application/test_phase11_3_dp103_acceptance.py` (two connected concurrent scenarios) |
 | Reused canonical owners | Phase 11.1 `ApplicationContainer` / `StaticCompositionModule` / `ServiceBinding`; Phase 11.2 `Orchestrator` and its collaborators; `cmm.runtime.sessions.SessionStore` / `InMemorySessionStore` / `FileSessionStore`; canonical `cmm.domains` and `cmm.agent_runtime` authority reached only through the Orchestrator |
 | Inherited requirements reused | `F11-015` / `DP-101` (Phase 11.1), `F11-016` / `DP-102` (Phase 11.2) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
 | Inherited acceptance regressions | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
-| Independent audit | not yet performed — `F11-017` is pre-audit documentation only |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+| Independent Audit V1 | `docs/audits/phase-11.3-application-backend-independent-audit-v1.md` — `FAIL`; `BLOCKERS=0`; `MAJORS=1`; `MINORS=1`; `MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS`; `MINOR_01=STALE_UNQUALIFIED_IMPLEMENTATION_HEAD_IN_ROOT_ROADMAP`; `AUDITED_HEAD=5fd8cc3b171faec88b802be920ad09ac53224e75`; `AUDITED_TREE=1cfbe114369ac89d1c2563a9787c5ebf096c64df`; `AUDIT_BUNDLE_SHA256=17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199`; report commit `c111a57` — immutable |
+| Finding status | `MAJOR_01=REMEDIATED_PENDING_REAUDIT`; `MINOR_01=REMEDIATED_PENDING_REAUDIT` |
+| Mapping status | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` |
+| Next step | independent re-audit of the exact-HEAD Remediation V1 bundle |
 
-`F11-017` is deliberately **not** `VERIFIED_EXISTING`: the implementation exists
-and `AT-DP-103` is green on the committed HEAD, but no independent audit of an
-exact-HEAD bundle has been performed, so `DP-103` is not verified and closure is
-not eligible.
+`F11-017` is deliberately **not** `VERIFIED_EXISTING` and `DP_103` is deliberately
+**not** verified: Independent Audit V1 returned `FAIL`, Remediation V1 closed
+exactly its two findings, and only the independent re-audit of an exact-HEAD
+remediation bundle may declare verification or closure. `AT-DP-103` remains green.
 
 ## 5. Current lifecycle status
 
@@ -531,10 +543,13 @@ and are not modified by Phase 11.3. The Phase 11.3 application backend is a
 separate subphase and is reported here:
 
 ```text
-PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 
-F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MINOR_01=REMEDIATED_PENDING_REAUDIT
+
+F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_103=PASS
 
 AT_DP_102=PASS
@@ -546,7 +561,7 @@ PHASE11_1=CLOSED
 PHASE11_34=CLOSED
 
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=INDEPENDENT_AUDIT_NOT_YET_PERFORMED
+AUDIT_STATUS=INDEPENDENT_AUDIT_V1_FAIL_REMEDIATION_V1_PENDING_REAUDIT
 ```
 
 Phase 11.3 introduces exactly one new requirement identifier (`F11-017`), one
@@ -559,13 +574,24 @@ authentication/authorization layer. Domain, agent, provider, session,
 orchestration and platform ownership all stay canonical, and the HTTP adapter
 reaches them only through `cmm.application`.
 
-`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` is this matrix's §2 vocabulary term. It
-records that the implementation exists, that the focused application/API suites,
-the architecture gates, the OpenAPI gate and `AT-DP-103` are green on the
-committed HEAD, and that independent audit closure is still pending. It is
-**not** a closure and **not** a verification claim: `F11_017` and `DP_103` are
-deliberately not `VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE` is deliberately `NO`
-until an independent audit of the exact-HEAD bundle passes.
+Independent Audit V1 of the Phase 11.3 candidate returned `FAIL` with
+`BLOCKERS=0`, `MAJORS=1`, `MINORS=1` and remains immutable. Remediation V1
+repaired exactly those two findings: the keyed idempotency boundary is now one
+atomic critical section owned by `ApplicationGateway`, and the root `ROADMAP.md`
+no longer presents `2201d0009b47db7128bab895f4ad25f069712781` as an unqualified
+current implementation HEAD. The independent re-audit of the exact-HEAD
+remediation bundle is still pending, so no verification or closure is recorded
+here.
+
+`IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` records that the remediated
+implementation exists, that the focused application/API suites, the architecture
+gates, the OpenAPI gate, `AT-DP-103` and the inherited acceptances are green on
+the committed remediation HEAD, and that independent re-audit closure is still
+pending. It is **not** a closure and **not** a verification claim: `F11_017` and
+`DP_103` are deliberately not `VERIFIED_EXISTING`, the findings are
+`REMEDIATED_PENDING_REAUDIT` rather than `VERIFIED_REMEDIATED`, and
+`CLOSURE_ELIGIBLE` is deliberately `NO` until an independent re-audit of the
+exact-HEAD bundle passes.
 
 Phase 11.3 does not reopen Phase 11.1, Phase 11.2 or Phase 11.34. No closed-phase
 production semantics were modified: the Phase 11.1 platform gate now names its

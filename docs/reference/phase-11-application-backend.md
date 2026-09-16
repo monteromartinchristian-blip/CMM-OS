@@ -1,12 +1,14 @@
 # Phase 11 — Application Backend reference
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 **Phase:** 11.3 — Application Backend
 **Requirement:** `F11-017 — Canonical Application Backend`
 **Design Point:** `DP-103 — Versioned, Fail-Closed Application Gateway`
 **Acceptance Test:** `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md`
+**Remediation V1 design:** `docs/superpowers/specs/2026-09-16-phase-11.3-remediation-v1-design.md`
+**Remediation V1 plan:** `docs/superpowers/plans/2026-09-16-phase-11.3-remediation-v1-implementation-plan.md`
 **Production packages:** `cmm/application/` (10 modules), `cmm/api/` (5 modules)
 **Focused suites:** `tests/application/`, `tests/api/`
 **Architecture gates:** `tests/application/test_architecture.py` (58 tests), `tests/api/test_architecture.py` (51 tests)
@@ -14,20 +16,36 @@
 **Design commit:** `3a2bc9e` — `docs(phase11): design 11.3 application backend`
 **Plan commit:** `325bc40` — `docs(phase11): plan 11.3 application backend`
 **First implementation commit:** `ffadb94` — `build(application): add phase 11.3 http boundary`
-**Implementation HEAD at this documentation task:** `2201d0009b47db7128bab895f4ad25f069712781`
-**Independent audit:** not yet performed — this document is pre-audit documentation only
+**AT-DP-103 implementation milestone HEAD:** `2201d0009b47db7128bab895f4ad25f069712781` — an intermediate implementation milestone observed while preparing the first documentation, not the exact audit candidate
+**Independent Audit V1:** `docs/audits/phase-11.3-application-backend-independent-audit-v1.md` — `FAIL`; audited HEAD `5fd8cc3b171faec88b802be920ad09ac53224e75`; audited tree `1cfbe114369ac89d1c2563a9787c5ebf096c64df`; bundle SHA-256 `17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199`; report commit `c111a57` — immutable and unmodified
+**Remediation V1:** implemented and committed; `MAJOR_01=REMEDIATED_PENDING_REAUDIT`, `MINOR_01=REMEDIATED_PENDING_REAUDIT`; independent re-audit of the exact-HEAD remediation bundle is pending
 
-Phase 11.3 is **implemented and not yet independently audited**. `AT-DP-103` is
-green on the committed HEAD; the implementation, its focused suites, its
-architecture/OpenAPI gates and the inherited `AT-DP-101` / `AT-DP-102` /
-`AT-DP-134` acceptances are the evidence the independent audit must verify on an
-exact-HEAD bundle. No closure is claimed here and no audit artifact exists yet.
+Phase 11.3 is **implemented, independently audited (`INDEPENDENT_AUDIT_V1=FAIL`),
+remediated under Remediation V1 and pending independent re-audit**. Audit V1
+recorded `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`: the keyed idempotency boundary was
+not atomic under concurrent equivalent commands (`MAJOR_01`), and the root
+`ROADMAP.md` carried an unqualified intermediate implementation HEAD
+(`MINOR_01`). Remediation V1 closed exactly those two findings — one private
+in-process lock now spans the complete keyed `get -> execute -> put` critical
+section of `ApplicationGateway`, and the historical HEAD value is qualified as
+an intermediate milestone — and added deterministic concurrent regressions.
+`DP-103` is deliberately **not** verified here: only the independent re-audit of
+an exact-HEAD bundle may declare that.
 
 ```text
-PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MINOR_01=REMEDIATED_PENDING_REAUDIT
+
+F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_103=PASS
+
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+
 CLOSURE_ELIGIBLE=NO
 ```
 
@@ -249,9 +267,32 @@ is part of a public command boundary:
 - a generated message identity is a pure function of the idempotency key, so a
   keyed retry is canonically the same command and replays instead of conflicting,
   while two independent submissions remain two public messages;
-- no `IdempotencyDatabase`, durable store, distributed lock service or general
-  transaction manager is introduced. Durable idempotency persistence is deferred
-  to storage work (Phase 11.15).
+- the complete keyed `get -> execute -> put` sequence is **one atomic critical
+  section** for a gateway instance: `ApplicationGateway` owns exactly one
+  private, in-process `threading.Lock` (`self._idempotency_lock`) and holds it
+  across fingerprint resolution, the stored-record read, the replay/conflict
+  decision, the canonical execution and the record write. A second caller of the
+  same key therefore can never observe the absent record while the first is
+  still executing, so one keyed semantic command enters the canonical owner at
+  most once while an equivalent keyed command is in flight;
+- the lock is an implementation detail of one gateway instance: it is not a
+  constructor argument, not a collaborator, not registered in
+  `ApplicationContainer`, not persisted and not exported, and the v1 guarantee is
+  deliberately local rather than distributed. Commands without an idempotency key
+  and every query keep their lock-free dispatch path, so the repair serializes
+  only keyed command traffic;
+- no `IdempotencyDatabase`, durable store, distributed lock service, lock
+  registry, transaction manager, background coordinator or per-key lock lifecycle
+  is introduced. Durable idempotency persistence is deferred to storage work
+  (Phase 11.15).
+
+The atomic critical section is the Remediation V1 repair of Independent Audit V1
+`MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS`. Before it, two
+concurrent same-key commands could both observe `get(key) -> None` and both enter
+the canonical owner, which the audit reproduced as two orchestration
+`request_received` events and two canonical decision records. The public
+repository contract, the fingerprint semantics and the UUID5 retry identity are
+unchanged by the repair: the recorded defect was interleaving, not semantics.
 
 ## 9. Orchestration adapter
 
@@ -471,18 +512,45 @@ durable storage is introduced by Phase 11.3.
 
 ## 18. Testing
 
-Counts below were observed on the committed
-`HEAD 2201d0009b47db7128bab895f4ad25f069712781` while preparing this
-documentation (Python 3.14 in `.venv`, `python -m pytest -q`). They are
-pre-audit observations; the exact-HEAD gate record and the audit bundle are
-produced by the following task (Task 16) and independently re-verified by the
-audit.
+The first table below is the historical pre-audit observation of the intermediate
+implementation milestone `2201d0009b47db7128bab895f4ad25f069712781` (Python 3.14
+in `.venv`, `python -m pytest -q`); it is preserved as the observation the Audit
+V1 candidate evolved from.
 
 | Suite | Command | Result |
 | --- | --- | --- |
 | Focused application | `python -m pytest -q tests/application` | 625 passed |
 | Focused API | `python -m pytest -q tests/api` | 193 passed |
 | `AT-DP-103` | `python -m pytest -q tests/application/test_phase11_3_dp103_acceptance.py` | 44 passed |
+
+Remediation V1 observations on the committed remediation HEAD (same environment):
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| Focused application (whole subsystem) | `python -m pytest -q tests/application` | 630 passed |
+| Focused gateway + idempotency | `python -m pytest -q tests/application/test_gateway.py tests/application/test_idempotency.py` | 135 passed |
+| Connected `AT-DP-103` | `python -m pytest -q tests/application/test_phase11_3_dp103_acceptance.py` | 46 passed |
+| Focused API | `python -m pytest -q tests/api` | 193 passed |
+| Inherited acceptances (`AT-DP-102` / `AT-DP-101` / `AT-DP-134`) | `python -m pytest -q tests/orchestration/test_phase11_2_dp102_acceptance.py tests/platform/test_phase11_1_dp101_acceptance.py tests/llm/test_provider_registry_dp134_acceptance.py` | 131 passed |
+| Architecture + OpenAPI gates | `python -m pytest -q tests/application/test_architecture.py tests/api/test_architecture.py tests/api/test_openapi.py tests/platform/test_architecture.py tests/orchestration/test_architecture.py` | 272 passed |
+
+Remediation V1 added exactly five tests, all of them concurrency regressions:
+
+| Test | Proves |
+| --- | --- |
+| `tests/application/test_gateway.py::test_concurrent_equivalent_idempotent_commands_execute_once` | Two simultaneous equivalent keyed commands enter the canonical dispatch exactly once and both observe the one stored response |
+| `tests/application/test_gateway.py::test_concurrent_conflicting_idempotent_commands_reject_before_second_execution` | A simultaneous same-key conflicting command is rejected before it can execute anything; only one of the two competing semantic commands takes effect |
+| `tests/application/test_gateway.py::test_a_raised_keyed_failure_releases_the_critical_section` | A command that raises inside the keyed critical section records nothing and leaves the section free for later commands |
+| `tests/application/test_phase11_3_dp103_acceptance.py::test_scenario_i_concurrent_equivalent_commands_reach_the_owner_once` | On the real composed graph: one `orchestration.request_received` event, one canonical decision record and one idempotency record for two simultaneous equivalent keyed commands |
+| `tests/application/test_phase11_3_dp103_acceptance.py::test_scenario_j_concurrent_conflicting_commands_reject_before_execution` | On the real composed graph: one canonical execution maximum, exactly one `IDEMPOTENCY_CONFLICT` and no second canonical decision |
+
+All five force the audited interleaving deterministically with a test-only
+two-party `threading.Barrier` gate at the repository lookup and bounded worker
+joins; none of them relies on `time.sleep`. Against the pre-remediation gateway
+the two focused and the two connected concurrent tests fail with duplicate
+canonical execution (`entered 2 times` / `assert 2 == 1` over two
+`orchestration.request_received` identities), which is the Audit V1 `MAJOR_01`
+reproduction recorded in the Remediation V1 handoff.
 
 Gate file sizes: `tests/application/test_architecture.py` 58 tests,
 `tests/api/test_architecture.py` 51, `tests/api/test_openapi.py` 22,
@@ -506,8 +574,8 @@ endpoint test.
 | F — malformed input | Malformed message/session/transport input and malformed session creation fail closed before orchestration |
 | G — unsupported version | The public contract rejects an unsupported version; a tampered version fails safely before orchestration; no `/v2` route is served |
 | H — internal defect | A canonical defect and an application-service defect both become safe failures |
-| I — idempotent replay | Same key + equivalent command replays one orchestration and is not an authority bypass |
-| J — idempotency conflict | Same key with changed content, or against another session, is a conflict |
+| I — idempotent replay | Same key + equivalent command replays one orchestration and is not an authority bypass; two *simultaneous* equivalent keyed commands reach the canonical owner once (one `request_received` event, one decision record, one idempotency record) |
+| J — idempotency conflict | Same key with changed content, or against another session, is a conflict; the connected concurrent conflict rejects the second command before any canonical execution |
 | K — session revision | A stale expected revision is a concurrency conflict; a matching revision is accepted |
 | L — unavailable capability | Cancellation reports `CAPABILITY_UNAVAILABLE` and creates no cancellation runtime |
 | M — no transport bypass | HTTP reaches only the application gateway; route wiring exposes application contracts only; the gateway is the one public entrypoint |
@@ -546,6 +614,33 @@ separate required gate commands, not by invoking other test modules from inside
   construction from the Phase 11.2 acceptance test instead of importing it, so no
   cross-package fixture coupling or test-order dependency is introduced.
 
+Remediation V1 added two test-file changes beyond its two expected test files,
+both of them forced by the authorized production repair and both recorded here
+because they touch files the remediation brief did not list:
+
+- **`tests/application/test_architecture.py` — frozen stdlib root `threading`.**
+  The architecture gate freezes the exact standard-library roots the
+  transport-neutral core may import and documents that a new root "must be frozen
+  here". The authorized repair requires `from threading import Lock`, so the gate
+  failed with `unfrozen application-core import: ['gateway.py -> threading']`
+  until the single root `threading` was added to that exact allowlist. No
+  wildcard, no third-party dependency and no concurrency subsystem is authorized
+  by the entry: the production diff stays `cmm/application/gateway.py`, the
+  `pyproject.toml` diff stays empty, and the closed lower layers already use
+  `threading` (`cmm/orchestration/decision_repository.py`, `cmm/domains/`,
+  `cmm/agent_runtime/`).
+- **`tests/application/test_phase11_3_dp103_acceptance.py` — Scenario E gateway
+  instance surface.** Scenario E asserted the set of instance-attribute types of
+  the gateway, which the mandated private lock necessarily extends. The
+  assertion was made *exact* rather than loosened: it now pins the complete
+  attribute-name set (the five official collaborators plus `_idempotency_lock`),
+  the exact types of the five collaborators, the exact lock type, and still
+  asserts that no held value is a canonical authority object.
+
+No other file outside `cmm/application/gateway.py`, the two expected test files,
+`ROADMAP.md` and the four Phase 11.3 status documents was touched by Remediation
+V1, and no closed-phase production file was touched at all.
+
 ## 20. Traceability
 
 | Item | Value |
@@ -566,21 +661,46 @@ separate required gate commands, not by invoking other test modules from inside
 | Design commit | `3a2bc9e` |
 | Plan commit | `325bc40` |
 | Implementation commits | `ffadb94`, `53bcdff`, `1545441`, `d022e25`, `443ae1f`, `e769dde`, `54459f7`, `6414c5a`, `8226386`, `d411dcb`, `9f239a9`, `2460ab0`, `22c061c`, `2201d00` |
-| Implementation HEAD (this documentation) | `2201d0009b47db7128bab895f4ad25f069712781` |
-| Independent audit | not yet performed |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+| AT-DP-103 implementation milestone HEAD | `2201d0009b47db7128bab895f4ad25f069712781` — intermediate implementation milestone, **not** the exact audit candidate |
+| Independent Audit V1 | `docs/audits/phase-11.3-application-backend-independent-audit-v1.md` — `FAIL`; `BLOCKERS=0`; `MAJORS=1`; `MINORS=1`; `MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS`; `MINOR_01=STALE_UNQUALIFIED_IMPLEMENTATION_HEAD_IN_ROOT_ROADMAP`; `AUDITED_HEAD=5fd8cc3b171faec88b802be920ad09ac53224e75`; `AUDITED_TREE=1cfbe114369ac89d1c2563a9787c5ebf096c64df`; `AUDIT_BUNDLE_SHA256=17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199`; report commit `c111a57` — immutable |
+| Remediation V1 design | `docs/superpowers/specs/2026-09-16-phase-11.3-remediation-v1-design.md` — commit `0eb802b`; SHA-256 `4b9ff2bd8861ce28f20bdc426639acc868975793c2ee4fa636ddb68a1903c868` |
+| Remediation V1 plan | `docs/superpowers/plans/2026-09-16-phase-11.3-remediation-v1-implementation-plan.md` — commit `a185134`; SHA-256 `4cc539c7259ff2c183829f3e447f05d7c80e2e7e99dd529d15bc50f364a15778` |
+| Remediation V1 commits | `test(application): reproduce concurrent idempotency race`; `fix(application): make keyed idempotency atomic`; `test(application): freeze the threading root the atomic lock needs`; `test(application): pin the gateway's exact instance surface`; `test(application): prove atomic idempotency through dp103`; `docs(phase11): correct 11.3 implementation head wording`; `docs(phase11): record 11.3 remediation v1` |
+| Remediation V1 production diff | exactly `cmm/application/gateway.py` (one private `threading.Lock`, one atomic keyed critical section) |
+| Mapping status | `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT` |
+| Next step | independent re-audit of the exact-HEAD Remediation V1 bundle |
 
-## 21. Pre-audit state
+## 21. Pre-re-audit state
 
-The maximum state before independent audit, and the state recorded by this
+The maximum state before the independent re-audit, and the state recorded by this
 document:
 
 ```text
-PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MINOR_01=REMEDIATED_PENDING_REAUDIT
+
+F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_103=PASS
+
 CLOSURE_ELIGIBLE=NO
+NEXT=INDEPENDENT_REAUDIT_CHATGPT
+```
+
+The historical Audit V1 result is preserved unchanged and is not rewritten:
+
+```text
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=1
+MINORS=1
+MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS
+MINOR_01=STALE_UNQUALIFIED_IMPLEMENTATION_HEAD_IN_ROOT_ROADMAP
+AUDITED_HEAD=5fd8cc3b171faec88b802be920ad09ac53224e75
+AUDITED_TREE=1cfbe114369ac89d1c2563a9787c5ebf096c64df
+AUDIT_BUNDLE_SHA256=17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199
 ```
 
 Inherited acceptances recorded as green and unchanged:
@@ -594,8 +714,11 @@ PHASE11_2=CLOSED
 PHASE11_34=CLOSED
 ```
 
-This is not a closure. `DP-103` is deliberately not verified and
-`CLOSURE_ELIGIBLE` is deliberately `NO` until an independent audit of an
-exact-HEAD bundle returns at least `BLOCKERS=0`, `MAJORS=0`, `DP-103` verified
-and `AT-DP-103=PASS`. Exclusive verification belongs to that independent audit;
-implementation self-review cannot certify it.
+This is not a closure and not a self-verification. `DP-103` is deliberately not
+verified and `CLOSURE_ELIGIBLE` is deliberately `NO` until an independent re-audit
+of an exact-HEAD Remediation V1 bundle returns at least `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `DP-103` verified and `AT_DP-103=PASS`. Exclusive re-audit verification
+belongs to that independent re-audit; implementation self-review cannot certify
+it. The exact re-audit candidate HEAD, tree and bundle SHA-256 are recorded in the
+Remediation V1 implementation handoff, because a document cannot truthfully
+pre-record the hash of its own later commit.

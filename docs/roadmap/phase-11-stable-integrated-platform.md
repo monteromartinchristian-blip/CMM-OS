@@ -628,9 +628,11 @@ Re-audit V2 bundle SHA-256: `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77
 Audit-report commit: `773204c7df06fced504892ed33284f39eca5b63a`.
 
 Phase 11.2 is therefore closed by a dedicated docs-only closure commit. Phase
-11.3 — Application Backend followed that closure and is now **implemented,
-documented and pending independent audit** (`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`);
-see *11.3 implementation status* below.
+11.3 — Application Backend followed that closure, was independently audited
+(`INDEPENDENT_AUDIT_V1=FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`), was
+remediated under Remediation V1 and is now **implemented, remediated and pending
+independent re-audit** (`IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`); see *11.3
+implementation status* below.
 
 ---
 
@@ -798,7 +800,7 @@ Phase 11 adds conceptual `BotService`, `CapabilityService`, and `ToolCatalogServ
 
 ### 11.3 implementation status
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
 
 Implemented by the `cmm/application/` transport-neutral application core and the
 `cmm/api/` HTTP/OpenAPI/SSE adapter:
@@ -806,9 +808,10 @@ Implemented by the `cmm/application/` transport-neutral application core and the
 - requirement `F11-017 — Canonical Application Backend`;
 - Design Point `DP-103 — Versioned, Fail-Closed Application Gateway`;
 - acceptance test `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`
-  (44 connected tests over real canonical components, covering scenarios A–M;
-  scenario N is represented by the separate inherited gate commands, not by
-  invoking other test modules);
+  (46 connected tests over real canonical components, covering scenarios A–M plus
+  the two concurrent idempotency scenarios added by Remediation V1; scenario N is
+  represented by the separate inherited gate commands, not by invoking other test
+  modules);
 - architecture gates — `tests/application/test_architecture.py` (58 tests),
   `tests/api/test_architecture.py` (51 tests);
 - OpenAPI gate — `tests/api/test_openapi.py` (22 tests);
@@ -816,7 +819,9 @@ Implemented by the `cmm/application/` transport-neutral application core and the
 - requirements matrix row — `F11-017` → `DP-103` → `AT-DP-103` in
   [`docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`](../reference/phase-11-stable-integrated-platform-requirements-matrix.md);
 - design specification — `docs/superpowers/specs/2026-09-16-phase-11.3-application-backend-design.md`;
-- implementation plan — `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md`.
+- implementation plan — `docs/superpowers/plans/2026-09-16-phase-11.3-application-backend-implementation-plan.md`;
+- Remediation V1 design — `docs/superpowers/specs/2026-09-16-phase-11.3-remediation-v1-design.md` (commit `0eb802b`);
+- Remediation V1 plan — `docs/superpowers/plans/2026-09-16-phase-11.3-remediation-v1-implementation-plan.md` (commit `a185134`).
 
 The subphase introduces exactly two packages and one new public surface:
 
@@ -853,9 +858,10 @@ cancellation runtime; durable idempotency persistence is deferred to Phase 11.15
 storage work; and no authentication/authorization, Model Gateway/Routing Policy
 Engine, plugin lifecycle, pagination or WebSocket surface is introduced.
 
-Pre-audit evidence observed on the committed implementation HEAD
+Pre-audit evidence observed on the committed intermediate implementation milestone
 `2201d0009b47db7128bab895f4ad25f069712781` while preparing the Phase 11.3
-documentation (Python 3.14, `.venv`, `python -m pytest -q`):
+documentation (Python 3.14, `.venv`, `python -m pytest -q`). It is preserved as
+the historical observation the Audit V1 candidate evolved from:
 
 ```text
 tests/application                 625 passed
@@ -863,10 +869,62 @@ tests/api                         193 passed
 AT-DP-103                          44 passed
 ```
 
-The exact-HEAD gate record, the audit bundle and the inherited acceptance runs
-(`AT-DP-102`, `AT-DP-101`, `AT-DP-134`, subsystem and global suites, Ruff, format
-check, compileall, `git diff --check`) are produced by the following
-implementation-plan task and independently re-verified by the audit.
+Independent Audit V1 of the Phase 11.3 candidate then returned `FAIL`
+(`BLOCKERS=0`, `MAJORS=1`, `MINORS=1`):
+
+- `MAJOR_01=NON_ATOMIC_IDEMPOTENCY_UNDER_CONCURRENT_REQUESTS` — the keyed
+  `get -> execute -> put` sequence was not atomic, so two concurrent equivalent
+  same-key commands both entered the canonical owner (the audit reproduced two
+  `orchestration.request_received` events and two canonical decision records);
+- `MINOR_01=STALE_UNQUALIFIED_IMPLEMENTATION_HEAD_IN_ROOT_ROADMAP` — root
+  `ROADMAP.md` presented the intermediate milestone above as an unqualified
+  implementation HEAD.
+
+The immutable audit report is
+`docs/audits/phase-11.3-application-backend-independent-audit-v1.md`
+(`AUDITED_HEAD=5fd8cc3b171faec88b802be920ad09ac53224e75`,
+`AUDITED_TREE=1cfbe114369ac89d1c2563a9787c5ebf096c64df`,
+`AUDIT_BUNDLE_SHA256=17377075eae659d123ca4ee909fa8f0cef01f625f40c2d498b34f22a47690199`,
+report commit `c111a57`).
+
+Remediation V1 repaired exactly those two findings and added deterministic
+concurrency regressions:
+
+- `cmm/application/gateway.py` now owns one private, in-process
+  `threading.Lock` (`self._idempotency_lock`) held across the complete keyed
+  critical section — fingerprint resolution, stored-record read, replay/conflict
+  decision, canonical execution and record write — so one keyed semantic command
+  enters the canonical owner at most once while an equivalent keyed command is in
+  flight. Commands without an idempotency key and every query keep their
+  lock-free path, and the public idempotency repository contract, the fingerprint
+  semantics and the UUID5 retry identity are unchanged;
+- three focused regression tests in `tests/application/test_gateway.py` and two
+  connected concurrent scenarios in `tests/application/test_phase11_3_dp103_acceptance.py`
+  force the audited interleaving deterministically with a test-only two-party
+  `threading.Barrier` gate at the repository lookup and bounded worker joins, and
+  assert canonical effect counts rather than response codes alone. Against the
+  pre-remediation gateway all four concurrent tests fail with duplicate canonical
+  execution, which is the recorded RED evidence;
+- root `ROADMAP.md` now qualifies `2201d0009b47db7128bab895f4ad25f069712781` as an
+  **AT-DP-103 intermediate implementation milestone**, not the exact audit
+  candidate or the re-audit candidate.
+
+Evidence observed on the committed remediation HEAD (same environment):
+
+```text
+tests/application                 630 passed
+tests/api                         193 passed
+tests/application (gateway + idempotency focused)
+                                  135 passed
+AT-DP-103                          46 passed
+AT-DP-102 + AT-DP-101 + AT-DP-134 131 passed
+architecture + OpenAPI gates      272 passed
+```
+
+The exact-HEAD re-audit bundle, the subsystem/global suite record, Ruff, format
+check, compileall and `git diff --check` are produced by the Remediation V1
+implementation-plan task and reported in its handoff, to be independently
+re-verified by the re-audit.
 
 The Phase 11.1 platform architecture gate was adjusted once, as a documented
 Phase 11.1 test adjustment: it now names its sanctioned platform consumers as the
@@ -876,13 +934,16 @@ semantics were modified — `git diff 3a2bc9e..HEAD -- cmm/platform
 cmm/orchestration kernel/llm cmm/domains cmm/agent_runtime` produced no output —
 and `AT-DP-101`, `AT-DP-102` and `AT-DP-134` remain green and unchanged.
 
-Recorded state before independent audit:
+Recorded state before the independent re-audit:
 
 ```text
-PHASE11_3=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_3=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 
-F11_017=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_103=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+MAJOR_01=REMEDIATED_PENDING_REAUDIT
+MINOR_01=REMEDIATED_PENDING_REAUDIT
+
+F11_017=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+DP_103=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
 AT_DP_103=PASS
 
 AT_DP_102=PASS
@@ -894,13 +955,18 @@ PHASE11_1=CLOSED
 PHASE11_34=CLOSED
 
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=INDEPENDENT_AUDIT_NOT_YET_PERFORMED
+AUDIT_STATUS=INDEPENDENT_AUDIT_V1_FAIL_REMEDIATION_V1_PENDING_REAUDIT
+NEXT=INDEPENDENT_REAUDIT_CHATGPT
 ```
 
-This is the maximum pre-audit state. `DP-103` is deliberately not recorded as
-verified and closure is deliberately not eligible until an independent audit of
-an exact-HEAD bundle returns at least `BLOCKERS=0`, `MAJORS=0` with
-`AT-DP-103=PASS`. Implementation cannot certify its own closure.
+This is the maximum pre-re-audit state. The historical Audit V1 verdict
+(`INDEPENDENT_AUDIT_V1=FAIL`, `MAJOR_01`, `MINOR_01`) is preserved unchanged and
+is never rewritten as `PASS`; `MAJOR_01` and `MINOR_01` are
+`REMEDIATED_PENDING_REAUDIT`, never `VERIFIED_REMEDIATED`; `DP_103` is
+deliberately not recorded as verified and closure is deliberately not eligible
+until an independent re-audit of an exact-HEAD Remediation V1 bundle returns at
+least `BLOCKERS=0`, `MAJORS=0`, `MINORS=0` with `AT-DP-103=PASS`. Implementation
+cannot certify its own closure, and Phase 11.4 does not begin here.
 
 ---
 
