@@ -17,6 +17,10 @@ These tests lock the boundaries that make it the *only* public entrypoint:
 - idempotency: same key + same fingerprint replays the stored safe response,
   same key + different fingerprint is ``IDEMPOTENCY_CONFLICT``, a record exists
   only after a terminal safe response, and ``REQUEST_CANCEL`` is never recorded;
+- concurrent idempotency: the complete keyed ``get -> execute -> put`` sequence
+  is one atomic critical section, so two simultaneous equivalent commands enter
+  the canonical owner once and a simultaneous conflicting command is rejected
+  before it can execute anything;
 - fail-closed failure: no exception escapes ``handle()`` for an accepted
   request, and no exception text ever reaches the public response.
 
@@ -30,7 +34,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import threading
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -55,7 +61,10 @@ from cmm.application.gateway import (
     ApplicationGateway,
 )
 from cmm.application.health import HealthApplicationService
-from cmm.application.idempotency import InMemoryIdempotencyRepository
+from cmm.application.idempotency import (
+    IdempotencyRecord,
+    InMemoryIdempotencyRepository,
+)
 from cmm.application.requests import RequestApplicationService
 from cmm.application.sessions import SessionApplicationService
 from cmm.orchestration.contracts import (
@@ -1133,3 +1142,260 @@ def test_an_internal_defect_never_leaks_internal_text() -> None:
     assert RAW_DEFECT_TEXT not in payload
     assert "RuntimeError" not in payload
     assert "Traceback" not in payload
+
+
+# ── Concurrent keyed commands (Independent Audit V1 — MAJOR-01) ──────────────
+
+
+#: Bound on the forced lookup race.  Against a gateway without an atomic keyed
+#: critical section both callers reach the lookup together, so the gate releases
+#: immediately.  Against an atomic one the second caller can not reach the
+#: lookup while the first is in flight, so the gate expires for the caller that
+#: owns the critical section: the serialized outcome, not a defect.
+_LOOKUP_GATE_TIMEOUT = 1.0
+
+#: Bound on every worker join.  A worker that outlives the bound fails the test
+#: instead of hanging the suite.
+_WORKER_JOIN_TIMEOUT = 10.0
+
+
+def _run_concurrently(targets: Sequence[Callable[[], Any]]) -> list[Any]:
+    """Run *targets* on their own threads and return their results in order.
+
+    Every worker is joined with a bounded timeout, a worker that is still alive
+    afterwards fails the test, and a worker exception is re-raised here so a
+    broken worker is never mistaken for a passing race.
+    """
+
+    results: list[Any] = [None] * len(targets)
+    defects: list[BaseException] = []
+
+    def _run(index: int, target: Callable[[], Any]) -> None:
+        try:
+            results[index] = target()
+        except BaseException as exc:  # noqa: BLE001 - re-asserted below
+            defects.append(exc)
+
+    threads = [
+        threading.Thread(
+            target=_run, args=(index, target), name=f"gateway-worker-{index}"
+        )
+        for index, target in enumerate(targets)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=_WORKER_JOIN_TIMEOUT)
+
+    stalled = sorted(thread.name for thread in threads if thread.is_alive())
+    assert not stalled, (
+        f"concurrent workers must finish within {_WORKER_JOIN_TIMEOUT}s: {stalled}"
+    )
+    assert not defects, f"concurrent workers raised: {defects!r}"
+
+    return results
+
+
+def _count_canonical_executions(
+    monkeypatch: pytest.MonkeyPatch,
+    gateway: ApplicationGateway,
+    executions: list[ApplicationRequest],
+) -> None:
+    """Observe every entry into *gateway*'s canonical dispatch step.
+
+    The counter wraps the gateway's own narrow dispatch step, so it counts
+    canonical effects rather than public responses: a replayed or rejected keyed
+    command shows up here as no additional execution at all.
+    """
+
+    canonical_dispatch = gateway._dispatch_once
+
+    def counted(request: ApplicationRequest) -> ApplicationResponse:
+        executions.append(request)
+        return canonical_dispatch(request)
+
+    monkeypatch.setattr(gateway, "_dispatch_once", counted)
+
+
+def _observe_stored_records(
+    monkeypatch: pytest.MonkeyPatch,
+    repository: InMemoryIdempotencyRepository,
+    stored: list[IdempotencyRecord],
+) -> None:
+    """Record every idempotency record the repository actually stores."""
+
+    stored_put = repository.put
+
+    def observed_put(record: IdempotencyRecord) -> None:
+        stored_put(record)
+        stored.append(record)
+
+    monkeypatch.setattr(repository, "put", observed_put)
+
+
+def _force_repository_lookup_race(
+    monkeypatch: pytest.MonkeyPatch,
+    repository: InMemoryIdempotencyRepository,
+) -> None:
+    """Force the interleaving Independent Audit V1 reproduced.
+
+    Audit V1 showed that two concurrent same-key commands can both observe
+    ``get(key) -> None`` before either stores its result.  This test-only gate
+    reproduces exactly that window by making an absent lookup wait for the
+    second caller, so both callers stand inside the window together.  The gate
+    never serializes the callers itself, so it can not stand in for the atomic
+    critical section under test.
+    """
+
+    barrier = threading.Barrier(2, timeout=_LOOKUP_GATE_TIMEOUT)
+    stored_lookup = repository.get
+
+    def gated_lookup(key: str) -> IdempotencyRecord | None:
+        record = stored_lookup(key)
+        if record is None:
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                # The atomic critical section admits one keyed caller at a time,
+                # so the second party never arrives and the gate expires for the
+                # caller inside the section.  That is the serialized outcome.
+                pass
+        return record
+
+    monkeypatch.setattr(repository, "get", gated_lookup)
+
+
+def test_concurrent_equivalent_idempotent_commands_execute_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two simultaneous equivalent keyed commands are one application operation.
+
+    Same key, same operation, same actor, same session, same expected revision,
+    same semantic payload and only a different ``request_id``: the canonical
+    owner must be entered exactly once and the second caller must replay the one
+    stored safe response.
+    """
+
+    harness = _harness()
+    harness.orchestrator.pinned = _routed_result()
+    executions: list[ApplicationRequest] = []
+    stored: list[IdempotencyRecord] = []
+    _count_canonical_executions(monkeypatch, harness.gateway, executions)
+    _observe_stored_records(monkeypatch, harness.idempotency, stored)
+    _force_repository_lookup_race(monkeypatch, harness.idempotency)
+
+    first, second = _run_concurrently(
+        (
+            lambda: harness.gateway.handle(
+                _message_submit_request(request_id="req-1", idempotency_key="key-race")
+            ),
+            lambda: harness.gateway.handle(
+                _message_submit_request(request_id="req-2", idempotency_key="key-race")
+            ),
+        )
+    )
+
+    # One semantic command entered the canonical owner once: the other caller
+    # replayed the stored safe response instead of executing anything.
+    assert len(executions) == 1, (
+        "one keyed command must enter the canonical owner once, "
+        f"entered {len(executions)} times"
+    )
+    assert len(harness.orchestrator.requests) == 1
+    assert len(stored) == 1
+    assert harness.idempotency.get("key-race") is stored[0]
+
+    # Both callers observe the same one-operation result.
+    assert first.status is ApplicationStatus.ROUTED
+    assert second == first
+    assert second.request_id == first.request_id
+    assert harness.orchestrator.requests[0].request_id == first.request_id
+
+
+def test_concurrent_conflicting_idempotent_commands_reject_before_second_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A simultaneous same-key conflicting command never enters the canonical owner.
+
+    Same key, materially different semantic payload: at most one of the two
+    commands may execute, exactly one caller is rejected as
+    ``IDEMPOTENCY_CONFLICT``, and the rejected command leaves no canonical
+    effect behind.
+    """
+
+    harness = _harness()
+    executions: list[ApplicationRequest] = []
+    stored: list[IdempotencyRecord] = []
+    _count_canonical_executions(monkeypatch, harness.gateway, executions)
+    _observe_stored_records(monkeypatch, harness.idempotency, stored)
+    _force_repository_lookup_race(monkeypatch, harness.idempotency)
+
+    responses = _run_concurrently(
+        (
+            lambda: harness.gateway.handle(
+                _session_create_request(
+                    "session-8", request_id="req-1", idempotency_key="key-race"
+                )
+            ),
+            lambda: harness.gateway.handle(
+                _session_create_request(
+                    "session-9", request_id="req-2", idempotency_key="key-race"
+                )
+            ),
+        )
+    )
+
+    conflicts = [
+        response
+        for response in responses
+        if response.status is ApplicationStatus.FAILED
+        and response.error is not None
+        and response.error.code is ApplicationErrorCode.IDEMPOTENCY_CONFLICT
+    ]
+    created = [
+        session_id
+        for session_id in ("session-8", "session-9")
+        if harness.store.load(session_id) is not None
+    ]
+
+    assert len(executions) == 1, (
+        "the conflicting keyed command must not enter the canonical owner, "
+        f"entered {len(executions)} times"
+    )
+    assert len(conflicts) == 1
+    assert len(stored) == 1
+    assert created == [executions[0].payload["session_id"]]
+
+
+def test_a_raised_keyed_failure_releases_the_critical_section() -> None:
+    """A raised keyed failure must never leave the keyed section held.
+
+    A command that raises inside the critical section produced no response, so
+    nothing is recorded for its key and the section must be released for every
+    later command.  The follow-up call runs on a worker thread with a bounded
+    join, so a leaked section fails this test instead of hanging the suite.
+    """
+
+    harness = _harness()
+    harness.orchestrator.pinned = _routed_result()
+
+    failed = harness.gateway.handle(
+        _message_submit_request(
+            session_id="missing-session", request_id="req-1", idempotency_key="key-9"
+        )
+    )
+
+    assert failed.status is ApplicationStatus.FAILED
+    assert failed.error is not None
+    assert failed.error.code is ApplicationErrorCode.RESOURCE_NOT_FOUND
+    assert harness.idempotency.get("key-9") is None
+
+    (recovered,) = _run_concurrently(
+        (
+            lambda: harness.gateway.handle(
+                _message_submit_request(request_id="req-2", idempotency_key="key-9")
+            ),
+        )
+    )
+
+    assert recovered.status is ApplicationStatus.ROUTED
