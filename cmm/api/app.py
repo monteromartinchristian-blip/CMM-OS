@@ -42,7 +42,7 @@ from uuid import UUID, uuid4, uuid5
 from fastapi import FastAPI, Path, Request, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as FrameworkHTTPException
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from cmm.api.errors import (
     REASON_INVALID_IDEMPOTENCY_KEY,
@@ -59,6 +59,11 @@ from cmm.api.models import (
     CreateSessionBody,
     MessageBody,
     response_model_from,
+)
+from cmm.api.streaming import (
+    SSE_MEDIA_TYPE,
+    events_for_response,
+    sse_frames,
 )
 from cmm.application import (
     APPLICATION_API_VERSION,
@@ -382,6 +387,39 @@ def create_app(gateway: ApplicationGateway) -> FastAPI:
             operation=ApplicationOperation.MESSAGE_SUBMIT,
             idempotent=True,
             build=_message_command(session_id, body),
+        )
+
+    @app.post(
+        "/v1/sessions/{session_id}/messages/stream",
+        summary="Stream one message response as server-sent events",
+    )
+    def stream_message(
+        session_id: _PathIdentifier,
+        body: MessageBody,
+        raw_request: Request,
+    ) -> StreamingResponse:
+        """Dispatch the message command once and stream its safe events.
+
+        The command is the same versioned ``MESSAGE_SUBMIT`` command the
+        non-streaming route builds, and it is invoked exactly once — before the
+        response body starts — so the stream only ever delivers one already
+        computed result and can never re-run a command.  A failed application
+        response is delivered in-band as a terminal ``error`` event with HTTP
+        ``200``, which is what makes the failure readable by an SSE client; a
+        malformed body never reaches this point and answers with the one public
+        error envelope, and no exception text, traceback or internal payload can
+        enter a frame.
+        """
+
+        application_response = _dispatch(
+            raw_request,
+            _message_command(session_id, body),
+            idempotent=True,
+        )
+        return StreamingResponse(
+            sse_frames(events_for_response(application_response)),
+            media_type=SSE_MEDIA_TYPE,
+            headers={REQUEST_ID_HEADER: application_response.request_id},
         )
 
     @app.post(

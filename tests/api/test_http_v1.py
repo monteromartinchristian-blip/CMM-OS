@@ -124,6 +124,7 @@ FROZEN_V1_PATHS = frozenset(
         "/v1/sessions",
         "/v1/sessions/{session_id}",
         "/v1/sessions/{session_id}/messages",
+        "/v1/sessions/{session_id}/messages/stream",
         "/v1/requests/{request_id}/cancel",
     }
 )
