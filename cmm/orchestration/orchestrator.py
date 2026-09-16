@@ -34,8 +34,10 @@ Frozen pipeline order::
 from __future__ import annotations
 
 import contextlib
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
+from cmm.orchestration.agent_router import AgentRouter
+from cmm.orchestration.context import ContextResolver
 from cmm.orchestration.contracts import (
     AgentRouteDecision,
     DomainRouteDecision,
@@ -50,7 +52,12 @@ from cmm.orchestration.contracts import (
     PolicyDisposition,
     ResolvedContext,
 )
+from cmm.orchestration.decision_repository import OrchestrationDecisionRepository
+from cmm.orchestration.domain_router import DomainRouter
 from cmm.orchestration.errors import OrchestrationError
+from cmm.orchestration.events import OrchestrationEventSink
+from cmm.orchestration.intent import IntentResolver
+from cmm.orchestration.policy import OrchestrationPolicy
 
 __all__ = [
     "Orchestrator",
@@ -88,31 +95,53 @@ class OrchestratorProtocol(Protocol):
     def orchestrate(self, request: OrchestrationRequest) -> OrchestrationResult: ...
 
 
+def _require_role(name: str, implementation: object, contract: type) -> None:
+    """Fail closed unless *implementation* actually holds orchestration role *name*.
+
+    Every collaborator is validated at construction time, so a cross-wired graph
+    fails before any request is processed — including a directly constructed
+    orchestrator that never passed through Phase 11.1 composition.
+
+    The message names the expected role and the actual implementation type only.
+    No object repr is interpolated, so no collaborator state can leak through a
+    construction error.
+    """
+
+    if not isinstance(implementation, contract):
+        raise TypeError(
+            f"{name} must hold the {contract.__name__} orchestration role, "
+            f"got {type(implementation).__name__}"
+        )
+
+
 class Orchestrator:
     """The one global Phase 11 request coordinator."""
 
     def __init__(
         self,
         *,
-        intent_resolver: Any,
-        context_resolver: Any,
-        domain_router: Any,
-        agent_router: Any,
-        policy: Any,
-        decision_repository: Any,
-        event_sink: Any,
+        intent_resolver: IntentResolver,
+        context_resolver: ContextResolver,
+        domain_router: DomainRouter,
+        agent_router: AgentRouter,
+        policy: OrchestrationPolicy,
+        decision_repository: OrchestrationDecisionRepository,
+        event_sink: OrchestrationEventSink,
     ) -> None:
-        for name, collaborator in (
-            ("intent_resolver", intent_resolver),
-            ("context_resolver", context_resolver),
-            ("domain_router", domain_router),
-            ("agent_router", agent_router),
-            ("policy", policy),
-            ("decision_repository", decision_repository),
-            ("event_sink", event_sink),
+        for name, collaborator, contract in (
+            ("intent_resolver", intent_resolver, IntentResolver),
+            ("context_resolver", context_resolver, ContextResolver),
+            ("domain_router", domain_router, DomainRouter),
+            ("agent_router", agent_router, AgentRouter),
+            ("policy", policy, OrchestrationPolicy),
+            (
+                "decision_repository",
+                decision_repository,
+                OrchestrationDecisionRepository,
+            ),
+            ("event_sink", event_sink, OrchestrationEventSink),
         ):
-            if collaborator is None:
-                raise TypeError(f"{name} must be provided")
+            _require_role(name, collaborator, contract)
 
         self._intent_resolver = intent_resolver
         self._context_resolver = context_resolver

@@ -526,41 +526,6 @@ def test_unexpected_collaborator_failure_fails_closed() -> None:
     assert result.error.category == "orchestration"
 
 
-# ── Construction-time role identity (Audit V1 MAJOR-01) ──────────────────────
-
-
-def test_direct_construction_rejects_a_domain_router_as_the_agent_router() -> None:
-    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
-
-    with pytest.raises(TypeError):
-        Orchestrator(
-            intent_resolver=_IntentResolver(_resolution()),
-            context_resolver=_ContextResolver(),
-            domain_router=_DomainRouter(_resolved_domain()),
-            agent_router=_DomainRouter(_resolved_domain()),  # type: ignore[arg-type]
-            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
-            decision_repository=InMemoryOrchestrationDecisionRepository(),
-            event_sink=RecordingOrchestrationEventSink(),
-        )
-
-
-def test_direct_construction_rejects_an_agent_router_as_the_domain_router() -> None:
-    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
-
-    route = AgentRouteDecision(route=ExecutionRoute.NONE)
-
-    with pytest.raises(TypeError):
-        Orchestrator(
-            intent_resolver=_IntentResolver(_resolution()),
-            context_resolver=_ContextResolver(),
-            domain_router=_AgentRouter(route),  # type: ignore[arg-type]
-            agent_router=_AgentRouter(route),
-            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
-            decision_repository=InMemoryOrchestrationDecisionRepository(),
-            event_sink=RecordingOrchestrationEventSink(),
-        )
-
-
 def test_failed_result_exposes_no_traceback() -> None:
     orchestrator, _ = _graph(intent_resolver=_BrokenIntentResolver())
 
@@ -656,3 +621,132 @@ def test_orchestrator_requires_exactly_the_frozen_collaborators() -> None:
         for parameter in signature.parameters.values()
         if parameter.name != "self"
     )
+
+# ── Construction-time role identity (Audit V1 MAJOR-01) ──────────────────────
+
+
+def test_direct_construction_rejects_a_domain_router_as_the_agent_router() -> None:
+    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
+
+    with pytest.raises(TypeError):
+        Orchestrator(
+            intent_resolver=_IntentResolver(_resolution()),
+            context_resolver=_ContextResolver(),
+            domain_router=_DomainRouter(_resolved_domain()),
+            agent_router=_DomainRouter(_resolved_domain()),  # type: ignore[arg-type]
+            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
+            decision_repository=InMemoryOrchestrationDecisionRepository(),
+            event_sink=RecordingOrchestrationEventSink(),
+        )
+
+
+def test_direct_construction_rejects_an_agent_router_as_the_domain_router() -> None:
+    """Audit V1 MAJOR-01: role safety must hold outside Phase 11.1 composition."""
+
+    route = AgentRouteDecision(route=ExecutionRoute.NONE)
+
+    with pytest.raises(TypeError):
+        Orchestrator(
+            intent_resolver=_IntentResolver(_resolution()),
+            context_resolver=_ContextResolver(),
+            domain_router=_AgentRouter(route),  # type: ignore[arg-type]
+            agent_router=_AgentRouter(route),
+            policy=_Policy(PolicyDisposition.ALLOW_ROUTE),
+            decision_repository=InMemoryOrchestrationDecisionRepository(),
+            event_sink=RecordingOrchestrationEventSink(),
+        )
+
+
+def _official_collaborators() -> dict[str, object]:
+    """Return the seven official collaborators, each holding its own role."""
+
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.orchestration.agent_router import CanonicalAgentRouter
+    from cmm.orchestration.context import DefaultContextResolver
+    from cmm.orchestration.domain_router import CanonicalDomainRouter
+    from cmm.orchestration.intent import DeterministicIntentResolver
+    from cmm.orchestration.policy import DefaultOrchestrationPolicy
+
+    return {
+        "intent_resolver": DeterministicIntentResolver(),
+        "context_resolver": DefaultContextResolver(session_store=None),
+        "domain_router": CanonicalDomainRouter(resolver=DefaultDomainResolver()),
+        "agent_router": CanonicalAgentRouter(),
+        "policy": DefaultOrchestrationPolicy(),
+        "decision_repository": InMemoryOrchestrationDecisionRepository(),
+        "event_sink": RecordingOrchestrationEventSink(),
+    }
+
+
+def _unrelated_official_implementation(role: str) -> object:
+    """Return an official orchestration implementation that does not hold *role*."""
+
+    from cmm.orchestration.agent_router import CanonicalAgentRouter
+    from cmm.orchestration.intent import DeterministicIntentResolver
+
+    if role in {"intent_resolver", "decision_repository"}:
+        return RecordingOrchestrationEventSink()
+    if role == "context_resolver":
+        return DeterministicIntentResolver()
+    if role == "agent_router":
+        return _official_collaborators()["domain_router"]
+    # The agent router holds neither the domain-router, policy nor event-sink role.
+    return CanonicalAgentRouter()
+
+
+COLLABORATOR_ROLES = (
+    "agent_router",
+    "context_resolver",
+    "decision_repository",
+    "domain_router",
+    "event_sink",
+    "intent_resolver",
+    "policy",
+)
+
+
+def test_official_collaborators_are_accepted() -> None:
+    """The construction-time role checks must not reject a canonical graph."""
+
+    orchestrator = Orchestrator(**_official_collaborators())  # type: ignore[arg-type]
+
+    assert isinstance(orchestrator, OrchestratorProtocol)
+
+
+@pytest.mark.parametrize("role", COLLABORATOR_ROLES)
+def test_direct_construction_rejects_a_collaborator_holding_another_role(
+    role: str,
+) -> None:
+    collaborators = _official_collaborators()
+    collaborators[role] = _unrelated_official_implementation(role)
+
+    with pytest.raises(TypeError) as captured:
+        Orchestrator(**collaborators)  # type: ignore[arg-type]
+
+    message = str(captured.value)
+    assert role in message
+    assert type(collaborators[role]).__name__ in message
+
+
+@pytest.mark.parametrize("role", COLLABORATOR_ROLES)
+def test_direct_construction_rejects_a_missing_collaborator(role: str) -> None:
+    collaborators = _official_collaborators()
+    collaborators[role] = None
+
+    with pytest.raises(TypeError) as captured:
+        Orchestrator(**collaborators)  # type: ignore[arg-type]
+
+    assert role in str(captured.value)
+
+
+def test_role_failure_message_leaks_no_collaborator_state() -> None:
+    collaborators = _official_collaborators()
+    collaborators["event_sink"] = _unrelated_official_implementation("event_sink")
+
+    with pytest.raises(TypeError) as captured:
+        Orchestrator(**collaborators)  # type: ignore[arg-type]
+
+    message = str(captured.value)
+    assert "0x" not in message
+    assert "<" not in message
+    assert "object at" not in message
