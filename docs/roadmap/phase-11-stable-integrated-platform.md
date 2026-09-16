@@ -1079,6 +1079,121 @@ The `cmm doctor` command must check:
 - Linux and macOS compatibility;
 - commands reusable from automation.
 
+### 11.4 implementation status
+
+**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+
+Implemented by the `cmm/` presentation modules over the existing root
+`argparse` command tree, plus the sanctioned Phase 11.3 compatibility and
+composition additions in `cmm/application/`:
+
+- requirement `F11-018 — Canonical Operational CLI`;
+- Design Point `DP-104 — Single-Front-Door Fail-Closed Operational CLI`;
+- acceptance test `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`
+  (69 connected tests over real canonical components, covering entrypoint
+  identity, inherited command preservation, `status`, `ask`, reserved
+  unavailable behavior, backup unavailability, `doctor`, output safety, exit
+  codes, no parallel authority, current capability truth and platform
+  compatibility);
+- focused suite — `tests/cli/` (459 tests across ten modules);
+- architecture gate — `tests/cli/test_phase11_4_architecture.py` (52 tests)
+  plus the inherited application/API/platform/orchestration architecture gates
+  and the API OpenAPI gate;
+- reference documentation — [`docs/reference/phase-11-cli.md`](../reference/phase-11-cli.md);
+- requirements matrix rows — `F11-018` → `DP-104` → `AT-DP-104` in
+  [`docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`](../reference/phase-11-stable-integrated-platform-requirements-matrix.md);
+- design specification — `docs/superpowers/specs/2026-09-16-phase-11.4-cli-design.md`;
+- implementation plan — `docs/superpowers/plans/2026-09-16-phase-11.4-cli-implementation-plan.md`.
+
+The subphase introduces one public front door and seven presentation modules,
+and no new authority:
+
+- `cmm/cli.py` — the console-script wrapper, unchanged in identity
+  (`cmm = "cmm.cli:main"`, exactly one occurrence in `pyproject.toml`);
+- `cmm/__main__.py` — the one root parser, explicit dispatch, lazy composition
+  and automation semantics;
+- `cmm/cli_contracts.py` — the frozen presentation vocabulary: schema version
+  `v1`, three output formats, ten stable exit codes, the availability labels,
+  the bounded safe result/error envelopes and the static command descriptor;
+- `cmm/cli_output.py` — deterministic human/JSON/YAML rendering with
+  stdout-for-payload and stderr-for-diagnostics stream selection;
+- `cmm/cli_commands.py` — the reserved namespace (16 families, 29 frozen command
+  identities: 4 available, 25 unavailable), the fail-closed unavailable result
+  and straight-line dispatch with no registry, router or runtime;
+- `cmm/cli_application.py` — the thin CLI-to-`ApplicationGateway` adapter and
+  the CLI's only startup seam, reusing the canonical local runtime composition;
+- `cmm/cli_doctor.py` — the read-only diagnostic aggregator (13 declared checks,
+  4 core).
+
+Operationally available in this build: `cmm status`, `cmm doctor`, `cmm ask` and
+`cmm chat`. Every other reserved roadmap command is listed in help with an
+explicit unavailable label and fails closed with `CAPABILITY_UNAVAILABLE` and
+exit code `5` — without starting the platform, importing a canonical owner or
+fabricating an empty success. Inherited surfaces (`validation`, `domain`,
+`agent`, `run`, `develop`) keep their own parsers, handlers and exit semantics:
+the inherited CLI regression baseline of `368 passed` is unchanged.
+
+Phase 11.4 is a presentation and adaptation layer and duplicates no canonical
+owner. The CLI reaches the platform only through the Phase 11.3
+`ApplicationGateway`; the request's new `ApplicationChannel` records transport
+origin only, selects no authority and participates in the public request
+serialization so a CLI command and an API command can never share one idempotency
+replay record. There is no new Command Registry, Command Router, command bus,
+CLI service locator, CLI runtime, CLI state store or CLI history store, and no
+plugin system, backup engine, restore engine, migration engine, metrics backend,
+observability backend, Goal subsystem, approval system, workflow engine, memory
+engine, knowledge store, configuration authority, provider registry or model
+gateway.
+
+Pre-audit evidence observed on the committed implementation HEAD
+`78bd24ca2e371f11c29ee6c82764042161acf224` while preparing the Phase 11.4
+documentation (Python 3.14, `.venv`, `python -m pytest -q`):
+
+```text
+tests/cli                                     459 passed
+inherited CLI regression                      368 passed
+tests/application + tests/api                 857 passed
+connected Phase 11 acceptances                247 passed
+tests/platform + tests/orchestration          856 passed
+relevant domain/agent/session regressions     622 passed
+global suite                                  20433 passed (exit code 0)
+```
+
+The exact-HEAD audit bundle, the global suite record, Ruff, format check,
+compileall and `git diff --check` are produced by the Phase 11.4 implementation
+plan's verification task and reported in its handoff, to be independently
+re-verified by the independent audit.
+
+Pre-audit documentary state:
+
+```text
+PHASE11_4=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_018=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_104=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_104=PASS
+
+AT_DP_103=PASS
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+
+PHASE11_3=CLOSED
+PHASE11_2=CLOSED
+PHASE11_1=CLOSED
+PHASE11_34=CLOSED
+
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
+NEXT=INDEPENDENT_AUDIT
+```
+
+Phase 11.4 is not closed and is not closure-eligible before that audit passes.
+No closed-phase production semantics were reopened: the only changes inside
+`cmm/application/` are the transport-neutral `ApplicationChannel` public field,
+its application-to-orchestration mapping, channel forwarding through the gateway,
+the canonical local application runtime composition helper and the public
+exports those require.
+
 ---
 
 # 11.5 — Conversational Interface
@@ -5546,7 +5661,7 @@ CMM OS will operate as an integrated product for the first time.
 
 ---
 
-## 11.4 — Conversational Product
+## Historical version-plan entry — Conversational Product
 
 ### Objective
 

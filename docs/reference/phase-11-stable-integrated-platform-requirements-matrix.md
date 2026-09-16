@@ -266,12 +266,49 @@ Application Backend.
 | Independent Re-audit V1 | `docs/audits/phase-11.3-application-backend-independent-reaudit-v1.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `F11_017=VERIFIED_EXISTING`; `DP_103=VERIFIED_EXISTING`; `AT_DP_103=PASS`; `AT_DP_102=PASS`; `AT_DP_101=PASS`; `AT_DP_134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `4525f72391792e623730af69e95bcd054ce3cddf`; audited tree `0b650c8133111754452940c74a1bc72f24a0df23`; bundle SHA-256 `152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618`; report commit `c21f2e257a1995b748b78b65b622ff68ca3e6d38` |
 | Finding status | `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED` |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | verify the dedicated docs-only Phase 11.3 closure commit and clean repository state; then inspect Phase 11.4 — CLI before implementation |
+| Next step | Phase 11.4 — CLI is implemented and awaiting independent audit; see §11 of this document |
 
 `F11-017` is `VERIFIED_EXISTING` and `DP_103=VERIFIED_EXISTING` after Independent
 Re-audit V1 `PASS`. Historical Audit V1 `FAIL` remains immutable; Re-audit V1
 verified `MAJOR_01` and `MINOR_01` as remediated and confirmed
 `AT-DP-103=PASS` with `CLOSURE_ELIGIBLE=YES`.
+
+### 4.9 `F11-018` — Canonical Operational CLI
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix, `F11-014` is owned
+by §4.1, `F11-015` by §4.3, `F11-016` by §4.5 and `F11-017` by §4.7 of this
+document. `F11-018` is the next non-colliding Phase 11 functional identifier,
+assigned to Phase 11.4 — CLI.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-018` | Canonical Operational CLI. CMM OS shall expose one canonical, scriptable and human-usable command-line interface through the existing `cmm` console entrypoint and root `argparse` command tree; the CLI shall adapt to canonical application and subsystem contracts without becoming an execution, routing, storage, provider, domain, agent, workflow, validation, approval or configuration authority; shall preserve existing specialized CLI surfaces; shall reserve the roadmap's public namespace with explicit fail-closed unavailable capability behavior; and shall provide stable structured output and exit-code semantics suitable for automation and CI. | `SRC-R11` (detailed Phase 11 roadmap §11.4); `docs/superpowers/specs/2026-09-16-phase-11.4-cli-design.md` §6–§8 | Phase 11.4 | `cmm/cli.py`; `cmm/__main__.py`; `cmm/cli_contracts.py`; `cmm/cli_output.py`; `cmm/cli_commands.py`; `cmm/cli_application.py`; `cmm/cli_doctor.py`; `cmm/application/contracts.py`; `cmm/application/requests.py`; `cmm/application/gateway.py`; `cmm/application/local_runtime.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` |
+
+### 4.10 `F11-018` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-018 — Canonical Operational CLI` |
+| Design Point | `DP-104 — Single-Front-Door Fail-Closed Operational CLI` |
+| Acceptance test | `AT-DP-104 — Canonical CLI Integration Acceptance` — `tests/cli/test_phase11_4_dp104_acceptance.py` |
+| Production modules | `cmm/` presentation modules (7: `cli.py`, `__main__.py`, `cli_contracts.py`, `cli_output.py`, `cli_commands.py`, `cli_application.py`, `cli_doctor.py`); `cmm/application/` compatibility/composition additions (`contracts.py`, `requests.py`, `gateway.py`, `local_runtime.py`, `__init__.py`) |
+| Focused suites | `tests/cli/` (459 tests) |
+| Architecture gate | `tests/cli/test_phase11_4_architecture.py` (52 tests); inherited `tests/application/test_architecture.py`, `tests/api/test_architecture.py`, `tests/platform/test_architecture.py`, `tests/orchestration/test_architecture.py` |
+| OpenAPI gate | `tests/api/test_openapi.py` |
+| Reference documentation | `docs/reference/phase-11-cli.md` |
+| Design specification | `docs/superpowers/specs/2026-09-16-phase-11.4-cli-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.4-cli-implementation-plan.md` |
+| Public entrypoint | `pyproject.toml` `[project.scripts]` — `cmm = "cmm.cli:main"`, exactly one occurrence |
+| Reserved namespace | 16 families: `status`, `doctor`, `ask`, `chat`, `config`, `goals`, `workflows`, `approvals`, `memory`, `knowledge`, `domains`, `plugins`, `backup`, `migrate`, `logs`, `metrics`; 29 frozen command identities (4 available, 25 unavailable) |
+| Reused canonical owners | Phase 11.3 `ApplicationGateway` / `ApplicationChannel` / application services; Phase 11.2 `Orchestrator` and canonical routing; Phase 11.1 `ApplicationContainer` / `StaticCompositionModule`; canonical `cmm.domains`, `cmm.agent_runtime`, `cmm.runtime.sessions` and kernel provider registry reached only through the application boundary or the local composition root |
+| Inherited requirements reused | `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
+| Inherited acceptance regressions | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102`; `AT-DP-101`; `AT-DP-134` |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+| Next step | independent audit of the exact-HEAD Phase 11.4 candidate bundle |
+
+`F11-018` is `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`, not verified. This matrix
+does not self-certify Phase 11.4: the required independent audit remains
+outstanding and `CLOSURE_ELIGIBLE=NO` until it passes.
 
 ## 5. Current lifecycle status
 
@@ -633,3 +670,78 @@ Details, including the frozen `/v1` surface, the public error model, the
 idempotency and session-revision semantics, the SSE contract, the OpenAPI gate
 and the recorded deviations, are in
 [`docs/reference/phase-11-application-backend.md`](phase-11-application-backend.md).
+
+## 11. Phase 11.4 — CLI current status
+
+Sections 5, 6, 8, 9 and 10 record the closed Phase 11.34 Provider Registry and
+the closed Phase 11.1, Phase 11.2 and Phase 11.3 subphases and are not modified
+by Phase 11.4. The Phase 11.4 CLI is a separate subphase and is reported here in
+its pre-audit state:
+
+```text
+PHASE11_4=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+
+F11_018=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_104=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_104=PASS
+
+AT_DP_103=PASS
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+
+PHASE11_3=CLOSED
+PHASE11_2=CLOSED
+PHASE11_1=CLOSED
+PHASE11_34=CLOSED
+
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
+NEXT=INDEPENDENT_AUDIT
+```
+
+Phase 11.4 introduces exactly one new requirement identifier (`F11-018`), one
+Design Point (`DP-104`), one connected acceptance test (`AT-DP-104`) and seven
+new presentation modules under `cmm/`. It owns one public front door — the
+existing `cmm = "cmm.cli:main"` console script over the existing root `argparse`
+tree — and no command registry, command router, command bus, CLI service
+locator, CLI runtime, CLI state store, CLI history store or second parser root.
+
+Operationally available in this build: `status`, `doctor`, `ask` and `chat`.
+The remaining 25 frozen command identities across the roadmap families are
+reserved and fail closed with `CAPABILITY_UNAVAILABLE` (exit code `5`) without
+starting the platform or fabricating a result. No plugin system, backup engine,
+restore engine, migration engine, metrics backend, observability backend,
+logging service, Goal subsystem, approval system, workflow engine, memory
+engine, knowledge store, configuration authority, provider registry or model
+gateway is introduced by Phase 11.4.
+
+Phase 11.4 does not reopen Phase 11.1, Phase 11.2, Phase 11.3 or Phase 11.34. Its
+only changes inside the closed `cmm/application/` package are the sanctioned
+compatibility and composition additions: the transport-neutral
+`ApplicationChannel` field on the public request contract (defaulting to `API`),
+the application-to-orchestration channel mapping in `RequestApplicationService`,
+channel forwarding through `ApplicationGateway`, the canonical local application
+runtime composition helper, and the public exports those require. No domain,
+agent, provider, workflow, session, orchestration or platform authority changed
+semantics.
+
+Deferred Phase 11.4 items recorded with this requirement (implemented nowhere,
+not silently pulled forward):
+
+- goals, workflows, approvals, memory, knowledge, domains, plugins, backup,
+  restore, migrate, logs, metrics and configuration commands — reserved and
+  fail-closed until canonical owners exist;
+- `config show` redaction — withheld until safe redaction can be guaranteed from
+  a canonical owner;
+- request cancellation, streaming output, file-attachment ingestion, multimodal
+  input, `--output-file`, shell completion and confirmation prompts — out of
+  scope for the CLI phase;
+- CMMChat, web/desktop/mobile UI and bot workspaces — later product surfaces; the
+  CLI is one client/adapter surface;
+- the experimental `ClineCliProvider` concept in Model Gateway planning — a
+  different artifact from the CMM OS user-facing CLI.
+
+Implementation decisions, the frozen command table, exit codes, output formats
+and the observed pre-audit evidence are in
+[`docs/reference/phase-11-cli.md`](phase-11-cli.md).

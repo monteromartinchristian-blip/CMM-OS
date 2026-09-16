@@ -254,8 +254,8 @@ Ambiguous, dynamic, unsafe, or unsupported cases are rejected before mutation wh
 | 7 | Continuous validation | Complete |
 | 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Complete and audited |
-| 10 | Domain Intelligence | Planned |
-| 11 | Integrated stable platform | Planned |
+| 10 | Domain Intelligence | In progress |
+| 11 | Integrated stable platform | In progress — 11.4 CLI implemented pending independent audit |
 
 Phases 0–9 have been implemented and audited against explicit requirements. The current baseline is **5409 passing tests with no failures or skips**.
 
@@ -350,6 +350,58 @@ python -m cmm develop \
 ```
 
 Use `--yes` only in controlled environments where the planned changes have already been reviewed or the execution is intentionally automated.
+
+### Operational CLI
+
+The `cmm` console script (installed by `pip install -e .`) and `python -m cmm`
+are the same public front door. The commands this build actually serves are:
+
+```bash
+cmm status                 # canonical platform state and capability readiness
+cmm doctor                 # read-only canonical diagnostics
+cmm ask "hello" --actor user-1   # one one-shot canonical request
+cmm chat --actor user-1          # minimal interactive canonical session
+```
+
+`cmm ask` takes its request text either as an argument or from piped standard
+input, and creates one canonical session when none is named. `cmm chat` reads
+one line at a time until end of input or `/exit` (or `/quit`).
+
+Structured output is available for automation and CI:
+
+```bash
+cmm status --output json
+cmm doctor --output yaml
+cmm status --quiet
+```
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `2` | Usage error (unknown command or option) |
+| `3` | Invalid request the CLI itself refuses |
+| `4` | Canonical resource not found |
+| `5` | Capability unavailable in this build |
+| `6` | Permission denied / approval required |
+| `7` | Conflict |
+| `8` | Doctor found a failing core check |
+| `9` | Local interaction interrupted |
+| `10` | Internal failure (fail-closed) |
+
+Success documents go to stdout and failures to stderr, so structured stdout
+stays parseable.
+
+**Reserved, not yet available:** the roadmap namespace for `config`, `goals`,
+`workflows`, `approvals`, `memory`, `knowledge`, `domains`, `plugins`, `backup`,
+`migrate`, `logs` and `metrics` is already reserved in the parser, and those
+commands are listed in `cmm --help` with an explicit
+`(unavailable in this build)` label. They are **not operational**: each one fails
+closed with `CAPABILITY_UNAVAILABLE` (exit code `5`) and performs no work, because
+no canonical owner backs them yet. The inherited `run`, `develop`, `validation`,
+`domain` and `agent` commands keep their existing behavior.
+
+Phase 11.4 — CLI is implemented and awaiting independent audit; see
+[`docs/reference/phase-11-cli.md`](docs/reference/phase-11-cli.md).
 
 ## Running tests
 
