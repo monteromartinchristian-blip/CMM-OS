@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
+import os
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -14,10 +16,12 @@ from cmm.cli_commands import (
     emit_phase11_4_result,
     is_phase11_4_command,
     phase11_4_command_id,
+    phase11_4_help_epilog,
     phase11_4_requires_application,
     phase11_4_unavailable_result,
     register_phase11_4_cli,
 )
+from cmm.cli_contracts import CliExitCode
 from cmm.development import (
     AutonomousDevelopmentService,
     DevelopmentService,
@@ -32,11 +36,44 @@ if TYPE_CHECKING:
     from cmm.cli_application import CliApplicationAdapter
     from cmm.cli_doctor import CliDoctor
 
+#: The distribution this command line belongs to, and the name it is invoked by.
+DISTRIBUTION_NAME = "cmm-os"
+PROGRAM_NAME = "cmm"
+
+#: What ``--version`` reports when no installed distribution can be found.  A
+#: missing installation is stated as a fact rather than hidden behind a second
+#: version string in the source, which would silently drift from the canonical
+#: package metadata.
+UNKNOWN_VERSION = "unknown"
+
+
+def package_version() -> str:
+    """Return the canonical version of the installed package.
+
+    The version comes from the distribution metadata, so this command line never
+    owns a copy of it: a release that changes the version changes what
+    ``cmm --version`` prints, with no code change and nothing to keep in step.
+    """
+
+    try:
+        return importlib.metadata.version(DISTRIBUTION_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        return UNKNOWN_VERSION
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the official CMM OS CLI parser."""
 
-    parser = argparse.ArgumentParser(prog="cmm")
+    parser = argparse.ArgumentParser(
+        prog=PROGRAM_NAME,
+        epilog=phase11_4_help_epilog(),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{PROGRAM_NAME} {package_version()}",
+        help="Show the canonical package version and exit",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     register_validation_cli(subparsers)
@@ -169,7 +206,75 @@ def main(
     ``main(argv)`` stays valid for every existing caller: the dependencies and
     the streams are optional, and an omitted dependency is composed lazily by
     the command that needs it rather than at startup.
+
+    A downstream consumer that closes the pipe ends the command quietly and
+    successfully.  A reader that stopped reading is not a failure of the
+    command, and a traceback about a stream nobody is reading helps nobody --
+    least of all the shell pipeline the command is part of.
     """
+
+    try:
+        try:
+            return _run_root_command(
+                argv,
+                application=application,
+                doctor=doctor,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        finally:
+            # A buffered stream accepts a small write even when its pipe has no
+            # reader left, so the failure only appears when the buffer is
+            # flushed.  Flushing here surfaces it while the command can still
+            # answer for it, instead of during interpreter shutdown, where an
+            # unhandled broken pipe becomes a traceback and a non-zero exit.
+            _flush_standard_streams(stdout, stderr)
+    except BrokenPipeError:
+        _release_stdout(stdout)
+        return int(CliExitCode.SUCCESS)
+
+
+def _flush_standard_streams(stdout: TextIO | None, stderr: TextIO | None) -> None:
+    """Flush the standard streams so a closed pipe surfaces inside the command."""
+
+    for stream in (sys.stdout, sys.stderr, stdout, stderr):
+        if stream is None:
+            continue
+        flush = getattr(stream, "flush", None)
+        if callable(flush):
+            flush()
+
+
+def _release_stdout(stdout: TextIO | None) -> None:
+    """Point the process standard output at nothing after a closed pipe.
+
+    The interpreter flushes the standard streams again while shutting down, and
+    that flush would raise the same broken pipe a second time as an ignored
+    exception on stderr.  Redirecting the descriptor to the null device lets the
+    process end quietly, which is the whole point of handling the pipe at all.
+    An injected stream that publishes no descriptor is left untouched.
+    """
+
+    stream = sys.stdout if stdout is None else stdout
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stream.fileno())
+        os.close(devnull)
+    except (AttributeError, OSError, ValueError):
+        return
+
+
+def _run_root_command(
+    argv: list[str] | None,
+    *,
+    application: CliApplicationAdapter | None,
+    doctor: CliDoctor | None,
+    stdin: TextIO | None,
+    stdout: TextIO | None,
+    stderr: TextIO | None,
+) -> int:
+    """Run one command line through the one root parser and dispatch."""
 
     resolved_argv = sys.argv[1:] if argv is None else list(argv)
 

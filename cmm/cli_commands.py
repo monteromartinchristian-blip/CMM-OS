@@ -54,6 +54,7 @@ __all__ = [
     "is_phase11_4_command",
     "phase11_4_command_id",
     "phase11_4_descriptor",
+    "phase11_4_help_epilog",
     "phase11_4_requires_application",
     "phase11_4_unavailable_result",
     "register_phase11_4_cli",
@@ -585,6 +586,27 @@ def phase11_4_requires_application(args: argparse.Namespace) -> bool:
     if command_id is None:
         return False
     return _DESCRIPTOR_BY_ID[command_id].availability is CliAvailability.AVAILABLE
+
+
+def phase11_4_help_epilog() -> str:
+    """Return the root help epilog that labels this build's availability.
+
+    The epilog is derived from the frozen table rather than written out, so the
+    help can not drift from the command metadata: the commands this build backs
+    are named, and every other listed command is stated to be reserved instead
+    of being dressed up as operational.
+    """
+
+    available = ", ".join(
+        descriptor.command_id
+        for descriptor in PHASE11_4_COMMANDS
+        if descriptor.availability is CliAvailability.AVAILABLE
+    )
+    return (
+        f"Available in this build: {available}. "
+        "Reserved commands stay listed so they are discoverable, and fail closed "
+        "with CAPABILITY_UNAVAILABLE until a canonical owner is wired."
+    )
 
 
 def emit_phase11_4_result(
