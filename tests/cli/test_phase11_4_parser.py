@@ -13,11 +13,16 @@ Domain SDK developer namespace.
 from __future__ import annotations
 
 import argparse
+import io
+import json
 from types import MappingProxyType
 
 import pytest
 
+import cmm.__main__ as cli_main
 from cmm.__main__ import build_parser
+from cmm.application.local_runtime import build_local_application_runtime
+from cmm.cli_application import CliApplicationAdapter
 from cmm.cli_commands import (
     PHASE11_4_COMMANDS,
     PHASE11_4_FAMILIES,
@@ -27,6 +32,7 @@ from cmm.cli_commands import (
     register_phase11_4_cli,
 )
 from cmm.cli_contracts import CliAvailability, CliCommandDescriptor
+from cmm.cli_doctor import CliDoctor
 
 #: The families that are operationally backed in Phase 11.4.
 OPERATIONAL_FAMILIES = ("status", "doctor", "ask", "chat")
@@ -361,3 +367,227 @@ def test_descriptor_index_is_not_a_mutable_registry() -> None:
     assert not [name for name in public if "registry" in name.lower()]
     index = commands_module._DESCRIPTOR_BY_ID
     assert isinstance(index, MappingProxyType)
+
+
+# ── Explicit dispatch of the new operational commands ────────────────────────
+
+
+@pytest.fixture(scope="module")
+def dependencies() -> tuple[CliApplicationAdapter, CliDoctor]:
+    runtime = build_local_application_runtime()
+    adapter = CliApplicationAdapter(runtime.gateway)
+    return adapter, CliDoctor(adapter)
+
+
+def _run(
+    argv: list[str],
+    *,
+    adapter: CliApplicationAdapter | None = None,
+    doctor: CliDoctor | None = None,
+) -> tuple[int, str, str]:
+    out, err = io.StringIO(), io.StringIO()
+    code = cli_main.main(
+        argv, application=adapter, doctor=doctor, stdout=out, stderr=err
+    )
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_status_dispatches_through_the_root_main(
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    code, out, err = _run(
+        ["status", "--output", "json"], adapter=adapter, doctor=doctor
+    )
+
+    assert code == 0
+    assert err == ""
+    document = json.loads(out)
+    assert set(document) == {
+        "schema_version",
+        "command",
+        "ok",
+        "status",
+        "data",
+        "error",
+        "metadata",
+    }
+    assert document["command"] == "status"
+    assert document["ok"] is True
+    assert document["error"] is None
+    assert document["schema_version"] == "v1"
+
+
+def test_doctor_dispatches_through_the_root_main(
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    code, out, err = _run(
+        ["doctor", "--output", "json"], adapter=adapter, doctor=doctor
+    )
+
+    assert code == 0
+    assert err == ""
+    document = json.loads(out)
+    assert document["command"] == "doctor"
+    assert document["ok"] is True
+    assert document["data"]["summary"]["fail"] == 0
+
+
+def test_status_human_output_names_the_command_and_its_status(
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    code, out, err = _run(["status"], adapter=adapter, doctor=doctor)
+
+    assert code == 0
+    assert err == ""
+    assert out.splitlines()[0] == "status: success"
+    assert "platform_state: ok" in out
+
+
+def test_status_quiet_emits_only_the_primary_value(
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    code, out, err = _run(["status", "--quiet"], adapter=adapter, doctor=doctor)
+
+    assert (code, err) == (0, "")
+    assert out == "ok\n"
+
+
+def test_verbose_human_output_adds_only_safe_metadata(
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    plain = _run(["status"], adapter=adapter, doctor=doctor)[1]
+    verbose = _run(["status", "--verbose"], adapter=adapter, doctor=doctor)[1]
+
+    assert verbose.startswith(plain)
+    assert "metadata: " in verbose
+    assert "AKIA" not in verbose
+
+
+def test_a_failing_core_check_makes_doctor_exit_unhealthy(
+    monkeypatch: pytest.MonkeyPatch,
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+    gateway = vars(adapter)["_gateway"]
+
+    def _defective_health() -> object:
+        raise RuntimeError("internal defect at /private/tmp with AKIA-EXAMPLE")
+
+    monkeypatch.setattr(vars(gateway)["_health"], "get_health", _defective_health)
+
+    code, out, err = _run(
+        ["doctor", "--output", "json"], adapter=adapter, doctor=doctor
+    )
+
+    assert code == 8
+    assert out == ""
+    document = json.loads(err)
+    assert document["ok"] is False
+    assert document["status"] == "failed"
+    assert document["error"]["code"] == "DEPENDENCY_UNHEALTHY"
+    assert "AKIA" not in err
+    assert "Traceback" not in err
+
+
+def test_a_failing_status_read_maps_to_the_stable_application_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+    gateway = vars(adapter)["_gateway"]
+
+    def _defective_capabilities() -> object:
+        raise RuntimeError("internal defect with AKIA-EXAMPLE")
+
+    monkeypatch.setattr(
+        vars(gateway)["_capabilities"], "list_capabilities", _defective_capabilities
+    )
+
+    code, out, err = _run(
+        ["status", "--output", "json"], adapter=adapter, doctor=doctor
+    )
+
+    assert code == 10
+    assert out == ""
+    document = json.loads(err)
+    assert document["error"]["code"] == "INTERNAL_FAILURE"
+    assert "AKIA" not in err
+
+
+def test_injected_dependencies_are_used_instead_of_building_a_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    dependencies: tuple[CliApplicationAdapter, CliDoctor],
+) -> None:
+    adapter, doctor = dependencies
+
+    def _forbidden_factory() -> object:
+        raise AssertionError("injected dependencies must be used")
+
+    monkeypatch.setattr(
+        "cmm.application.local_runtime.build_local_application_runtime",
+        _forbidden_factory,
+    )
+
+    code, out, _ = _run(["status", "--output", "json"], adapter=adapter, doctor=doctor)
+
+    assert code == 0
+    assert json.loads(out)["ok"] is True
+
+
+def test_the_operational_commands_build_the_canonical_runtime_when_nothing_is_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cmm.application import local_runtime
+
+    real_factory = local_runtime.build_local_application_runtime
+    built: list[int] = []
+
+    def _observed_factory() -> object:
+        built.append(1)
+        return real_factory()
+
+    monkeypatch.setattr(
+        local_runtime, "build_local_application_runtime", _observed_factory
+    )
+
+    code, out, _ = _run(["status", "--output", "json"])
+
+    assert built == [1]
+    assert code == 0
+    assert json.loads(out)["data"]["platform_ready"] is True
+
+
+def test_help_needs_no_dependency_and_no_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _forbidden_factory() -> object:
+        raise AssertionError("--help must not build the runtime")
+
+    monkeypatch.setattr(
+        "cmm.application.local_runtime.build_local_application_runtime",
+        _forbidden_factory,
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.main(["--help"])
+
+    assert exit_info.value.code == 0
+
+
+def test_main_keeps_the_backward_compatible_signature() -> None:
+    """``main(argv)`` stays valid for every embedded caller and test."""
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.main(["--help"])
+
+    assert exit_info.value.code == 0

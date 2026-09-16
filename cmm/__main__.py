@@ -6,8 +6,18 @@ import argparse
 import sys
 from pathlib import Path
 from time import perf_counter
+from typing import TYPE_CHECKING, TextIO
 
-from cmm.cli_commands import register_phase11_4_cli
+from cmm.cli_application import build_cli_application
+from cmm.cli_commands import (
+    dispatch_phase11_4,
+    emit_phase11_4_result,
+    is_phase11_4_command,
+    phase11_4_command_id,
+    phase11_4_requires_application,
+    phase11_4_unavailable_result,
+    register_phase11_4_cli,
+)
 from cmm.development import (
     AutonomousDevelopmentService,
     DevelopmentService,
@@ -17,6 +27,10 @@ from cmm.domains.sdk.cli import handle_domain_cli, register_domain_cli
 from cmm.execution.development import AutonomousExecutionService
 from cmm.validation.cli import handle_validation_cli, register_validation_cli
 from kernel.end_to_end_runner import EndToEndRunner
+
+if TYPE_CHECKING:
+    from cmm.cli_application import CliApplicationAdapter
+    from cmm.cli_doctor import CliDoctor
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -141,8 +155,21 @@ def _print_result(result, elapsed_seconds: float) -> None:
     print(f"Time: {elapsed_seconds:.3f}s")
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the official CMM OS CLI."""
+def main(
+    argv: list[str] | None = None,
+    *,
+    application: CliApplicationAdapter | None = None,
+    doctor: CliDoctor | None = None,
+    stdin: TextIO | None = None,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> int:
+    """Run the official CMM OS CLI.
+
+    ``main(argv)`` stays valid for every existing caller: the dependencies and
+    the streams are optional, and an omitted dependency is composed lazily by
+    the command that needs it rather than at startup.
+    """
 
     resolved_argv = sys.argv[1:] if argv is None else list(argv)
 
@@ -168,6 +195,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "develop":
         return _develop(args)
 
+    if is_phase11_4_command(args):
+        return _run_phase11_4_command(
+            args,
+            application=application,
+            doctor=doctor,
+            stdout=sys.stdout if stdout is None else stdout,
+            stderr=sys.stderr if stderr is None else stderr,
+        )
+
     project_path = Path(args.project)
     if not project_path.exists():
         print(f"Error: project path does not exist: {project_path}", file=sys.stderr)
@@ -187,6 +223,69 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     return 0
+
+
+def _phase11_4_dependencies(
+    application: CliApplicationAdapter | None,
+    doctor: CliDoctor | None,
+) -> tuple[CliApplicationAdapter, CliDoctor]:
+    """Return the canonical dependencies of one operational Phase 11.4 command.
+
+    An injected dependency is used exactly as given, so tests and embedded
+    callers own the graph.  Otherwise the CLI's canonical startup seam composes
+    the local application runtime here -- at the moment an operational command
+    actually needs it, and never for help, version, a parse error or a reserved
+    capability.
+    """
+
+    if application is None:
+        application = build_cli_application()
+
+    if doctor is None:
+        from cmm.cli_doctor import CliDoctor
+
+        doctor = CliDoctor(application)
+
+    return application, doctor
+
+
+def _run_phase11_4_command(
+    args: argparse.Namespace,
+    *,
+    application: CliApplicationAdapter | None,
+    doctor: CliDoctor | None,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Run one Phase 11.4 command, starting the platform only when it is needed.
+
+    A reserved capability is answered from the frozen command table, so this
+    build never starts the platform to say that nothing can answer.  An
+    operational command resolves its dependencies -- the caller's, or a freshly
+    composed local runtime -- and hands them to the explicit dispatcher.
+    """
+
+    command_id = phase11_4_command_id(args)
+    if command_id is None:
+        raise ValueError("args must name a frozen Phase 11.4 command")
+
+    if not phase11_4_requires_application(args):
+        return emit_phase11_4_result(
+            phase11_4_unavailable_result(command_id),
+            args,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    resolved_application, resolved_doctor = _phase11_4_dependencies(application, doctor)
+
+    return dispatch_phase11_4(
+        args,
+        application=resolved_application,
+        doctor=resolved_doctor,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def _develop(args: argparse.Namespace) -> int:

@@ -31,6 +31,7 @@ from cmm.cli_contracts import (
     CliOutputFormat,
     CliResult,
     cli_exit_for_application_error,
+    cli_exit_for_error_code,
 )
 
 CONTRACTS_PATH = Path(__file__).resolve().parents[2] / "cmm" / "cli_contracts.py"
@@ -432,3 +433,36 @@ def test_cli_contracts_import_no_lower_canonical_owner() -> None:
         assert not module.startswith(forbidden), module
         if module.startswith("cmm."):
             assert module.startswith("cmm.application"), module
+
+
+# ── Stable exit-code resolution for a public error code name ─────────────────
+
+
+def test_every_application_error_code_name_resolves_to_its_frozen_exit_code() -> None:
+    for code, expected in sorted(
+        APPLICATION_ERROR_EXIT_CODES.items(), key=lambda item: item[0].value
+    ):
+        assert cli_exit_for_error_code(code.value) is expected
+
+
+def test_the_cli_own_failure_code_resolves_to_the_unhealthy_dependency_exit() -> None:
+    """A failing diagnostic run is not an application error, but stays stable."""
+
+    assert cli_exit_for_error_code("DEPENDENCY_UNHEALTHY") is (
+        CliExitCode.DEPENDENCY_UNHEALTHY
+    )
+
+
+@pytest.mark.parametrize(
+    "code_name",
+    ["", "NOT_A_CODE", "CAPABILITY_UNAVAILABLE ", "capability_unavailable"],
+)
+def test_an_unknown_error_code_name_fails_closed_as_internal_failure(
+    code_name: str,
+) -> None:
+    assert cli_exit_for_error_code(code_name) is CliExitCode.INTERNAL_FAILURE
+
+
+def test_the_exit_code_resolver_rejects_a_non_text_code() -> None:
+    with pytest.raises(TypeError):
+        cli_exit_for_error_code(5)  # type: ignore[arg-type]

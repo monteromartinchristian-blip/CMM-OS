@@ -38,6 +38,7 @@ __all__ = [
     "CLI_MAX_VALUE_DEPTH",
     "CLI_MAX_VALUE_ITEMS",
     "CLI_SCHEMA_VERSION",
+    "CLI_UNHEALTHY_DEPENDENCY_CODE",
     "CliAvailability",
     "CliCommandDescriptor",
     "CliError",
@@ -45,6 +46,8 @@ __all__ = [
     "CliOutputFormat",
     "CliResult",
     "cli_exit_for_application_error",
+    "cli_exit_for_error_code",
+    "cli_exit_for_result",
 ]
 
 #: The one supported public CLI presentation schema version.
@@ -154,6 +157,53 @@ def cli_exit_for_application_error(code: ApplicationErrorCode) -> CliExitCode:
     if not isinstance(code, ApplicationErrorCode):
         raise TypeError("code must be an ApplicationErrorCode")
     return APPLICATION_ERROR_EXIT_CODES[code]
+
+
+#: The CLI's own stable code for a failing diagnostic run.  It is not an
+#: application error: the platform was reachable and a required check failed.
+CLI_UNHEALTHY_DEPENDENCY_CODE = "DEPENDENCY_UNHEALTHY"
+
+#: Exit codes by public error-code *name*.  The application codes and the CLI's
+#: own codes live in one table, so a single total rule resolves every result.
+EXIT_CODES_BY_ERROR_CODE_NAME: Mapping[str, CliExitCode] = MappingProxyType(
+    {
+        **{
+            code.value: cli_exit_for_application_error(code)
+            for code in ApplicationErrorCode
+        },
+        CLI_UNHEALTHY_DEPENDENCY_CODE: CliExitCode.DEPENDENCY_UNHEALTHY,
+    }
+)
+
+
+def cli_exit_for_error_code(code_name: str) -> CliExitCode:
+    """Return the stable exit code of one public CLI/application error code.
+
+    An unrecognized code is never reported as success: it fails closed as an
+    internal failure, because a code the CLI does not know is a defect rather
+    than a reason to exit zero.
+    """
+
+    if not isinstance(code_name, str):
+        raise TypeError("code_name must be a string")
+    return EXIT_CODES_BY_ERROR_CODE_NAME.get(code_name, CliExitCode.INTERNAL_FAILURE)
+
+
+def cli_exit_for_result(result: CliResult) -> CliExitCode:
+    """Return the stable process exit code of one public CLI result.
+
+    A successful result is success.  A failed result takes the exit code of its
+    public error code, and a failed result carrying no usable error fails closed
+    as an internal failure rather than being reported as success.
+    """
+
+    if not isinstance(result, CliResult):
+        raise TypeError(f"result must be a CliResult, not {type(result).__name__}")
+    if result.ok:
+        return CliExitCode.SUCCESS
+    if result.error is None:
+        return CliExitCode.INTERNAL_FAILURE
+    return cli_exit_for_error_code(result.error.code)
 
 
 # ── Bounded presentation grammar ─────────────────────────────────────────────

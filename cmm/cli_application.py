@@ -18,6 +18,13 @@ store or reach the orchestrator, a registry, a store, a workflow engine or a
 provider: the CLI is a sibling adapter of HTTP over the same application
 boundary, and it owns no platform truth of its own.
 
+This module is also the CLI's one startup seam.  :func:`build_cli_application`
+reuses the canonical local application composition of
+``cmm.application.local_runtime`` and adapts its gateway, so a standalone CLI
+process reaches the platform through exactly the same graph as an embedded
+client -- and reaches it here, in the one presentation module the application
+boundary sanctions as a sibling consumer of the backend.
+
 See ``docs/reference/phase-11-cli.md``.
 """
 
@@ -40,7 +47,7 @@ from cmm.application import (
 )
 from cmm.cli_contracts import CliError, CliResult
 
-__all__ = ["CliApplicationAdapter"]
+__all__ = ["CliApplicationAdapter", "build_cli_application"]
 
 #: The presentation-owned message used when the application boundary returns an
 #: object the CLI can not project.  It carries no internal content.
@@ -92,6 +99,24 @@ def _failure_result(
         error=CliError(code=code, message=message),
         metadata={} if metadata is None else metadata,
     )
+
+
+def build_cli_application() -> CliApplicationAdapter:
+    """Compose the canonical local application and adapt it for the CLI.
+
+    This is the CLI's only startup path: it reuses the canonical composition of
+    ``cmm.application.local_runtime`` and wraps the gateway it publishes, so a
+    standalone process runs against the same official graph an embedded client
+    composes -- no second graph, no service locator and no authority of its own.
+
+    Composition happens when an operational command needs the platform, not when
+    the CLI starts: help, version, a parse error and a reserved capability are
+    answered without a runtime existing at all.
+    """
+
+    from cmm.application.local_runtime import build_local_application_runtime
+
+    return CliApplicationAdapter(build_local_application_runtime().gateway)
 
 
 class CliApplicationAdapter:

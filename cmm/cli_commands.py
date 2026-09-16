@@ -1,6 +1,6 @@
 """Phase 11.4 — the canonical CLI namespace and its static command metadata.
 
-This module owns three presentation concerns of the one public ``cmm`` front
+This module owns four presentation concerns of the one public ``cmm`` front
 door and nothing else:
 
 - a **static, immutable** command table (:data:`PHASE11_4_COMMANDS`) that
@@ -10,7 +10,10 @@ door and nothing else:
   ``argparse`` tree;
 - **identity helpers** that turn one parsed namespace into a stable public
   command id, or into ``None`` when the namespace does not name a Phase 11.4
-  command.
+  command;
+- **explicit dispatch** of one parsed command into exactly one handler, its
+  fail-closed result, or its frozen exit code -- as straight-line branches, with
+  no registry, router or runtime of its own.
 
 The table is metadata, not authority: it executes nothing, resolves nothing,
 holds no state and exposes no register/unregister lifecycle.  A command exists
@@ -27,19 +30,30 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping
 from types import MappingProxyType
+from typing import TextIO
 
+from cmm.cli_application import CliApplicationAdapter
 from cmm.cli_contracts import (
     CliAvailability,
     CliCommandDescriptor,
+    CliError,
     CliOutputFormat,
+    CliResult,
+    cli_exit_for_result,
 )
+from cmm.cli_doctor import CliDoctor
+from cmm.cli_output import emit_cli_result
 
 __all__ = [
     "PHASE11_4_COMMANDS",
     "PHASE11_4_FAMILIES",
+    "dispatch_phase11_4",
+    "emit_phase11_4_result",
     "is_phase11_4_command",
     "phase11_4_command_id",
     "phase11_4_descriptor",
+    "phase11_4_requires_application",
+    "phase11_4_unavailable_result",
     "register_phase11_4_cli",
 ]
 
@@ -465,3 +479,160 @@ def register_phase11_4_cli(subparsers: argparse._SubParsersAction) -> None:
         )
 
     _register_reserved_families(subparsers, common)
+
+
+# ── Presentation options, results and explicit dispatch ──────────────────────
+
+#: The public code of a reserved capability this build can not serve.
+CAPABILITY_UNAVAILABLE_CODE = "CAPABILITY_UNAVAILABLE"
+
+#: The one public message shape of a reserved capability.  It names what was
+#: asked for and states the fact; it never suggests the command ran.
+UNAVAILABLE_MESSAGE_TEMPLATE = "{capability} is not available in this platform build."
+
+#: The public code of a command this build declares available but does not wire.
+UNWIRED_COMMAND_CODE = "INTERNAL_FAILURE"
+
+#: The public message of an available command without a dispatch branch.  It
+#: carries no internal content.
+UNWIRED_COMMAND_MESSAGE = "The command has no canonical handler in this platform build"
+
+
+def _capability_label(command_id: str) -> str:
+    """Return the public capability name that one command id refers to."""
+
+    family = command_id.split(".", 1)[0]
+    return family.replace("_", " ").capitalize()
+
+
+def phase11_4_unavailable_result(command_id: str) -> CliResult:
+    """Return the frozen fail-closed result of one reserved capability.
+
+    Reserved means reserved: the command is recognized, it names what was asked
+    for, and it reports that no canonical owner can answer in this build.  No
+    runtime is composed, no canonical owner is imported and no empty list is
+    dressed up as a successful one.
+
+    A command this build does serve is refused here, because a result claiming
+    ``unavailable`` for a capability the platform does back would be a lie, and
+    an unknown identity is refused because the frozen table is the only
+    authority on what exists.
+    """
+
+    descriptor = phase11_4_descriptor(command_id)
+    if descriptor is None:
+        raise ValueError(f"unknown Phase 11.4 command id: {command_id!r}")
+    if descriptor.availability is not CliAvailability.UNAVAILABLE:
+        raise ValueError(f"{command_id!r} is available in this build")
+
+    return CliResult(
+        command=command_id,
+        ok=False,
+        status=CliAvailability.UNAVAILABLE.value,
+        error=CliError(
+            code=CAPABILITY_UNAVAILABLE_CODE,
+            message=UNAVAILABLE_MESSAGE_TEMPLATE.format(
+                capability=_capability_label(command_id)
+            ),
+            details={"command": command_id},
+        ),
+    )
+
+
+def phase11_4_requires_application(args: argparse.Namespace) -> bool:
+    """Return whether one Phase 11.4 command needs the canonical application.
+
+    Only the operationally backed commands talk to the application boundary.  A
+    reserved command is answered from the frozen table, so it must never start
+    the platform -- and neither must a namespace that names no Phase 11.4
+    command at all.
+    """
+
+    command_id = phase11_4_command_id(args)
+    if command_id is None:
+        return False
+    return _DESCRIPTOR_BY_ID[command_id].availability is CliAvailability.AVAILABLE
+
+
+def emit_phase11_4_result(
+    result: CliResult,
+    args: argparse.Namespace,
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Emit one Phase 11.4 result under the parsed global presentation options.
+
+    The exit code is not chosen here and not chosen by a handler: it is the
+    frozen consequence of the result itself, so no command can report a process
+    status other than the one its public result declares.  A namespace without
+    the global options keeps their defaults, which lets an embedded caller emit
+    a bare result without inventing presentation state.
+    """
+
+    return emit_cli_result(
+        result,
+        output_format=CliOutputFormat(
+            getattr(args, "output", CliOutputFormat.HUMAN.value)
+        ),
+        quiet=bool(getattr(args, "quiet", False)),
+        verbose=bool(getattr(args, "verbose", False)),
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=cli_exit_for_result(result),
+    )
+
+
+def _unwired_command_result(command_id: str) -> CliResult:
+    """Return the fail-closed result of an available command without a handler.
+
+    A descriptor marked available with no dispatch branch is a defect of this
+    build, not a capability of the platform: reporting it as an internal failure
+    keeps the table honest instead of claiming a success that nothing produced.
+    """
+
+    return CliResult(
+        command=command_id,
+        ok=False,
+        status="failed",
+        error=CliError(code=UNWIRED_COMMAND_CODE, message=UNWIRED_COMMAND_MESSAGE),
+    )
+
+
+def dispatch_phase11_4(
+    args: argparse.Namespace,
+    *,
+    application: CliApplicationAdapter,
+    doctor: CliDoctor,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    """Dispatch one Phase 11.4 command and return its frozen process exit code.
+
+    Dispatch is one explicit branch per command identity: no registry, no
+    handler lookup, no mutable routing state and no second authority.  A command
+    either projects the canonical application through the injected adapter,
+    aggregates read-only diagnostics through the doctor, or fails closed because
+    this build has no canonical owner for it.
+
+    The reserved branch is answered from the frozen table alone and reads no
+    dependency, so this dispatcher stays total and side-effect free for every
+    frozen identity; the ordinary root entry point answers reserved capabilities
+    before a runtime is ever composed, and reaches here only for the commands
+    that genuinely need the application.
+    """
+
+    command_id = phase11_4_command_id(args)
+    if command_id is None:
+        raise ValueError("args must name a frozen Phase 11.4 command")
+
+    if _DESCRIPTOR_BY_ID[command_id].availability is CliAvailability.UNAVAILABLE:
+        result = phase11_4_unavailable_result(command_id)
+    elif command_id == "status":
+        result = application.status()
+    elif command_id == "doctor":
+        result = doctor.run()
+    else:
+        result = _unwired_command_result(command_id)
+
+    return emit_phase11_4_result(result, args, stdout=stdout, stderr=stderr)
