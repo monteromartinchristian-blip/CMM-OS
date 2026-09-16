@@ -17,6 +17,11 @@ event emission, no file I/O and no canonical subsystem construction.
 
 from __future__ import annotations
 
+from cmm.orchestration.context import (
+    ContextReferenceReader,
+    ContextResolver,
+    DefaultContextResolver,
+)
 from cmm.orchestration.contracts import (
     AgentRouteDecision,
     DomainRouteDecision,
@@ -61,8 +66,11 @@ __all__ = [
     "ALLOWED_EVENT_TYPES",
     "AgentRouteDecision",
     "AgentRoutingError",
+    "ContextReferenceReader",
     "ContextResolutionError",
+    "ContextResolver",
     "DecisionPersistenceError",
+    "DefaultContextResolver",
     "DeterministicIntentResolver",
     "DomainRouteDecision",
     "DomainRoutingError",
