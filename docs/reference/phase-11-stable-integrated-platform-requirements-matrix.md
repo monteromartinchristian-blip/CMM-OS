@@ -186,7 +186,7 @@ Orchestration Layer.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-016` | Canonical Request Orchestration. CMM OS shall coordinate each application request through one explicit, fail-closed Orchestrator that resolves request intent and authorized context, delegates domain selection to canonical Domain Intelligence, selects a bounded execution route, delegates agent selection to canonical Agent Runtime authority, preserves restrictive permission/approval/autonomy semantics, records safe orchestration decisions, emits safe lifecycle events through an injected sink, and returns a structured orchestration result without duplicating domain, agent, workflow, execution, validation, session, memory, knowledge, provider or event-system ownership. | `SRC-R11` (detailed Phase 11 roadmap §11.2); `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` §45 | Phase 11.2 | `cmm/orchestration/__init__.py`; `contracts.py`; `errors.py`; `intent.py`; `context.py`; `domain_router.py`; `agent_router.py`; `policy.py`; `decision_repository.py`; `events.py`; `orchestrator.py`; `platform_module.py` | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
+| `F11-016` | Canonical Request Orchestration. CMM OS shall coordinate each application request through one explicit, fail-closed Orchestrator that resolves request intent and authorized context, delegates domain selection to canonical Domain Intelligence, selects a bounded execution route, delegates agent selection to canonical Agent Runtime authority, preserves restrictive permission/approval/autonomy semantics, records safe orchestration decisions, emits safe lifecycle events through an injected sink, and returns a structured orchestration result without duplicating domain, agent, workflow, execution, validation, session, memory, knowledge, provider or event-system ownership. | `SRC-R11` (detailed Phase 11 roadmap §11.2); `docs/superpowers/specs/2026-09-16-phase-11.2-orchestration-layer-design.md` §45 | Phase 11.2 | `cmm/orchestration/__init__.py`; `contracts.py`; `errors.py`; `intent.py`; `context.py`; `domain_router.py`; `agent_router.py`; `policy.py`; `decision_repository.py`; `events.py`; `orchestrator.py`; `platform_module.py` | `VERIFIED_EXISTING` | `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` |
 
 ### 4.6 `F11-016` traceability
 
@@ -206,8 +206,10 @@ Orchestration Layer.
 | Inherited acceptance regressions | `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` |
 | Remediation design | `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md` |
 | Remediation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md` |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` (this document's §2 vocabulary for exactly the Remediation V1 state: implementation exists, a recorded independent audit `FAIL` exists, findings are remediated, independent re-audit closure still pending) |
-| Audit status | `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`) against `AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b`; Remediation V1 applied; independent re-audit pending |
+| Independent Re-audit V1 | `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v1.md` — `FAIL`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=1`; `F11-016=VERIFIED_EXISTING`; `DP-102=VERIFIED_EXISTING`; `AT-DP-102=PASS`; `CLOSURE_ELIGIBLE=NO` |
+| Independent Re-audit V2 | `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v2.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `F11-016=VERIFIED_EXISTING`; `DP-102=VERIFIED_EXISTING`; `AT-DP-102=PASS`; `AT-DP-101=PASS`; `AT-DP-134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `68ff78c614d8f7a9dc3295eb22ecea62a425cce5`; audited tree `d586c439fc9b3c87d139eecab8d084d820007bce`; bundle SHA-256 `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e`; report commit `773204c7df06fced504892ed33284f39eca5b63a` |
+| Mapping status | `VERIFIED_EXISTING` (final Independent Re-audit V2 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`) |
+| Audit status | `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V1=FAIL`; final `INDEPENDENT_REAUDIT_V2=PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`; audited HEAD `68ff78c614d8f7a9dc3295eb22ecea62a425cce5`; audited tree `d586c439fc9b3c87d139eecab8d084d820007bce`; bundle SHA-256 `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e`; report commit `773204c7df06fced504892ed33284f39eca5b63a` |
 
 Phase 11.2 introduces exactly one new persistence owner
 (`OrchestrationDecisionRepository`, in-memory only) because orchestration
@@ -385,13 +387,22 @@ closed Phase 11.1 integration core and are not modified by Phase 11.2. The
 Phase 11.2 orchestration layer is a separate subphase and is reported here:
 
 ```text
-PHASE11_2=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+PHASE11_2=CLOSED
 
-MAJOR_01=REMEDIATED_PENDING_REAUDIT
-MAJOR_02=REMEDIATED_PENDING_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
 
-F11_016=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
-DP_102=IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+
+F11_016=VERIFIED_EXISTING
+DP_102=VERIFIED_EXISTING
 AT_DP_102=PASS
 
 PHASE11_1=CLOSED
@@ -404,8 +415,8 @@ F11_014=VERIFIED_EXISTING
 DP_134=VERIFIED_EXISTING
 AT_DP_134=PASS
 
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=REMEDIATION_V1_APPLIED_PENDING_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
 ```
 
 Independent Audit V1 remains recorded historical evidence and is not rewritten:
@@ -431,9 +442,13 @@ AUDIT_BUNDLE_SHA256=85127ed1e9a437e30984f930b60fba79b7ae28959baf3296f86665ce11b9
 CLOSURE_ELIGIBLE=NO
 ```
 
-`INDEPENDENT_REAUDIT_V1=PASS`, `DP_102=VERIFIED_EXISTING` and
-`CLOSURE_ELIGIBLE=YES` may only be recorded after an independent re-audit of the
-Remediation V1 exact-HEAD bundle.
+Independent Re-audit V1 is preserved as `FAIL` with `BLOCKERS=0`, `MAJORS=0`
+and `MINORS=1`; it independently verified both Audit V1 MAJOR remediations and
+left one documentation-only MINOR. Final Independent Re-audit V2 is `PASS` with
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `F11_016=VERIFIED_EXISTING`,
+`DP_102=VERIFIED_EXISTING`, `AT_DP_102=PASS` and `CLOSURE_ELIGIBLE=YES`.
+The audited V2 implementation HEAD is `68ff78c614d8f7a9dc3295eb22ecea62a425cce5`, tree `d586c439fc9b3c87d139eecab8d084d820007bce`,
+with bundle SHA-256 `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e`.
 
 Phase 11.2 does not reopen Phase 11.1 or Phase 11.34. No closed-phase production
 semantics were changed: the Phase 11.1 composition core is **extended** by one

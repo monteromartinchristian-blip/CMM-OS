@@ -1,6 +1,6 @@
 # Phase 11 — Orchestration Layer reference
 
-**Status:** `IMPLEMENTED_REMEDIATION_V1_PENDING_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS`
 **Phase:** 11.2 — Orchestration Layer
 **Requirement:** `F11-016 — Canonical Request Orchestration`
 **Design Point:** `DP-102 — Fail-Closed Canonical Request Orchestration Pipeline`
@@ -10,19 +10,25 @@
 **Remediation design:** `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md`
 **Remediation plan:** `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md`
 **Independent Audit V1:** `docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md` — `FAIL`, `MAJORS=2`
+**Independent Re-audit V1:** `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v1.md` — `FAIL`, `BLOCKERS=0`, `MAJORS=0`, `MINORS=1`
+**Independent Re-audit V2:** `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v2.md` — `PASS`, `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`
+**Audited implementation HEAD:** `68ff78c614d8f7a9dc3295eb22ecea62a425cce5`
+**Audited tree:** `d586c439fc9b3c87d139eecab8d084d820007bce`
+**Re-audit V2 bundle SHA-256:** `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e`
+**Re-audit V2 report commit:** `773204c7df06fced504892ed33284f39eca5b63a`
 **Production package:** `cmm/orchestration/` (12 modules)
 **Implementation base:** `b3aa5e3b8a7538874cbeba91030417bf4859feeb`
 **Starting HEAD:** `89edfbb5ef1c134c37465e85d9a9b452aa1d3ac0`
 
-Phase 11.2 is **implemented, Remediation V1 applied, and awaiting independent
-re-audit**. It is **not** closed, **not** independently verified, and **not**
-`CLOSURE_ELIGIBLE`.
+Phase 11.2 is **implemented, independently re-audited and closed** after final
+Independent Re-audit V2 `PASS`. The two Audit V1 MAJOR findings and the Re-audit
+V1 documentation MINOR are `VERIFIED_REMEDIATED`; `F11-016=VERIFIED_EXISTING`,
+`DP-102=VERIFIED_EXISTING`, `AT-DP-102=PASS`, and `CLOSURE_ELIGIBLE=YES`.
 
-Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`,
-`MAJORS=2`, `MINORS=0` against `AUDITED_HEAD=5ebc8d064fa3f29825c179eff7f41df204dc837b`.
-Remediation V1 addresses exactly those two MAJOR findings; its result is recorded
-in [§17](#17-audit-v1-remediation-v1). Audit V1 remains historical evidence and
-has not been rewritten.
+Audit history remains append-only: Independent Audit V1 is preserved as `FAIL`
+with `MAJORS=2`; Independent Re-audit V1 is preserved as `FAIL` with `MINORS=1`;
+final Independent Re-audit V2 is `PASS` with `BLOCKERS=0`, `MAJORS=0` and
+`MINORS=0`.
 
 ## 1. Purpose and ownership boundary
 
@@ -834,6 +840,12 @@ subsystem owner, or pulls Phase 11.3 work forward.
 | Implementation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-orchestration-layer-implementation-plan.md` |
 | Remediation design | `docs/superpowers/specs/2026-09-16-phase-11.2-remediation-v1-design.md` |
 | Remediation plan | `docs/superpowers/plans/2026-09-16-phase-11.2-remediation-v1-implementation-plan.md` |
+| Independent Re-audit V1 | `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v1.md` — `FAIL`, `MINORS=1` |
+| Independent Re-audit V2 | `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v2.md` — `PASS`, `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `CLOSURE_ELIGIBLE=YES` |
+| Audited HEAD (Re-audit V2) | `68ff78c614d8f7a9dc3295eb22ecea62a425cce5` |
+| Re-audit V2 tree | `d586c439fc9b3c87d139eecab8d084d820007bce` |
+| Re-audit V2 bundle SHA-256 | `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e` |
+| Re-audit V2 report commit | `773204c7df06fced504892ed33284f39eca5b63a` |
 | Independent Audit V1 | `docs/audits/phase-11.2-orchestration-layer-independent-audit-v1.md` — `FAIL`, `MAJORS=2` |
 | Audited HEAD (Audit V1) | `5ebc8d064fa3f29825c179eff7f41df204dc837b` |
 | Audit V1 tree | `989706d15ba78b8333b1e9b3634f820e9180f5bf` |
@@ -868,3 +880,47 @@ CLOSURE_ELIGIBLE=NO
 Audit V1 remains recorded as `FAIL` with `MAJORS=2`. Neither MAJOR is claimed
 verified: exclusive verification of the remediation belongs to the independent
 re-audit of the new exact-HEAD bundle.
+
+## 20. Final independent closure
+
+Final Independent Re-audit V2 reached the closure threshold and the dedicated
+docs-only closure records the audited state without changing production code,
+tests, or historical audit artifacts.
+
+```text
+PHASE11_2=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+
+F11_016=VERIFIED_EXISTING
+DP_102=VERIFIED_EXISTING
+AT_DP_102=PASS
+
+PHASE11_1=CLOSED
+DP_101=VERIFIED_EXISTING
+AT_DP_101=PASS
+
+PHASE11_34=CLOSED
+DP_134=VERIFIED_EXISTING
+AT_DP_134=PASS
+
+CLOSURE_ELIGIBLE=YES
+```
+
+Audited implementation HEAD: `68ff78c614d8f7a9dc3295eb22ecea62a425cce5`.
+Audited tree: `d586c439fc9b3c87d139eecab8d084d820007bce`.
+Re-audit V2 bundle SHA-256: `72d1b5b36104734308e322b2edd038875755d145db5d9ad8f77e2d45c7a7e62e`.
+Final report: `docs/audits/phase-11.2-orchestration-layer-independent-reaudit-v2.md`.
+Audit-report commit: `773204c7df06fced504892ed33284f39eca5b63a`.
+
+Phase 11.3 — Application Backend is the next subphase and must begin with its own
+fresh repository inspection.
