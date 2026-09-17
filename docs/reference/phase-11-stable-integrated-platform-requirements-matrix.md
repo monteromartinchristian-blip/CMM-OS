@@ -266,7 +266,7 @@ Application Backend.
 | Independent Re-audit V1 | `docs/audits/phase-11.3-application-backend-independent-reaudit-v1.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `F11_017=VERIFIED_EXISTING`; `DP_103=VERIFIED_EXISTING`; `AT_DP_103=PASS`; `AT_DP_102=PASS`; `AT_DP_101=PASS`; `AT_DP_134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `4525f72391792e623730af69e95bcd054ce3cddf`; audited tree `0b650c8133111754452940c74a1bc72f24a0df23`; bundle SHA-256 `152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618`; report commit `c21f2e257a1995b748b78b65b622ff68ca3e6d38` |
 | Finding status | `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED` |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | Phase 11.4 — CLI is implemented and awaiting independent audit; see §11 of this document |
+| Next step | Phase 11.4 — CLI is independently re-audited and closed; inspect Phase 11.5 — Conversational Interface next |
 
 `F11-017` is `VERIFIED_EXISTING` and `DP_103=VERIFIED_EXISTING` after Independent
 Re-audit V1 `PASS`. Historical Audit V1 `FAIL` remains immutable; Re-audit V1
@@ -282,7 +282,7 @@ assigned to Phase 11.4 — CLI.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-018` | Canonical Operational CLI. CMM OS shall expose one canonical, scriptable and human-usable command-line interface through the existing `cmm` console entrypoint and root `argparse` command tree; the CLI shall adapt to canonical application and subsystem contracts without becoming an execution, routing, storage, provider, domain, agent, workflow, validation, approval or configuration authority; shall preserve existing specialized CLI surfaces; shall reserve the roadmap's public namespace with explicit fail-closed unavailable capability behavior; and shall provide stable structured output and exit-code semantics suitable for automation and CI. | `SRC-R11` (detailed Phase 11 roadmap §11.4); `docs/superpowers/specs/2026-09-16-phase-11.4-cli-design.md` §6–§8 | Phase 11.4 | `cmm/cli.py`; `cmm/__main__.py`; `cmm/cli_contracts.py`; `cmm/cli_output.py`; `cmm/cli_commands.py`; `cmm/cli_application.py`; `cmm/cli_doctor.py`; `cmm/application/contracts.py`; `cmm/application/requests.py`; `cmm/application/gateway.py`; `cmm/application/local_runtime.py` | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` |
+| `F11-018` | Canonical Operational CLI. CMM OS shall expose one canonical, scriptable and human-usable command-line interface through the existing `cmm` console entrypoint and root `argparse` command tree; the CLI shall adapt to canonical application and subsystem contracts without becoming an execution, routing, storage, provider, domain, agent, workflow, validation, approval or configuration authority; shall preserve existing specialized CLI surfaces; shall reserve the roadmap's public namespace with explicit fail-closed unavailable capability behavior; and shall provide stable structured output and exit-code semantics suitable for automation and CI. | `SRC-R11` (detailed Phase 11 roadmap §11.4); `docs/superpowers/specs/2026-09-16-phase-11.4-cli-design.md` §6–§8 | Phase 11.4 | `cmm/cli.py`; `cmm/__main__.py`; `cmm/cli_contracts.py`; `cmm/cli_output.py`; `cmm/cli_commands.py`; `cmm/cli_application.py`; `cmm/cli_doctor.py`; `cmm/application/contracts.py`; `cmm/application/requests.py`; `cmm/application/gateway.py`; `cmm/application/local_runtime.py` | `VERIFIED_EXISTING` | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` |
 
 ### 4.10 `F11-018` traceability
 
@@ -303,12 +303,10 @@ assigned to Phase 11.4 — CLI.
 | Reused canonical owners | Phase 11.3 `ApplicationGateway` / `ApplicationChannel` / application services; Phase 11.2 `Orchestrator` and canonical routing; Phase 11.1 `ApplicationContainer` / `StaticCompositionModule`; canonical `cmm.domains`, `cmm.agent_runtime`, `cmm.runtime.sessions` and kernel provider registry reached only through the application boundary or the local composition root |
 | Inherited requirements reused | `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
 | Inherited acceptance regressions | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102`; `AT-DP-101`; `AT-DP-134` |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
-| Next step | independent audit of the exact-HEAD Phase 11.4 candidate bundle |
+| Mapping status | `VERIFIED_EXISTING` |
+| Next step | verify the Phase 11.4 docs-only closure commit, then inspect Phase 11.5 — Conversational Interface |
 
-`F11-018` is `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`, not verified. This matrix
-does not self-certify Phase 11.4: the required independent audit remains
-outstanding and `CLOSURE_ELIGIBLE=NO` until it passes.
+`F11-018` is `VERIFIED_EXISTING`. Independent Audit V1 `FAIL` is preserved as historical evidence; final Independent Re-audit V1 `PASS` verified `DP-104`, `AT-DP-104`, and `CLOSURE_ELIGIBLE=YES`.
 
 ## 5. Current lifecycle status
 
@@ -679,10 +677,10 @@ by Phase 11.4. The Phase 11.4 CLI is a separate subphase and is reported here in
 its pre-audit state:
 
 ```text
-PHASE11_4=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_4=CLOSED
 
-F11_018=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_104=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_018=VERIFIED_EXISTING
+DP_104=VERIFIED_EXISTING
 AT_DP_104=PASS
 
 AT_DP_103=PASS
@@ -695,7 +693,7 @@ PHASE11_2=CLOSED
 PHASE11_1=CLOSED
 PHASE11_34=CLOSED
 
-CLOSURE_ELIGIBLE=NO
+CLOSURE_ELIGIBLE=YES
 AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
 NEXT=INDEPENDENT_AUDIT
 ```
@@ -745,3 +743,38 @@ not silently pulled forward):
 Implementation decisions, the frozen command table, exit codes, output formats
 and the observed pre-audit evidence are in
 [`docs/reference/phase-11-cli.md`](phase-11-cli.md).
+
+
+### Final Phase 11.4 closure evidence
+
+Phase 11.4 — CLI is closed after Independent Re-audit V1 `PASS`.
+
+```text
+PHASE11_4=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MINOR_01=VERIFIED_REMEDIATED
+F11_018=VERIFIED_EXISTING
+DP_104=VERIFIED_EXISTING
+AT_DP_104=PASS
+AT_DP_103=PASS
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+AUDITED_HEAD=1d6208d3ad849a0d59e5e4c85f63f36a331557d9
+AUDITED_TREE=65f897686a1509e0bf889eb33c665bda51486337
+REAUDIT_BUNDLE_SHA256=7086611069256b01c13a007f64584343382b39c66cef75cd2a2e601ab5ad5a26
+AUDIT_V1_REPORT_COMMIT=22b240ec0ebd9fb81958905ec02414d525efba99
+REAUDIT_V1_REPORT_COMMIT=0aae35764d74eb992db9c7af96f2086d0933d821
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_5_CONVERSATIONAL_INTERFACE
+```
+
+Historical Audit V1 `FAIL` remains preserved in
+`docs/audits/phase-11.4-cli-independent-audit-v1.md`. Final independent
+Re-audit V1 `PASS` is recorded in
+`docs/audits/phase-11.4-cli-independent-reaudit-v1.md`.

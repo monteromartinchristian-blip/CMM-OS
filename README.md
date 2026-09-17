@@ -240,6 +240,17 @@ move_package
 
 Ambiguous, dynamic, unsafe, or unsupported cases are rejected before mutation where the declared static scope cannot guarantee a safe result.
 
+### Phase 11.4 closure
+
+Phase 11.4 — CLI is independently re-audited and closed after Independent
+Re-audit V1 `PASS`: `F11-018=VERIFIED_EXISTING`,
+`DP_104=VERIFIED_EXISTING`, `AT_DP_104=PASS`, `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `MINOR_01=VERIFIED_REMEDIATED`, and
+`CLOSURE_ELIGIBLE=YES`. The audited remediation HEAD is
+`1d6208d3ad849a0d59e5e4c85f63f36a331557d9` and the exact Re-audit V1 bundle SHA-256 is
+`7086611069256b01c13a007f64584343382b39c66cef75cd2a2e601ab5ad5a26`. Phase 11.5 — Conversational Interface is the next subphase and
+must begin with a fresh repository inspection.
+
 ## Project status
 
 | Phase | Capability | Status |
@@ -255,7 +266,7 @@ Ambiguous, dynamic, unsafe, or unsupported cases are rejected before mutation wh
 | 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Complete and audited |
 | 10 | Domain Intelligence | In progress |
-| 11 | Integrated stable platform | In progress — 11.4 CLI implemented pending independent audit |
+| 11 | Integrated stable platform | In progress — 11.4 CLI independently re-audited and closed; 11.5 Conversational Interface next |
 
 Phases 0–9 have been implemented and audited against explicit requirements. The current baseline is **5409 passing tests with no failures or skips**.
 
@@ -400,7 +411,7 @@ closed with `CAPABILITY_UNAVAILABLE` (exit code `5`) and performs no work, becau
 no canonical owner backs them yet. The inherited `run`, `develop`, `validation`,
 `domain` and `agent` commands keep their existing behavior.
 
-Phase 11.4 — CLI is implemented and awaiting independent audit; see
+Phase 11.4 — CLI is independently re-audited and closed after Independent Re-audit V1 `PASS`; see
 [`docs/reference/phase-11-cli.md`](docs/reference/phase-11-cli.md).
 
 ## Running tests

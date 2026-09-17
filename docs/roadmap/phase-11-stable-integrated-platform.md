@@ -1081,7 +1081,7 @@ The `cmm doctor` command must check:
 
 ### 11.4 implementation status
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS`
 
 Implemented by the `cmm/` presentation modules over the existing root
 `argparse` command tree, plus the sanctioned Phase 11.3 compatibility and
@@ -1167,9 +1167,9 @@ re-verified by the independent audit.
 Pre-audit documentary state:
 
 ```text
-PHASE11_4=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_018=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_104=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_4=CLOSED
+F11_018=VERIFIED_EXISTING
+DP_104=VERIFIED_EXISTING
 AT_DP_104=PASS
 
 AT_DP_103=PASS
@@ -1182,7 +1182,7 @@ PHASE11_2=CLOSED
 PHASE11_1=CLOSED
 PHASE11_34=CLOSED
 
-CLOSURE_ELIGIBLE=NO
+CLOSURE_ELIGIBLE=YES
 AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
 NEXT=INDEPENDENT_AUDIT
 ```
@@ -1195,6 +1195,40 @@ the canonical local application runtime composition helper and the public
 exports those require.
 
 ---
+
+## 11.4 Final independent audit closure
+
+Phase 11.4 — CLI is closed after Independent Re-audit V1 `PASS`.
+
+```text
+PHASE11_4=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V1=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MINOR_01=VERIFIED_REMEDIATED
+F11_018=VERIFIED_EXISTING
+DP_104=VERIFIED_EXISTING
+AT_DP_104=PASS
+AT_DP_103=PASS
+AT_DP_102=PASS
+AT_DP_101=PASS
+AT_DP_134=PASS
+AUDITED_HEAD=1d6208d3ad849a0d59e5e4c85f63f36a331557d9
+AUDITED_TREE=65f897686a1509e0bf889eb33c665bda51486337
+REAUDIT_BUNDLE_SHA256=7086611069256b01c13a007f64584343382b39c66cef75cd2a2e601ab5ad5a26
+AUDIT_V1_REPORT_COMMIT=22b240ec0ebd9fb81958905ec02414d525efba99
+REAUDIT_V1_REPORT_COMMIT=0aae35764d74eb992db9c7af96f2086d0933d821
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V1_PASS
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_5_CONVERSATIONAL_INTERFACE
+```
+
+Historical Audit V1 `FAIL` remains preserved in
+`docs/audits/phase-11.4-cli-independent-audit-v1.md`. Final independent
+Re-audit V1 `PASS` is recorded in
+`docs/audits/phase-11.4-cli-independent-reaudit-v1.md`.
 
 # 11.5 — Conversational Interface
 
