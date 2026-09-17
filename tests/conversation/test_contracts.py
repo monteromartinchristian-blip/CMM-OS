@@ -25,6 +25,8 @@ from cmm.application.contracts import (
     MAX_METADATA_DEPTH,
     MAX_METADATA_ITEMS,
     MAX_STRING_LENGTH,
+    ApplicationResponse,
+    ApplicationStatus,
 )
 from cmm.conversation import (
     AssistantResponse,
@@ -41,6 +43,11 @@ from cmm.conversation.contracts import MAX_COLLECTION_ITEMS
 from cmm.conversation.errors import (
     CONVERSATION_ERROR_MESSAGES,
     GENERIC_CONVERSATION_FAILURE_MESSAGE,
+)
+from cmm.conversation.projection import ConversationResponseProjector
+from cmm.domains.interface_integration_contracts import (
+    ConversationalDomainView,
+    DomainInterfaceStatus,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,6 +106,47 @@ def _error(**overrides: object) -> ConversationError:
     }
     fields.update(overrides)
     return ConversationError(**fields)  # type: ignore[arg-type]
+
+
+def _application_response() -> ApplicationResponse:
+    return ApplicationResponse(
+        request_id="request-1",
+        api_version="v1",
+        status=ApplicationStatus.SUCCESS,
+        data={"echo": "ok"},
+    )
+
+
+def _domain_view(**overrides: object) -> ConversationalDomainView:
+    """Construct the frozen canonical view the projector consumes directly."""
+
+    fields: dict[str, object] = {
+        "primary_domain": "domain:general",
+        "supporting_domains": (),
+        "workflow_refs": (),
+        "question_refs": (),
+        "approval_refs": (),
+        "source_refs": (),
+        "contradiction_refs": (),
+        "result_refs": (),
+        "memory_proposal_refs": (),
+        "confidence": None,
+        "warning_refs": (),
+        "status": DomainInterfaceStatus.READY,
+    }
+    fields.update(overrides)
+    return ConversationalDomainView(**fields)  # type: ignore[arg-type]
+
+
+def _project(view: ConversationalDomainView | None) -> AssistantResponse:
+    return ConversationResponseProjector().project(
+        request_message=_message(),
+        assistant_message_id="msg-2",
+        created_at=TIMESTAMP,
+        application_response=_application_response(),
+        domain_view=view,
+        capability_state=(),
+    )
 
 
 def _nested_metadata(levels: int) -> dict[str, object]:
@@ -971,10 +1019,53 @@ def test_response_rejects_blank_text_items(field: str) -> None:
         _response(**{field: [17]})
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "sources",
+        "pending_questions",
+        "proposed_actions",
+        "approval_requests",
+        "workflow_updates",
+        "memory_updates",
+        "warnings",
+    ],
+)
+def test_response_bounds_the_text_collections(field: str) -> None:
+    """Every response text surface is bounded by the frozen collection limit."""
+
+    allowed = tuple(f"item-{index}" for index in range(MAX_COLLECTION_ITEMS))
+
+    assert getattr(_response(**{field: allowed}), field) == allowed
+
+    with pytest.raises(ValueError) as excinfo:
+        _response(**{field: allowed + ("overflow",)})
+
+    assert excinfo.type is ValueError
+    assert str(excinfo.value) == (
+        f"{field} must not contain more than {MAX_COLLECTION_ITEMS} items"
+    )
+
+
 def test_response_warnings_preserve_declared_order_and_repeats() -> None:
     response = _response(warnings=["degraded", "degraded"])
 
     assert response.warnings == ("degraded", "degraded")
+
+
+def test_response_bounds_repeated_text_items_by_count_not_uniqueness() -> None:
+    """The text bound counts items; repeats stay legal up to the limit."""
+
+    allowed = ("degraded",) * MAX_COLLECTION_ITEMS
+
+    assert _response(warnings=allowed).warnings == allowed
+
+    with pytest.raises(ValueError) as excinfo:
+        _response(warnings=allowed + ("degraded",))
+
+    assert str(excinfo.value) == (
+        f"warnings must not contain more than {MAX_COLLECTION_ITEMS} items"
+    )
 
 
 def test_response_domain_state_uses_the_safe_grammar() -> None:
@@ -1024,6 +1115,55 @@ def test_response_from_dict_bounds_the_capability_state_collection() -> None:
 
     with pytest.raises(ValueError):
         AssistantResponse.from_dict(payload)
+
+
+def test_response_from_dict_bounds_the_text_collections() -> None:
+    payload = _response(sources=("source://1",)).to_dict()
+    payload["sources"] = [
+        f"source://{index}" for index in range(MAX_COLLECTION_ITEMS + 1)
+    ]
+
+    with pytest.raises(ValueError) as excinfo:
+        AssistantResponse.from_dict(payload)
+
+    assert excinfo.type is ValueError
+    assert str(excinfo.value) == (
+        f"sources must not contain more than {MAX_COLLECTION_ITEMS} items"
+    )
+
+
+def test_projection_bounds_the_projected_text_surfaces() -> None:
+    """An authorized view beyond the frozen bound fails closed at projection."""
+
+    over_budget = tuple(
+        f"knowledge:item:{index}" for index in range(MAX_COLLECTION_ITEMS + 1)
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        _project(_domain_view(source_refs=over_budget))
+
+    assert excinfo.type is ValueError
+    assert str(excinfo.value) == (
+        f"sources must not contain more than {MAX_COLLECTION_ITEMS} items"
+    )
+
+    # The review's reproduction: 5,000 authorized refs never project through.
+    reproduction = tuple(f"knowledge:item:{index}" for index in range(5_000))
+
+    with pytest.raises(ValueError) as excinfo:
+        _project(_domain_view(source_refs=reproduction))
+
+    assert str(excinfo.value) == (
+        f"sources must not contain more than {MAX_COLLECTION_ITEMS} items"
+    )
+
+
+def test_projection_accepts_a_view_at_the_text_bound() -> None:
+    at_budget = tuple(
+        f"knowledge:item:{index}" for index in range(MAX_COLLECTION_ITEMS)
+    )
+
+    assert _project(_domain_view(source_refs=at_budget)).sources == at_budget
 
 
 def test_response_from_dict_rejects_a_foreign_serialized_capability_state() -> None:

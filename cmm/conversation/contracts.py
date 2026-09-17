@@ -467,10 +467,12 @@ def _freeze_text_tuple(value: object, field_name: str) -> tuple[str, ...]:
 
     if value is None:
         return ()
-    return tuple(
+    texts = tuple(
         _bounded_text(item, field_name, MAX_STRING_LENGTH)
         for item in _sequence_items(value, field_name)
     )
+    _check_collection_size(texts, field_name)
+    return texts
 
 
 def _attachment_refs(value: object, field_name: str) -> tuple[Any, ...]:
