@@ -39,6 +39,7 @@ See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-desi
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from types import MappingProxyType
 
 from cmm.application.contracts import ApplicationCapability, CapabilityStatus
 from cmm.conversation.contracts import (
@@ -93,68 +94,82 @@ _CANCELLABLE_EFFECTIVE = "canonical_cancellable_requests"
 
 #: The frozen baseline state of every capability whose effective mode does not
 #: depend on an injected canonical declaration: capable ID -> (status,
-#: effective, reason).  ``request_cancellation`` is resolved separately.
+#: effective, reason).  ``request_cancellation`` is resolved separately.  The
+#: table is frozen at runtime too (``MappingProxyType``), so a later rewrite
+#: raises ``TypeError`` instead of silently changing resolved state.
 _BASELINE_STATES: Mapping[
     str, tuple[ConversationCapabilityStatus, str | None, str | None]
-] = {
-    "continuous_conversation": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "session_backed_multi_turn",
-        None,
-    ),
-    "message_editing": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "append_only_lineage",
-        None,
-    ),
-    "controlled_regeneration": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "canonical_reexecution",
-        None,
-    ),
-    "attachments": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "reference_only",
-        None,
-    ),
-    "response_streaming": (
-        ConversationCapabilityStatus.DEGRADED,
-        "response_event_stream",
-        REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE,
-    ),
-    "document_upload": (
-        ConversationCapabilityStatus.UNAVAILABLE,
-        None,
-        REASON_NO_CANONICAL_STORAGE_OWNER,
-    ),
-    "bot_association": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "opaque_non_authoritative",
-        None,
-    ),
-    "domain_projection": (
-        ConversationCapabilityStatus.AVAILABLE,
-        "authorized_projection_when_supplied_by_canonical_integrator",
-        None,
-    ),
-}
+] = MappingProxyType(
+    {
+        "continuous_conversation": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "session_backed_multi_turn",
+            None,
+        ),
+        "message_editing": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "append_only_lineage",
+            None,
+        ),
+        "controlled_regeneration": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "canonical_reexecution",
+            None,
+        ),
+        "attachments": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "reference_only",
+            None,
+        ),
+        "response_streaming": (
+            ConversationCapabilityStatus.DEGRADED,
+            "response_event_stream",
+            REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE,
+        ),
+        "document_upload": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_STORAGE_OWNER,
+        ),
+        "bot_association": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "opaque_non_authoritative",
+            None,
+        ),
+        "domain_projection": (
+            ConversationCapabilityStatus.AVAILABLE,
+            "authorized_projection_when_supplied_by_canonical_integrator",
+            None,
+        ),
+    }
+)
+
+
+def _validated_requested_id(capability_id: object) -> str:
+    """Return the requested ID unchanged when it is a known capability ID."""
+
+    if (
+        not isinstance(capability_id, str)
+        or capability_id not in CONVERSATION_CAPABILITY_IDS
+    ):
+        raise ConversationBoundaryError()
+
+    return capability_id
 
 
 def _requested_flags(requested: Iterable[str]) -> frozenset[str]:
-    """Return the deduplicated requested IDs; every invalid ID fails closed."""
+    """Return the requested conversational IDs, deduplicated by construction.
 
-    flags: set[str] = set()
+    Every ID is validated as it is consumed and the ``frozenset`` is built
+    directly from the validated iterable, so set membership — never a separate
+    dedupe step — is the deduplication: a repeated request is indistinguishable
+    from a single one.  An unknown, blank or non-string ID fails closed with
+    the conversational ``INVALID_REQUEST`` boundary error.
+    """
 
-    for capability_id in requested:
-        if (
-            not isinstance(capability_id, str)
-            or capability_id not in CONVERSATION_CAPABILITY_IDS
-        ):
-            raise ConversationBoundaryError()
-
-        flags.add(capability_id)
-
-    return frozenset(flags)
+    return frozenset(
+        _validated_requested_id(capability_id) for capability_id in requested
+    )
 
 
 class ConversationCapabilityResolver:
@@ -164,6 +179,16 @@ class ConversationCapabilityResolver:
     declarations injected at construction.  Requesting a capability marks it
     as requested and changes nothing else; the resolver never creates
     authority and never mutates its inputs.
+
+    Construction is fail-closed and mirrors
+    ``cmm.application.capabilities.CapabilityApplicationService``: every
+    injected entry must be a concrete ``ApplicationCapability`` (otherwise
+    ``TypeError``) and no capability ID may be declared twice (otherwise
+    ``ValueError``).  Rejecting duplicates keeps declaration precedence
+    unconstructible rather than ambiguous: an ``(UNAVAILABLE, AVAILABLE)`` pair
+    can never exist, so no later declaration can silently unlock cancellation.
+    Should a duplicate ever exist, the first declaration in injection order
+    would win — a later declaration never overrides an earlier one.
     """
 
     def __init__(
@@ -172,15 +197,35 @@ class ConversationCapabilityResolver:
     ) -> None:
         # The injected declarations are copied to an immutable tuple; the
         # resolver never mutates its inputs and reads no other capability state.
-        self._application_capabilities: tuple[ApplicationCapability, ...] = tuple(
-            application_capabilities
-        )
+        declarations = tuple(application_capabilities)
+
+        for declaration in declarations:
+            if not isinstance(declaration, ApplicationCapability):
+                raise TypeError(
+                    "application capabilities must contain ApplicationCapability "
+                    f"values, not {type(declaration).__name__}"
+                )
+
+        identifiers = [declaration.capability_id for declaration in declarations]
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("capabilities must not declare a duplicate capability ID")
+
+        self._application_capabilities: tuple[ApplicationCapability, ...] = declarations
 
     def resolve(
         self,
         requested: Iterable[str] = (),
     ) -> tuple[ConversationCapabilityState, ...]:
-        """Return the effective state of all nine fixed capabilities, in order."""
+        """Return the effective state of all nine fixed capabilities, in order.
+
+        Every requested ID must be one of the nine fixed conversational
+        capability IDs; an unknown, blank or non-string ID *inside* the
+        iterable fails closed with the conversational ``INVALID_REQUEST``
+        boundary error.  A ``None`` (or otherwise non-iterable) ``requested``
+        value is a Python-boundary type defect of the call site and raises the
+        natural ``TypeError`` instead — the same fail-closed convention the
+        application boundary uses for malformed call-site types.
+        """
 
         flags = _requested_flags(requested)
 
@@ -211,7 +256,15 @@ class ConversationCapabilityResolver:
         Cancellation becomes available only when an injected
         ``ApplicationCapability`` with ID ``request-cancellation`` explicitly
         reports ``CapabilityStatus.AVAILABLE``.  Any other status, or absence,
-        leaves it ``UNAVAILABLE`` with the canonical reason code.
+        leaves it ``UNAVAILABLE``: the reason is the declaration's canonical
+        ``reason_code`` when it carries one, and the canonical
+        ``NO_CANCELLABLE_OWNER`` code otherwise — an ``UNAVAILABLE`` row never
+        resolves without a reason.
+
+        Construction rejects duplicate declarations, so this first-match
+        lookup is unambiguous by construction; the first declaration in
+        injection order is the one that counts and a later declaration never
+        overrides an earlier one.
         """
 
         declaration = next(

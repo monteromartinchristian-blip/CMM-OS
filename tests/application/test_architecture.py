@@ -70,9 +70,15 @@ CLI_ADAPTER_MODULES = (
 #: (DP-105) sanctions ``cmm.conversation`` as a consumer of the application
 #: boundary (spec section 25, ``cmm.conversation -> cmm.application``).  The
 #: package presents the conversational surface over the same backend and owns
-#: no application authority of its own, so the exemption is package-exact and
-#: stays live via ``test_the_conversation_package_exemption_is_live_and_honest``
-#: below.
+#: no application authority of its own.  The exemption is deliberately a
+#: *subtree* exemption — the closing scan skips every module under
+#: ``cmm/conversation`` — so the same skip also lifts the ``cmm.api`` half of
+#: the scan for the whole subtree.  That is why
+#: ``test_the_conversation_package_exemption_is_live_and_honest`` below asserts
+#: both halves of the bargain: the subtree really imports ``cmm.application``
+#: and no module in it may import ``cmm.api`` (spec section 25 — the
+#: conversation layer consumes the application boundary, never the HTTP
+#: adapter).
 CONVERSATION_PACKAGE = REPO_ROOT / "cmm" / "conversation"
 
 #: Layers the design places below the application backend.
@@ -372,11 +378,14 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
 
 
 def test_the_conversation_package_exemption_is_live_and_honest() -> None:
-    """The conversation consumer exists and really imports the backend.
+    """The conversation consumer exists, imports the backend and stays bounded.
 
-    The exemption above may not go stale: the package must exist and at least
-    one of its modules must really import ``cmm.application``, exactly as spec
-    section 25 sanctions for Phase 11.5 (DP-105).
+    The exemption above may not go stale and may not exceed its sanction: the
+    package must exist, at least one of its modules must really import
+    ``cmm.application``, exactly as spec section 25 sanctions for Phase 11.5
+    (DP-105) — and, because the same skip also lifts the ``cmm.api`` half of
+    the closing scan for the whole subtree, no conversation module may import
+    the HTTP adapter.
     """
 
     assert CONVERSATION_PACKAGE.is_dir(), (
@@ -393,6 +402,18 @@ def test_the_conversation_package_exemption_is_live_and_honest() -> None:
         module == "cmm.application" or module.startswith("cmm.application.")
         for module in imported
     ), "no cmm.conversation module imports the application backend"
+
+    api_importers = sorted(
+        f"{path.relative_to(REPO_ROOT)} -> {module}"
+        for path in sorted(CONVERSATION_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+        if module == "cmm.api" or module.startswith("cmm.api.")
+    )
+
+    assert not api_importers, (
+        "cmm.conversation must consume the application boundary, never the "
+        f"HTTP adapter (spec section 25): {api_importers}"
+    )
 
 
 def test_the_sanctioned_cli_adapter_allowlist_is_exact_and_live() -> None:

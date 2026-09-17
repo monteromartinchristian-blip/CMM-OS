@@ -17,6 +17,18 @@ Proven here:
 - requesting a capability marks ``requested=True`` and changes nothing else;
 - unknown, blank and non-string requested IDs fail closed as ``INVALID_REQUEST``
   boundary errors instead of silently becoming available;
+- injected declarations are validated at construction: a non-declaration entry
+  raises ``TypeError`` and a duplicate capability ID raises ``ValueError``
+  (mirroring ``cmm.application.capabilities``), so duplicate-declaration
+  precedence can never resolve ambiguously;
+- a cancellation declaration that supplies no reason code still reports the
+  canonical ``NO_CANCELLABLE_OWNER`` reason (``UNAVAILABLE`` never carries
+  ``reason=None``);
+- the frozen baseline truth table is frozen at runtime as well: rewriting it
+  raises ``TypeError``;
+- the ``resolve`` boundary split: a ``None`` iterable raises the natural
+  ``TypeError`` (call-site type defect) while a bad ID inside the iterable
+  raises the conversational ``INVALID_REQUEST`` error;
 - the resolver copies its inputs, never mutates them and never fabricates
   authority.
 
@@ -41,7 +53,10 @@ from cmm.conversation import (
     ConversationCapabilityStatus,
     ConversationErrorCode,
 )
-from cmm.conversation.capabilities import ConversationCapabilityResolver
+from cmm.conversation.capabilities import (
+    _BASELINE_STATES,
+    ConversationCapabilityResolver,
+)
 
 #: The fixed Phase 11.5 capability IDs, in the fixed plan order.
 FIXED_CAPABILITY_IDS = (
@@ -135,6 +150,16 @@ def _available_cancellation() -> ApplicationCapability:
     return ApplicationCapability(
         capability_id="request-cancellation",
         status=CapabilityStatus.AVAILABLE,
+        version=APPLICATION_API_VERSION,
+    )
+
+
+def _unavailable_cancellation_without_a_reason_code() -> ApplicationCapability:
+    """The canonical ``request-cancellation`` declaration with no reason code."""
+
+    return ApplicationCapability(
+        capability_id="request-cancellation",
+        status=CapabilityStatus.UNAVAILABLE,
         version=APPLICATION_API_VERSION,
     )
 
@@ -265,6 +290,83 @@ def test_injected_non_available_cancellation_keeps_the_canonical_reason_code() -
     assert entry.reason == "OWNER_NOT_IMPLEMENTED"
 
 
+def test_injected_unavailable_cancellation_without_a_reason_code_uses_the_canonical_reason() -> (
+    None
+):
+    """``UNAVAILABLE`` never resolves without a reason code.
+
+    An ``UNAVAILABLE`` declaration that supplies no ``reason_code`` must still
+    report the canonical ``NO_CANCELLABLE_OWNER``: the fallback is the reason
+    code whenever the declaration does not carry one (Task 3 fix round 1 pins
+    this half of the guard so it can never silently resolve as ``reason=None``).
+    """
+
+    injected = (_unavailable_cancellation_without_a_reason_code(),)
+
+    entry = _by_id(
+        ConversationCapabilityResolver(injected).resolve(("request_cancellation",))
+    )["request_cancellation"]
+
+    assert entry.requested is True
+    assert entry.status is ConversationCapabilityStatus.UNAVAILABLE
+    assert entry.effective is None
+    assert entry.reason == "NO_CANCELLABLE_OWNER"
+
+
+# ── Duplicate declarations fail closed (Task 3 fix round 1) ──────────────────
+
+
+#: The ambiguous duplicate pair in both injection orders: last-match precedence
+#: would resolve the (UNAVAILABLE, AVAILABLE) row as unlocked cancellation.
+DUPLICATE_CANCELLATION_PAIRS = (
+    pytest.param(
+        (
+            _unavailable_cancellation_without_a_reason_code(),
+            _available_cancellation(),
+        ),
+        id="unavailable-then-available",
+    ),
+    pytest.param(
+        (
+            _available_cancellation(),
+            _unavailable_cancellation_without_a_reason_code(),
+        ),
+        id="available-then-unavailable",
+    ),
+)
+
+
+@pytest.mark.parametrize("injected", DUPLICATE_CANCELLATION_PAIRS)
+def test_duplicate_injected_capability_ids_fail_closed_at_construction(
+    injected: tuple[ApplicationCapability, ...],
+) -> None:
+    """Duplicates are rejected, so cancellation precedence is never ambiguous.
+
+    ``cmm.application.capabilities.CapabilityApplicationService`` rejects a
+    duplicate capability ID, and the conversational resolver mirrors it: an
+    ``(UNAVAILABLE, AVAILABLE)`` pair can never be constructed, so no
+    declaration order can silently unlock cancellation.
+    """
+
+    with pytest.raises(ValueError, match="duplicate capability ID"):
+        ConversationCapabilityResolver(injected)
+
+
+def test_any_duplicate_injected_capability_id_is_rejected_not_only_cancellation() -> (
+    None
+):
+    """The duplicate rule is general, not a cancellation special case."""
+
+    declaration = ApplicationCapability(
+        capability_id="messages",
+        status=CapabilityStatus.AVAILABLE,
+        version=APPLICATION_API_VERSION,
+    )
+
+    with pytest.raises(ValueError, match="duplicate capability ID"):
+        ConversationCapabilityResolver((declaration, declaration))
+
+
 # ── Document upload and attachments (section 19) ─────────────────────────────
 
 
@@ -309,10 +411,16 @@ def test_unrequested_capabilities_are_still_present_with_requested_false() -> No
     assert tuple(state.capability for state in states) == FIXED_CAPABILITY_IDS
 
 
-def test_requested_flags_reflect_exactly_the_requested_ids_and_deduplicate() -> None:
+def test_requested_flags_reflect_membership_and_every_row_appears_exactly_once() -> (
+    None
+):
     states = _baseline_resolver().resolve(
         ("attachments", "attachments", "bot_association")
     )
+
+    # Every fixed capability row appears exactly once, in the fixed plan order.
+    assert len(states) == len(FIXED_CAPABILITY_IDS)
+    assert tuple(state.capability for state in states) == FIXED_CAPABILITY_IDS
 
     flags = {state.capability: state.requested for state in states}
     expected = {
@@ -320,7 +428,6 @@ def test_requested_flags_reflect_exactly_the_requested_ids_and_deduplicate() -> 
         for capability in FIXED_CAPABILITY_IDS
     }
     assert flags == expected
-    assert tuple(state.capability for state in states) == FIXED_CAPABILITY_IDS
 
 
 def test_the_truth_table_is_identical_whether_requested_or_not() -> None:
@@ -374,6 +481,60 @@ def test_non_string_requested_capabilities_fail_closed_as_invalid_input(
         _baseline_resolver().resolve((capability,))  # type: ignore[arg-type]
 
     assert excinfo.value.code is ConversationErrorCode.INVALID_REQUEST
+
+
+# ── Fail-closed construction and the frozen table (Task 3 fix round 1) ───────
+
+
+@pytest.mark.parametrize(
+    "injected",
+    [
+        {"request-cancellation": True},
+        ("request-cancellation",),
+        (None,),
+    ],
+    ids=["mapping-container", "raw-id-string", "none-entry"],
+)
+def test_non_declaration_injected_entries_fail_closed_at_construction(
+    injected: object,
+) -> None:
+    """Only concrete ``ApplicationCapability`` declarations may be injected.
+
+    A non-declaration entry (for example a raw mapping of request flags) is a
+    call-site type defect and raises ``TypeError`` at construction instead of
+    failing later with a raw ``AttributeError``.
+    """
+
+    with pytest.raises(TypeError):
+        ConversationCapabilityResolver(injected)  # type: ignore[arg-type]
+
+
+def test_a_none_requested_iterable_raises_the_python_boundary_type_error() -> None:
+    """A ``None`` iterable is a Python type defect, not a boundary error.
+
+    ``resolve`` documents the split: a bad capability ID *inside* the iterable
+    fails closed with the conversational ``INVALID_REQUEST`` error, while a
+    ``None`` (or otherwise non-iterable) argument raises the natural
+    ``TypeError`` of the call site.
+    """
+
+    with pytest.raises(TypeError):
+        _baseline_resolver().resolve(None)  # type: ignore[arg-type]
+
+
+def test_the_baseline_truth_table_cannot_be_rewritten_at_runtime() -> None:
+    """The frozen baseline table is frozen at runtime, not only by convention."""
+
+    before = _baseline_resolver().resolve()
+
+    with pytest.raises(TypeError):
+        _BASELINE_STATES["document_upload"] = (
+            ConversationCapabilityStatus.AVAILABLE,
+            "reference_only",
+            None,
+        )  # type: ignore[index]
+
+    assert _baseline_resolver().resolve() == before
 
 
 # ── Inputs are copied and never mutated ──────────────────────────────────────
