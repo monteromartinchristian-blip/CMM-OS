@@ -66,6 +66,15 @@ CLI_ADAPTER_MODULES = (
     REPO_ROOT / "cmm" / "cli_application.py",
 )
 
+#: The conversational consumer of the application boundary: Phase 11.5
+#: (DP-105) sanctions ``cmm.conversation`` as a consumer of the application
+#: boundary (spec section 25, ``cmm.conversation -> cmm.application``).  The
+#: package presents the conversational surface over the same backend and owns
+#: no application authority of its own, so the exemption is package-exact and
+#: stays live via ``test_the_conversation_package_exemption_is_live_and_honest``
+#: below.
+CONVERSATION_PACKAGE = REPO_ROOT / "cmm" / "conversation"
+
 #: Layers the design places below the application backend.
 LOWER_LAYERS = (
     "cmm/platform",
@@ -347,6 +356,8 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
         for path in sorted(root.rglob("*.py")):
             if APPLICATION_PACKAGE in path.parents or API_PACKAGE in path.parents:
                 continue
+            if CONVERSATION_PACKAGE in path.parents:
+                continue
             if path in CLI_ADAPTER_MODULES:
                 continue
             for module in _imported_modules(path):
@@ -355,9 +366,33 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
                         offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
 
     assert not offenders, (
-        "only cmm.api, cmm.application and the sanctioned CLI adapter may import "
-        f"the backend: {sorted(offenders)}"
+        "only cmm.api, cmm.application, cmm.conversation and the sanctioned "
+        f"CLI adapter may import the backend: {sorted(offenders)}"
     )
+
+
+def test_the_conversation_package_exemption_is_live_and_honest() -> None:
+    """The conversation consumer exists and really imports the backend.
+
+    The exemption above may not go stale: the package must exist and at least
+    one of its modules must really import ``cmm.application``, exactly as spec
+    section 25 sanctions for Phase 11.5 (DP-105).
+    """
+
+    assert CONVERSATION_PACKAGE.is_dir(), (
+        f"stale conversation exemption: {CONVERSATION_PACKAGE}"
+    )
+
+    imported = {
+        module
+        for path in sorted(CONVERSATION_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+    }
+
+    assert any(
+        module == "cmm.application" or module.startswith("cmm.application.")
+        for module in imported
+    ), "no cmm.conversation module imports the application backend"
 
 
 def test_the_sanctioned_cli_adapter_allowlist_is_exact_and_live() -> None:
