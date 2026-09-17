@@ -907,6 +907,58 @@ def test_public_metadata_rejects_excessive_nesting() -> None:
         _message(metadata=_nested_metadata(MAX_METADATA_DEPTH + 1))
 
 
+#: The secret-shaped key of the recursion-boundary adversary: it is placed at the
+#: deepest mapping level the public grammar admits, so the case proves the key
+#: screen is applied at the recursion boundary itself and not only near the root.
+ATTACKER_METADATA_KEY = "api_key"
+
+
+def _deepest_attacker_metadata(key: str) -> dict[str, object]:
+    """Nest *key* at the deepest mapping level the public grammar admits."""
+
+    payload: dict[str, object] = {key: "sk-attacker"}
+    for level in range(MAX_METADATA_DEPTH - 1, 0, -1):
+        payload = {f"level-{level}": payload}
+    return payload
+
+
+def test_deepest_attacker_metadata_at_the_recursion_boundary_is_rejected() -> None:
+    """The deepest admissible payload fails closed; it is never sanitized.
+
+    The attacker payload carries a secret-shaped key at the deepest mapping
+    level the public grammar admits.  The identical shape with a benign key is
+    accepted, so the failure is the key screen and not the recursion bound.  A
+    violating payload never exists as a value, so nothing can persist it, and
+    ``from_dict`` cannot read one back either.
+    """
+
+    attacker = _deepest_attacker_metadata(ATTACKER_METADATA_KEY)
+    control = _deepest_attacker_metadata("note")
+
+    assert _message(metadata=control).metadata
+
+    with pytest.raises(ValueError):
+        _message(metadata=attacker)
+
+    serialized = _message(metadata=control).to_dict()
+    serialized["metadata"] = attacker
+
+    with pytest.raises(ValueError):
+        ConversationMessage.from_dict(serialized)
+
+
+def test_attacker_metadata_nested_through_sequences_is_rejected() -> None:
+    """The key screen applies through sequence recursion, not mappings only."""
+
+    payload = {"l1": {"l2": {"l3": {"l4": [{"apiKey": "leaked"}]}}}}
+
+    with pytest.raises(ValueError):
+        _message(metadata=payload)
+
+    with pytest.raises(ValueError):
+        _response(reasoning_summary=payload)
+
+
 def test_public_metadata_rejects_excessive_items() -> None:
     allowed = {f"field-{index}": index for index in range(MAX_METADATA_ITEMS)}
     _message(metadata=allowed)

@@ -109,6 +109,7 @@ from cmm.application.requests import RequestApplicationService
 from cmm.application.sessions import SessionApplicationService
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.contracts import (
+    MAX_METADATA_DEPTH,
     AssistantResponse,
     ConversationAttachmentRef,
     ConversationCapabilityStatus,
@@ -126,6 +127,7 @@ from cmm.conversation.projection import ConversationResponseProjector
 from cmm.conversation.service import CONVERSATION_ACTOR_ID, ConversationService
 from cmm.conversation.state import (
     CONVERSATION_EXTENSION_KEY,
+    CONVERSATION_EXTENSION_VERSION,
     ConversationState,
     SharedSessionConversationAdapter,
 )
@@ -1902,3 +1904,110 @@ def test_cancel_is_stateless_and_keeps_no_active_request_registry() -> None:
         "_projector",
     }
     assert harness.adapter_store.saves == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# security adversaries: attacker metadata never reaches canonical state
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _deepest_attacker_metadata(key: str) -> dict[str, object]:
+    """Nest *key* at the deepest mapping level the public grammar admits."""
+
+    payload: dict[str, object] = {key: "sk-attacker"}
+    for level in range(MAX_METADATA_DEPTH - 1, 0, -1):
+        payload = {f"level-{level}": payload}
+    return payload
+
+
+def test_attacker_metadata_is_rejected_before_any_turn_can_be_persisted() -> None:
+    """The deepest attacker payload never becomes a turn to persist.
+
+    The payload carries a secret-shaped key at the deepest mapping level the
+    public grammar admits, so construction fails closed before any turn exists;
+    the identical shape with a benign key is accepted, so the rejection is the
+    key screen and not the recursion bound.  Nothing reaches the canonical
+    store, and no conversational state exists.
+    """
+
+    harness = _harness()
+
+    with pytest.raises(ValueError):
+        _message("attacker-001", metadata=_deepest_attacker_metadata("api_key"))
+
+    control = _message("control-001", metadata=_deepest_attacker_metadata("note"))
+
+    assert control.metadata
+    assert harness.adapter_store.loads == 0
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+
+
+def test_a_direct_store_write_of_attacker_metadata_fails_closed() -> None:
+    """A hand-edited canonical envelope is rejected, never laundered.
+
+    An attacker who writes the deepest attacker metadata straight into the
+    canonical session extension — bypassing the conversational boundary —
+    receives a fail-closed conflict from the service's read: the violating
+    payload is rejected rather than silently sanitized into a cleaned
+    conversation, and the service writes nothing.  The same envelope with a
+    benign key at the same depth loads cleanly through the same boundary, so
+    the conflict is caused by the attacker key alone.
+    """
+
+    harness = _harness()
+    envelope = harness.canonical_store.load(SESSION_ID)
+    assert envelope is not None
+
+    extension = {
+        "version": CONVERSATION_EXTENSION_VERSION,
+        "session_id": SESSION_ID,
+        "mode": "general",
+        "messages": [
+            {
+                "id": "attacker-001",
+                "session_id": SESSION_ID,
+                "role": ConversationRole.USER.value,
+                "content": "attacker",
+                "created_at": TIMESTAMP,
+                "metadata": _deepest_attacker_metadata("api_key"),
+            }
+        ],
+    }
+
+    # The payload really violates the frozen extension contract …
+    with pytest.raises(ValueError):
+        ConversationState.from_dict(extension)
+
+    # … and the generic canonical store still accepts the envelope, so the
+    # rejection below is the conversational boundary's own, not the store's.
+    committed = harness.canonical_store.save(
+        envelope.with_extension(CONVERSATION_EXTENSION_KEY, extension)
+    )
+    assert CONVERSATION_EXTENSION_KEY in committed.extensions
+    saves_before = harness.adapter_store.saves
+
+    with pytest.raises(ConversationSessionConflictError):
+        harness.service.load(SESSION_ID)
+
+    assert harness.adapter_store.saves == saves_before
+
+    control = dict(extension)
+    control["messages"] = [
+        {
+            "id": "control-001",
+            "session_id": SESSION_ID,
+            "role": ConversationRole.USER.value,
+            "content": "control",
+            "created_at": TIMESTAMP,
+            "metadata": _deepest_attacker_metadata("note"),
+        }
+    ]
+    harness.canonical_store.save(
+        committed.with_extension(CONVERSATION_EXTENSION_KEY, control)
+    )
+
+    state = harness.service.load(SESSION_ID)
+
+    assert state is not None
+    assert [message.id for message in state.messages] == ["control-001"]
