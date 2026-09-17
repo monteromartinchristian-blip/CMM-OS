@@ -24,20 +24,38 @@ the only persistence path, and the only write is one ``SessionStore.save`` on a
 Commit semantics:
 
 - a missing canonical session fails with ``ConversationSessionNotFoundError``;
+- an unreadable or corrupt canonical store fails closed as the safe
+  ``ConversationSessionConflictError`` — on the pre-read and on the commit
+  alike — with a constant message, no store text, no session id and no cause
+  chain (``raise ... from None``);
 - a stale ``expected_previous_revision`` fails with the safe
   ``ConversationSessionConflictError`` before anything is written;
+- an envelope whose ``session_id`` disagrees with the committed state fails
+  with the same safe conflict *before* any durable write (re-verified on the
+  committed envelope afterwards, as defence in depth);
 - a canonical race at ``store.save`` (the store's ``SessionPersistenceError``
   revision guard) is remapped to the same safe conversation conflict error,
   with no leaked store text and no retry;
+- a commit must advance the canonical revision by exactly one: a commit whose
+  committed revision did not advance (for example a canonical entry deleted
+  between the read and the commit, which the store then commits as a brand-new
+  session) fails with the safe conflict error — the durable write that already
+  happened is the competitor's own session, so it is reported, never returned
+  as success, never retried and never undone;
 - the committed extension is re-read from the committed envelope and returned;
   a commit that did not durably carry the extension fails closed.
 
-Load semantics: an unsupported extension ``version``, an extension whose
-``session_id`` disagrees with the envelope ``session_id``, duplicate message
-IDs, a message from another session, an unresolvable ``active_message_id`` and
-any other payload that fails the frozen extension contract fail closed as the
-conversation conflict error — the boundary never exposes a raw payload
-``ValueError`` or internal store text.
+Load semantics: the caller-supplied ``session_id`` is validated with the
+package's identifier check before any store call, and an unreadable or corrupt
+store fails closed as the safe conflict error.  An unsupported extension
+``version``, an extension whose ``session_id`` disagrees with the envelope
+``session_id``, duplicate message IDs, a message from another session, an
+unresolvable ``active_message_id`` and any other payload that fails the frozen
+extension contract fail closed as the conversation conflict error — as does a
+present stored value that is not a mapping (including a stored JSON ``null``;
+an absent extension key simply means the session has no conversation).  The
+boundary never exposes a raw payload ``ValueError``, a store ``TypeError`` or
+internal store text.
 
 See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md`` §8.
 """
@@ -58,7 +76,6 @@ from cmm.conversation.errors import (
     ConversationSessionConflictError,
     ConversationSessionNotFoundError,
 )
-from cmm.runtime.sessions import SessionPersistenceError
 
 if TYPE_CHECKING:
     from cmm.runtime.sessions import SessionStore, SharedSessionState
@@ -127,6 +144,27 @@ def _checked_expected_revision(value: object) -> None:
         raise ValueError(
             "expected_previous_revision must be a non-negative int or None"
         )
+
+
+def _checked_session_id(value: object) -> str:
+    """Validate one canonical session id before any store call.
+
+    The grammar is the package's ``_identifier`` check — a stripped, non-empty
+    string within ``MAX_IDENTIFIER_LENGTH`` — so an id is read and normalized
+    exactly like every other conversational identifier.  Caller misuse (a
+    non-string, a blank and an oversized id alike) fails as the module's one
+    consistent ``ValueError`` whatever the store implementation — the same
+    misuse convention as ``_checked_expected_revision`` — so the store is never
+    reached with a malformed id and no raw store ``TypeError`` can escape the
+    conversational boundary.
+    """
+
+    # Caller misuse is the module's one consistent ValueError at the adapter
+    # entry (the same misuse convention as ``_checked_expected_revision``):
+    # never a raw store error, whatever the store implementation.
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("session_id must be a non-empty string")
+    return _identifier(value, "session_id")
 
 
 # ── Conversation state ────────────────────────────────────────────────────────
@@ -272,25 +310,32 @@ class SharedSessionConversationAdapter:
         return self._store
 
     def load_shared_session(self, session_id: str) -> SharedSessionState | None:
-        """Load the raw canonical shared session state by ID."""
+        """Load the raw canonical shared session state by ID.
 
-        return self._store.load(session_id)
+        The id is validated before any store call and a failing store fails
+        closed as the safe conversation conflict error: no store text and no
+        session id may escape the conversational boundary.
+        """
+
+        return self._load_shared(_checked_session_id(session_id))
 
     def load_conversation(self, session_id: str) -> ConversationState | None:
         """Load and validate the conversation extension of a shared session.
 
-        Returns ``None`` when the canonical session or its conversation
-        extension is absent; a stored extension that does not satisfy the
-        frozen contract fails closed as the safe conversation conflict error.
+        Returns ``None`` when the canonical session is absent or when its
+        envelope carries no extension under the conversation key; a present
+        stored value that is not a valid extension mapping (including a stored
+        JSON ``null``) and any unreadable store fail closed as the safe
+        conversation conflict error.
         """
 
-        shared = self._store.load(session_id)
+        shared = self._load_shared(_checked_session_id(session_id))
         if shared is None:
             return None
-        raw = shared.extensions.get(self._extension_key)
-        if raw is None:
+        extensions = shared.extensions
+        if self._extension_key not in extensions:
             return None
-        return self._extension_state(shared, raw)
+        return self._extension_state(shared, extensions[self._extension_key])
 
     def save_conversation(
         self,
@@ -302,34 +347,79 @@ class SharedSessionConversationAdapter:
 
         The write is exactly one ``SessionStore.save`` on a
         ``SharedSessionState.with_extension`` copy; the committed extension is
-        re-read and returned together with the committed envelope.
+        re-read and returned together with the committed envelope.  Every
+        failure fails closed as a safe conversation error: a missing session as
+        not-found; an unreadable store, a stale revision, an envelope whose
+        ``session_id`` disagrees with the committed state (checked before the
+        write) and a commit that did not advance the canonical revision by
+        exactly one as conflict — with no store text, no retry and no attempt
+        to undo a competing write.
         """
 
         if not isinstance(state, ConversationState):
             raise TypeError("state must be a ConversationState")
+        session_id = _checked_session_id(state.session_id)
         _checked_expected_revision(expected_previous_revision)
-        shared = self._store.load(state.session_id)
+        shared = self._load_shared(session_id)
         if shared is None:
             raise ConversationSessionNotFoundError()
+        if state.session_id != shared.session_id:
+            # A hand-edited or foreign canonical envelope conflicts *before*
+            # anything is written; the committed envelope is re-verified below
+            # as defence in depth.
+            raise ConversationSessionConflictError()
         if (
             expected_previous_revision is not None
             and shared.revision != expected_previous_revision
         ):
             raise ConversationSessionConflictError()
         updated = shared.with_extension(self._extension_key, state.to_dict())
-        try:
-            committed = self._store.save(updated)
-        except SessionPersistenceError:
-            # A canonical revision race (or any persistence failure) is remapped
-            # to the safe conversation conflict: the store's message is never
-            # carried and the commit is never retried with a new revision.
-            raise ConversationSessionConflictError() from None
-        raw = committed.extensions.get(self._extension_key)
-        if raw is None:
+        committed = self._save_shared(updated)
+        if committed.revision != shared.revision + 1:
+            # The canonical revision did not advance by one: a competing delete
+            # made the store commit this write as a brand-new session (from
+            # revision 0).  The durable write that already happened is the
+            # competitor's own new session — it is reported as the conflict,
+            # never returned as success, never retried and never undone.
             raise ConversationSessionConflictError()
-        return self._extension_state(committed, raw), committed
+        # The committed extension is re-read; a committed envelope that did not
+        # durably carry a valid extension fails closed inside ``_extension_state``.
+        return (
+            self._extension_state(
+                committed, committed.extensions.get(self._extension_key)
+            ),
+            committed,
+        )
 
     # ── internals ────────────────────────────────────────────────────────────
+
+    def _load_shared(self, session_id: str) -> SharedSessionState | None:
+        """Load the canonical envelope, remapping every store failure.
+
+        A store failure may carry store text (paths, the session id), so it
+        fails closed as the safe conversation conflict with no cause chain; an
+        absent session is the store's ``None`` result and never an exception.
+        ``BaseException`` (``KeyboardInterrupt``/``SystemExit``) is not caught;
+        every ``Exception`` is, because *any* store failure must fail closed.
+        """
+
+        try:
+            return self._store.load(session_id)
+        except Exception:  # noqa: BLE001
+            raise ConversationSessionConflictError() from None
+
+    def _save_shared(self, state: SharedSessionState) -> SharedSessionState:
+        """Commit the canonical envelope, remapping every store failure.
+
+        A canonical revision race (the store's own optimistic-concurrency
+        guard) and any other persistence failure become the safe conversation
+        conflict, with no leaked store text, no cause chain and no retry.
+        """
+
+        try:
+            return self._store.save(state)
+        except Exception:  # noqa: BLE001
+            raise ConversationSessionConflictError() from None
 
     def _extension_state(
         self, shared: SharedSessionState, raw: object
