@@ -16,13 +16,21 @@ Public conversational values use one bounded, secret-free grammar: only
 and sequences of them are accepted.  Binary data, opaque runtime objects, raw
 exceptions, unbounded nesting, traceback-shaped keys, hidden-reasoning keys and
 secret-shaped keys fail closed, so a credential, a live client, a raw exception
-or hidden reasoning can never enter a public conversational contract.  Key
-screening is case-insensitive containment over the separator-free key, so it
-stays a deterministic structural boundary rather than a content heuristic.
+or hidden reasoning can never enter a public conversational contract.
+
+Mapping keys are screened structurally rather than heuristically: a key must be
+ASCII and must leave at least one alphanumeric character once separators are
+removed, and the separator-free lowercase fragment is then rejected when it
+contains a denied fragment.  A non-ASCII spelling (a Cyrillic homoglyph or a
+full-width form) and a separator-only spelling therefore fail closed instead of
+normalizing past the screen, while non-ASCII text stays fully supported in
+values.
 
 The frozen public bounds mirror the frozen public application limits exactly, so
 a conversational message is never bounded more loosely than the public
 application message it becomes; the module itself stays standard-library only.
+``references``, ``attachments`` and ``capability_state`` are additionally
+bounded by ``MAX_COLLECTION_ITEMS``.
 
 See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md``.
 """
@@ -182,18 +190,33 @@ def _metadata_key_fragment(key: str) -> str:
     return _KEY_SEPARATOR.sub("", key.lower())
 
 
-def _is_secret_like_key(key: str) -> bool:
-    """Return whether *key* names secret-bearing content.
+def _screened_mapping_key(key: object, label: str) -> str:
+    """Return one screening-passed mapping key; every other key fails closed.
 
-    Comparison is containment over the separator-free lowercase key, so
-    ``Api-Key``, ``apiKey``, ``refreshToken`` and ``db-credential`` all fail
-    closed while the check stays deterministic and case-insensitive.
+    Keys are screened structurally rather than heuristically: a key must be a
+    string, must be pure ASCII, must leave at least one alphanumeric character
+    once separators are removed, and its separator-free lowercase fragment must
+    not contain a denied fragment.  ``Api-Key``, ``apiKey``, ``refreshToken``
+    and ``db-credential`` therefore still fail closed by containment, while a
+    Cyrillic-homoglyph, full-width or separator-only spelling fails closed here
+    instead of normalizing past the screen.
     """
 
+    if not isinstance(key, str):
+        raise TypeError(f"{label} keys must be strings")
+    if not key.isascii():
+        raise ValueError(
+            f"{label} keys must be ASCII so a homoglyph or full-width spelling "
+            "can never pass the key screen"
+        )
     fragment = _metadata_key_fragment(key)
-    return bool(fragment) and any(
-        denied in fragment for denied in _DENIED_KEY_FRAGMENTS
-    )
+    if not fragment:
+        raise ValueError(f"{label} keys must not be empty or contain only separators")
+    if any(denied in fragment for denied in _DENIED_KEY_FRAGMENTS):
+        raise ValueError(
+            f"{label} must not carry a secret-shaped or internal-detail key"
+        )
+    return key
 
 
 # ── Bounded safe-value grammar ───────────────────────────────────────────────
@@ -254,14 +277,9 @@ def _freeze_safe_value(
         _check_depth(depth, label)
         frozen: dict[str, Any] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
-                raise TypeError(f"{label} keys must be strings")
-            if _is_secret_like_key(key):
-                raise ValueError(
-                    f"{label} must not carry a secret-shaped or internal-detail key"
-                )
+            screened = _screened_mapping_key(key, label)
             budget.spend(label)
-            frozen[key] = _freeze_safe_value(
+            frozen[screened] = _freeze_safe_value(
                 item, label=label, depth=depth + 1, budget=budget
             )
         return MappingProxyType(frozen)
@@ -289,7 +307,10 @@ def _freeze_public_mapping(value: object, field_name: str) -> Mapping[str, Any]:
     frozen = _freeze_safe_value(
         value, label=field_name, depth=1, budget=_SafeValueBudget()
     )
-    assert isinstance(frozen, Mapping)
+    if not isinstance(frozen, Mapping):
+        # A mapping input always freezes to a mapping proxy; this keeps the
+        # fail-closed convention explicit under ``python -O``.
+        raise TypeError(f"{field_name} must be a mapping")
     return frozen
 
 

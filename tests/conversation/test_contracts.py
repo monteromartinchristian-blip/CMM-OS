@@ -629,6 +629,86 @@ def test_public_metadata_rejects_secret_like_key_fragments(key: str) -> None:
         _message(metadata={key: "value"})
 
 
+#: Cyrillic ``o`` (U+043E) where the ASCII ``o`` of ``password`` belongs: a
+#: homoglyph spelling that must not normalize past the key screen.
+CYRILLIC_HOMOGLYPH_PASSWORD = "passw\u043erd"
+
+#: Cyrillic ``e`` (U+0435) homoglyph inside ``credential``.
+CYRILLIC_HOMOGLYPH_CREDENTIAL = "cr\u0435dential"
+
+#: Full-width spelling of ``password`` (every character non-ASCII), whose
+#: separator-free lowercase fragment would be empty.
+FULLWIDTH_PASSWORD = "\uff50\uff41\uff53\uff53\uff57\uff4f\uff52\uff44"
+
+#: Full-width spelling of ``token``.
+FULLWIDTH_TOKEN = "\uff54\uff4f\uff4b\uff45\uff4e"
+
+NON_ASCII_KEYS = (
+    CYRILLIC_HOMOGLYPH_PASSWORD,
+    CYRILLIC_HOMOGLYPH_CREDENTIAL,
+    FULLWIDTH_PASSWORD,
+    FULLWIDTH_TOKEN,
+)
+
+SEPARATOR_ONLY_KEYS = ("", "---", "___", " . ", "///")
+
+KEY_SCREEN_SURFACES = ("metadata", "reasoning_summary", "domain_state")
+
+
+def _construct_public_mapping(surface: str, mapping: Mapping[str, object]) -> object:
+    """Bind *mapping* to one public mapping surface of the contract layer."""
+
+    if surface == "metadata":
+        return _message(metadata=mapping)
+    return _response(**{surface: mapping})
+
+
+@pytest.mark.parametrize("surface", KEY_SCREEN_SURFACES)
+@pytest.mark.parametrize("key", NON_ASCII_KEYS)
+def test_public_mapping_surfaces_reject_non_ascii_keys(surface: str, key: str) -> None:
+    """A non-ASCII key (homoglyph or full-width) fails closed on every surface."""
+
+    with pytest.raises(ValueError):
+        _construct_public_mapping(surface, {key: "value"})
+
+
+@pytest.mark.parametrize("surface", KEY_SCREEN_SURFACES)
+@pytest.mark.parametrize("key", SEPARATOR_ONLY_KEYS)
+def test_public_mapping_surfaces_reject_empty_and_separator_only_keys(
+    surface: str, key: str
+) -> None:
+    """A key without one alphanumeric character left fails closed on every surface."""
+
+    with pytest.raises(ValueError):
+        _construct_public_mapping(surface, {key: "value"})
+
+
+def test_nested_non_ascii_metadata_keys_fail_closed() -> None:
+    """The key screen is applied to every nested mapping, not only the top one."""
+
+    with pytest.raises(ValueError):
+        _message(metadata={"outer": {FULLWIDTH_PASSWORD: "value"}})
+
+
+def test_non_ascii_values_stay_accepted() -> None:
+    """Only keys are ASCII-restricted; non-ASCII text in values keeps working."""
+
+    content = "¿Dónde está la biblioteca? — 東京 jalapeño"
+    metadata = {"note": "jalepeño — 日本語", "greeting": "こんにちは"}
+    message = _message(content=content, metadata=metadata)
+
+    assert message.content == content
+    assert dict(message.metadata) == metadata
+
+    response = _response(
+        reasoning_summary={"outcome": "réussi"},
+        domain_state={"domain": "финансы"},
+    )
+
+    assert dict(response.reasoning_summary) == {"outcome": "réussi"}
+    assert dict(response.domain_state) == {"domain": "финансы"}
+
+
 @pytest.mark.parametrize(
     "key",
     [
