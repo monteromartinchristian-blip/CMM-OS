@@ -143,6 +143,17 @@ _CONVERSATION_FAILURES: Mapping[
     ConversationErrorCode.INTERNAL_FAILURE: InternalApplicationError,
 }
 
+
+#: Phase 11.5 (DP-105) — the private classification marker of a conversational
+#: value the public contract rejected.  It is raised only while a caller-derived
+#: value is built (the ``build()`` step of one turn, mirroring ``_dispatch``),
+#: never around the service invocation and never around the serialization of a
+#: value the service already returned, so a defect of the service or of the
+#: projection can not be reported as the caller's invalid request.
+class _ConversationContractRejection(Exception):
+    """The public conversational contract rejected caller-derived values."""
+
+
 #: A public identifier as it appears in a request path.
 _PathIdentifier = Annotated[str, Path(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)]
 
@@ -593,11 +604,15 @@ def create_app(
 
         The handler parses, delegates, serializes and maps safe errors only.  A
         raised conversational boundary failure becomes the application layer's
-        own typed failure (never a copy), a rejected public conversational value
-        becomes an invalid request, and anything unexpected fails closed as the
-        generic internal failure — so no internal text, path or traceback can
-        escape.  Without the service every conversation route reports the frozen
-        capability-unavailable failure rather than crashing.
+        own typed failure (never a copy); a caller-derived value the public
+        conversational contract rejects while it is built becomes an invalid
+        request (``_ConversationContractRejection``); and every other failure —
+        including a defect of the service's own handling and a drifted
+        projection of a value the service already returned — fails closed as
+        the generic internal failure, so no internal text, path or traceback
+        can escape and no server-side defect is ever published as the caller's
+        invalid request.  Without the service every conversation route reports
+        the frozen capability-unavailable failure rather than crashing.
         """
 
         request_id, defect = _correlation_identity(raw_request)
@@ -611,10 +626,7 @@ def create_app(
             envelope, status_code = call(conversation, request_id)
         except ConversationBoundaryError as exc:
             return _error_response(request_id, _conversation_error(exc))
-        except (TypeError, ValueError):
-            # The public conversational contract rejected values built from
-            # caller input, so the request is invalid rather than internally
-            # broken.
+        except _ConversationContractRejection:
             return _error_response(
                 request_id, invalid_request_error(REASON_INVALID_REQUEST_CONTRACT)
             )
@@ -668,8 +680,15 @@ def create_app(
         def call(
             service: ConversationService, request_id: str
         ) -> tuple[ApplicationResponseModel, int]:
+            try:
+                message = _conversation_message(session_id, body)
+            except (TypeError, ValueError):
+                # The public conversational contract rejected values built
+                # from caller input, so the request is invalid rather than
+                # internally broken.
+                raise _ConversationContractRejection() from None
             response = service.submit(
-                _conversation_message(session_id, body),
+                message,
                 request_id=body.request_id,
                 expected_session_revision=body.expected_session_revision,
                 requested_capabilities=tuple(body.requested_capabilities),
@@ -703,9 +722,16 @@ def create_app(
         def call(
             service: ConversationService, request_id: str
         ) -> tuple[ApplicationResponseModel, int]:
+            try:
+                replacement = _conversation_message(session_id, body)
+            except (TypeError, ValueError):
+                # The public conversational contract rejected values built
+                # from caller input, so the request is invalid rather than
+                # internally broken.
+                raise _ConversationContractRejection() from None
             response = service.edit(
                 original_message_id=message_id,
-                replacement=_conversation_message(session_id, body),
+                replacement=replacement,
                 request_id=body.request_id,
                 expected_session_revision=body.expected_session_revision,
                 requested_capabilities=tuple(body.requested_capabilities),

@@ -37,7 +37,7 @@ See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-desi
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
 
 import pytest
@@ -260,6 +260,66 @@ class _DefectiveConversationService(_RecordingConversationService):
         raise RuntimeError(RAW_DEFECT_TEXT)
 
 
+class _DriftedAssistantResponse(AssistantResponse):
+    """A drifted turn projection: the serialized shape gained an internal key."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**super().to_dict(), "internal_trace": RAW_DEFECT_TEXT}
+
+
+class _DriftedConversationState(ConversationState):
+    """A drifted read projection: the serialized state gained an internal key."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**super().to_dict(), "internal_trace": RAW_DEFECT_TEXT}
+
+
+def _drifted_projection(value: Any, drifted_type: Any) -> Any:
+    """Return *value* re-built as *drifted_type* with the same field values."""
+
+    return drifted_type(
+        **{field.name: getattr(value, field.name) for field in fields(value)}
+    )
+
+
+class _DriftedResponseConversationService(_RecordingConversationService):
+    """A real service whose returned turn projection has drifted from the contract."""
+
+    def submit(self, message: ConversationMessage, **kwargs: Any) -> AssistantResponse:
+        return _drifted_projection(
+            super().submit(message, **kwargs), _DriftedAssistantResponse
+        )
+
+    def edit(self, **kwargs: Any) -> AssistantResponse:
+        return _drifted_projection(super().edit(**kwargs), _DriftedAssistantResponse)
+
+    def regenerate(self, **kwargs: Any) -> AssistantResponse:
+        return _drifted_projection(
+            super().regenerate(**kwargs), _DriftedAssistantResponse
+        )
+
+
+class _DriftedStateConversationService(_RecordingConversationService):
+    """A real service whose read projection has drifted from the contract."""
+
+    def load(self, session_id: str) -> ConversationState | None:
+        state = super().load(session_id)
+        if state is None:
+            return None
+        return _drifted_projection(state, _DriftedConversationState)
+
+
+class _InternalValueErrorConversationService(_RecordingConversationService):
+    """A defective service whose own handling raises a raw ``ValueError``.
+
+    The turn body is the canonical valid one, so nothing of the caller's input
+    was rejected by the contract: the failure is the service's internal defect.
+    """
+
+    def submit(self, message: ConversationMessage, **kwargs: Any) -> AssistantResponse:
+        raise ValueError(RAW_DEFECT_TEXT)
+
+
 @dataclass(frozen=True, slots=True)
 class _Harness:
     """One composed application, its service, its runtime and its client."""
@@ -422,6 +482,17 @@ def _assert_safe_failure(body: dict[str, Any], code: ApplicationErrorCode) -> No
     for forbidden in FORBIDDEN_FRAGMENTS:
         assert forbidden not in dumped
     assert "detail" not in body
+
+
+def _assert_internal_failure(response: Any) -> None:
+    """Assert one answer is the 500 fail-closed defect with no leaked detail."""
+
+    assert response.status_code == 500
+    assert response.headers[REQUEST_ID_HEADER] == CORRELATION_ID
+    body = response.json()
+    _assert_safe_failure(body, ApplicationErrorCode.INTERNAL_FAILURE)
+    assert body["error"]["message"] == GENERIC_FAILURE_MESSAGE
+    assert body["error"]["details"] == {}
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -924,6 +995,101 @@ def test_the_conversational_message_is_mapped_not_copied() -> None:
     application_message = InvalidApplicationRequestError().to_public_error().message
     assert body["error"]["message"] == application_message
     assert body["error"]["message"] != str(ConversationBoundaryError())
+    assert harness.adapter.load_conversation(SESSION_ID) is None
+
+
+def test_a_drifted_assistant_response_projection_is_an_internal_failure() -> None:
+    """A defective turn projection is the server's defect, never the caller's 400."""
+
+    harness = _harness(service_type=_DriftedResponseConversationService)
+
+    response = _submit(harness)
+
+    _assert_internal_failure(response)
+
+
+def test_a_drifted_conversation_state_projection_is_an_internal_failure() -> None:
+    """The read path classifies a drifted state projection the same way."""
+
+    harness = _harness(service_type=_DriftedStateConversationService)
+    _first_turn(harness)
+
+    response = harness.client.get(f"/v1/conversations/{SESSION_ID}", headers=_headers())
+
+    _assert_internal_failure(response)
+    assert harness.service.loaded == [SESSION_ID]
+    assert harness.revision == 2
+
+
+def test_a_defective_service_value_error_is_not_reported_as_an_invalid_request() -> (
+    None
+):
+    """The same turn is accepted by a healthy service, so a 400 would blame the caller."""
+
+    accepted = _harness()
+    assert _submit(accepted).status_code == 200
+
+    harness = _harness(service_type=_InternalValueErrorConversationService)
+
+    response = _submit(harness)
+
+    _assert_internal_failure(response)
+
+
+def test_a_caller_value_the_public_contract_rejects_is_still_a_safe_400() -> None:
+    """The contract's own rejection of built caller values stays the caller's 400."""
+
+    harness = _harness()
+
+    submitted = _submit(harness, references=["reference-1", "reference-1"])
+    edited = harness.client.post(
+        f"/v1/conversations/{SESSION_ID}/messages/{USER_MESSAGE_ID}/edit",
+        json=_edit_body(references=["reference-1", "reference-1"]),
+        headers=_headers(),
+    )
+
+    for response in (submitted, edited):
+        assert response.status_code == 400
+        body = response.json()
+        _assert_safe_failure(body, ApplicationErrorCode.INVALID_REQUEST)
+        assert body["error"]["details"] == {
+            "reason_code": REASON_INVALID_REQUEST_CONTRACT
+        }
+    # The rejection happens while the caller's values are built: the service is
+    # never invoked and no turn is accepted.
+    assert harness.service.submitted == []
+    assert harness.service.edited == []
+
+
+def test_the_conversational_boundary_statuses_stay_frozen() -> None:
+    """409 conflict, 404 missing and 503 unavailable keep their frozen answers."""
+
+    harness = _harness()
+
+    stale = _submit(harness, expected_session_revision=0)
+    missing = harness.client.get(
+        "/v1/conversations/session-missing", headers=_headers()
+    )
+    unavailable = harness.client.post(
+        "/v1/conversations/requests/req-target/cancel", headers=_headers()
+    )
+
+    assert stale.status_code == 409
+    assert missing.status_code == 404
+    assert unavailable.status_code == 503
+    assert (
+        stale.json()["error"]["code"] == ApplicationErrorCode.CONCURRENCY_CONFLICT.value
+    )
+    assert (
+        missing.json()["error"]["code"] == ApplicationErrorCode.RESOURCE_NOT_FOUND.value
+    )
+    assert (
+        unavailable.json()["error"]["code"]
+        == ApplicationErrorCode.CAPABILITY_UNAVAILABLE.value
+    )
+    assert unavailable.json()["error"]["message"] == CANCELLATION_UNAVAILABLE_MESSAGE
+    # No boundary answer traverses a caller classification or writes a turn.
+    assert harness.revision == 1
     assert harness.adapter.load_conversation(SESSION_ID) is None
 
 
