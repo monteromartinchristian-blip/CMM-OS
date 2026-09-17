@@ -195,6 +195,7 @@ def test_application_channel_exposes_conversation_without_changing_api_default()
 
     assert ApplicationChannel.CONVERSATION.value == "conversation"
     # API and CLI keep their order and value spelling; CONVERSATION is additive.
+    # Keep in sync with the frozen value-set pin in tests/application/test_channels.py.
     assert [member.value for member in ApplicationChannel] == [
         "api",
         "cli",

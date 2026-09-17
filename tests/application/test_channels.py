@@ -248,7 +248,13 @@ class _Harness:
 
 
 def test_application_channel_values_are_frozen() -> None:
-    assert {member.value for member in ApplicationChannel} == {"api", "cli"}
+    # Keep in sync with the ordered member pin in tests/application/test_contracts.py.
+    # Phase 11.5 / DP-105 adds the sanctioned ApplicationChannel.CONVERSATION seam.
+    assert {member.value for member in ApplicationChannel} == {
+        "api",
+        "cli",
+        "conversation",
+    }
 
 
 def test_the_default_request_channel_is_api() -> None:
@@ -361,6 +367,25 @@ def test_the_gateway_forwards_the_cli_channel_to_orchestration() -> None:
     assert response.status is ApplicationStatus.NEEDS_CLARIFICATION
     assert len(harness.orchestrator.requests) == 1
     assert harness.orchestrator.requests[0].channel is OrchestrationChannel.CLI
+
+
+def test_the_gateway_forwards_the_conversation_channel_to_orchestration() -> None:
+    harness = _Harness()
+
+    response = harness.gateway.handle(
+        harness.command(channel=ApplicationChannel.CONVERSATION)
+    )
+
+    assert response.status is ApplicationStatus.NEEDS_CLARIFICATION
+    assert len(harness.orchestrator.requests) == 1
+    assert harness.orchestrator.requests[0].channel is OrchestrationChannel.CONVERSATION
+
+    # The request identity is held equal, so the conversation envelope must be
+    # exactly the API path's envelope: only the origin channel differs.
+    api_harness = _Harness()
+    api_response = api_harness.gateway.handle(api_harness.command())
+
+    assert response == api_response
 
 
 def test_the_gateway_keeps_the_api_channel_for_an_api_request() -> None:
