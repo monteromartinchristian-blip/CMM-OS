@@ -57,8 +57,15 @@ MAX_STRING_LENGTH = 16_384
 MAX_MESSAGE_LENGTH = 64_000
 MAX_IDENTIFIER_LENGTH = 256
 
+#: Frozen maximum number of items in one public conversational collection
+#: (``references``, ``attachments`` and ``capability_state``); a longer
+#: collection fails closed with ``ValueError``.  The bound matches the frozen
+#: public metadata item bound.
+MAX_COLLECTION_ITEMS = 128
+
 __all__ = [
     "INTERNAL_DETAIL_METADATA_KEYS",
+    "MAX_COLLECTION_ITEMS",
     "MAX_IDENTIFIER_LENGTH",
     "MAX_MESSAGE_LENGTH",
     "MAX_METADATA_DEPTH",
@@ -432,6 +439,15 @@ def _sequence_items(value: object, field_name: str) -> Sequence[Any]:
     return value
 
 
+def _check_collection_size(items: Sequence[Any], field_name: str) -> None:
+    """Fail closed when one public collection exceeds its frozen bound."""
+
+    if len(items) > MAX_COLLECTION_ITEMS:
+        raise ValueError(
+            f"{field_name} must not contain more than {MAX_COLLECTION_ITEMS} items"
+        )
+
+
 def _freeze_reference_tuple(value: object, field_name: str) -> tuple[str, ...]:
     """Freeze an ordered reference tuple, rejecting blanks and duplicates."""
 
@@ -440,6 +456,7 @@ def _freeze_reference_tuple(value: object, field_name: str) -> tuple[str, ...]:
     references = tuple(
         _identifier(item, field_name) for item in _sequence_items(value, field_name)
     )
+    _check_collection_size(references, field_name)
     if len(set(references)) != len(references):
         raise ValueError(f"{field_name} must not contain duplicate references")
     return references
@@ -468,6 +485,7 @@ def _attachment_refs(value: object, field_name: str) -> tuple[Any, ...]:
                 f"{field_name} must contain ConversationAttachmentRef values"
             )
         attachments.append(item)
+    _check_collection_size(attachments, field_name)
     return tuple(attachments)
 
 
@@ -489,6 +507,7 @@ def _capability_states(value: object, field_name: str) -> tuple[Any, ...]:
                 f"{field_name} must contain ConversationCapabilityState values"
             )
         states.append(item)
+    _check_collection_size(states, field_name)
     return tuple(states)
 
 

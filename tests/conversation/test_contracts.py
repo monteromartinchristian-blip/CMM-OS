@@ -37,6 +37,7 @@ from cmm.conversation import (
     ConversationMessage,
     ConversationRole,
 )
+from cmm.conversation.contracts import MAX_COLLECTION_ITEMS
 from cmm.conversation.errors import (
     CONVERSATION_ERROR_MESSAGES,
     GENERIC_CONVERSATION_FAILURE_MESSAGE,
@@ -258,13 +259,20 @@ def test_public_limits_mirror_the_application_limits() -> None:
     assert contracts.MAX_IDENTIFIER_LENGTH == MAX_IDENTIFIER_LENGTH
 
 
+def test_public_collection_limit_is_the_frozen_cap() -> None:
+    """The one documented collection bound is 128 items for every collection field."""
+
+    assert MAX_COLLECTION_ITEMS == 128
+
+
 @pytest.mark.parametrize("contract_type", CONTRACT_TYPES)
 def test_public_contracts_are_frozen_slotted_dataclasses(contract_type: type) -> None:
     assert dataclasses.is_dataclass(contract_type)
     assert contract_type.__dataclass_params__.frozen is True
 
-    # Every field is declared in a ``__slots__`` along the MRO, so no instance
-    # of a public conversational contract ever carries a mutable ``__dict__``.
+    # Declared fields stay frozen: every field is declared in a ``__slots__``
+    # along the MRO.  A plain subclass may still carry its own mutable
+    # ``__dict__`` and pass ``isinstance`` gates (inherited house pattern).
     declared_slots = {
         name
         for klass in contract_type.__mro__
@@ -528,6 +536,46 @@ def test_message_rejects_foreign_attachment_values() -> None:
         _message(attachments="attachment://1")
 
 
+def test_message_bounds_the_attachment_collection() -> None:
+    """``attachments`` is bounded by the frozen collection limit."""
+
+    allowed = tuple(
+        _attachment(ref=f"attachment://{index}")
+        for index in range(MAX_COLLECTION_ITEMS)
+    )
+
+    assert _message(attachments=allowed).attachments == allowed
+
+    with pytest.raises(ValueError):
+        _message(attachments=allowed + (_attachment(ref="attachment://overflow"),))
+
+
+def test_message_from_dict_bounds_the_attachment_collection() -> None:
+    payload = _message(attachments=(_attachment(),)).to_dict()
+    payload["attachments"] = [
+        _attachment(ref=f"attachment://{index}").to_dict()
+        for index in range(MAX_COLLECTION_ITEMS + 1)
+    ]
+
+    with pytest.raises(ValueError):
+        ConversationMessage.from_dict(payload)
+
+
+def test_message_from_dict_rejects_a_foreign_serialized_attachment() -> None:
+    """A malformed persisted attachment entry is rejected, never dropped."""
+
+    payload = _message(attachments=(_attachment(),)).to_dict()
+    payload["attachments"] = [payload["attachments"][0], 17]
+
+    with pytest.raises(TypeError):
+        ConversationMessage.from_dict(payload)
+
+    payload["attachments"] = [payload["attachments"][0], "attachment://1"]
+
+    with pytest.raises(TypeError):
+        ConversationMessage.from_dict(payload)
+
+
 # ── References ───────────────────────────────────────────────────────────────
 
 
@@ -573,6 +621,27 @@ def test_message_reference_limit_is_the_public_identifier_limit() -> None:
 
     with pytest.raises(ValueError):
         _message(references=(reference + "r",))
+
+
+def test_message_bounds_the_reference_collection() -> None:
+    """``references`` is bounded by the frozen collection limit."""
+
+    allowed = tuple(f"source://{index}" for index in range(MAX_COLLECTION_ITEMS))
+
+    assert _message(references=allowed).references == allowed
+
+    with pytest.raises(ValueError):
+        _message(references=allowed + ("source://overflow",))
+
+
+def test_message_from_dict_bounds_the_reference_collection() -> None:
+    payload = _message().to_dict()
+    payload["references"] = [
+        f"source://{index}" for index in range(MAX_COLLECTION_ITEMS + 1)
+    ]
+
+    with pytest.raises(ValueError):
+        ConversationMessage.from_dict(payload)
 
 
 # ── Public metadata grammar ──────────────────────────────────────────────────
@@ -932,6 +1001,46 @@ def test_response_capability_state_requires_capability_states() -> None:
     )
 
 
+def test_response_bounds_the_capability_state_collection() -> None:
+    """``capability_state`` is bounded by the frozen collection limit."""
+
+    allowed = tuple(
+        _capability(capability=f"capability_{index}")
+        for index in range(MAX_COLLECTION_ITEMS)
+    )
+
+    assert _response(capability_state=allowed).capability_state == allowed
+
+    with pytest.raises(ValueError):
+        _response(capability_state=allowed + (_capability(capability="overflow"),))
+
+
+def test_response_from_dict_bounds_the_capability_state_collection() -> None:
+    payload = _response(capability_state=(_capability(),)).to_dict()
+    payload["capability_state"] = [
+        _capability(capability=f"capability_{index}").to_dict()
+        for index in range(MAX_COLLECTION_ITEMS + 1)
+    ]
+
+    with pytest.raises(ValueError):
+        AssistantResponse.from_dict(payload)
+
+
+def test_response_from_dict_rejects_a_foreign_serialized_capability_state() -> None:
+    """A malformed persisted capability entry is rejected, never dropped."""
+
+    payload = _response(capability_state=(_capability(),)).to_dict()
+    payload["capability_state"] = [payload["capability_state"][0], True]
+
+    with pytest.raises(TypeError):
+        AssistantResponse.from_dict(payload)
+
+    payload["capability_state"] = [payload["capability_state"][0], "response_streaming"]
+
+    with pytest.raises(TypeError):
+        AssistantResponse.from_dict(payload)
+
+
 def test_response_round_trips_with_every_field_populated() -> None:
     response = _response(
         sources=("source://document-1",),
@@ -1138,6 +1247,124 @@ def test_error_to_dict_is_json_safe_and_constant() -> None:
         "message": CONVERSATION_ERROR_MESSAGES[ConversationErrorCode.SESSION_NOT_FOUND],
     }
     assert json.loads(json.dumps(payload, sort_keys=True, allow_nan=False)) == payload
+
+
+# ── Error-path pins ─────────────────────────────────────────────────────────
+
+
+def test_from_dict_rejects_a_missing_required_field() -> None:
+    """A persisted payload missing a required field fails closed with ValueError."""
+
+    message_payload = _message().to_dict()
+    del message_payload["session_id"]
+
+    with pytest.raises(ValueError, match="missing required field"):
+        ConversationMessage.from_dict(message_payload)
+
+    attachment_payload = _attachment().to_dict()
+    del attachment_payload["kind"]
+
+    with pytest.raises(ValueError, match="missing required field"):
+        ConversationAttachmentRef.from_dict(attachment_payload)
+
+    capability_payload = _capability().to_dict()
+    del capability_payload["requested"]
+
+    with pytest.raises(ValueError, match="missing required field"):
+        ConversationCapabilityState.from_dict(capability_payload)
+
+    response_payload = _response().to_dict()
+    del response_payload["message"]
+
+    with pytest.raises(ValueError, match="missing required field"):
+        AssistantResponse.from_dict(response_payload)
+
+
+def test_message_timestamp_must_be_a_string() -> None:
+    with pytest.raises(TypeError):
+        _message(created_at=17)
+
+
+def test_message_blank_timestamp_fails_before_parsing() -> None:
+    for blank in ("", "   "):
+        with pytest.raises(ValueError, match="must be non-empty"):
+            _message(created_at=blank)
+
+
+def test_message_unparseable_timestamp_uses_the_module_message() -> None:
+    with pytest.raises(ValueError, match="must be an ISO-8601 timestamp"):
+        _message(created_at="yesterday")
+
+
+def test_from_dict_requires_typed_enum_values() -> None:
+    payload = _message().to_dict()
+    payload["role"] = 17
+
+    with pytest.raises(TypeError):
+        ConversationMessage.from_dict(payload)
+
+    state_payload = _capability().to_dict()
+    state_payload["status"] = 17
+
+    with pytest.raises(TypeError):
+        ConversationCapabilityState.from_dict(state_payload)
+
+
+def test_from_dict_rejects_an_unknown_enum_value_with_the_module_message() -> None:
+    payload = _message().to_dict()
+    payload["role"] = "superuser"
+
+    with pytest.raises(ValueError, match="is not a supported ConversationRole"):
+        ConversationMessage.from_dict(payload)
+
+    state_payload = _capability().to_dict()
+    state_payload["status"] = "streaming"
+
+    with pytest.raises(
+        ValueError, match="is not a supported ConversationCapabilityStatus"
+    ):
+        ConversationCapabilityState.from_dict(state_payload)
+
+
+def test_response_from_dict_requires_a_serialized_message() -> None:
+    payload = _response().to_dict()
+    payload["message"] = 17
+
+    with pytest.raises(TypeError, match="must be a ConversationMessage"):
+        AssistantResponse.from_dict(payload)
+
+
+def test_response_from_dict_accepts_an_already_typed_message() -> None:
+    payload = _response().to_dict()
+    payload["message"] = _message()
+
+    assert AssistantResponse.from_dict(payload).message == _message()
+
+
+def test_error_from_dict_requires_a_typed_code_value() -> None:
+    message = CONVERSATION_ERROR_MESSAGES[ConversationErrorCode.INVALID_REQUEST]
+
+    with pytest.raises(TypeError):
+        ConversationError.from_dict({"code": 17, "message": message})
+
+
+def test_error_from_dict_rejects_an_unknown_code_with_the_module_message() -> None:
+    message = CONVERSATION_ERROR_MESSAGES[ConversationErrorCode.INVALID_REQUEST]
+
+    with pytest.raises(
+        ValueError, match="code is not a supported ConversationErrorCode"
+    ):
+        ConversationError.from_dict({"code": "not_a_code", "message": message})
+
+
+def test_error_from_dict_rejects_a_missing_required_field() -> None:
+    full = _error().to_dict()
+
+    for field in ("code", "message"):
+        payload = {key: value for key, value in full.items() if key != field}
+
+        with pytest.raises(ValueError, match="missing a required field"):
+            ConversationError.from_dict(payload)
 
 
 # ── Deterministic public serialization ──────────────────────────────────────
