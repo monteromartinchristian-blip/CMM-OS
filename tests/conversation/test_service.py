@@ -1912,7 +1912,12 @@ def test_cancel_is_stateless_and_keeps_no_active_request_registry() -> None:
 
 
 def _deepest_attacker_metadata(key: str) -> dict[str, object]:
-    """Nest *key* at the deepest mapping level the public grammar admits."""
+    """Nest *key* at the deepest mapping level the public recursion admits.
+
+    ``MAX_METADATA_DEPTH`` nested mappings is that level; the recursion bound
+    is pinned by the architecture gate
+    (``test_the_recursion_boundary_is_where_the_deepest_payload_says_it_is``).
+    """
 
     payload: dict[str, object] = {key: "sk-attacker"}
     for level in range(MAX_METADATA_DEPTH - 1, 0, -1):
@@ -1924,10 +1929,15 @@ def test_attacker_metadata_is_rejected_before_any_turn_can_be_persisted() -> Non
     """The deepest attacker payload never becomes a turn to persist.
 
     The payload carries a secret-shaped key at the deepest mapping level the
-    public grammar admits, so construction fails closed before any turn exists;
-    the identical shape with a benign key is accepted, so the rejection is the
-    key screen and not the recursion bound.  Nothing reaches the canonical
-    store, and no conversational state exists.
+    public recursion admits, so construction fails closed before any turn
+    exists; the identical shape with a benign key is accepted, so the rejection
+    is the key screen and not the recursion bound.
+
+    The zero-interaction assertions are the rejected payload's, not an inert
+    harness's: the recording gateway delegate and the recording store are
+    proven live by the control that follows — the same turn with the benign key
+    at the same depth is submitted through the same harness and every recorded
+    interaction fires.
     """
 
     harness = _harness()
@@ -1935,12 +1945,27 @@ def test_attacker_metadata_is_rejected_before_any_turn_can_be_persisted() -> Non
     with pytest.raises(ValueError):
         _message("attacker-001", metadata=_deepest_attacker_metadata("api_key"))
 
-    control = _message("control-001", metadata=_deepest_attacker_metadata("note"))
-
-    assert control.metadata
+    # No turn exists to submit: nothing entered the gateway, no canonical
+    # session was read or written and no conversational state exists.
+    assert harness.recorder.commands == []
     assert harness.adapter_store.loads == 0
     assert harness.adapter_store.saves == 0
     assert harness.conversation() is None
+
+    control = _message("control-001", metadata=_deepest_attacker_metadata("note"))
+
+    assert control.metadata
+
+    _submit(harness, control)
+
+    assert [command.request_id for command in harness.recorder.commands] == [
+        "req-submit-1"
+    ]
+    assert harness.adapter_store.loads > 0
+    assert harness.adapter_store.saves == 1
+    conversation = harness.conversation()
+    assert conversation is not None
+    assert "control-001" in [message.id for message in conversation.messages]
 
 
 def test_a_direct_store_write_of_attacker_metadata_fails_closed() -> None:

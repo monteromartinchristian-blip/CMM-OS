@@ -914,7 +914,12 @@ ATTACKER_METADATA_KEY = "api_key"
 
 
 def _deepest_attacker_metadata(key: str) -> dict[str, object]:
-    """Nest *key* at the deepest mapping level the public grammar admits."""
+    """Nest *key* at the deepest mapping level the public recursion admits.
+
+    ``MAX_METADATA_DEPTH`` nested mappings is that level; the recursion bound is
+    pinned by ``tests/conversation/test_architecture.py``
+    (``test_the_recursion_boundary_is_where_the_deepest_payload_says_it_is``).
+    """
 
     payload: dict[str, object] = {key: "sk-attacker"}
     for level in range(MAX_METADATA_DEPTH - 1, 0, -1):
