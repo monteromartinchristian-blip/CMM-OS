@@ -28,6 +28,7 @@ from cmm.application.contracts import (
     QUERY_OPERATIONS,
     ApplicationCancellationRequest,
     ApplicationCapability,
+    ApplicationChannel,
     ApplicationCommand,
     ApplicationError,
     ApplicationErrorCode,
@@ -182,6 +183,31 @@ def test_public_metadata_limits_are_frozen() -> None:
     assert MAX_MESSAGE_LENGTH == 64_000
     assert MAX_IDENTIFIER_LENGTH == 256
     assert MAX_IDEMPOTENCY_KEY_LENGTH == 256
+
+
+# ── Channels ─────────────────────────────────────────────────────────────────
+
+
+def test_application_channel_exposes_conversation_without_changing_api_default() -> (
+    None
+):
+    """Phase 11.5 adds the conversation origin; ``API`` stays the default."""
+
+    assert ApplicationChannel.CONVERSATION.value == "conversation"
+    # API and CLI keep their order and value spelling; CONVERSATION is additive.
+    assert [member.value for member in ApplicationChannel] == [
+        "api",
+        "cli",
+        "conversation",
+    ]
+    assert (
+        ApplicationRequest(
+            api_version="v1",
+            request_id="req-1",
+            operation=ApplicationOperation.HEALTH_GET,
+        ).channel
+        is ApplicationChannel.API
+    )
 
 
 # ── Request identity ─────────────────────────────────────────────────────────

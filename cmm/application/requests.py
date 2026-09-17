@@ -109,6 +109,7 @@ _APPLICATION_TO_ORCHESTRATION_CHANNEL: Mapping[
     {
         ApplicationChannel.API: OrchestrationChannel.API,
         ApplicationChannel.CLI: OrchestrationChannel.CLI,
+        ApplicationChannel.CONVERSATION: OrchestrationChannel.CONVERSATION,
     }
 )
 

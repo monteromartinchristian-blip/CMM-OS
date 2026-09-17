@@ -31,6 +31,7 @@ import pytest
 
 from cmm.application.contracts import (
     APPLICATION_API_VERSION,
+    ApplicationChannel,
     ApplicationErrorCode,
     ApplicationMessage,
     ApplicationStatus,
@@ -531,6 +532,52 @@ def test_every_submission_adapts_its_own_request() -> None:
     assert [request.request_id for request in second_probe.requests] == ["req-2"]
     assert first_probe.requests[0].to_dict()["input"]["message_id"] == "message-1"
     assert second_probe.requests[0].to_dict()["input"]["message_id"] == "message-2"
+
+
+# ── Channel adaptation ───────────────────────────────────────────────────────
+
+
+def test_the_default_channel_still_maps_to_orchestration_api() -> None:
+    """A caller that declares no channel keeps the closed Phase 11.3 behavior."""
+
+    service, probe, _sessions = _fixture()
+
+    service.submit_message(request_id="req-1", message=_message())
+
+    assert len(probe.requests) == 1
+    assert probe.requests[-1].channel is OrchestrationChannel.API
+
+
+@pytest.mark.parametrize(
+    ("channel", "mapped"),
+    [
+        (ApplicationChannel.API, OrchestrationChannel.API),
+        (ApplicationChannel.CLI, OrchestrationChannel.CLI),
+    ],
+)
+def test_api_and_cli_channels_still_map_exactly(
+    channel: ApplicationChannel, mapped: OrchestrationChannel
+) -> None:
+    service, probe, _sessions = _fixture()
+
+    service.submit_message(request_id="req-1", message=_message(), channel=channel)
+
+    assert probe.requests[-1].channel is mapped
+
+
+def test_conversation_channel_reaches_the_orchestrator() -> None:
+    """The Phase 11.5 seam delivers the new origin to the canonical pipeline."""
+
+    service, probe, _sessions = _fixture()
+
+    response = service.submit_message(
+        request_id="req-1",
+        message=_message(),
+        channel=ApplicationChannel.CONVERSATION,
+    )
+
+    assert response.status is ApplicationStatus.ROUTED
+    assert probe.requests[-1].channel is OrchestrationChannel.CONVERSATION
 
 
 # ── Result projection ────────────────────────────────────────────────────────

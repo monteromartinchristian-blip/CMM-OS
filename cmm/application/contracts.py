@@ -134,12 +134,15 @@ class ApplicationChannel(str, Enum):
     orchestration request so the canonical pipeline sees where a request came
     from, and it participates in the public request document so two otherwise
     identical commands from different channels are different commands for
-    idempotency purposes.  ``API`` stays the default, so every existing
-    transport that sets nothing keeps its current behavior.
+    idempotency purposes.  ``CONVERSATION`` names the conversational client
+    origin and is descriptive origin only, exactly like ``API`` and ``CLI``.
+    ``API`` stays the default, so every existing transport that sets nothing
+    keeps its current behavior.
     """
 
     API = "api"
     CLI = "cli"
+    CONVERSATION = "conversation"
 
 
 class ApplicationErrorCode(str, Enum):
