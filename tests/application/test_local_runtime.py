@@ -284,6 +284,9 @@ def test_the_runtime_owns_only_its_canonical_composition() -> None:
         "container",
         "gateway",
         "orchestrator",
+        # Phase 11.5 (DP-105) sanctioned additive field: the canonical shared
+        # session store a conversational consumer composes over.
+        "session_store",
     ]
     assert runtime.container is not None
     assert runtime.gateway is not None

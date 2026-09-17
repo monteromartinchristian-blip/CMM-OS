@@ -6,8 +6,10 @@ A standalone public CLI needs a real ``ApplicationGateway`` without starting a
 server, a worker or an external provider.  ``build_local_application_runtime()``
 is that one composition helper: it assembles the same official in-memory
 canonical graph the Phase 11.3 connected acceptance proves, and hands back the
-composed container, the one gateway the container exposes and the canonical
-orchestrator behind it.
+composed container, the one gateway the container exposes, the canonical
+orchestrator behind it and the canonical shared session store the gateway writes
+through (Phase 11.5/DP-105 exposes the store so a conversational consumer can
+compose over the very same canonical session authority).
 
 This module is the application package's **composition root**, and that is the
 only reason it reaches canonical components: a composition root must name what it
@@ -152,13 +154,17 @@ class LocalApplicationRuntime:
     """One composed local application graph.
 
     ``container`` is the composition that exposes ``application.gateway``,
-    ``gateway`` is that one gateway, and ``orchestrator`` is the canonical
-    orchestrator its message path reaches.
+    ``gateway`` is that one gateway, ``orchestrator`` is the canonical
+    orchestrator its message path reaches, and ``session_store`` is the
+    canonical shared session store that gateway's session service writes
+    through.  The store field is a public read-only reference only: ownership
+    of sessions stays with the canonical store (Phase 11.5/DP-105).
     """
 
     container: ApplicationContainer
     gateway: ApplicationGateway
     orchestrator: Orchestrator
+    session_store: InMemorySessionStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,8 +341,11 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
 
     The graph is official and in-memory: real canonical registries, the real
     orchestrator, the official application services and the one
-    ``ApplicationGateway``.  Nothing global is created, cached or mutated, so
-    two calls yield two independent runtimes.
+    ``ApplicationGateway``.  The returned ``session_store`` is the very store
+    that gateway writes through (Phase 11.5/DP-105 exposes it read-only so a
+    conversational consumer composes over the same canonical session
+    authority).  Nothing global is created, cached or mutated, so two calls
+    yield two independent runtimes.
 
     Two Phase 11.1 containers are used exactly as the composition boundary
     requires: the platform container (canonical + orchestration) is the
@@ -387,4 +396,5 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
         container=container,
         gateway=gateway,
         orchestrator=graph.orchestrator,
+        session_store=graph.session_store,
     )

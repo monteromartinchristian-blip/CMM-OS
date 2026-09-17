@@ -26,7 +26,10 @@ CANONICAL_MODULE = PLATFORM_PACKAGE / "canonical.py"
 #: not canonical subsystems, they consume the Phase 11.1 composition core
 #: (readiness container plus composition module contracts), and the exact
 #: allowlist below keeps that exemption bounded.
-PLATFORM_CONSUMER_PACKAGES = ("orchestration", "application")
+#: Phase 11.5 (DP-105) sanctions ``cmm.conversation`` as the third sanctioned
+#: consumer: it binds ``conversation.service`` through the same Phase 11.1
+#: composition contracts and owns no platform authority of its own.
+PLATFORM_CONSUMER_PACKAGES = ("orchestration", "application", "conversation")
 
 # ── Canonical imports used only to build real subsystem objects ---------------
 
@@ -346,7 +349,8 @@ def test_canonical_subsystems_do_not_import_the_platform_package() -> None:
     ``cmm.platform`` (``cmm.orchestration -> cmm.platform + canonical
     subsystems``; ``cmm.application`` consumes the Phase 11.1
     ``ApplicationContainer`` and binds its services through the Phase 11.1
-    composition contracts).  They are not canonical subsystems, and
+    composition contracts), and Phase 11.5 (DP-105) places ``cmm.conversation``
+    beside them for the same reason.  They are not canonical subsystems, and
     ``test_only_sanctioned_layers_may_depend_on_the_platform_package`` below
     keeps that exemption exact.
     """
