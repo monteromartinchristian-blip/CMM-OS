@@ -1552,6 +1552,256 @@ def test_regenerate_persists_no_hidden_reasoning() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# caller-supplied turn inputs at the conversational boundary
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Blank caller-supplied identities of one turn (empty and whitespace-only).
+NON_IDENTIFIER_INPUTS = (
+    pytest.param("", id="empty"),
+    pytest.param("   ", id="blank"),
+)
+
+#: Caller-supplied assistant timestamps that are not UTC-offset ISO-8601 values.
+MALFORMED_ASSISTANT_TIMESTAMPS = (
+    pytest.param("", id="empty"),
+    pytest.param("   ", id="blank"),
+    pytest.param("not-a-timestamp", id="non-timestamp"),
+    pytest.param("2026-09-17T10:00:00", id="no-utc-offset"),
+)
+
+
+@pytest.mark.parametrize("request_id", NON_IDENTIFIER_INPUTS)
+def test_submit_rejects_a_non_identifier_request_id_before_the_gateway(
+    request_id: str,
+) -> None:
+    """A blank request identity is caller input error, never a raw contract error."""
+
+    harness = _harness()
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, _message(), request_id=request_id)
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+    assert harness.revision() == 1
+
+
+@pytest.mark.parametrize("assistant_message_id", NON_IDENTIFIER_INPUTS)
+def test_submit_rejects_a_non_identifier_assistant_message_id_before_the_gateway(
+    assistant_message_id: str,
+) -> None:
+    """A blank assistant identity fails at the boundary, not after the gateway."""
+
+    harness = _harness()
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, _message(), assistant_message_id=assistant_message_id)
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+    assert harness.revision() == 1
+
+
+@pytest.mark.parametrize("assistant_created_at", MALFORMED_ASSISTANT_TIMESTAMPS)
+def test_submit_rejects_a_malformed_assistant_created_at_before_the_gateway(
+    assistant_created_at: str,
+) -> None:
+    """The assistant timestamp must be ISO-8601 with an explicit UTC offset."""
+
+    harness = _harness()
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, _message(), assistant_created_at=assistant_created_at)
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+    assert harness.revision() == 1
+
+
+@pytest.mark.parametrize("request_id", NON_IDENTIFIER_INPUTS)
+def test_edit_rejects_a_non_identifier_request_id_before_the_gateway(
+    request_id: str,
+) -> None:
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message("user-002", content="Edited."),
+            request_id=request_id,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [original.id, "assistant-001"]
+
+
+@pytest.mark.parametrize("assistant_message_id", NON_IDENTIFIER_INPUTS)
+def test_edit_rejects_a_non_identifier_assistant_message_id_before_the_gateway(
+    assistant_message_id: str,
+) -> None:
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message("user-002", content="Edited."),
+            assistant_message_id=assistant_message_id,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [original.id, "assistant-001"]
+
+
+@pytest.mark.parametrize("assistant_created_at", MALFORMED_ASSISTANT_TIMESTAMPS)
+def test_edit_rejects_a_malformed_assistant_created_at_before_the_gateway(
+    assistant_created_at: str,
+) -> None:
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message("user-002", content="Edited."),
+            assistant_created_at=assistant_created_at,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [original.id, "assistant-001"]
+
+
+@pytest.mark.parametrize("request_id", NON_IDENTIFIER_INPUTS)
+def test_regenerate_rejects_a_non_identifier_request_id_before_the_gateway(
+    request_id: str,
+) -> None:
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness, response_message_id=submitted.message.id, request_id=request_id
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-001", "assistant-001"]
+
+
+@pytest.mark.parametrize("assistant_message_id", NON_IDENTIFIER_INPUTS)
+def test_regenerate_rejects_a_non_identifier_assistant_message_id_before_the_gateway(
+    assistant_message_id: str,
+) -> None:
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            assistant_message_id=assistant_message_id,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-001", "assistant-001"]
+
+
+@pytest.mark.parametrize("assistant_created_at", MALFORMED_ASSISTANT_TIMESTAMPS)
+def test_regenerate_rejects_a_malformed_assistant_created_at_before_the_gateway(
+    assistant_created_at: str,
+) -> None:
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            assistant_created_at=assistant_created_at,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-001", "assistant-001"]
+
+
+@pytest.mark.parametrize("application_message_id", NON_IDENTIFIER_INPUTS)
+def test_regenerate_rejects_a_non_identifier_application_message_id_before_the_gateway(
+    application_message_id: str,
+) -> None:
+    """A blank application identity is rejected, never persisted as a failure.
+
+    The application identity of a regeneration is caller input: an empty or
+    blank value must fail closed as the conversational ``INVALID_REQUEST``
+    boundary error with zero gateway calls and zero writes, instead of
+    travelling into the application payload and being persisted as a normal
+    structured ``FAILED`` turn.
+    """
+
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            application_message_id=application_message_id,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-001", "assistant-001"]
+    assert InvalidApplicationRequestError.safe_message not in [
+        message.content for message in state.messages
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # request identity passthrough
 # ═══════════════════════════════════════════════════════════════════════════
 

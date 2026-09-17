@@ -33,11 +33,16 @@ enter the application payload; ``bot_id`` grants nothing and selects nothing.
 
 Failure semantics: the caller's expected session revision is verified against
 the canonical session *before* the gateway is entered, so a stale caller never
-traverses the canonical pipeline and never writes.  A mistyped expected
-revision, a turn identity that is already stored or reused within the turn, and
-a caller-supplied lineage are caller input errors: each fails closed as the
-conversational ``INVALID_REQUEST`` boundary error before the gateway is entered
-and before anything is written, so a raw state ``ValueError`` can never surface
+traverses the canonical pipeline and never writes.  Every caller-supplied turn
+input is validated at the boundary first: the request identity, the turn
+identities and a regeneration's application identity must be non-empty strings,
+and the assistant timestamp must be a non-empty ISO-8601 timestamp carrying an
+explicit UTC offset (the conversational contract's own rule, which stays the
+backstop).  A mistyped expected revision, a malformed turn input, a turn
+identity that is already stored or reused within the turn, and a caller-supplied
+lineage are caller input errors: each fails closed as the conversational
+``INVALID_REQUEST`` boundary error before the gateway is entered and before
+anything is written, so a raw state or contract ``ValueError`` can never surface
 from a turn that already traversed the canonical pipeline.  Lineage is
 service-owned: ``edit`` and ``regenerate`` bind the enforced relationship
 themselves and a non-empty caller-supplied lineage is rejected rather than
@@ -78,6 +83,7 @@ See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-desi
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from cmm.application.contracts import (
@@ -161,6 +167,62 @@ def _stored_message_ids(state: ConversationState | None) -> frozenset[str]:
     if state is None:
         return frozenset()
     return frozenset(message.id for message in state.messages)
+
+
+def _require_turn_identifier(value: object) -> None:
+    """Fail closed unless one caller-supplied identity is a non-empty string.
+
+    Identities are caller input: an empty, blank or non-string value is a
+    caller input error and fails closed as the conversational
+    ``INVALID_REQUEST`` boundary error *before* the gateway is entered and
+    before anything is written, mirroring the conversational contract's own
+    identifier rule (which stays the backstop), so a raw contract ``ValueError``
+    can never surface from a turn that already traversed the canonical
+    pipeline.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        raise ConversationBoundaryError()
+
+
+def _require_turn_timestamp(value: object) -> None:
+    """Fail closed unless one caller-supplied timestamp is UTC-offset ISO-8601.
+
+    The check mirrors the conversational contract's own timestamp rule — a
+    non-blank string that parses as ISO-8601 *and* carries an explicit UTC
+    offset, so local-time and naive values fail closed too — which keeps the
+    contract's check as the backstop rather than replacing or weakening it.  A
+    malformed-but-non-empty value therefore fails at the boundary instead of
+    surfacing a raw contract ``ValueError`` after the gateway.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        raise ConversationBoundaryError()
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ConversationBoundaryError() from None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ConversationBoundaryError()
+
+
+def _require_turn_inputs(
+    *,
+    request_id: object,
+    assistant_message_id: object,
+    assistant_created_at: object,
+) -> None:
+    """Fail closed unless every shared caller-supplied turn input is well-formed.
+
+    ``submit``, ``edit`` and ``regenerate`` all carry one request identity, one
+    assistant identity and one assistant timestamp, so they share these checks:
+    every violation raises the conversational ``INVALID_REQUEST`` boundary error
+    before the gateway is entered and before anything is written.
+    """
+
+    _require_turn_identifier(request_id)
+    _require_turn_identifier(assistant_message_id)
+    _require_turn_timestamp(assistant_created_at)
 
 
 def _require_fresh_turn_identities(
@@ -289,13 +351,14 @@ class ConversationService:
         revision against it (a mistyped revision → ``INVALID_REQUEST`` and a
         well-typed but stale one → ``ConversationSessionConflictError``, either
         way with no gateway call and no write), validate the user turn (a
-        non-message, a non-``USER`` role, a caller-supplied lineage or a
-        user/assistant identity that is already stored or reused within the turn
-        → ``INVALID_REQUEST``), build the one canonical command, enter the
-        gateway, project the safe response with the caller's authorized
-        ``domain_view`` and resolved capability state, then append the user
-        message and the assistant message and commit them in one canonical
-        commit carrying the same expected previous revision.
+        non-message, a non-``USER`` role, a caller-supplied lineage, a malformed
+        caller-supplied request identity, assistant identity or assistant
+        timestamp, or a user/assistant identity that is already stored or reused
+        within the turn → ``INVALID_REQUEST``), build the one canonical command,
+        enter the gateway, project the safe response with the caller's
+        authorized ``domain_view`` and resolved capability state, then append
+        the user message and the assistant message and commit them in one
+        canonical commit carrying the same expected previous revision.
         """
 
         if not isinstance(message, ConversationMessage):
@@ -305,6 +368,11 @@ class ConversationService:
         if message.role is not ConversationRole.USER:
             raise ConversationBoundaryError()
         _require_service_owned_lineage(message)
+        _require_turn_inputs(
+            request_id=request_id,
+            assistant_message_id=assistant_message_id,
+            assistant_created_at=assistant_created_at,
+        )
         _require_fresh_turn_identities(
             self._state.load_conversation(shared.session_id),
             user_message_id=message.id,
@@ -362,7 +430,9 @@ class ConversationService:
         lineage is rejected rather than silently replaced.  A replacement
         identity that already exists (including the original's own) or that
         reuses the assistant identity of the turn fails closed with
-        ``INVALID_REQUEST``.
+        ``INVALID_REQUEST``, and a malformed caller-supplied request identity,
+        assistant identity or assistant timestamp fails closed the same way
+        before the gateway and before any write.
 
         The canonical gateway is traversed again exactly once with the
         replacement as the application message identity, the new assistant
@@ -381,6 +451,11 @@ class ConversationService:
         if original.role is not ConversationRole.USER:
             raise ConversationBoundaryError()
         _require_service_owned_lineage(replacement)
+        _require_turn_inputs(
+            request_id=request_id,
+            assistant_message_id=assistant_message_id,
+            assistant_created_at=assistant_created_at,
+        )
         _require_fresh_turn_identities(
             state,
             user_message_id=replacement.id,
@@ -446,7 +521,10 @@ class ConversationService:
         caller-supplied ``application_message_id`` and ``assistant_message_id``
         must be fresh identities of the target conversation and distinct from
         each other; a collision fails closed with ``INVALID_REQUEST`` before the
-        gateway and before any write.
+        gateway and before any write.  Every caller-supplied turn input is
+        validated at the boundary first: a blank request identity, application
+        identity or assistant identity, or a malformed assistant timestamp,
+        fails closed with ``INVALID_REQUEST`` with no gateway call and no write.
         """
 
         shared = self._require_shared_session(session_id)
@@ -456,6 +534,12 @@ class ConversationService:
         target = state.message(response_message_id)
         if target.role is not ConversationRole.ASSISTANT:
             raise ConversationBoundaryError()
+        _require_turn_inputs(
+            request_id=request_id,
+            assistant_message_id=assistant_message_id,
+            assistant_created_at=assistant_created_at,
+        )
+        _require_turn_identifier(application_message_id)
         _require_fresh_turn_identities(
             state,
             user_message_id=application_message_id,
