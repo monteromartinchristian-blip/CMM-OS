@@ -33,8 +33,16 @@ enter the application payload; ``bot_id`` grants nothing and selects nothing.
 
 Failure semantics: the caller's expected session revision is verified against
 the canonical session *before* the gateway is entered, so a stale caller never
-traverses the canonical pipeline and never writes.  A commit that loses the
-canonical optimistic-concurrency race propagates as the safe
+traverses the canonical pipeline and never writes.  A mistyped expected
+revision, a turn identity that is already stored or reused within the turn, and
+a caller-supplied lineage are caller input errors: each fails closed as the
+conversational ``INVALID_REQUEST`` boundary error before the gateway is entered
+and before anything is written, so a raw state ``ValueError`` can never surface
+from a turn that already traversed the canonical pipeline.  Lineage is
+service-owned: ``edit`` and ``regenerate`` bind the enforced relationship
+themselves and a non-empty caller-supplied lineage is rejected rather than
+silently sanitized.  A commit that loses the canonical
+optimistic-concurrency race propagates as the safe
 ``ConversationSessionConflictError`` and is never silently retried with a new
 revision.  Structured blocked/failed application responses are preserved through
 the safe projection and persisted like any other outcome; no exception text ever
@@ -43,7 +51,8 @@ enters conversation state.
 Operations:
 
 - ``submit`` validates the user turn against the canonical session, verifies
-  the caller's expected revision and enters the gateway exactly once;
+  the caller's expected revision and the freshness of both turn identities and
+  enters the gateway exactly once;
 - ``edit`` is non-destructive and append-only: the original user message is
   preserved, the service itself binds the effective replacement's lineage
   (``supersedes_message_id == original.id``) and the canonical path is re-run
@@ -123,7 +132,12 @@ def _message_command(
     content: str,
     expected_session_revision: int,
 ) -> ApplicationCommand:
-    """Build the one canonical ``MESSAGE_SUBMIT`` command of one user turn."""
+    """Build the one canonical ``MESSAGE_SUBMIT`` command of one user turn.
+
+    The caller-supplied ``request_id`` is carried verbatim: the command is the
+    one place a turn's public request identity is recorded, and it is never
+    replaced by a constant or by a service-invented identity.
+    """
 
     return ApplicationCommand(
         api_version=APPLICATION_API_VERSION,
@@ -139,6 +153,58 @@ def _message_command(
         channel=ApplicationChannel.CONVERSATION,
         expected_session_revision=expected_session_revision,
     )
+
+
+def _stored_message_ids(state: ConversationState | None) -> frozenset[str]:
+    """Return the stored message identities of one conversation, or none."""
+
+    if state is None:
+        return frozenset()
+    return frozenset(message.id for message in state.messages)
+
+
+def _require_fresh_turn_identities(
+    state: ConversationState | None,
+    *,
+    user_message_id: str,
+    assistant_message_id: str,
+) -> None:
+    """Fail closed unless both identities of one turn are fresh and distinct.
+
+    The transcript keeps message identities unique, so neither the incoming user
+    identity (the submitted message, the edit replacement or the caller-supplied
+    application identity of a regeneration) nor the assistant identity may
+    already exist in the target conversation, and the assistant identity may not
+    reuse the user identity of the same turn.  Every violation is caller input
+    error and fails closed as the conversational ``INVALID_REQUEST`` boundary
+    error *before* the gateway is entered and before anything is written, so an
+    identity collision can never surface as a raw state ``ValueError`` after the
+    canonical pipeline already ran.
+    """
+
+    stored = _stored_message_ids(state)
+    if (
+        user_message_id == assistant_message_id
+        or user_message_id in stored
+        or assistant_message_id in stored
+    ):
+        raise ConversationBoundaryError()
+
+
+def _require_service_owned_lineage(message: ConversationMessage) -> None:
+    """Fail closed when a caller supplies a lineage the service owns.
+
+    ``submit`` records a fresh turn without lineage and ``edit`` binds the
+    enforced ``supersedes_message_id`` itself, so lineage is service-owned: a
+    non-empty caller-supplied lineage is rejected here rather than silently
+    replaced by the enforced one.
+    """
+
+    if (
+        message.lineage.supersedes_message_id is not None
+        or message.lineage.regenerates_message_id is not None
+    ):
+        raise ConversationBoundaryError()
 
 
 def _preceding_user_message(
@@ -220,10 +286,12 @@ class ConversationService:
 
         The exact order is frozen: load the canonical shared session (absent →
         ``ConversationSessionNotFoundError``), verify the caller's expected
-        revision against it (mismatch → ``ConversationSessionConflictError``,
-        no gateway call and no write), validate the user message (a
-        non-message, a non-``USER`` role or a foreign session binding →
-        ``INVALID_REQUEST``), build the one canonical command, enter the
+        revision against it (a mistyped revision → ``INVALID_REQUEST`` and a
+        well-typed but stale one → ``ConversationSessionConflictError``, either
+        way with no gateway call and no write), validate the user turn (a
+        non-message, a non-``USER`` role, a caller-supplied lineage or a
+        user/assistant identity that is already stored or reused within the turn
+        → ``INVALID_REQUEST``), build the one canonical command, enter the
         gateway, project the safe response with the caller's authorized
         ``domain_view`` and resolved capability state, then append the user
         message and the assistant message and commit them in one canonical
@@ -234,11 +302,14 @@ class ConversationService:
             raise ConversationBoundaryError()
         shared = self._require_shared_session(message.session_id)
         self._require_expected_revision(shared, expected_session_revision)
-        if (
-            message.role is not ConversationRole.USER
-            or message.session_id != shared.session_id
-        ):
+        if message.role is not ConversationRole.USER:
             raise ConversationBoundaryError()
+        _require_service_owned_lineage(message)
+        _require_fresh_turn_identities(
+            self._state.load_conversation(shared.session_id),
+            user_message_id=message.id,
+            assistant_message_id=assistant_message_id,
+        )
 
         command = _message_command(
             request_id=request_id,
@@ -282,12 +353,16 @@ class ConversationService:
 
         Editing is non-destructive and append-only.  The original message must
         exist and be a ``USER`` message; the original is preserved
-        byte-identical.  The service enforces lineage itself: the effective
-        replacement is the caller's message with
-        ``lineage.supersedes_message_id == original.id`` (a caller-supplied
-        lineage is replaced by the enforced one).  A replacement identity equal
-        to the original's and a replacement bound to a foreign session fail
-        closed with ``INVALID_REQUEST``.
+        byte-identical.  The original is resolved inside the replacement's own
+        session, so a replacement bound to a foreign session fails closed at
+        that lookup with ``INVALID_REQUEST`` — the binding *is* that lookup, and
+        no separate session comparison exists.  The service enforces lineage
+        itself: the effective replacement is the caller's message with
+        ``lineage.supersedes_message_id == original.id``, and a caller-supplied
+        lineage is rejected rather than silently replaced.  A replacement
+        identity that already exists (including the original's own) or that
+        reuses the assistant identity of the turn fails closed with
+        ``INVALID_REQUEST``.
 
         The canonical gateway is traversed again exactly once with the
         replacement as the application message identity, the new assistant
@@ -301,13 +376,16 @@ class ConversationService:
         shared = self._require_shared_session(replacement.session_id)
         self._require_expected_revision(shared, expected_session_revision)
 
-        original = self._require_stored_message(shared.session_id, original_message_id)
+        state = self._require_conversation(shared.session_id)
+        original = state.message(original_message_id)
         if original.role is not ConversationRole.USER:
             raise ConversationBoundaryError()
-        if replacement.id == original.id:
-            raise ConversationBoundaryError()
-        if replacement.session_id != shared.session_id:
-            raise ConversationBoundaryError()
+        _require_service_owned_lineage(replacement)
+        _require_fresh_turn_identities(
+            state,
+            user_message_id=replacement.id,
+            assistant_message_id=assistant_message_id,
+        )
         effective = replace(
             replacement,
             lineage=ConversationLineage(supersedes_message_id=original.id),
@@ -364,7 +442,11 @@ class ConversationService:
         The canonical gateway is traversed again exactly once, no hidden
         reasoning is reused or persisted, the original response is preserved
         and the new assistant message carries
-        ``lineage.regenerates_message_id == response_message_id``.
+        ``lineage.regenerates_message_id == response_message_id``.  The
+        caller-supplied ``application_message_id`` and ``assistant_message_id``
+        must be fresh identities of the target conversation and distinct from
+        each other; a collision fails closed with ``INVALID_REQUEST`` before the
+        gateway and before any write.
         """
 
         shared = self._require_shared_session(session_id)
@@ -374,6 +456,11 @@ class ConversationService:
         target = state.message(response_message_id)
         if target.role is not ConversationRole.ASSISTANT:
             raise ConversationBoundaryError()
+        _require_fresh_turn_identities(
+            state,
+            user_message_id=application_message_id,
+            assistant_message_id=assistant_message_id,
+        )
         request_message = _preceding_user_message(state.messages, target)
 
         command = _message_command(
@@ -448,29 +535,28 @@ class ConversationService:
             raise ConversationBoundaryError()
         return state
 
-    def _require_stored_message(
-        self, session_id: str, message_id: str
-    ) -> ConversationMessage:
-        """Return one stored message of the conversation, or fail closed.
-
-        A canonical session without a conversation, or a message ID that is not
-        part of the conversation state, fails closed with the conversational
-        ``INVALID_REQUEST`` boundary error.
-        """
-
-        return self._require_conversation(session_id).message(message_id)
-
     @staticmethod
     def _require_expected_revision(
         shared: SharedSessionState, expected_session_revision: int
     ) -> None:
         """Verify the caller's optimistic revision before anything is attempted.
 
-        A mismatch fails closed as the safe conversation conflict *before* the
-        gateway is entered and before any write, so a stale caller never
-        traverses the canonical pipeline.
+        A mistyped revision — a boolean, a float, a negative integer, a string
+        or any other value that is not exactly a non-negative ``int`` — is
+        caller input error and fails closed as the conversational
+        ``INVALID_REQUEST`` *before* the gateway is entered and before any
+        write, so ``True``/``False`` and ``1.0`` (which compare equal to a real
+        revision) can never reach an application-layer failure.  A well-typed
+        but stale revision fails closed as the safe conversation conflict, so a
+        stale caller never traverses the canonical pipeline.
         """
 
+        if (
+            isinstance(expected_session_revision, bool)
+            or not isinstance(expected_session_revision, int)
+            or expected_session_revision < 0
+        ):
+            raise ConversationBoundaryError()
         if shared.revision != expected_session_revision:
             raise ConversationSessionConflictError()
 

@@ -21,34 +21,43 @@ the call itself still lands on the canonical gateway.
 Proven here:
 
 - ``submit``: role ``USER`` required; the canonical session must exist; the
-  caller's expected revision is verified before the gateway call (a mismatch
-  raises the safe conversation conflict with no gateway call and no write);
+  caller's expected revision is verified before the gateway call (a mistyped
+  revision fails closed as ``INVALID_REQUEST`` and a well-typed but stale one as
+  the safe conversation conflict, either way with no gateway call and no write);
+  a caller-supplied lineage and a turn identity that is already stored or reused
+  within the turn fail closed as ``INVALID_REQUEST`` before the gateway;
   exactly one ``ApplicationCommand`` with ``MESSAGE_SUBMIT``/``CONVERSATION``/
   the canonical session/``CONVERSATION_ACTOR_ID``/no idempotency key and a
   payload carrying only the application message identity, the public content and
-  ``text/plain``; the caller's opaque ``bot_id``, references, attachments and
-  metadata stay in conversation state and never enter the application payload;
-  user + assistant messages are persisted in one canonical commit with the same
-  expected previous revision; the caller-supplied ``ConversationalDomainView``
-  is projected and the capability state is resolved from the requested
-  capabilities; a structured failed application response is preserved through
-  the safe projection and persisted (no exception text enters conversation
-  state); a persistence race propagates as the safe conversation conflict,
-  never a silent retry with a new revision;
-- ``edit``: the original must exist and be a ``USER`` message; the service
-  enforces lineage itself (``lineage.supersedes_message_id == original.id``) and
-  replaces any caller-supplied lineage; an equal replacement identity and a
-  replacement bound to a foreign session fail closed; the original is preserved
-  byte-identical; the gateway is traversed again exactly once; the new assistant
-  response receives the caller-supplied identity; a stale revision causes zero
-  persistence;
-- ``regenerate``: the target must exist and be an ``ASSISTANT`` message; the
-  nearest preceding ``USER`` message is located without being mutated (also
-  across an edit); the caller-supplied ``application_message_id`` is the
-  application message identity and no new user message is appended; the gateway
-  is traversed again; the new assistant message carries
-  ``lineage.regenerates_message_id == response_message_id``; the original
-  response is preserved; no hidden reasoning is persisted or reused;
+  ``text/plain``, carrying exactly the caller-supplied ``request_id``; the
+  caller's opaque ``bot_id``, references, attachments and metadata stay in
+  conversation state and never enter the application payload; user + assistant
+  messages are persisted in one canonical commit with the same expected previous
+  revision; the caller-supplied ``ConversationalDomainView`` is projected and
+  the capability state is resolved from the requested capabilities; a structured
+  failed application response and a structured blocked application response are
+  preserved through the safe projection and persisted (no exception text enters
+  conversation state); a persistence race propagates as the safe conversation
+  conflict, never a silent retry with a new revision;
+- ``edit``: the original must exist and be a ``USER`` message; the original is
+  resolved inside the replacement's *own* session, so a replacement bound to a
+  foreign session fails closed at that lookup; the service enforces lineage
+  itself (``lineage.supersedes_message_id == original.id``) and a caller-supplied
+  lineage is rejected rather than replaced; a replacement identity that already
+  exists (including the original's) or reuses the assistant identity of the turn
+  fails closed; the original is preserved byte-identical; the gateway is
+  traversed again exactly once with the caller-supplied ``request_id``; the new
+  assistant response receives the caller-supplied identity; a stale revision
+  causes zero persistence;
+- ``regenerate``: the target must exist and be an ``ASSISTANT`` message (also
+  when a preceding user turn exists and the preceding-user scan would resolve);
+  the caller-supplied ``application_message_id`` must be a fresh identity,
+  distinct from the assistant identity, and is the application message identity
+  — no new user message is appended; the nearest preceding ``USER`` message is
+  located without being mutated (also across an edit); the gateway is traversed
+  again with the caller-supplied ``request_id``; the new assistant message
+  carries ``lineage.regenerates_message_id == response_message_id``; the
+  original response is preserved; no hidden reasoning is persisted or reused;
 - ``cancel``: the service delegates to the canonical gateway with
   ``REQUEST_CANCEL``/``CONVERSATION``/payload ``{"request_id": target}``/
   ``session_id=None`` and returns the canonical response unchanged — at the
@@ -86,7 +95,10 @@ from cmm.application.contracts import (
     ApplicationResponse,
     ApplicationStatus,
 )
-from cmm.application.errors import InvalidApplicationRequestError
+from cmm.application.errors import (
+    InvalidApplicationRequestError,
+    PolicyDeniedApplicationError,
+)
 from cmm.application.gateway import (
     CANCELLATION_UNAVAILABLE_MESSAGE,
     ApplicationGateway,
@@ -100,6 +112,7 @@ from cmm.conversation.contracts import (
     AssistantResponse,
     ConversationAttachmentRef,
     ConversationCapabilityStatus,
+    ConversationLineage,
     ConversationMessage,
     ConversationRole,
 )
@@ -317,6 +330,40 @@ class _GatewayRecorder:
     def __call__(self, request: ApplicationRequest) -> ApplicationResponse:
         self.commands.append(request)
         return self._handle(request)
+
+
+class _StructuredResponseGateway(_GatewayRecorder):
+    """A recording delegate answering with one canonical structured response.
+
+    Like ``_GatewayRecorder`` it wraps the real bound ``handle`` of the one
+    canonical gateway (the class is never replaced, subclassed or mutated) and
+    records every constructed command, but it answers with the structured
+    ``BLOCKED``/``POLICY_DENIED`` envelope the application boundary produces for
+    a policy denial (``cmm/application/requests.py``), built from the
+    application-owned ``PolicyDeniedApplicationError``.
+
+    The composed real graph cannot reach that response for a conversational
+    turn — deterministic intent resolution stops every plain conversational
+    message at clarification before the policy is ever evaluated — so the
+    structured outcome is supplied here and the conversational preservation and
+    single-commit persistence of a genuinely structured ``BLOCKED`` response are
+    exercised end to end through the real service.
+    """
+
+    def __call__(self, request: ApplicationRequest) -> ApplicationResponse:
+        self.commands.append(request)
+        return ApplicationResponse(
+            request_id=request.request_id,
+            api_version=request.api_version,
+            status=ApplicationStatus.BLOCKED,
+            data={
+                "session_id": request.session_id,
+                "request_id": request.request_id,
+                "status": ApplicationStatus.BLOCKED.value,
+            },
+            error=PolicyDeniedApplicationError().to_public_error(),
+            metadata={},
+        )
 
 
 @dataclass
@@ -621,6 +668,30 @@ def test_submit_verifies_the_expected_revision_before_the_gateway(
     assert harness.revision() == 1
 
 
+@pytest.mark.parametrize("expected_revision", [True, False, 1.0, -1, "1"])
+def test_submit_rejects_a_mistyped_expected_revision_before_the_gateway(
+    expected_revision: object,
+) -> None:
+    """A mis-typed revision is caller input error, not a stale revision.
+
+    ``True`` and ``1.0`` compare equal to the current revision, so the pinned
+    ``!=`` guard alone would let them through to an application-layer failure;
+    every mis-typed value fails closed as the conversational ``INVALID_REQUEST``
+    before the gateway and before any write.
+    """
+
+    harness = _harness()
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, _message(), expected_session_revision=expected_revision)
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+    assert harness.revision() == 1
+
+
 def test_submit_builds_exactly_one_canonical_conversation_command() -> None:
     harness = _harness()
     message = _message()
@@ -630,6 +701,7 @@ def test_submit_builds_exactly_one_canonical_conversation_command() -> None:
     assert len(harness.recorder.commands) == 1
     command = harness.recorder.commands[0]
     assert isinstance(command, ApplicationCommand)
+    assert command.request_id == "req-submit-1"
     assert command.operation is ApplicationOperation.MESSAGE_SUBMIT
     assert command.channel is ApplicationChannel.CONVERSATION
     assert command.api_version == "v1"
@@ -785,6 +857,112 @@ def test_submit_preserves_a_structured_failed_application_response() -> None:
     assert state.messages == (message, response.message)
 
 
+def test_submit_preserves_a_structured_blocked_response_in_the_same_commit() -> None:
+    """A structured ``BLOCKED``/``POLICY_DENIED`` outcome is preserved and persisted.
+
+    The committed structured-failure test covers ``FAILED`` only; this drives the
+    structured ``BLOCKED`` envelope the canonical application boundary produces
+    for a policy denial (recording delegate over the real gateway) and asserts
+    the public failure text of the blocked outcome is projected unchanged and
+    that the user turn plus the blocked assistant turn land in the same single
+    canonical commit.
+    """
+
+    harness = _harness()
+    blocked = _StructuredResponseGateway(harness.gateway)
+    message = _message()
+
+    response = _submit(harness, message)
+
+    assert len(blocked.commands) == 1
+    assert blocked.commands[0].request_id == "req-submit-1"
+    assert response.message.role is ConversationRole.ASSISTANT
+    assert response.message.content == PolicyDeniedApplicationError.safe_message
+    assert response.message.content != InvalidApplicationRequestError.safe_message
+
+    assert harness.adapter_store.saves == 1
+    state = harness.conversation()
+    assert state is not None
+    assert state.messages == (message, response.message)
+    assert state.message(response.message.id).content == (
+        PolicyDeniedApplicationError.safe_message
+    )
+    assert harness.revision() == 2
+
+
+def test_submit_rejects_a_duplicate_user_message_id_before_the_gateway() -> None:
+    """A stored user identity is never resubmitted through the pipeline."""
+
+    harness = _harness()
+    _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(
+            harness,
+            _message(),
+            request_id="req-submit-2",
+            assistant_message_id="assistant-002",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-001", "assistant-001"]
+
+
+def test_submit_rejects_an_assistant_id_that_collides_with_a_stored_message() -> None:
+    """An assistant identity may not reuse any stored message identity."""
+
+    harness = _harness()
+    _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(
+            harness,
+            _message("user-002"),
+            request_id="req-submit-2",
+            assistant_message_id="user-001",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+
+
+def test_submit_rejects_an_assistant_id_equal_to_the_user_message_id() -> None:
+    """The two identities of one turn must be distinct, even when both are new."""
+
+    harness = _harness()
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, _message(), assistant_message_id="user-001")
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+
+
+def test_submit_rejects_a_caller_supplied_lineage() -> None:
+    """Lineage is service-owned: a submitted message carries none, by contract."""
+
+    harness = _harness()
+    message = _message(lineage=ConversationLineage(supersedes_message_id="ghost"))
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _submit(harness, message)
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+    assert harness.revision() == 1
+
+
 def test_submit_race_propagates_the_safe_conflict_without_retry() -> None:
     harness = _racing_harness()
 
@@ -912,10 +1090,27 @@ def test_edit_rejects_an_equal_replacement_identity() -> None:
     assert len(state.messages) == 2
 
 
-def test_edit_rejects_a_replacement_bound_to_a_foreign_session() -> None:
+def test_edit_rejects_a_foreign_session_replacement_at_the_original_lookup() -> None:
+    """The original is looked up inside the replacement's own session.
+
+    No session-binding branch exists in the service: the replacement declares
+    ``session-2``, so the service resolves the original identity inside *that*
+    session's own transcript — where ``user-001`` does not exist — and the edit
+    fails closed as ``INVALID_REQUEST`` before the gateway and before any write,
+    leaving both transcripts exactly as they were.
+    """
+
     harness = _harness(session_ids=(SESSION_ID, OTHER_SESSION_ID))
     original = _message()
     _submit(harness, original)
+    _submit(
+        harness,
+        _message("user-9", session_id=OTHER_SESSION_ID, content="Other session turn."),
+        request_id="req-other-1",
+        assistant_message_id="assistant-9",
+    )
+    other_before = harness.conversation(OTHER_SESSION_ID)
+    assert other_before is not None
 
     with pytest.raises(ConversationBoundaryError) as failure:
         _edit(
@@ -925,10 +1120,107 @@ def test_edit_rejects_a_replacement_bound_to_a_foreign_session() -> None:
         )
 
     assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 2
+    assert harness.adapter_store.saves == 2
+    other_after = harness.conversation(OTHER_SESSION_ID)
+    assert other_after is not None
+    assert other_after == other_before
+    assert [message.id for message in other_after.messages] == [
+        "user-9",
+        "assistant-9",
+    ]
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [original.id, "assistant-001"]
+
+
+def test_edit_rejects_a_replacement_id_that_collides_with_a_stored_message() -> None:
+    """A replacement identity may not reuse any stored message identity."""
+
+    harness = _harness()
+    original = _message()
+    submitted = _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message(submitted.message.id, content="Edited."),
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
     assert len(harness.recorder.commands) == 1
     assert harness.adapter_store.saves == 1
-    other = harness.conversation(OTHER_SESSION_ID)
-    assert other is None
+    assert harness.revision() == 2
+
+
+def test_edit_rejects_an_assistant_id_equal_to_the_replacement_id() -> None:
+    """The two identities of an edit turn must be distinct."""
+
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message("user-002", content="Edited."),
+            assistant_message_id="user-002",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+
+
+def test_edit_rejects_a_caller_supplied_lineage_on_the_replacement() -> None:
+    """Lineage is service-owned: a replacement lineage is rejected, not replaced."""
+
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message(
+                "user-002",
+                content="Edited.",
+                lineage=ConversationLineage(supersedes_message_id="ghost"),
+            ),
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [original.id, "assistant-001"]
+
+
+@pytest.mark.parametrize("expected_revision", [True, False, 1.0, -1, "1"])
+def test_edit_rejects_a_mistyped_expected_revision_before_the_gateway(
+    expected_revision: object,
+) -> None:
+    harness = _harness()
+    original = _message()
+    _submit(harness, original)
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _edit(
+            harness,
+            original_message_id=original.id,
+            replacement=_message("user-002", content="Edited."),
+            expected_session_revision=expected_revision,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
 
 
 def test_edit_traverses_the_gateway_again_exactly_once() -> None:
@@ -941,6 +1233,7 @@ def test_edit_traverses_the_gateway_again_exactly_once() -> None:
 
     assert len(harness.recorder.commands) == 2
     command = harness.recorder.commands[1]
+    assert command.request_id == "req-edit-1"
     assert command.operation is ApplicationOperation.MESSAGE_SUBMIT
     assert command.channel is ApplicationChannel.CONVERSATION
     assert command.session_id == SESSION_ID
@@ -1011,16 +1304,128 @@ def test_regenerate_requires_an_existing_assistant_target() -> None:
     assert harness.adapter_store.saves == 1
 
 
-def test_regenerate_requires_an_assistant_target() -> None:
+def test_regenerate_requires_an_assistant_target_even_with_a_preceding_user_turn() -> (
+    None
+):
+    """The ASSISTANT role guard is what rejects a USER target here.
+
+    ``user-002`` is a stored ``USER`` message that *does* have a preceding user
+    turn (``user-001``), so the preceding-user scan would resolve, and the
+    caller-supplied identities are fresh, so the identity check would resolve
+    too; only the role guard can fail closed for this target.
+    """
+
     harness = _harness()
-    _submit(harness, _message())
+    original = _message()
+    _submit(harness, original)
+    _edit(
+        harness,
+        original_message_id=original.id,
+        replacement=_message("user-002", content="Edited."),
+    )
 
     with pytest.raises(ConversationBoundaryError) as failure:
-        _regenerate(harness, response_message_id="user-001")
+        _regenerate(
+            harness,
+            response_message_id="user-002",
+            application_message_id="application-user-003",
+            assistant_message_id="assistant-003",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 2
+    assert harness.adapter_store.saves == 2
+    assert harness.revision() == 3
+    state = harness.conversation()
+    assert state is not None
+    assert [message.id for message in state.messages] == [
+        "user-001",
+        "assistant-001",
+        "user-002",
+        "assistant-002",
+    ]
+
+
+def test_regenerate_rejects_a_stored_application_message_id() -> None:
+    """The caller-supplied application identity must not already exist."""
+
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            application_message_id="user-001",
+        )
 
     assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
     assert len(harness.recorder.commands) == 1
     assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+
+
+def test_regenerate_rejects_an_assistant_id_that_collides_with_a_stored_message() -> (
+    None
+):
+    """An assistant identity may not reuse any stored message identity."""
+
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            assistant_message_id="user-001",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+
+
+def test_regenerate_rejects_an_assistant_id_equal_to_the_application_message_id() -> (
+    None
+):
+    """The two identities of a regeneration turn must be distinct."""
+
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            application_message_id="application-user-002",
+            assistant_message_id="application-user-002",
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
+
+
+@pytest.mark.parametrize("expected_revision", [True, False, 1.0, -1, "1"])
+def test_regenerate_rejects_a_mistyped_expected_revision_before_the_gateway(
+    expected_revision: object,
+) -> None:
+    harness = _harness()
+    submitted = _submit(harness, _message())
+
+    with pytest.raises(ConversationBoundaryError) as failure:
+        _regenerate(
+            harness,
+            response_message_id=submitted.message.id,
+            expected_session_revision=expected_revision,
+        )
+
+    assert failure.value.code is ConversationErrorCode.INVALID_REQUEST
+    assert len(harness.recorder.commands) == 1
+    assert harness.adapter_store.saves == 1
+    assert harness.revision() == 2
 
 
 def test_regenerate_reuses_the_preceding_user_turn_without_appending_it() -> None:
@@ -1035,6 +1440,7 @@ def test_regenerate_reuses_the_preceding_user_turn_without_appending_it() -> Non
     assert len(harness.recorder.commands) == 2
     command = harness.recorder.commands[1]
     assert isinstance(command, ApplicationCommand)
+    assert command.request_id == "req-regenerate-1"
     assert command.operation is ApplicationOperation.MESSAGE_SUBMIT
     assert command.channel is ApplicationChannel.CONVERSATION
     assert command.session_id == SESSION_ID
@@ -1143,6 +1549,42 @@ def test_regenerate_persists_no_hidden_reasoning() -> None:
         "stacktrace",
     ):
         assert denied not in walked
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# request identity passthrough
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_every_message_command_carries_the_caller_supplied_request_id() -> None:
+    """The caller's request identity is never replaced by a constant.
+
+    The recorded ``MESSAGE_SUBMIT`` command of submit, edit *and* regenerate
+    carries exactly the caller-supplied ``request_id`` of that turn.
+    """
+
+    harness = _harness()
+    original = _message()
+    _submit(harness, original, request_id="req-submit-42")
+    _edit(
+        harness,
+        original_message_id=original.id,
+        replacement=_message("user-002", content="Edited."),
+        request_id="req-edit-42",
+    )
+    _regenerate(
+        harness,
+        response_message_id="assistant-002",
+        application_message_id="application-user-003",
+        assistant_message_id="assistant-003",
+        request_id="req-regenerate-42",
+    )
+
+    assert [command.request_id for command in harness.recorder.commands] == [
+        "req-submit-42",
+        "req-edit-42",
+        "req-regenerate-42",
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
