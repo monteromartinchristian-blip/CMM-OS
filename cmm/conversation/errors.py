@@ -11,6 +11,12 @@ traceback, a filesystem path, a credential and hidden reasoning therefore cannot
 be carried, even by accident, because no field accepts them.  Unknown failures
 must map to the one generic internal-failure category rather than being copied.
 
+:class:`ConversationBoundaryError` and its subclasses are the raised
+counterparts of the same closed codes: each carries the module-owned constant
+public message of its code, and none accepts an argument, so an underlying store
+exception message, a revision value, a session path or any other internal text
+can never travel through a conversational failure.
+
 HTTP status mapping deliberately does not live here: it belongs to ``cmm.api``.
 
 See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md``.
@@ -27,8 +33,11 @@ from typing import Any
 __all__ = [
     "CONVERSATION_ERROR_MESSAGES",
     "GENERIC_CONVERSATION_FAILURE_MESSAGE",
+    "ConversationBoundaryError",
     "ConversationError",
     "ConversationErrorCode",
+    "ConversationSessionConflictError",
+    "ConversationSessionNotFoundError",
 ]
 
 
@@ -147,3 +156,40 @@ class ConversationError:
             code=_code_from_value(data["code"]),
             message=data["message"],
         )
+
+
+# ── Boundary failures ─────────────────────────────────────────────────────────
+
+
+class ConversationBoundaryError(Exception):
+    """Base safe conversational boundary failure carrying a stable closed code.
+
+    The failure carries the module-owned constant public message of its code and
+    accepts no argument: a store exception message, a revision value, a path, a
+    credential or hidden reasoning can never be attached to it.  Subclasses fix
+    the code; the base code is ``INVALID_REQUEST``, the code used when a
+    requested public conversational value cannot be resolved (for example a
+    message ID that is not part of the conversation state).
+    """
+
+    code: ConversationErrorCode = ConversationErrorCode.INVALID_REQUEST
+
+    def __init__(self) -> None:
+        super().__init__(CONVERSATION_ERROR_MESSAGES[_code_member(self.code)])
+
+
+class ConversationSessionNotFoundError(ConversationBoundaryError):
+    """Raised when the canonical shared session of a conversation is missing."""
+
+    code = ConversationErrorCode.SESSION_NOT_FOUND
+
+
+class ConversationSessionConflictError(ConversationBoundaryError):
+    """Raised when the canonical session revision conflicts with the request.
+
+    This is also the safe shape of a canonical persistence race: the durable
+    state and the attempted conversational commit disagree, and the request must
+    not silently retry with a different revision.
+    """
+
+    code = ConversationErrorCode.SESSION_CONFLICT

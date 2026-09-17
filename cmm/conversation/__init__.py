@@ -1,8 +1,9 @@
 """Phase 11.5 — canonical conversational interface public boundary.
 
 This package owns the public conversational surface of CMM OS: the frozen
-public conversational contracts and the closed, safe conversational failure
-value.  It owns no conversational authority — canonical session persistence,
+public conversational contracts, the closed, safe conversational failure value
+and the safe conversational boundary failures.  It owns no conversational
+authority — canonical session persistence,
 application dispatch, orchestration, approval, workflow, execution, memory and
 knowledge ownership all stay with their canonical packages.
 
@@ -20,11 +21,18 @@ from cmm.conversation.contracts import (
     ConversationMessage,
     ConversationRole,
 )
-from cmm.conversation.errors import ConversationError, ConversationErrorCode
+from cmm.conversation.errors import (
+    ConversationBoundaryError,
+    ConversationError,
+    ConversationErrorCode,
+    ConversationSessionConflictError,
+    ConversationSessionNotFoundError,
+)
 
 __all__ = [
     "AssistantResponse",
     "ConversationAttachmentRef",
+    "ConversationBoundaryError",
     "ConversationCapabilityState",
     "ConversationCapabilityStatus",
     "ConversationError",
@@ -32,4 +40,6 @@ __all__ = [
     "ConversationLineage",
     "ConversationMessage",
     "ConversationRole",
+    "ConversationSessionConflictError",
+    "ConversationSessionNotFoundError",
 ]
