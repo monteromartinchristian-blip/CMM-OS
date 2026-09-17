@@ -65,8 +65,15 @@ FORBIDDEN_BYPASS_IMPORTS = (
 #: Every internal import the adapter may perform.
 FORBIDDEN_API_IMPORTS = FORBIDDEN_CANONICAL_IMPORTS + FORBIDDEN_BYPASS_IMPORTS
 
-#: Exact allowlist of the internal packages the adapter depends on.
-ALLOWED_INTERNAL_IMPORTS = ("cmm.api", "cmm.application")
+#: Exact allowlist of the internal packages the adapter depends on.  Phase 11.5
+#: (DP-105) sanctions ``cmm.conversation`` as the third entry: the adapter
+#: presents the conversational surface for first-party and alternative clients,
+#: and the conversation layer is the application boundary's client — it owns no
+#: application authority and is never a bypass of the gateway
+#: (``cmm.conversation -> cmm.application``, spec section 25).  The exemption is
+#: package-exact and stays live via
+#: ``test_the_conversation_adapter_seam_is_live_and_honest`` below.
+ALLOWED_INTERNAL_IMPORTS = ("cmm.api", "cmm.application", "cmm.conversation")
 
 #: Exact allowlist of the standard-library and HTTP-stack roots the adapter may
 #: import.  A new root is a new transport dependency and must be frozen here.
@@ -272,9 +279,31 @@ def test_api_package_internal_imports_are_the_application_layer_only() -> None:
                 offenders.append(f"{path.name} -> {module}")
 
     assert not offenders, (
-        "the v1 adapter may import cmm.api and cmm.application only: "
-        f"{sorted(offenders)}"
+        "the v1 adapter may import cmm.api, cmm.application and cmm.conversation "
+        f"only: {sorted(offenders)}"
     )
+
+
+def test_the_conversation_adapter_seam_is_live_and_honest() -> None:
+    """The adapter really imports the conversation layer the seam admits.
+
+    The Phase 11.5 (DP-105) exemption may not go stale: at least one ``cmm.api``
+    module must really import ``cmm.conversation``, which is what makes the
+    adapter the presenter of the conversational surface.  Every forbidden
+    canonical owner, bypass package and string-dispatch check above stays in
+    force for it.
+    """
+
+    imported = {
+        module
+        for path in _package_files(API_PACKAGE)
+        for module in _imported_modules(path)
+    }
+
+    assert any(
+        module == "cmm.conversation" or module.startswith("cmm.conversation.")
+        for module in imported
+    ), "no cmm.api module imports cmm.conversation"
 
 
 def test_api_package_transport_imports_are_the_frozen_allowlist() -> None:

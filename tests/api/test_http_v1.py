@@ -117,6 +117,8 @@ FROZEN_STATUS_MAP = {
 }
 
 #: The frozen v1 route surface; updated only when the plan freezes a new route.
+#: Phase 11.5 (DP-105) adds the five additive conversation routes below; the
+#: pre-existing seven are unchanged.
 FROZEN_V1_PATHS = frozenset(
     {
         "/v1/health",
@@ -126,6 +128,11 @@ FROZEN_V1_PATHS = frozenset(
         "/v1/sessions/{session_id}/messages",
         "/v1/sessions/{session_id}/messages/stream",
         "/v1/requests/{request_id}/cancel",
+        "/v1/conversations/{session_id}",
+        "/v1/conversations/{session_id}/messages",
+        "/v1/conversations/{session_id}/messages/{message_id}/edit",
+        "/v1/conversations/{session_id}/responses/{message_id}/regenerate",
+        "/v1/conversations/requests/{request_id}/cancel",
     }
 )
 

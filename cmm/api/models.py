@@ -11,6 +11,12 @@ Pydantic.  It owns exactly two things:
   The application layer stays the owner of the public shape; a projection that
   drifts from the frozen v1 envelope fails loudly here rather than being served.
 
+Phase 11.5 (DP-105) adds a third, strictly additive group: the transport DTOs of
+the conversation surface.  They follow the same two rules for the canonical
+conversational contracts — explicit caller-supplied identities, revisions and
+timestamps in, re-validated ``to_dict()`` output out — and they carry no
+conversational authority of their own.
+
 Three boundaries are deliberate:
 
 - ``idempotency_key`` is absent from every request body.  Idempotency is a
@@ -52,6 +58,14 @@ from cmm.application import (
     ApplicationStatus,
     CapabilityStatus,
 )
+from cmm.conversation.contracts import (
+    MAX_COLLECTION_ITEMS,
+    MAX_STRING_LENGTH,
+    AssistantResponse,
+    ConversationCapabilityStatus,
+    ConversationRole,
+)
+from cmm.conversation.state import ConversationState
 
 __all__ = [
     "ApiVersion",
@@ -60,9 +74,21 @@ __all__ = [
     "ApplicationHealthModel",
     "ApplicationResponseModel",
     "ApplicationSessionModel",
+    "AssistantResponseModel",
+    "ConversationAttachmentRefBody",
+    "ConversationAttachmentRefModel",
+    "ConversationCapabilityStateModel",
+    "ConversationEditBody",
+    "ConversationLineageModel",
+    "ConversationMessageBody",
+    "ConversationMessageModel",
+    "ConversationRegenerateBody",
+    "ConversationStateModel",
     "CreateSessionBody",
     "MessageBody",
+    "assistant_response_model_from",
     "capability_model_from",
+    "conversation_state_model_from",
     "error_model_from",
     "health_model_from",
     "response_model_from",
@@ -245,3 +271,201 @@ def response_model_from(response: ApplicationResponse) -> ApplicationResponseMod
             f"response must be an ApplicationResponse, not {type(response).__name__}"
         )
     return ApplicationResponseModel.model_validate(response.to_dict())
+
+
+# ── Conversational transport DTOs (Phase 11.5 / DP-105) ──────────────────────
+#
+# The additive conversation surface.  The adapter still owns no conversational
+# authority: these DTOs carry the explicit identities, revision and timestamps
+# the canonical conversational service requires — so the adapter invents no
+# hidden state, owns no lineage and infers no authority from ``bot_id`` — and
+# re-validate the canonical conversational contracts' ``to_dict()`` output
+# instead of re-implementing it.
+
+#: One bounded public conversational identifier inside a request body.
+_ConversationIdentifier = Annotated[
+    str, Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+]
+
+
+class ConversationAttachmentRefBody(_TransportModel):
+    """Body of one attachment reference of a submitted conversational turn.
+
+    Attachments are references only: the transport carries the reference, its
+    kind and the optional public display metadata — never content, never bytes
+    and never a second file owner (Phase 11.5, DP-105).
+    """
+
+    ref: _ConversationIdentifier
+    kind: _ConversationIdentifier
+    name: str | None = Field(default=None, max_length=MAX_STRING_LENGTH)
+    media_type: str | None = Field(default=None, max_length=MAX_STRING_LENGTH)
+
+
+class _ConversationTurnBody(_TransportModel):
+    """The explicit inputs shared by a submitted and an edited user turn.
+
+    Every identity, the expected canonical revision and both timestamps are
+    caller-supplied: the adapter generates none of them, exposes no ``lineage``
+    field (the canonical service enforces lineage itself) and exposes no
+    ``metadata`` field (the canonical session owns the committed transcript).
+    ``content`` may be empty, exactly as the canonical conversational contract
+    allows, so an attachment-only turn stays representable.
+    """
+
+    request_id: _ConversationIdentifier
+    message_id: _ConversationIdentifier
+    content: str = Field(max_length=MAX_MESSAGE_LENGTH)
+    expected_session_revision: StrictInt = Field(ge=0)
+    created_at: _ConversationIdentifier
+    assistant_message_id: _ConversationIdentifier
+    assistant_created_at: _ConversationIdentifier
+    bot_id: _ConversationIdentifier | None = None
+    requested_capabilities: list[_ConversationIdentifier] = Field(
+        default_factory=list, max_length=MAX_COLLECTION_ITEMS
+    )
+    references: list[_ConversationIdentifier] = Field(
+        default_factory=list, max_length=MAX_COLLECTION_ITEMS
+    )
+    attachments: list[ConversationAttachmentRefBody] = Field(
+        default_factory=list, max_length=MAX_COLLECTION_ITEMS
+    )
+
+
+class ConversationMessageBody(_ConversationTurnBody):
+    """Body of ``POST /v1/conversations/{session_id}/messages``.
+
+    ``message_id`` is the identity of the submitted user message and the
+    session is the path identity, so the adapter infers neither.
+    """
+
+
+class ConversationEditBody(_ConversationTurnBody):
+    """Body of the conversational edit route.
+
+    ``message_id`` is the identity of the *replacement* message; the edited
+    original is the path identity.  The replacement carries no lineage: the
+    canonical service binds the enforced ``supersedes_message_id`` itself.
+    """
+
+
+class ConversationRegenerateBody(_TransportModel):
+    """Body of the conversational regeneration route.
+
+    The target assistant response is the path identity and
+    ``application_message_id`` is the new canonical application message
+    identity the service re-runs; no new conversational user message is
+    appended for it.
+    """
+
+    request_id: _ConversationIdentifier
+    application_message_id: _ConversationIdentifier
+    expected_session_revision: StrictInt = Field(ge=0)
+    assistant_message_id: _ConversationIdentifier
+    assistant_created_at: _ConversationIdentifier
+
+
+class ConversationAttachmentRefModel(_TransportModel):
+    """Transport view of one canonical conversational attachment reference."""
+
+    ref: str
+    kind: str
+    name: str | None = None
+    media_type: str | None = None
+
+
+class ConversationLineageModel(_TransportModel):
+    """Transport view of one canonical edit/regeneration lineage."""
+
+    supersedes_message_id: str | None = None
+    regenerates_message_id: str | None = None
+
+
+class ConversationMessageModel(_TransportModel):
+    """Transport view of one canonical conversational message."""
+
+    id: str
+    session_id: str
+    role: ConversationRole
+    content: str
+    created_at: str
+    bot_id: str | None = None
+    references: list[str] = Field(default_factory=list)
+    attachments: list[ConversationAttachmentRefModel] = Field(default_factory=list)
+    lineage: ConversationLineageModel = Field(default_factory=ConversationLineageModel)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class ConversationCapabilityStateModel(_TransportModel):
+    """Transport view of one requested/effective capability declaration.
+
+    The declaration is descriptive: a requested capability grants no authority.
+    """
+
+    capability: str
+    requested: bool
+    effective: str | None = None
+    status: ConversationCapabilityStatus
+    reason: str | None = None
+
+
+class AssistantResponseModel(_TransportModel):
+    """Transport view of one canonical ``AssistantResponse``.
+
+    ``reasoning_summary`` is the canonical public explanation surface, never a
+    hidden reasoning trace, and a reference is a public projection of a
+    canonical owner rather than the owner itself.
+    """
+
+    message: ConversationMessageModel
+    sources: list[str] = Field(default_factory=list)
+    reasoning_summary: dict[str, JsonValue] = Field(default_factory=dict)
+    pending_questions: list[str] = Field(default_factory=list)
+    proposed_actions: list[str] = Field(default_factory=list)
+    approval_requests: list[str] = Field(default_factory=list)
+    workflow_updates: list[str] = Field(default_factory=list)
+    domain_state: dict[str, JsonValue] = Field(default_factory=dict)
+    capability_state: list[ConversationCapabilityStateModel] = Field(
+        default_factory=list
+    )
+    memory_updates: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ConversationStateModel(_TransportModel):
+    """Transport view of the canonical conversational state of one session."""
+
+    version: int
+    session_id: str
+    mode: str
+    bot_id: str | None = None
+    active_message_id: str | None = None
+    messages: list[ConversationMessageModel] = Field(default_factory=list)
+
+
+def assistant_response_model_from(
+    response: AssistantResponse,
+) -> AssistantResponseModel:
+    """Return the transport view of one canonical conversational response.
+
+    The conversational contract owns the public shape: this only re-validates
+    ``to_dict()``, so a drifted or unexpected conversational projection is
+    rejected at the transport boundary instead of being served as the
+    conversation surface.
+    """
+
+    if not isinstance(response, AssistantResponse):
+        raise TypeError(
+            f"response must be an AssistantResponse, not {type(response).__name__}"
+        )
+    return AssistantResponseModel.model_validate(response.to_dict())
+
+
+def conversation_state_model_from(state: ConversationState) -> ConversationStateModel:
+    """Return the transport view of one canonical conversation state."""
+
+    if not isinstance(state, ConversationState):
+        raise TypeError(
+            f"state must be a ConversationState, not {type(state).__name__}"
+        )
+    return ConversationStateModel.model_validate(state.to_dict())

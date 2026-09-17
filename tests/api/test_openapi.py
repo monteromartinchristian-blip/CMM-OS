@@ -71,7 +71,8 @@ from cmm.platform.modules import StaticCompositionModule
 from cmm.runtime.sessions import InMemorySessionStore
 
 #: ``(method, path)`` of the frozen v1 route surface; it grows only when the
-#: plan freezes a new route.
+#: plan freezes a new route.  Phase 11.5 (DP-105) adds the five additive
+#: conversation routes below; the pre-existing seven are unchanged.
 FROZEN_V1_ROUTES = (
     ("get", "/v1/health"),
     ("get", "/v1/capabilities"),
@@ -80,6 +81,11 @@ FROZEN_V1_ROUTES = (
     ("post", "/v1/sessions/{session_id}/messages"),
     ("post", "/v1/sessions/{session_id}/messages/stream"),
     ("post", "/v1/requests/{request_id}/cancel"),
+    ("get", "/v1/conversations/{session_id}"),
+    ("post", "/v1/conversations/{session_id}/messages"),
+    ("post", "/v1/conversations/{session_id}/messages/{message_id}/edit"),
+    ("post", "/v1/conversations/{session_id}/responses/{message_id}/regenerate"),
+    ("post", "/v1/conversations/requests/{request_id}/cancel"),
 )
 
 #: The frozen v1 route surface as a set of paths.
@@ -106,11 +112,40 @@ FROZEN_V1_OPERATION_IDS = {
         "post",
         "/v1/requests/{request_id}/cancel",
     ): "cancel_request_v1_requests__request_id__cancel_post",
+    (
+        "get",
+        "/v1/conversations/{session_id}",
+    ): "get_conversation_v1_conversations__session_id__get",
+    (
+        "post",
+        "/v1/conversations/{session_id}/messages",
+    ): "submit_conversation_message_v1_conversations__session_id__messages_post",
+    (
+        "post",
+        "/v1/conversations/{session_id}/messages/{message_id}/edit",
+    ): "edit_conversation_message_v1_conversations__session_id__messages__message_id__edit_post",
+    (
+        "post",
+        "/v1/conversations/{session_id}/responses/{message_id}/regenerate",
+    ): (
+        "regenerate_conversation_response_v1_conversations__session_id__"
+        "responses__message_id__regenerate_post"
+    ),
+    (
+        "post",
+        "/v1/conversations/requests/{request_id}/cancel",
+    ): "cancel_conversation_request_v1_conversations_requests__request_id__cancel_post",
 }
 
 #: The application operation each frozen route dispatches.  The streaming route
 #: dispatches the same versioned ``MESSAGE_SUBMIT`` command as the non-streaming
 #: one, which is what keeps the two public surfaces one application operation.
+#: Phase 11.5 (DP-105) adds the conversation routes: the three conversation turn
+#: routes reach the canonical ``MESSAGE_SUBMIT`` command and the conversation
+#: cancellation reaches ``REQUEST_CANCEL``, both through the conversation
+#: service, while the conversation read answers the canonical session's
+#: conversation state (the session-scoped read ``SESSION_GET``; it creates no
+#: public resource).
 FROZEN_V1_OPERATIONS = {
     ("get", "/v1/health"): ApplicationOperation.HEALTH_GET,
     ("get", "/v1/capabilities"): ApplicationOperation.CAPABILITIES_LIST,
@@ -128,10 +163,29 @@ FROZEN_V1_OPERATIONS = {
         "post",
         "/v1/requests/{request_id}/cancel",
     ): ApplicationOperation.REQUEST_CANCEL,
+    ("get", "/v1/conversations/{session_id}"): ApplicationOperation.SESSION_GET,
+    (
+        "post",
+        "/v1/conversations/{session_id}/messages",
+    ): ApplicationOperation.MESSAGE_SUBMIT,
+    (
+        "post",
+        "/v1/conversations/{session_id}/messages/{message_id}/edit",
+    ): ApplicationOperation.MESSAGE_SUBMIT,
+    (
+        "post",
+        "/v1/conversations/{session_id}/responses/{message_id}/regenerate",
+    ): ApplicationOperation.MESSAGE_SUBMIT,
+    (
+        "post",
+        "/v1/conversations/requests/{request_id}/cancel",
+    ): ApplicationOperation.REQUEST_CANCEL,
 }
 
 #: The status the published document declares for a successful call.  Only
 #: session creation creates a public resource, so only it answers ``201``.
+#: Phase 11.5 (DP-105) adds the conversation routes, which create no public
+#: resource and therefore answer ``200`` like every other read or turn.
 FROZEN_V1_SUCCESS_STATUS = {
     ("get", "/v1/health"): 200,
     ("get", "/v1/capabilities"): 200,
@@ -140,6 +194,11 @@ FROZEN_V1_SUCCESS_STATUS = {
     ("post", "/v1/sessions/{session_id}/messages"): 200,
     ("post", "/v1/sessions/{session_id}/messages/stream"): 200,
     ("post", "/v1/requests/{request_id}/cancel"): 200,
+    ("get", "/v1/conversations/{session_id}"): 200,
+    ("post", "/v1/conversations/{session_id}/messages"): 200,
+    ("post", "/v1/conversations/{session_id}/messages/{message_id}/edit"): 200,
+    ("post", "/v1/conversations/{session_id}/responses/{message_id}/regenerate"): 200,
+    ("post", "/v1/conversations/requests/{request_id}/cancel"): 200,
 }
 
 #: The route that answers with server-sent events instead of the JSON envelope.
@@ -148,12 +207,19 @@ STREAM_ROUTE = ("post", "/v1/sessions/{session_id}/messages/stream")
 #: Frozen schema set of the published document: the schemas the application and
 #: the adapter own, plus the two the framework contributes to every validated
 #: operation.  A new schema is a document change and must be frozen here.
+#: Phase 11.5 (DP-105) adds the four conversation request bodies; the
+#: conversational response contracts stay internal to the transport, because
+#: they are carried inside the one public envelope's ``data``.
 FROZEN_APPLICATION_SCHEMAS = frozenset(
     {
         "ApplicationErrorCode",
         "ApplicationErrorModel",
         "ApplicationResponseModel",
         "ApplicationStatus",
+        "ConversationAttachmentRefBody",
+        "ConversationEditBody",
+        "ConversationMessageBody",
+        "ConversationRegenerateBody",
         "CreateSessionBody",
         "JsonValue",
         "MessageBody",

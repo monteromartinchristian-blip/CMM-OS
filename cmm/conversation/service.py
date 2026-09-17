@@ -72,6 +72,12 @@ Operations:
   canonical answer is ``CAPABILITY_UNAVAILABLE`` — and introduces no
   active-request registry.
 
+``load`` is the service's one read-only accessor (Phase 11.5/DP-105): it
+delegates to the canonical shared-session adapter, returns the conversation
+state or ``None`` when the canonical session or its conversation extension is
+absent, and writes nothing, so a consumer can read a conversation without
+reaching the canonical store itself.
+
 ``regenerate`` receives the canonical ``session_id`` the target response
 belongs to (the transcript is per canonical session, and the target, the
 preceding user turn and the commit are all resolved from that session alone).
@@ -595,6 +601,21 @@ class ConversationService:
             channel=ApplicationChannel.CONVERSATION,
         )
         return self._gateway.handle(command)
+
+    # ── read ─────────────────────────────────────────────────────────────────
+
+    def load(self, session_id: str) -> ConversationState | None:
+        """Return the canonical conversation state of one session, or ``None``.
+
+        This is the one read-only accessor of the service: it delegates to the
+        canonical shared-session adapter, returns ``None`` when the canonical
+        session or its conversation extension is absent, and writes nothing, so
+        a consumer (the HTTP adapter) can read a conversation without ever
+        reaching the canonical store itself.  An unreadable or corrupt store
+        still fails closed as the safe conversation conflict.
+        """
+
+        return self._state.load_conversation(session_id)
 
     # ── Canonical session preconditions ──────────────────────────────────────
 

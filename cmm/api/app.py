@@ -30,12 +30,19 @@ Six rules make the adapter safe:
   synchronous application core is invoked from the framework's thread pool and
   no async duplicate of any service exists.
 
+Phase 11.5 (DP-105) adds one strictly additive keyword — ``conversation`` — and
+the five conversation routes of the conversational surface.  Those handlers
+still only parse, delegate to the one ``ConversationService``, serialize and map
+safe errors: without the service every conversation route answers the frozen
+capability-unavailable failure, and a caller that passes no service keeps the
+pre-existing behaviour and OpenAPI of every pre-existing endpoint.
+
 See ``docs/reference/phase-11-application-backend.md``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any
 from uuid import UUID, uuid4, uuid5
 
@@ -56,8 +63,13 @@ from cmm.api.errors import (
 )
 from cmm.api.models import (
     ApplicationResponseModel,
+    ConversationEditBody,
+    ConversationMessageBody,
+    ConversationRegenerateBody,
     CreateSessionBody,
     MessageBody,
+    assistant_response_model_from,
+    conversation_state_model_from,
     response_model_from,
 )
 from cmm.api.streaming import (
@@ -75,10 +87,30 @@ from cmm.application import (
     ApplicationOperation,
     ApplicationQuery,
     ApplicationRequest,
+    ApplicationResourceNotFoundError,
     ApplicationResponse,
+    ApplicationServiceError,
+    ApplicationStatus,
+    ApprovalRequiredApplicationError,
+    CapabilityUnavailableError,
+    ConcurrencyConflictError,
+    InternalApplicationError,
+    InvalidApplicationRequestError,
+    PolicyDeniedApplicationError,
     failed_response,
     safe_error_from_exception,
 )
+from cmm.conversation.contracts import (
+    ConversationAttachmentRef,
+    ConversationMessage,
+    ConversationRole,
+)
+from cmm.conversation.errors import (
+    ConversationBoundaryError,
+    ConversationErrorCode,
+    ConversationSessionNotFoundError,
+)
+from cmm.conversation.service import ConversationService
 
 __all__ = ["create_app"]
 
@@ -87,6 +119,29 @@ REQUEST_ID_HEADER = "X-Request-ID"
 
 #: Public idempotency header; only the commands that opt into replay read it.
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+
+#: Phase 11.5 (DP-105) — the successful status of every conversation answer.  No
+#: conversation route creates a public resource, so the frozen status map's
+#: default applies; ``test_the_conversation_success_status_is_the_frozen_default``
+#: pins the equality.
+_CONVERSATION_SUCCESS_STATUS = 200
+
+#: Phase 11.5 (DP-105) — the safe public application failure of every closed
+#: conversational boundary code.  The mapping is total: a code the table does
+#: not know (and any unexpected defect) becomes the one generic internal
+#: failure, and the public message stays application-owned, so no conversational
+#: text, path or traceback can be published by copying it.
+_CONVERSATION_FAILURES: Mapping[
+    ConversationErrorCode, type[ApplicationServiceError]
+] = {
+    ConversationErrorCode.INVALID_REQUEST: InvalidApplicationRequestError,
+    ConversationErrorCode.SESSION_NOT_FOUND: ApplicationResourceNotFoundError,
+    ConversationErrorCode.SESSION_CONFLICT: ConcurrencyConflictError,
+    ConversationErrorCode.CAPABILITY_UNAVAILABLE: CapabilityUnavailableError,
+    ConversationErrorCode.POLICY_DENIED: PolicyDeniedApplicationError,
+    ConversationErrorCode.APPROVAL_REQUIRED: ApprovalRequiredApplicationError,
+    ConversationErrorCode.INTERNAL_FAILURE: InternalApplicationError,
+}
 
 #: A public identifier as it appears in a request path.
 _PathIdentifier = Annotated[str, Path(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)]
@@ -97,13 +152,31 @@ _PathIdentifier = Annotated[str, Path(min_length=1, max_length=MAX_IDENTIFIER_LE
 _MESSAGE_ID_NAMESPACE = UUID("9138a986-0034-48fe-8647-86a564918bb9")
 
 
-def create_app(gateway: ApplicationGateway) -> FastAPI:
-    """Build the v1 HTTP adapter over one composed application gateway."""
+def create_app(
+    gateway: ApplicationGateway,
+    *,
+    conversation: ConversationService | None = None,
+) -> FastAPI:
+    """Build the v1 HTTP adapter over one composed application gateway.
+
+    The optional keyword-only ``conversation`` service is the Phase 11.5
+    (DP-105) additive seam: the transport adapter presents the conversational
+    surface and delegates every conversational turn to that one service.  A
+    caller that passes no service keeps the pre-existing routes and OpenAPI
+    unchanged, and every conversation route answers the frozen
+    capability-unavailable failure instead of failing at construction.
+    """
 
     if not isinstance(gateway, ApplicationGateway):
         raise TypeError(
             "gateway must be the canonical ApplicationGateway, "
             f"not {type(gateway).__name__}"
+        )
+
+    if conversation is not None and not isinstance(conversation, ConversationService):
+        raise TypeError(
+            "conversation must be the canonical ConversationService or None, "
+            f"not {type(conversation).__name__}"
         )
 
     app = FastAPI(title="CMM OS Application API", version="1.0.0")
@@ -445,5 +518,272 @@ def create_app(gateway: ApplicationGateway) -> FastAPI:
                 payload={"target_request_id": request_id},
             ),
         )
+
+    # ── Conversation surface (Phase 11.5 / DP-105) ──────────────────────────
+
+    def _conversation_error(exc: ConversationBoundaryError) -> ApplicationError:
+        """Return the safe public application error of one conversational failure.
+
+        The closed conversational code selects the application layer's own typed
+        failure, so the public code and message stay application-owned and no
+        conversational text is copied; an unexpected code falls to the one
+        generic internal failure instead of being published.
+        """
+
+        failure = _CONVERSATION_FAILURES.get(exc.code, InternalApplicationError)
+        return failure().to_public_error()
+
+    def _conversation_message(
+        session_id: str, body: ConversationMessageBody | ConversationEditBody
+    ) -> ConversationMessage:
+        """Return the canonical message of one conversational turn body.
+
+        The session identity is the path identity and the message identity is
+        the body identity; ``bot_id`` is carried as the opaque association of
+        the contract and never as authority.  No lineage and no metadata are
+        invented here: the canonical service owns lineage and the canonical
+        session owns the committed transcript.
+        """
+
+        return ConversationMessage(
+            id=body.message_id,
+            session_id=session_id,
+            role=ConversationRole.USER,
+            content=body.content,
+            created_at=body.created_at,
+            bot_id=body.bot_id,
+            references=tuple(body.references),
+            attachments=tuple(
+                ConversationAttachmentRef(
+                    ref=attachment.ref,
+                    kind=attachment.kind,
+                    name=attachment.name,
+                    media_type=attachment.media_type,
+                )
+                for attachment in body.attachments
+            ),
+        )
+
+    def _conversation_envelope(
+        request_id: str, payload: dict[str, Any]
+    ) -> ApplicationResponseModel:
+        """Return the one public envelope carrying a conversational payload.
+
+        The payload is the canonical conversational contract's serialization;
+        the envelope is the frozen public response shape of the ``/v1``
+        surface, so a client keeps one response shape and never sees an ad-hoc
+        one.
+        """
+
+        return ApplicationResponseModel(
+            request_id=request_id,
+            api_version=APPLICATION_API_VERSION,
+            status=ApplicationStatus.SUCCESS,
+            data=payload,
+        )
+
+    def _conversation_answer(
+        raw_request: Request,
+        raw_response: Response,
+        call: Callable[
+            [ConversationService, str], tuple[ApplicationResponseModel, int]
+        ],
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Delegate one conversation route to the canonical service.
+
+        The handler parses, delegates, serializes and maps safe errors only.  A
+        raised conversational boundary failure becomes the application layer's
+        own typed failure (never a copy), a rejected public conversational value
+        becomes an invalid request, and anything unexpected fails closed as the
+        generic internal failure — so no internal text, path or traceback can
+        escape.  Without the service every conversation route reports the frozen
+        capability-unavailable failure rather than crashing.
+        """
+
+        request_id, defect = _correlation_identity(raw_request)
+        if defect is not None:
+            return _error_response(request_id, defect)
+        if conversation is None:
+            return _error_response(
+                request_id, CapabilityUnavailableError().to_public_error()
+            )
+        try:
+            envelope, status_code = call(conversation, request_id)
+        except ConversationBoundaryError as exc:
+            return _error_response(request_id, _conversation_error(exc))
+        except (TypeError, ValueError):
+            # The public conversational contract rejected values built from
+            # caller input, so the request is invalid rather than internally
+            # broken.
+            return _error_response(
+                request_id, invalid_request_error(REASON_INVALID_REQUEST_CONTRACT)
+            )
+        except Exception as exc:  # noqa: BLE001 - the adapter boundary fails closed
+            return _error_response(request_id, safe_error_from_exception(exc))
+        raw_response.status_code = status_code
+        raw_response.headers[REQUEST_ID_HEADER] = envelope.request_id
+        return envelope
+
+    @app.get(
+        "/v1/conversations/{session_id}",
+        response_model=ApplicationResponseModel,
+        summary="Read one canonical conversation",
+    )
+    def get_conversation(
+        session_id: _PathIdentifier,
+        raw_request: Request,
+        raw_response: Response,
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Read the canonical conversation state through the service only."""
+
+        def call(
+            service: ConversationService, request_id: str
+        ) -> tuple[ApplicationResponseModel, int]:
+            state = service.load(session_id)
+            if state is None:
+                raise ConversationSessionNotFoundError()
+            return (
+                _conversation_envelope(
+                    request_id,
+                    conversation_state_model_from(state).model_dump(mode="json"),
+                ),
+                _CONVERSATION_SUCCESS_STATUS,
+            )
+
+        return _conversation_answer(raw_request, raw_response, call)
+
+    @app.post(
+        "/v1/conversations/{session_id}/messages",
+        response_model=ApplicationResponseModel,
+        summary="Submit one conversational user turn",
+    )
+    def submit_conversation_message(
+        session_id: _PathIdentifier,
+        body: ConversationMessageBody,
+        raw_request: Request,
+        raw_response: Response,
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Submit one user turn built from the caller's explicit input only."""
+
+        def call(
+            service: ConversationService, request_id: str
+        ) -> tuple[ApplicationResponseModel, int]:
+            response = service.submit(
+                _conversation_message(session_id, body),
+                request_id=body.request_id,
+                expected_session_revision=body.expected_session_revision,
+                requested_capabilities=tuple(body.requested_capabilities),
+                assistant_message_id=body.assistant_message_id,
+                assistant_created_at=body.assistant_created_at,
+            )
+            return (
+                _conversation_envelope(
+                    request_id,
+                    assistant_response_model_from(response).model_dump(mode="json"),
+                ),
+                _CONVERSATION_SUCCESS_STATUS,
+            )
+
+        return _conversation_answer(raw_request, raw_response, call)
+
+    @app.post(
+        "/v1/conversations/{session_id}/messages/{message_id}/edit",
+        response_model=ApplicationResponseModel,
+        summary="Edit one conversational user message",
+    )
+    def edit_conversation_message(
+        session_id: _PathIdentifier,
+        message_id: _PathIdentifier,
+        body: ConversationEditBody,
+        raw_request: Request,
+        raw_response: Response,
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Edit through a lineage-bound replacement; the original is the path identity."""
+
+        def call(
+            service: ConversationService, request_id: str
+        ) -> tuple[ApplicationResponseModel, int]:
+            response = service.edit(
+                original_message_id=message_id,
+                replacement=_conversation_message(session_id, body),
+                request_id=body.request_id,
+                expected_session_revision=body.expected_session_revision,
+                requested_capabilities=tuple(body.requested_capabilities),
+                assistant_message_id=body.assistant_message_id,
+                assistant_created_at=body.assistant_created_at,
+            )
+            return (
+                _conversation_envelope(
+                    request_id,
+                    assistant_response_model_from(response).model_dump(mode="json"),
+                ),
+                _CONVERSATION_SUCCESS_STATUS,
+            )
+
+        return _conversation_answer(raw_request, raw_response, call)
+
+    @app.post(
+        "/v1/conversations/{session_id}/responses/{message_id}/regenerate",
+        response_model=ApplicationResponseModel,
+        summary="Regenerate one conversational assistant response",
+    )
+    def regenerate_conversation_response(
+        session_id: _PathIdentifier,
+        message_id: _PathIdentifier,
+        body: ConversationRegenerateBody,
+        raw_request: Request,
+        raw_response: Response,
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Regenerate the target response through the canonical pipeline again."""
+
+        def call(
+            service: ConversationService, request_id: str
+        ) -> tuple[ApplicationResponseModel, int]:
+            response = service.regenerate(
+                session_id=session_id,
+                response_message_id=message_id,
+                request_id=body.request_id,
+                application_message_id=body.application_message_id,
+                expected_session_revision=body.expected_session_revision,
+                assistant_message_id=body.assistant_message_id,
+                assistant_created_at=body.assistant_created_at,
+            )
+            return (
+                _conversation_envelope(
+                    request_id,
+                    assistant_response_model_from(response).model_dump(mode="json"),
+                ),
+                _CONVERSATION_SUCCESS_STATUS,
+            )
+
+        return _conversation_answer(raw_request, raw_response, call)
+
+    @app.post(
+        "/v1/conversations/requests/{request_id}/cancel",
+        response_model=ApplicationResponseModel,
+        summary="Request cancellation of a conversational request",
+    )
+    def cancel_conversation_request(
+        request_id: _PathIdentifier,
+        raw_request: Request,
+        raw_response: Response,
+    ) -> ApplicationResponseModel | JSONResponse:
+        """Delegate the request-scoped cancellation to the canonical service."""
+
+        def call(
+            service: ConversationService, correlation_id: str
+        ) -> tuple[ApplicationResponseModel, int]:
+            application_response = service.cancel(
+                request_id=correlation_id, target_request_id=request_id
+            )
+            return (
+                response_model_from(application_response),
+                http_status_for(
+                    application_response,
+                    operation=ApplicationOperation.REQUEST_CANCEL,
+                ),
+            )
+
+        return _conversation_answer(raw_request, raw_response, call)
 
     return app

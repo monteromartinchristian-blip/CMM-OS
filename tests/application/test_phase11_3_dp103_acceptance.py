@@ -1273,6 +1273,8 @@ def test_scenario_g_http_serves_no_v2_route() -> None:
 
     paths = {route.path for route in backend.app.routes}
     assert not [path for path in paths if path.startswith("/v2")]
+    # Phase 11.5 (DP-105) adds the five additive conversation routes; the
+    # pre-existing seven are unchanged.
     assert {path for path in paths if path.startswith("/v1")} == {
         "/v1/health",
         "/v1/capabilities",
@@ -1281,6 +1283,11 @@ def test_scenario_g_http_serves_no_v2_route() -> None:
         "/v1/sessions/{session_id}/messages",
         "/v1/sessions/{session_id}/messages/stream",
         "/v1/requests/{request_id}/cancel",
+        "/v1/conversations/{session_id}",
+        "/v1/conversations/{session_id}/messages",
+        "/v1/conversations/{session_id}/messages/{message_id}/edit",
+        "/v1/conversations/{session_id}/responses/{message_id}/regenerate",
+        "/v1/conversations/requests/{request_id}/cancel",
     }
 
     for response in (
@@ -1930,9 +1937,11 @@ def test_scenario_m_route_wiring_exposes_application_contracts_only() -> None:
         for value in _closure_values(entrypoint):
             assert not isinstance(value, CANONICAL_AUTHORITY_TYPES)
 
+    # Phase 11.5 (DP-105) adds five conversation routes: seven pre-existing
+    # plus five conversation paths, all under the one ``/v1`` surface.
     assert (
         len({route.path for route in backend.app.routes if isinstance(route, APIRoute)})
-        == 7
+        == 12
     )
 
 
