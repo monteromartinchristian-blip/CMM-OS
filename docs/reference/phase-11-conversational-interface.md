@@ -440,7 +440,7 @@ capability-unavailable failure instead of failing at construction.
 
 | Method | Path | Delegates to | Success status | Application operation reached |
 | --- | --- | --- | --- | --- |
-| `GET` | `/v1/conversations/{session_id}` | `ConversationService.load` | `200` | session-scoped read (`SESSION_GET`); creates no public resource |
+| `GET` | `/v1/conversations/{session_id}` | `ConversationService.load` | `200` | canonical session read via the shared-session adapter; no application operation dispatched; creates no public resource |
 | `POST` | `/v1/conversations/{session_id}/messages` | `ConversationService.submit` | `200` | `MESSAGE_SUBMIT` |
 | `POST` | `/v1/conversations/{session_id}/messages/{message_id}/edit` | `ConversationService.edit` | `200` | `MESSAGE_SUBMIT` |
 | `POST` | `/v1/conversations/{session_id}/responses/{message_id}/regenerate` | `ConversationService.regenerate` | `200` | `MESSAGE_SUBMIT` |
