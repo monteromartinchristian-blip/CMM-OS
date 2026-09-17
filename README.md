@@ -248,8 +248,10 @@ Re-audit V1 `PASS`: `F11-018=VERIFIED_EXISTING`,
 `MINORS=0`, `MINOR_01=VERIFIED_REMEDIATED`, and
 `CLOSURE_ELIGIBLE=YES`. The audited remediation HEAD is
 `1d6208d3ad849a0d59e5e4c85f63f36a331557d9` and the exact Re-audit V1 bundle SHA-256 is
-`7086611069256b01c13a007f64584343382b39c66cef75cd2a2e601ab5ad5a26`. Phase 11.5 — Conversational Interface is the next subphase and
-must begin with a fresh repository inspection.
+`7086611069256b01c13a007f64584343382b39c66cef75cd2a2e601ab5ad5a26`. Phase 11.5 — Conversational Interface is
+implemented and awaiting independent audit (`F11-019` / `DP-105` / `AT-DP-105`;
+see [`docs/reference/phase-11-conversational-interface.md`](docs/reference/phase-11-conversational-interface.md));
+its implementation began after a fresh repository inspection.
 
 ## Project status
 
@@ -266,7 +268,7 @@ must begin with a fresh repository inspection.
 | 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Complete and audited |
 | 10 | Domain Intelligence | In progress |
-| 11 | Integrated stable platform | In progress — 11.4 CLI independently re-audited and closed; 11.5 Conversational Interface next |
+| 11 | Integrated stable platform | In progress — 11.4 CLI independently re-audited and closed; 11.5 Conversational Interface implemented and awaiting independent audit |
 
 Phases 0–9 have been implemented and audited against explicit requirements. The current baseline is **5409 passing tests with no failures or skips**.
 

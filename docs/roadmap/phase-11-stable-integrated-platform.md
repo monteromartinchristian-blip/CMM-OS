@@ -1326,6 +1326,121 @@ When relevant, the interface must show:
 - complete Orchestrator integration;
 - E2E tests.
 
+### 11.5 implementation status
+
+**Status:** `IMPLEMENTED — AWAITING INDEPENDENT AUDIT`
+
+Implemented by the new `cmm/conversation/` package over the closed Phase 11.1–11.4
+platform, plus strictly additive seams in the closed packages:
+
+- requirement `F11-019 — Canonical Conversational Interface`;
+- Design Point `DP-105 — Session-Backed Canonical Conversation Boundary`;
+- acceptance test `AT-DP-105 — Canonical Conversational Interaction Acceptance`
+  — `tests/conversation/test_phase11_5_dp105_acceptance.py` (one connected
+  acceptance over the real canonical vertical: canonical shared session ->
+  official `InMemorySessionStore` -> `ConversationService` ->
+  `ApplicationGateway` -> `RequestApplicationService` -> the real Phase 11.2
+  `Orchestrator` -> real canonical domain routing and a genuine authorized
+  Phase 10.45 `ConversationalDomainView` -> `AssistantResponse` ->
+  `conversation.v1` persisted through the canonical store; scenarios A–I plus
+  the in-graph domain-route positive control);
+- focused suite — `tests/conversation/` (685 tests across nine modules);
+- architecture/security gate — `tests/conversation/test_architecture.py`
+  (125 tests) plus the inherited application/API/platform architecture gates
+  and the API OpenAPI and frozen-route-surface gates;
+- reference documentation —
+  [`docs/reference/phase-11-conversational-interface.md`](../reference/phase-11-conversational-interface.md);
+- requirements matrix rows — `F11-019` -> `DP-105` -> `AT-DP-105` in
+  [`docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`](../reference/phase-11-stable-integrated-platform-requirements-matrix.md);
+- design specification — `docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md`;
+- implementation plan — `docs/superpowers/plans/2026-09-17-phase-11.5-conversational-interface-implementation-plan.md`.
+
+The subphase introduces one conversational boundary package and no new authority:
+
+- `cmm/conversation/contracts.py` — the frozen public conversational contracts
+  and their bounded, secret-free value grammar;
+- `cmm/conversation/errors.py` — the closed safe conversational failure
+  vocabulary;
+- `cmm/conversation/state.py` — the versioned `conversation.v1` extension of the
+  canonical shared session and its optimistic-revision commit rules (the
+  canonical `SessionStore` stays the only persistence authority);
+- `cmm/conversation/capabilities.py` — the requested-versus-effective capability
+  representation;
+- `cmm/conversation/projection.py` — the safe projection of authorized
+  application and Phase 10.45 Domain projections;
+- `cmm/conversation/service.py` — `ConversationService` over the canonical
+  `ApplicationGateway` (actor constant `CONVERSATION_ACTOR_ID = "conversation"`;
+  no idempotency key is ever set);
+- `cmm/conversation/platform_module.py` — the Phase 11.1 composition binding
+  `conversation.service`;
+- `cmm/conversation/__init__.py` — the public re-export surface.
+
+Additive seams in the closed packages: the
+`ApplicationChannel.CONVERSATION` value and its one-to-one mapping to the
+pre-existing `OrchestrationChannel.CONVERSATION`; the canonical local-runtime
+`session_store` reference; and the optional `conversation` keyword with the five
+additive `/v1/conversations/...` routes in the HTTP adapter. No Phase 11.1–11.4
+production semantics were reopened. The closed-phase test surfaces touched are
+exactly two additive architecture-gate seams (`tests/application/test_architecture.py`,
+`tests/api/test_architecture.py`) and the exact-set/allowlist pins of
+`tests/application/test_channels.py`, `tests/application/test_local_runtime.py`,
+`tests/api/test_http_v1.py`, `tests/api/test_openapi.py`,
+`tests/application/test_phase11_3_dp103_acceptance.py` and
+`tests/platform/test_architecture.py` — every change additive and documented,
+with no assertion weakened.
+
+Conversational capability truth at this baseline:
+`continuous_conversation` / `message_editing` / `controlled_regeneration` /
+`attachments` / `bot_association` / `domain_projection` are `available`
+(`session_backed_multi_turn` / `append_only_lineage` / `canonical_reexecution` /
+`reference_only` / `opaque_non_authoritative` /
+`authorized_projection_when_supplied_by_canonical_integrator`);
+`response_streaming` is `degraded` with the effective mode
+`response_event_stream` (no provider token-streaming runtime exists);
+`request_cancellation` is `unavailable` with reason `NO_CANCELLABLE_OWNER` (the
+canonical cancellation answer stays `CAPABILITY_UNAVAILABLE`); `document_upload`
+is `unavailable` with reason `NO_CANONICAL_STORAGE_OWNER`.
+
+Pre-audit evidence observed in this repository while preparing the Phase 11.5
+documentation (CWD `/Users/chris/CMM OS`,
+`"/Users/chris/CMM OS/.venv/bin/python"`, Python 3.14):
+
+```text
+tests/conversation                                     685 passed
+tests/conversation/test_phase11_5_dp105_acceptance.py    1 passed
+inherited connected acceptance chain                   249 passed
+```
+
+The complete Phase 11.5 gate run and the exact-HEAD audit bundle are produced by
+the implementation plan's later verification tasks and reported in their
+handoff, to be independently re-verified by the independent audit.
+
+Pre-audit documentary state:
+
+```text
+PHASE11_5=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+
+F11_019=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+DP_105=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+AT_DP_105=GREEN_IN_REPOSITORY
+
+CLOSURE_ELIGIBLE=NO
+AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
+NEXT=INDEPENDENT_AUDIT
+```
+
+Phase 11.5 is implemented and awaiting independent audit; it is not closed and
+not closure-eligible before that audit returns its evidence. The next subphase
+must not be described as started.
+
+Historical numbering collision, recorded explicitly: this document also carries
+a historical version-plan entry whose secondary heading is
+`## 11.5 — Operational Workspace` (preserved below, unrenumbered). Its canonical
+identity is **not** the current subphase: the canonical Phase 11.5 is
+Conversational Interface (`F11-019`, `DP-105`, `AT-DP-105`), and the historical
+entry is a version-summary listing that must never be read as a second Phase 11.5
+requirement. No historical artifact is renumbered or rewritten here.
+
 ---
 
 # 11.6 — Goal Workspace
@@ -5720,6 +5835,12 @@ The user will be able to use CMM OS through natural conversation.
 ---
 
 ## 11.5 — Operational Workspace
+
+Historical version-plan entry — deferred integration summary; not the canonical
+Phase 11.5 identifier. The canonical Phase 11.5 is the Conversational Interface
+defined above (`11.5 — Conversational Interface`, requirement `F11-019`, Design
+Point `DP-105`); this historical version-summary entry is preserved unrenumbered
+so it cannot create a second Phase 11.5 or a duplicate subphase identifier.
 
 ### Objective
 
