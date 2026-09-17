@@ -58,10 +58,20 @@ Scenario map (all connected, in one acceptance):
 - G Bot and attachment non-authority — visible, persisted, authoritative for
   nothing, no file bytes;
 - H visibility is not authorization — an authorized approval ref never becomes
-  approved, a proposed action never executes, hidden/unselected/stale refs stay
-  absent;
+  approved, a proposed action never executes, and the refs the canonical
+  projection omits on effective-visibility grounds (an item flagged
+  ``visible=False``, an item placed only in a non-visible section, and stale
+  group refs with no effectively visible display item) stay absent;
 - I public safety — attacker metadata fails before persistence and every
   acceptance response dict is walked for forbidden fragments.
+
+The acceptance closes with one in-graph, mock-free positive control: two
+directly built structured ``OrchestrationRequest``s driven through the same real
+orchestrator prove that the composed canonical domain route is live (a
+goal-shaped request escalates through a real domain route; a question-shaped
+request routes with a primary domain), complementing the conversational
+clarification route pinned by A–I.  The control is not a conversational turn and
+is excluded from the conversational traversal totals.
 
 See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md``
 §29 and the committed Phase 11.5 plan (Task 10).
@@ -137,7 +147,7 @@ from cmm.conversation.state import (
 from cmm.domains.api import DefaultDomainAPI
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainDefinition
-from cmm.domains.enums import DomainKind
+from cmm.domains.enums import DomainKind, DomainResolutionStatus
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
@@ -173,6 +183,9 @@ from cmm.orchestration.contracts import (
     ExecutionRoute,
     IntentKind,
     OrchestrationChannel,
+    OrchestrationRequest,
+    OrchestrationStatus,
+    PolicyDisposition,
 )
 from cmm.orchestration.decision_repository import (
     InMemoryOrchestrationDecisionRepository,
@@ -269,9 +282,11 @@ QUESTION_REF = "question:dp105:exam-date"
 #: Authorized refs of the visibility projection.
 VISIBLE_SOURCES = ("finding:dp105:study-plan", "finding:dp105:health-regimen")
 
-#: Refs the canonical Phase 10.45 projection omits (hidden item, item in a
-#: non-visible section, unselected-domain item, and group refs with no visible
-#: item): the conversational boundary must never reconstruct them.
+#: Refs the canonical Phase 10.45 projection omits: two items flagged
+#: ``visible=False`` (one of them of an unselected domain, which is omitted for
+#: that visibility flag — see the scenario H note), one item placed only in a
+#: non-visible section, and three stale group refs with no effectively visible
+#: display item.  The conversational boundary must never reconstruct them.
 OMITTED_REFS = (
     "finding:dp105:legal-hidden",
     "finding:dp105:suppressed-section",
@@ -284,6 +299,10 @@ OMITTED_REFS = (
 # ── Bounded forbidden-fragment screen (mirrors the public contract's screen) ──
 
 #: The separator-free denied key fragments of the conversational contract.
+#: Deliberately derived from the production denial constants, so this walk
+#: weakens in lockstep with production; the independent, load-bearing part is
+#: the shaped-key ``pytest.raises`` probes in scenario I (mutant g proves they
+#: bite).
 _FORBIDDEN_KEY_FRAGMENTS = tuple(
     sorted(
         {
@@ -417,10 +436,14 @@ class _ObservedStore:
 class _ObservedGatewayHandle:
     """Recording delegate in front of the real gateway's ``handle``.
 
-    Copied from ``tests/conversation/test_service.py::_GatewayRecorder``.  The
-    delegate wraps the real bound method; the gateway class is never replaced or
-    subclassed, so every observed command still lands on the one canonical
-    ``ApplicationGateway``.
+    Adapted from ``tests/conversation/test_service.py::_GatewayRecorder`` with
+    two deliberate differences: the original records the request BEFORE the
+    call and keeps no response, while this delegate records the
+    ``(request, response)`` pair AFTER the call returns — so a raised gateway
+    exception is never counted as a traversal — and it adds the type-filtered
+    ``commands`` helper.  As in the original, the delegate wraps the real bound
+    method; the gateway class is never replaced or subclassed, so every
+    observed command still lands on the one canonical ``ApplicationGateway``.
     """
 
     def __init__(self, gateway: ApplicationGateway) -> None:
@@ -1477,6 +1500,11 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert visibility.view.workflow_refs == (WORKFLOW_REF,)
     assert visibility.view.supporting_domains == (SUPPORTING_DOMAIN,)
 
+    # The canonical approval state captured before the turn: the assertions
+    # after the turn prove it transitioned nowhere by comparing the full
+    # recorded state (see below).
+    approval_state_before = approval_repository.get_request(APPROVAL_REF).to_dict()
+
     visibility_turn = _user(
         "user-005",
         "Show me the reviewed plan and its approvals.",
@@ -1523,14 +1551,19 @@ def test_at_dp105_connected_canonical_conversation() -> None:
 
     # An approval_ref in the output does not become approved: the canonical
     # approval authority still reports the request pending, and the response
-    # fabricated no approval outcome.
+    # fabricated no approval outcome.  The PENDING check is the load-bearing
+    # evidence; the full-state comparison is what keeps it non-vacuous — it
+    # fails the moment any seam approves, resolves or otherwise touches the
+    # canonical request.  (The earlier
+    # ``list_requests(status=APPROVED) == ()`` / ``list_decisions(APPROVAL_REF)
+    # == ()`` pair was deliberately removed: nothing in this vertical can
+    # record an approval decision, so those assertions passed vacuously.)
     assert approval_repository.get_request(APPROVAL_REF).status is (
         ApprovalRequestStatus.PENDING
     )
     assert (
-        approval_repository.list_requests(status=ApprovalRequestStatus.APPROVED) == ()
+        approval_repository.get_request(APPROVAL_REF).to_dict() == approval_state_before
     )
-    assert approval_repository.list_decisions(APPROVAL_REF) == ()
     assert visible.message.content == CLARIFICATION_TEXT
     assert visible.domain_state["primary_domain"] == PRIMARY_DOMAIN
 
@@ -1546,10 +1579,20 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert visible_decision.approval_refs == ()
     assert visible_decision.policy_disposition is None
 
-    # Hidden, unselected and stale refs omitted by Phase 10.45 remain absent
-    # from both the authorized view and the conversational response.  The plan
-    # genuinely carried them, so their absence proves a real canonical filter
-    # and never a vacuous expectation.
+    # Refs the canonical Phase 10.45 projection omits stay absent from both the
+    # authorized view and the conversational response.  The plan genuinely
+    # carried them, so their absence proves a real canonical filter, never a
+    # vacuous expectation.  Stated exactly, what is proven here is
+    # VISIBILITY-based omission: an item flagged ``visible=False``, an item
+    # placed only in a non-visible section, and a stale group ref with no
+    # effectively visible display item (the real filter is
+    # ``_visible_item_ref_ids`` / ``_visible_group_refs``).  It is NOT a
+    # domain-unselection proof: ``finding:dp105:oppositions-unselected``
+    # carries ``visible=False`` (and sits in no section), and the canonical
+    # item filter consults no domain selection at all — item ``domain_ids``
+    # only narrow ``supporting_domains`` — so an effectively visible
+    # unselected-domain item is not omitted by that filter.  Domain-based
+    # omission is not a behaviour of this projection and is not claimed here.
     plan_text = _strings(visibility.presentation.to_dict())
     for reference in OMITTED_REFS:
         assert reference in plan_text
@@ -1637,13 +1680,17 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assert _forbidden_value_hits(payload) == ()
         assert _binary_hits(payload) == ()
 
-    # Every public acceptance payload is JSON-native: the persisted extension and
-    # each projected response serialize deterministically.
+    # Every public acceptance payload is JSON-native: each projected response,
+    # the persisted extension and each interface projection must survive a JSON
+    # round trip with a stable sorted-key encoding (a payload that is not
+    # JSON-native fails to serialize, and one that loses information fails the
+    # byte-identical re-encoding).
     json_native: list[Any] = [*serialized, graph.conversation().to_dict()]
     json_native.append(visibility.projection.to_dict())
     json_native.append(baseline.projection.to_dict())
     for payload in json_native:
-        assert json.dumps(payload, sort_keys=True)
+        encoded = json.dumps(payload, sort_keys=True)
+        assert json.dumps(json.loads(encoded), sort_keys=True) == encoded
 
     # The connected traversal count is the frozen one: seven canonical message
     # turns (A, B, D, E, F, G, H) plus the request-scoped cancellation.
@@ -1653,5 +1700,144 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert [event.event_type for event in graph.events.events()].count(
         "orchestration.request_received"
     ) == 7
+    assert graph.revision() == 8
+    assert graph.observed.committed[-1].revision == 8
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Domain-route positive control — the composed canonical domain leg is live
+    # ─────────────────────────────────────────────────────────────────────────
+    # This is the SAME graph whose conversational turns above canonically
+    # clarify: one plain public conversational message carries no structured
+    # intent shape, so the real pipeline stops at clarification and never
+    # reaches domain routing.  That is a property of the conversational entry
+    # point, not of the domain leg.  The two requests below are built directly
+    # as structured canonical ``OrchestrationRequest``s and driven through the
+    # SAME real orchestrator with no mock added (the non-conversational pattern
+    # ``tests/application/test_phase11_3_dp103_acceptance.py`` uses).  They are
+    # NOT conversational turns: they never call ``ConversationService``, never
+    # enter the gateway and never persist a message, so they are excluded from
+    # the conversational traversal totals re-stated at the end of this block.
+    composed_router = vars(graph.orchestrator)["_domain_router"]
+    assert isinstance(composed_router, CanonicalDomainRouter)
+    assert isinstance(vars(composed_router)["_resolver"], DefaultDomainResolver)
+
+    goal_control = graph.orchestrator.orchestrate(
+        OrchestrationRequest(
+            request_id="control-domain-goal-001",
+            user_id=CONVERSATION_ACTOR_ID,
+            channel=OrchestrationChannel.CONVERSATION,
+            session_id=SESSION_ID,
+            input={"goal": {"title": "Complete task"}},
+        )
+    )
+    question_control = graph.orchestrator.orchestrate(
+        OrchestrationRequest(
+            request_id="control-domain-question-001",
+            user_id=CONVERSATION_ACTOR_ID,
+            channel=OrchestrationChannel.CONVERSATION,
+            session_id=SESSION_ID,
+            input={"question": "What changed in the plan?"},
+        )
+    )
+
+    # The routing observation is the real composed router's own decision
+    # surfaced canonically: the real orchestrator emits one
+    # ``orchestration.domain_resolved`` event per request whose domain leg it
+    # ran, carrying the real ``DomainRouteDecision`` facts — exactly two exist,
+    # both from this control, and the seven conversational turns produced none.
+    domain_events = [
+        event
+        for event in graph.events.events()
+        if event.event_type == "orchestration.domain_resolved"
+    ]
+    assert [event.request_id for event in domain_events] == [
+        "control-domain-goal-001",
+        "control-domain-question-001",
+    ]
+    for event in domain_events:
+        assert event.payload["status"] == (
+            DomainResolutionStatus.INSUFFICIENT_INFORMATION.value
+        )
+        assert event.payload["primary_domain"] == str(GENERAL)
+        assert event.payload["needs_clarification"] is False
+
+    # The goal-shaped request escalates through a real domain route: the real
+    # canonical resolver selected the registered General fallback (the request
+    # carries no explicit domain evidence) and the restrictive policy escalated
+    # the resulting human-escalation route.
+    goal_decision = graph.decisions.get_by_request_id("control-domain-goal-001")
+    assert goal_decision is not None
+    assert goal_control.status is OrchestrationStatus.ESCALATED
+    assert goal_control.route is ExecutionRoute.HUMAN_ESCALATION
+    assert goal_control.primary_domain == str(GENERAL)
+    assert goal_decision.intent is IntentKind.GOAL
+    assert goal_decision.execution_route is ExecutionRoute.HUMAN_ESCALATION
+    assert goal_decision.policy_disposition is PolicyDisposition.ESCALATE
+    assert goal_decision.primary_domain == str(GENERAL)
+    assert goal_decision.supporting_domains == ()
+    assert goal_decision.selected_agent_id is None
+    assert "DOMAIN_FALLBACK_SELECTED" in goal_decision.reason_codes
+
+    # The question-shaped request routes with a primary domain: the same real
+    # resolver/registry chain selected General and the deterministic policy
+    # allowed the direct-response route.
+    question_decision = graph.decisions.get_by_request_id("control-domain-question-001")
+    assert question_decision is not None
+    assert question_control.status is OrchestrationStatus.ROUTED
+    assert question_control.route is ExecutionRoute.DIRECT_RESPONSE
+    assert question_control.primary_domain == str(GENERAL)
+    assert question_decision.intent is IntentKind.QUESTION
+    assert question_decision.execution_route is ExecutionRoute.DIRECT_RESPONSE
+    assert question_decision.policy_disposition is PolicyDisposition.ALLOW_ROUTE
+    assert question_decision.primary_domain == str(GENERAL)
+    assert question_decision.supporting_domains == ()
+    assert "DOMAIN_FALLBACK_SELECTED" in question_decision.reason_codes
+
+    # The routed domain is a real domain of the same registry the composed
+    # router consults, and both decisions carry the trace references of the
+    # real canonical resolution that produced them (asserted by shape: the
+    # composed graph generates those identities internally and nothing here
+    # reads a clock).
+    general_record = graph.registry.get_record(GENERAL.slug)
+    assert general_record is not None
+    assert general_record.definition.enabled is True
+    for decision in (goal_decision, question_decision):
+        assert len(decision.trace_refs) == 2
+        assert decision.trace_refs[0].startswith("domain-resolution:")
+        assert decision.trace_refs[1].startswith("domain-resolution-context:")
+        assert all(ref.split(":", 1)[1] for ref in decision.trace_refs)
+
+    # The contrast keeps the control non-vacuous: every conversational decision
+    # of this session recorded no domain route at all, while the two structured
+    # control requests DID route a domain through the SAME composed routers.
+    session_decisions = graph.decisions.list_for_session(SESSION_ID)
+    conversational_decisions = [
+        decision
+        for decision in session_decisions
+        if not decision.request_id.startswith("control-domain-")
+    ]
+    assert len(conversational_decisions) == 7
+    assert all(
+        decision.primary_domain is None and decision.trace_refs == ()
+        for decision in conversational_decisions
+    )
+
+    # Conversational traversal totals, re-stated after the positive control:
+    # the seven canonical message turns (A, B, D, E, F, G, H) and the
+    # request-scoped cancellation reached the gateway exactly as before — the
+    # control is not a conversational turn — while the canonical decision
+    # repository and the event stream now also hold the control's two requests.
+    assert len(graph.handle.commands(ApplicationOperation.MESSAGE_SUBMIT)) == 7
+    assert len(graph.handle.calls) == 8
+    assert len(session_decisions) == 9
+    assert [event.event_type for event in graph.events.events()].count(
+        "orchestration.request_received"
+    ) == 9
+    assert [event.event_type for event in graph.events.events()].count(
+        "orchestration.domain_resolved"
+    ) == 2
+    assert not any(
+        message_id.startswith("control-domain-") for message_id in graph.message_ids()
+    )
     assert graph.revision() == 8
     assert graph.observed.committed[-1].revision == 8
