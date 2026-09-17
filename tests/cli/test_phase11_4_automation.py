@@ -24,6 +24,7 @@ import importlib.metadata
 import io
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -222,7 +223,7 @@ def test_a_usage_error_reports_usage_and_never_a_traceback(
 
 def test_help_in_a_real_process_shares_the_root_parser() -> None:
     completed = subprocess.run(
-        [".venv/bin/python", "-m", "cmm", "--help"],
+        [sys.executable, "-m", "cmm", "--help"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -240,7 +241,7 @@ def test_a_reserved_command_in_a_real_process_is_deterministic_and_fail_closed()
     None
 ):
     first = subprocess.run(
-        [".venv/bin/python", "-m", "cmm", "plugins", "list", "--output", "json"],
+        [sys.executable, "-m", "cmm", "plugins", "list", "--output", "json"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -248,7 +249,7 @@ def test_a_reserved_command_in_a_real_process_is_deterministic_and_fail_closed()
         check=False,
     )
     second = subprocess.run(
-        [".venv/bin/python", "-m", "cmm", "plugins", "list", "--output", "json"],
+        [sys.executable, "-m", "cmm", "plugins", "list", "--output", "json"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -271,7 +272,7 @@ def test_a_reserved_command_in_a_real_process_is_deterministic_and_fail_closed()
 
 def test_an_operational_command_in_a_real_process_composes_the_runtime() -> None:
     completed = subprocess.run(
-        [".venv/bin/python", "-m", "cmm", "status", "--output", "json"],
+        [sys.executable, "-m", "cmm", "status", "--output", "json"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -311,7 +312,7 @@ def test_a_closed_pipe_ends_the_process_quietly(
 
 def test_a_closed_pipe_in_a_real_process_is_not_a_failure() -> None:
     process = subprocess.Popen(
-        [".venv/bin/python", "-m", "cmm", "--help"],
+        [sys.executable, "-m", "cmm", "--help"],
         cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -70,6 +70,7 @@ import io
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,7 +126,7 @@ CLI_COMMANDS_PATH = REPO_ROOT / "cmm" / "cli_commands.py"
 
 #: The interpreter that runs the documented automation commands in a real
 #: process, and the repository root they run from.
-PYTHON_EXECUTABLE = ".venv/bin/python"
+PYTHON_EXECUTABLE = sys.executable
 COMMAND_TIMEOUT_SECONDS = 300
 
 ANSI_ESCAPE = "\x1b"
