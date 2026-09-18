@@ -56,11 +56,18 @@ from cmm.conversation import (
     ConversationCapabilityStatus,
     ConversationLineage,
     ConversationMessage,
+    ConversationProjectionBindingError,
     ConversationRole,
 )
-from cmm.conversation.projection import ConversationResponseProjector
+from cmm.conversation.projection import (
+    AuthorizedDomainProjectionSource,
+    ConversationResponseProjector,
+    canonical_domain_resolution_reference,
+    verify_domain_projection_binding,
+)
 from cmm.domains.interface_integration_contracts import (
     ConversationalDomainView,
+    DomainInterfaceProjection,
     DomainInterfaceStatus,
 )
 
@@ -223,7 +230,7 @@ def _projection_kwargs(**overrides: Any) -> dict[str, Any]:
         "assistant_message_id": "assistant-message-1",
         "created_at": "2026-09-17T10:00:01+00:00",
         "application_response": _application_response(),
-        "domain_view": None,
+        "authorized_domain_view": None,
         "capability_state": _capability_state(),
     }
     values.update(overrides)
@@ -413,14 +420,14 @@ def test_error_semantics_take_precedence_over_the_status_text() -> None:
 def test_every_view_reference_family_maps_to_its_response_field(
     field: str, expected: tuple[str, ...]
 ) -> None:
-    response = _project(domain_view=_conversational_view())
+    response = _project(authorized_domain_view=_conversational_view())
 
     assert getattr(response, field) == expected
     assert isinstance(getattr(response, field), tuple)
 
 
 def test_view_result_and_contradiction_refs_map_into_reasoning_summary() -> None:
-    response = _project(domain_view=_conversational_view())
+    response = _project(authorized_domain_view=_conversational_view())
 
     assert dict(response.reasoning_summary) == {
         "result_refs": ("result:1",),
@@ -433,7 +440,7 @@ def test_view_result_and_contradiction_refs_map_into_reasoning_summary() -> None
 
 
 def test_view_domain_state_carries_primary_supporting_confidence_and_status() -> None:
-    response = _project(domain_view=_conversational_view())
+    response = _project(authorized_domain_view=_conversational_view())
 
     assert dict(response.domain_state) == {
         "primary_domain": "domain:health",
@@ -452,7 +459,7 @@ def test_view_domain_state_carries_primary_supporting_confidence_and_status() ->
 def test_reasoning_summary_keeps_both_keys_when_the_view_refs_are_empty() -> None:
     view = _conversational_view(result_refs=(), contradiction_refs=())
 
-    response = _project(domain_view=view)
+    response = _project(authorized_domain_view=view)
 
     assert set(response.reasoning_summary) == REASONING_SUMMARY_KEYS
     assert dict(response.reasoning_summary) == {
@@ -470,7 +477,7 @@ def test_domain_state_keeps_a_missing_confidence_and_projects_the_status_value()
         status=DomainInterfaceStatus.DEGRADED,
     )
 
-    response = _project(domain_view=view)
+    response = _project(authorized_domain_view=view)
 
     assert dict(response.domain_state) == {
         "primary_domain": "domain:health",
@@ -483,7 +490,7 @@ def test_domain_state_keeps_a_missing_confidence_and_projects_the_status_value()
 def test_proposed_actions_stay_empty_even_with_a_view() -> None:
     """No public-safe application field carries actions, so none are invented."""
 
-    response = _project(domain_view=_conversational_view())
+    response = _project(authorized_domain_view=_conversational_view())
 
     assert response.proposed_actions == ()
 
@@ -496,7 +503,7 @@ def test_proposed_actions_stay_empty_even_with_a_view() -> None:
     [
         "request_message",
         "application_response",
-        "domain_view",
+        "authorized_domain_view",
         "capability_state",
         "lineage",
     ],
@@ -511,9 +518,9 @@ def test_raw_exception_objects_cannot_enter_output(slot: str) -> None:
 
 def test_fabricated_raw_domain_mapping_is_rejected() -> None:
     with pytest.raises(
-        TypeError, match="domain_view must be a ConversationalDomainView or None"
+        TypeError, match="authorized_domain_view must be a ConversationalDomainView"
     ):
-        _project(domain_view=FABRICATED_RAW_DOMAIN_PAYLOAD)
+        _project(authorized_domain_view=FABRICATED_RAW_DOMAIN_PAYLOAD)
 
 
 @pytest.mark.parametrize(
@@ -576,7 +583,7 @@ def test_references_absent_from_the_view_are_never_recreated_from_metadata() -> 
 
     with_view = _project(
         application_response=application_response,
-        domain_view=_conversational_view(
+        authorized_domain_view=_conversational_view(
             source_refs=("knowledge:item:1",),
             question_refs=(),
             approval_refs=(),
@@ -602,7 +609,7 @@ def test_no_hidden_reasoning_or_prompt_like_key_appears_anywhere(
     with_view: bool,
 ) -> None:
     response = _project(
-        domain_view=_conversational_view() if with_view else None,
+        authorized_domain_view=_conversational_view() if with_view else None,
         application_response=_application_response(
             data={"echo": "ok", "reasoning": "public status only"}
         ),
@@ -627,7 +634,7 @@ def test_no_hidden_reasoning_or_prompt_like_key_appears_anywhere(
 @pytest.mark.parametrize("with_view", [False, True], ids=["no-view", "with-view"])
 def test_serialized_response_exposes_only_the_frozen_fields(with_view: bool) -> None:
     response = _project(
-        domain_view=_conversational_view() if with_view else None,
+        authorized_domain_view=_conversational_view() if with_view else None,
     )
 
     assert set(response.to_dict()) == ASSISTANT_RESPONSE_FIELDS
@@ -635,7 +642,7 @@ def test_serialized_response_exposes_only_the_frozen_fields(with_view: bool) -> 
 
 def test_no_hidden_reasoning_key_survives_the_response_text_or_names() -> None:
     response = _project(
-        domain_view=_conversational_view(),
+        authorized_domain_view=_conversational_view(),
         application_response=_application_response(error=None),
     )
 
@@ -651,7 +658,7 @@ def test_no_hidden_reasoning_key_survives_the_response_text_or_names() -> None:
 def test_projection_is_deterministic(with_view: bool) -> None:
     projector = ConversationResponseProjector()
     kwargs = _projection_kwargs(
-        domain_view=_conversational_view() if with_view else None
+        authorized_domain_view=_conversational_view() if with_view else None
     )
 
     first = projector.project(**kwargs)
@@ -675,13 +682,13 @@ def test_projector_never_mutates_its_inputs() -> None:
     application_response = _application_response(
         data={"sources": ["forged:source"]}, metadata={"note": "keep"}
     )
-    domain_view = _conversational_view()
+    view = _conversational_view()
     capability_state = _capability_state()
     lineage = ConversationLineage(supersedes_message_id="message-0")
     snapshots = (
         request_message.to_dict(),
         application_response.to_dict(),
-        domain_view.to_dict(),
+        view.to_dict(),
         capability_state,
         lineage.to_dict(),
     )
@@ -691,18 +698,219 @@ def test_projector_never_mutates_its_inputs() -> None:
         assistant_message_id="assistant-message-1",
         created_at="2026-09-17T10:00:01+00:00",
         application_response=application_response,
-        domain_view=domain_view,
+        authorized_domain_view=view,
         capability_state=capability_state,
         lineage=lineage,
     )
 
     assert request_message.to_dict() == snapshots[0]
     assert application_response.to_dict() == snapshots[1]
-    assert domain_view.to_dict() == snapshots[2]
+    assert view.to_dict() == snapshots[2]
     assert capability_state is snapshots[3]
     assert capability_state == snapshots[3]
     assert lineage.to_dict() == snapshots[4]
-    assert response.sources == domain_view.source_refs
+    assert response.sources == view.source_refs
+
+
+# ── Request/session-bound projection binding (remediation MAJOR-02) ──────────
+
+BOUND_REQUEST_ID = "request-1"
+BOUND_SESSION_ID = "session-1"
+BOUND_RESOLUTION_REFERENCE = "resolution-1"
+BOUND_COMPOSITION_REFERENCE = "composition-1"
+
+
+def _route_response(
+    *,
+    request_id: str = BOUND_REQUEST_ID,
+    session_id: str = BOUND_SESSION_ID,
+    primary_domain: str = "domain:health",
+    supporting_domains: tuple[str, ...] = ("domain:general",),
+    resolution_reference: str | None = BOUND_RESOLUTION_REFERENCE,
+) -> ApplicationResponse:
+    """One application response carrying canonical same-request route evidence."""
+
+    trace_refs = (
+        ()
+        if resolution_reference is None
+        else (
+            f"domain-resolution:{resolution_reference}",
+            "domain-resolution-context:context-1",
+        )
+    )
+    return ApplicationResponse(
+        request_id=request_id,
+        api_version="v1",
+        status=ApplicationStatus.ROUTED,
+        data={
+            "session_id": session_id,
+            "request_id": request_id,
+            "status": ApplicationStatus.ROUTED.value,
+            "primary_domain": primary_domain,
+            "supporting_domains": list(supporting_domains),
+            "trace_refs": list(trace_refs),
+        },
+    )
+
+
+def _bound_projection(
+    *,
+    request_id: str = BOUND_REQUEST_ID,
+    session_reference_id: str | None = BOUND_SESSION_ID,
+    resolution_reference_id: str = BOUND_RESOLUTION_REFERENCE,
+    conversational: bool = True,
+    primary_domain: str = "domain:health",
+    supporting_domains: tuple[str, ...] = ("domain:general",),
+) -> DomainInterfaceProjection:
+    """One genuine Phase 10.45 projection (its own constructor pins the digest)."""
+
+    view = (
+        _conversational_view(
+            primary_domain=primary_domain, supporting_domains=supporting_domains
+        )
+        if conversational
+        else None
+    )
+    return DomainInterfaceProjection(
+        projection_id=f"interface-projection:{request_id}",
+        request_id=request_id,
+        resolution_reference_id=resolution_reference_id,
+        composition_reference_id=BOUND_COMPOSITION_REFERENCE,
+        session_reference_id=session_reference_id,
+        conversational=view,
+        selector=None,
+        domain_center=None,
+        cross_domain=None,
+        review_center=None,
+    )
+
+
+def _verify(
+    projection: object,
+    *,
+    request_id: str = BOUND_REQUEST_ID,
+    session_id: str = BOUND_SESSION_ID,
+    application_response: ApplicationResponse | None = None,
+) -> ConversationalDomainView:
+    return verify_domain_projection_binding(
+        projection=projection,
+        request_id=request_id,
+        session_id=session_id,
+        application_response=(
+            _route_response() if application_response is None else application_response
+        ),
+    )
+
+
+def test_the_canonical_resolution_reference_is_read_from_the_route_evidence() -> None:
+    """The verifier reads the existing ``domain-resolution:`` trace reference."""
+
+    response = _route_response()
+
+    assert canonical_domain_resolution_reference(response) == BOUND_RESOLUTION_REFERENCE
+    assert (
+        canonical_domain_resolution_reference(
+            _route_response(resolution_reference=None)
+        )
+        is None
+    )
+    assert canonical_domain_resolution_reference(_application_response()) is None
+    assert (
+        canonical_domain_resolution_reference(_application_response(data=None)) is None
+    )
+
+
+def test_a_same_turn_projection_returns_its_conversational_view() -> None:
+    projection = _bound_projection()
+
+    view = _verify(projection)
+
+    assert view is projection.conversational
+
+
+def test_a_projection_of_another_request_fails_closed() -> None:
+    projection = _bound_projection(request_id="request-other")
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(projection)
+
+
+def test_a_projection_of_another_session_fails_closed() -> None:
+    projection = _bound_projection(session_reference_id="session-other")
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(projection)
+
+
+def test_an_application_result_of_another_session_fails_closed() -> None:
+    """The application result must name the same canonical session."""
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(),
+            application_response=_route_response(session_id="session-other"),
+        )
+
+
+def test_a_projection_with_another_resolution_reference_fails_closed() -> None:
+    projection = _bound_projection(resolution_reference_id="resolution-other")
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(projection)
+
+
+def test_a_projection_with_another_primary_domain_fails_closed() -> None:
+    projection = _bound_projection(primary_domain="domain:university")
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(projection)
+
+
+def test_a_projection_with_other_supporting_domains_fails_closed() -> None:
+    projection = _bound_projection(supporting_domains=("domain:university",))
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(projection)
+
+
+def test_a_response_without_canonical_route_evidence_fails_closed() -> None:
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(),
+            application_response=_route_response(resolution_reference=None),
+        )
+
+
+def test_a_projection_without_a_conversational_view_fails_closed() -> None:
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(_bound_projection(conversational=False))
+
+
+def test_raw_mappings_and_duck_typed_objects_are_never_projections() -> None:
+    """A raw mapping or a lookalike object is not Phase 10.45 authorization."""
+
+    class _Lookalike:
+        request_id = BOUND_REQUEST_ID
+        resolution_reference_id = BOUND_RESOLUTION_REFERENCE
+        session_reference_id = BOUND_SESSION_ID
+        conversational = _conversational_view()
+
+    for fake in (
+        {"request_id": BOUND_REQUEST_ID, "conversational": {}},
+        _Lookalike(),
+        _conversational_view(),
+    ):
+        with pytest.raises(ConversationProjectionBindingError):
+            _verify(fake)
+
+
+def test_the_read_only_projection_source_protocol_is_runtime_checkable() -> None:
+    class _Source:
+        def get_projection(self, **_kwargs: Any) -> DomainInterfaceProjection | None:
+            return None
+
+    assert isinstance(_Source(), AuthorizedDomainProjectionSource)
+    assert not isinstance(object(), AuthorizedDomainProjectionSource)
 
 
 # ── Module boundary ──────────────────────────────────────────────────────────

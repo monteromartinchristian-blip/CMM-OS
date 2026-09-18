@@ -123,10 +123,14 @@ from cmm.conversation.contracts import (
 from cmm.conversation.errors import (
     ConversationBoundaryError,
     ConversationErrorCode,
+    ConversationProjectionBindingError,
     ConversationSessionConflictError,
     ConversationSessionNotFoundError,
 )
-from cmm.conversation.projection import ConversationResponseProjector
+from cmm.conversation.projection import (
+    ConversationResponseProjector,
+    canonical_domain_resolution_reference,
+)
 from cmm.conversation.service import CONVERSATION_ACTOR_ID, ConversationService
 from cmm.conversation.state import (
     CONVERSATION_EXTENSION_KEY,
@@ -139,6 +143,7 @@ from cmm.domains.enums import DomainKind
 from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration_contracts import (
     ConversationalDomainView,
+    DomainInterfaceProjection,
     DomainInterfaceStatus,
 )
 from cmm.domains.permission_contracts import DomainPermissionPolicy
@@ -402,6 +407,7 @@ def _compose(
     canonical_store: InMemorySessionStore,
     adapter_store: Any,
     session_ids: tuple[str, ...],
+    domain_projections: Any = None,
 ) -> _Harness:
     """Compose the real canonical graph over the given canonical store."""
 
@@ -466,6 +472,7 @@ def _compose(
         state=adapter,
         capabilities=ConversationCapabilityResolver(),
         projector=ConversationResponseProjector(),
+        domain_projections=domain_projections,
     )
 
     return _Harness(
@@ -480,7 +487,11 @@ def _compose(
     )
 
 
-def _harness(*, session_ids: tuple[str, ...] = (SESSION_ID,)) -> _Harness:
+def _harness(
+    *,
+    session_ids: tuple[str, ...] = (SESSION_ID,),
+    domain_projections: Any = None,
+) -> _Harness:
     """A real graph whose adapter store counts the canonical calls."""
 
     canonical_store = InMemorySessionStore()
@@ -488,6 +499,7 @@ def _harness(*, session_ids: tuple[str, ...] = (SESSION_ID,)) -> _Harness:
         canonical_store=canonical_store,
         adapter_store=_RecordingStore(canonical_store),
         session_ids=session_ids,
+        domain_projections=domain_projections,
     )
 
 
@@ -581,6 +593,108 @@ def _domain_view() -> ConversationalDomainView:
         warning_refs=("warning:1",),
         status=DomainInterfaceStatus.READY,
     )
+
+
+# ── Test doubles of the trusted projection source (remediation MAJOR-02) ─────
+
+
+def _projection_for(
+    *,
+    application_response: ApplicationResponse,
+    request_id: str | None = None,
+    session_reference_id: str | None = None,
+    resolution_reference_id: str | None = None,
+    primary_domain: str | None = None,
+    supporting_domains: tuple[str, ...] | None = None,
+    source_refs: tuple[str, ...] = ("source:1",),
+) -> DomainInterfaceProjection:
+    """One genuine Phase 10.45 projection of the turn's own canonical route.
+
+    Every default is derived from the canonical application response the turn
+    itself produced, so the projection is *bound* unless a test deliberately
+    overrides one binding field to make it foreign.
+    """
+
+    data = application_response.data
+    assert isinstance(data, Mapping)
+    reference = canonical_domain_resolution_reference(application_response)
+    assert reference is not None
+    session_id = data["session_id"]
+    return DomainInterfaceProjection(
+        projection_id=f"interface-projection:{request_id or data['request_id']}",
+        request_id=data["request_id"] if request_id is None else request_id,
+        resolution_reference_id=(
+            reference if resolution_reference_id is None else resolution_reference_id
+        ),
+        composition_reference_id="composition:1",
+        session_reference_id=(
+            session_id if session_reference_id is None else session_reference_id
+        ),
+        conversational=ConversationalDomainView(
+            primary_domain=data["primary_domain"]
+            if primary_domain is None
+            else primary_domain,
+            supporting_domains=(
+                tuple(data["supporting_domains"])
+                if supporting_domains is None
+                else supporting_domains
+            ),
+            workflow_refs=("workflow:1",),
+            question_refs=("question:1",),
+            approval_refs=("approval:1",),
+            source_refs=source_refs,
+            contradiction_refs=(),
+            result_refs=("result:1",),
+            memory_proposal_refs=("memory:1",),
+            confidence=0.9,
+            warning_refs=("warning:1",),
+            status=DomainInterfaceStatus.READY,
+        ),
+        selector=None,
+        domain_center=None,
+        cross_domain=None,
+        review_center=None,
+    )
+
+
+class _FakeProjectionSource:
+    """An observation-only test projection source (read-only by construction).
+
+    Test code only.  It stores nothing durable, resolves nothing, composes
+    nothing and authorizes nothing: it answers with the projection its factory
+    builds for the request it is asked about, and records every call.
+    """
+
+    def __init__(self, factory: Any = None) -> None:
+        self.factory = factory
+        self.calls: list[tuple[str, str, ApplicationResponse]] = []
+
+    def get_projection(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        application_response: ApplicationResponse,
+    ) -> DomainInterfaceProjection | None:
+        self.calls.append((request_id, session_id, application_response))
+        if self.factory is None:
+            return None
+        return self.factory(
+            request_id=request_id,
+            session_id=session_id,
+            application_response=application_response,
+        )
+
+
+def _same_turn_source(**overrides: Any) -> _FakeProjectionSource:
+    """A source answering with the verified projection of the current turn."""
+
+    def factory(
+        *, request_id: str, session_id: str, application_response: ApplicationResponse
+    ) -> DomainInterfaceProjection:
+        return _projection_for(application_response=application_response, **overrides)
+
+    return _FakeProjectionSource(factory)
 
 
 def _submit(
@@ -910,20 +1024,231 @@ def test_submit_commits_once_with_the_verified_expected_previous_revision() -> N
     assert harness.adapter_store.saves == 1
 
 
-def test_submit_projects_the_caller_supplied_domain_view() -> None:
-    harness = _harness()
+# ── Request/session-bound Domain projection (remediation MAJOR-02) ───────────
+
+
+def test_submit_projects_only_the_verified_same_turn_projection() -> None:
+    """Domain visibility comes from the bound projection of this same turn."""
+
+    source = _same_turn_source()
+    harness = _harness(domain_projections=source)
+    message = _message()
+
+    response = _submit(harness, message)
+
+    # The source was asked about this exact turn: the request identity the
+    # service is serving, the canonical session and the application result.
+    assert len(source.calls) == 1
+    request_id, session_id, application_response = source.calls[0]
+    assert request_id == "req-submit-1"
+    assert session_id == SESSION_ID
+    assert application_response.request_id == request_id
+    assert application_response.data["session_id"] == SESSION_ID
+
     view = _domain_view()
-
-    response = _submit(harness, _message(), domain_view=view)
-
-    assert response.sources == view.source_refs
+    assert response.sources == view.source_refs == ("source:1",)
     assert response.pending_questions == view.question_refs
     assert response.approval_requests == view.approval_refs
     assert response.workflow_updates == view.workflow_refs
     assert response.memory_updates == view.memory_proposal_refs
     assert response.warnings == view.warning_refs
     assert response.reasoning_summary["result_refs"] == ("result:1",)
-    assert dict(response.domain_state)["primary_domain"] == "domain:health"
+    # The visible Domain membership is the turn's own canonical membership.
+    assert (
+        dict(response.domain_state)["primary_domain"]
+        == (application_response.data["primary_domain"])
+    )
+    assert tuple(response.domain_state["supporting_domains"]) == tuple(
+        application_response.data["supporting_domains"]
+    )
+
+
+def test_submit_without_a_projection_source_exposes_no_domain_visibility() -> None:
+    """No composed source means no Domain visibility: nothing is reconstructed."""
+
+    harness = _harness(domain_projections=None)
+
+    response = _submit(harness, _message())
+
+    assert response.sources == ()
+    assert response.pending_questions == ()
+    assert response.approval_requests == ()
+    assert response.workflow_updates == ()
+    assert response.memory_updates == ()
+    assert response.warnings == ()
+    assert dict(response.reasoning_summary) == {}
+    assert dict(response.domain_state) == {}
+
+
+def test_a_source_returning_no_projection_leaves_the_turn_domain_free() -> None:
+    harness = _harness(domain_projections=_FakeProjectionSource())
+
+    response = _submit(harness, _message())
+
+    assert response.sources == ()
+    assert dict(response.domain_state) == {}
+
+
+def _assert_binding_failure(harness: _Harness, message: ConversationMessage) -> None:
+    """One unbound projection fails closed with zero exposure and zero writes."""
+
+    saves_before = harness.adapter_store.saves
+    revision_before = harness.revision(message.session_id)
+    with pytest.raises(ConversationProjectionBindingError) as failure:
+        _submit(harness, message)
+
+    assert failure.value.code is ConversationErrorCode.INTERNAL_FAILURE
+    assert harness.adapter_store.saves == saves_before
+    assert harness.revision(message.session_id) == revision_before
+    # Nothing was persisted: no foreign reference can be read back.
+    assert harness.conversation() is None
+
+
+def test_a_projection_of_another_request_fails_closed_through_the_service() -> None:
+    harness = _harness(domain_projections=_same_turn_source(request_id="req-other"))
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_projection_of_another_session_fails_closed_through_the_service() -> None:
+    harness = _harness(
+        domain_projections=_same_turn_source(session_reference_id="session-2")
+    )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_projection_with_another_resolution_reference_fails_closed() -> None:
+    harness = _harness(
+        domain_projections=_same_turn_source(
+            resolution_reference_id="resolution:foreign"
+        )
+    )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_projection_with_another_primary_domain_fails_closed() -> None:
+    harness = _harness(
+        domain_projections=_same_turn_source(primary_domain="domain:university")
+    )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_projection_with_other_supporting_domains_fails_closed() -> None:
+    harness = _harness(
+        domain_projections=_same_turn_source(supporting_domains=("domain:university",))
+    )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_raw_mapping_pretending_to_be_a_projection_fails_closed() -> None:
+    raw = _FakeProjectionSource(
+        lambda **_kwargs: {"request_id": "req-submit-1", "conversational": {}}
+    )
+    harness = _harness(domain_projections=raw)
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_a_bare_view_is_not_a_projection_and_fails_closed() -> None:
+    harness = _harness(
+        domain_projections=_FakeProjectionSource(lambda **_kwargs: _domain_view())
+    )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_edit_and_regenerate_use_the_verified_projection_of_their_own_turn() -> None:
+    """Each turn obtains its own bound projection; none is reused across turns."""
+
+    source = _same_turn_source()
+    harness = _harness(domain_projections=source)
+    first = _submit(harness, _message())
+
+    edited = harness.service.edit(
+        original_message_id="user-001",
+        replacement=_message("user-002", content="edited question"),
+        request_id="req-edit-1",
+        expected_session_revision=2,
+        assistant_message_id="assistant-002",
+        assistant_created_at=ASSISTANT_TIMESTAMP,
+    )
+    regenerated = harness.service.regenerate(
+        session_id=SESSION_ID,
+        response_message_id="assistant-002",
+        request_id="req-regenerate-1",
+        application_message_id="application-message-3",
+        expected_session_revision=3,
+        assistant_message_id="assistant-003",
+        assistant_created_at=ASSISTANT_TIMESTAMP,
+    )
+
+    assert [call[0] for call in source.calls] == [
+        "req-submit-1",
+        "req-edit-1",
+        "req-regenerate-1",
+    ]
+    assert [call[1] for call in source.calls] == [SESSION_ID, SESSION_ID, SESSION_ID]
+    for response in (first, edited, regenerated):
+        assert response.sources == ("source:1",)
+
+
+def test_the_constructor_rejects_anything_but_a_read_only_source() -> None:
+    harness = _harness()
+
+    for value in (object(), {"get_projection": lambda **_: None}, "source"):
+        with pytest.raises(TypeError):
+            ConversationService(
+                gateway=harness.gateway,
+                state=harness.adapter,
+                capabilities=ConversationCapabilityResolver(),
+                projector=ConversationResponseProjector(),
+                domain_projections=value,  # type: ignore[arg-type]
+            )
+
+
+def test_public_turn_methods_no_longer_accept_a_caller_domain_view() -> None:
+    """Remediation MAJOR-02: a bare caller view is never per-turn Domain authority.
+
+    The V1 audit reproduced a public caller supplying a detached
+    ``ConversationalDomainView`` and having its references projected.  The
+    public per-turn surface no longer accepts one at all.
+    """
+
+    harness = _harness()
+    view = _domain_view()
+
+    for call in (
+        lambda: _submit(harness, _message("user-001"), domain_view=view),
+        lambda: harness.service.edit(
+            original_message_id="user-001",
+            replacement=_message("user-002"),
+            request_id="req-edit-1",
+            expected_session_revision=harness.revision(),
+            domain_view=view,
+            assistant_message_id="assistant-edit-1",
+            assistant_created_at=ASSISTANT_TIMESTAMP,
+        ),
+        lambda: harness.service.regenerate(
+            session_id=SESSION_ID,
+            response_message_id="assistant-001",
+            request_id="req-regen-1",
+            application_message_id="application-1",
+            expected_session_revision=harness.revision(),
+            domain_view=view,
+            assistant_message_id="assistant-regen-1",
+            assistant_created_at=ASSISTANT_TIMESTAMP,
+        ),
+    ):
+        with pytest.raises(TypeError):
+            call()
+
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
 
 
 def test_submit_returns_the_capability_state_of_the_requested_capabilities() -> None:
@@ -2010,6 +2335,10 @@ def test_cancel_is_stateless_and_keeps_no_active_request_registry() -> None:
         "_state",
         "_capabilities",
         "_projector",
+        # The one composition-time read-only projection source reference
+        # (remediation MAJOR-02); it is a collaborator, never a store: the
+        # cancellation path above never touches it.
+        "_domain_projections",
     }
     assert harness.adapter_store.saves == 0
 

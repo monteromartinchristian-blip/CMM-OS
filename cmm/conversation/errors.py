@@ -36,6 +36,7 @@ __all__ = [
     "ConversationBoundaryError",
     "ConversationError",
     "ConversationErrorCode",
+    "ConversationProjectionBindingError",
     "ConversationSessionConflictError",
     "ConversationSessionNotFoundError",
 ]
@@ -193,3 +194,18 @@ class ConversationSessionConflictError(ConversationBoundaryError):
     """
 
     code = ConversationErrorCode.SESSION_CONFLICT
+
+
+class ConversationProjectionBindingError(ConversationBoundaryError):
+    """Raised when an authorized Domain projection does not bind to the turn.
+
+    The projection source is a composition-time dependency of the conversational
+    service, so a projection that does not bind to the current request, the
+    current canonical session, the current canonical Domain-resolution route or
+    the current application result is an internal inconsistency of the composed
+    service rather than a caller error: the turn fails closed with the generic
+    internal-failure code before any reference is exposed or persisted, and no
+    foreign Domain reference can leak.
+    """
+
+    code = ConversationErrorCode.INTERNAL_FAILURE

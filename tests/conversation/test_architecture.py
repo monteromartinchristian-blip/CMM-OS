@@ -2380,7 +2380,7 @@ def test_the_projector_reasoning_summary_is_only_json_safe_public_data() -> None
             status=ApplicationStatus.SUCCESS,
             data={"echo": "ok"},
         ),
-        domain_view=_authorized_view(),
+        authorized_domain_view=_authorized_view(),
         capability_state=(
             ConversationCapabilityState(
                 capability="response_streaming",

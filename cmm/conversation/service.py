@@ -112,7 +112,11 @@ from cmm.conversation.errors import (
     ConversationSessionConflictError,
     ConversationSessionNotFoundError,
 )
-from cmm.conversation.projection import ConversationResponseProjector
+from cmm.conversation.projection import (
+    AuthorizedDomainProjectionSource,
+    ConversationResponseProjector,
+    verify_domain_projection_binding,
+)
 from cmm.conversation.state import (
     ConversationState,
     SharedSessionConversationAdapter,
@@ -311,6 +315,7 @@ class ConversationService:
         state: SharedSessionConversationAdapter,
         capabilities: ConversationCapabilityResolver,
         projector: ConversationResponseProjector,
+        domain_projections: AuthorizedDomainProjectionSource | None = None,
     ) -> None:
         if not isinstance(gateway, ApplicationGateway):
             raise TypeError(
@@ -332,10 +337,19 @@ class ConversationService:
                 "projector must be the canonical ConversationResponseProjector, "
                 f"not {type(projector).__name__}"
             )
+        if domain_projections is not None and not isinstance(
+            domain_projections, AuthorizedDomainProjectionSource
+        ):
+            raise TypeError(
+                "domain_projections must be a read-only "
+                "AuthorizedDomainProjectionSource or None, "
+                f"not {type(domain_projections).__name__}"
+            )
         self._gateway = gateway
         self._state = state
         self._capabilities = capabilities
         self._projector = projector
+        self._domain_projections = domain_projections
 
     # ── submit ───────────────────────────────────────────────────────────────
 
@@ -346,7 +360,6 @@ class ConversationService:
         request_id: str,
         expected_session_revision: int,
         requested_capabilities: tuple[str, ...] = (),
-        domain_view: ConversationalDomainView | None = None,
         assistant_message_id: str,
         assistant_created_at: str,
     ) -> AssistantResponse:
@@ -361,9 +374,12 @@ class ConversationService:
         caller-supplied request identity, assistant identity or assistant
         timestamp, or a user/assistant identity that is already stored or reused
         within the turn → ``INVALID_REQUEST``), build the one canonical command,
-        enter the gateway, project the safe response with the caller's
-        authorized ``domain_view`` and resolved capability state, then append
-        the user message and the assistant message and commit them in one
+        enter the gateway, obtain the verified Domain projection of this same
+        turn (remediation MAJOR-02: the projection source is the only Domain
+        visibility seam and a projection that does not bind to this
+        request/session/route fails closed), project the safe response with
+        that verified view and the resolved capability state, then append the
+        user message and the assistant message and commit them in one
         canonical commit carrying the same expected previous revision.
         """
 
@@ -398,7 +414,11 @@ class ConversationService:
             assistant_message_id=assistant_message_id,
             assistant_created_at=assistant_created_at,
             application_response=application_response,
-            domain_view=domain_view,
+            authorized_domain_view=self._authorized_domain_view(
+                request_id=request_id,
+                session_id=shared.session_id,
+                application_response=application_response,
+            ),
             requested_capabilities=requested_capabilities,
             lineage=ConversationLineage(),
         )
@@ -419,7 +439,6 @@ class ConversationService:
         request_id: str,
         expected_session_revision: int,
         requested_capabilities: tuple[str, ...] = (),
-        domain_view: ConversationalDomainView | None = None,
         assistant_message_id: str,
         assistant_created_at: str,
     ) -> AssistantResponse:
@@ -485,7 +504,11 @@ class ConversationService:
             assistant_message_id=assistant_message_id,
             assistant_created_at=assistant_created_at,
             application_response=application_response,
-            domain_view=domain_view,
+            authorized_domain_view=self._authorized_domain_view(
+                request_id=request_id,
+                session_id=shared.session_id,
+                application_response=application_response,
+            ),
             requested_capabilities=requested_capabilities,
             lineage=ConversationLineage(),
         )
@@ -506,7 +529,6 @@ class ConversationService:
         request_id: str,
         application_message_id: str,
         expected_session_revision: int,
-        domain_view: ConversationalDomainView | None = None,
         assistant_message_id: str,
         assistant_created_at: str,
     ) -> AssistantResponse:
@@ -566,7 +588,11 @@ class ConversationService:
             assistant_message_id=assistant_message_id,
             assistant_created_at=assistant_created_at,
             application_response=application_response,
-            domain_view=domain_view,
+            authorized_domain_view=self._authorized_domain_view(
+                request_id=request_id,
+                session_id=shared.session_id,
+                application_response=application_response,
+            ),
             requested_capabilities=(),
             lineage=ConversationLineage(regenerates_message_id=target.id),
         )
@@ -667,6 +693,42 @@ class ConversationService:
 
     # ── Projection and commit ────────────────────────────────────────────────
 
+    def _authorized_domain_view(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        application_response: ApplicationResponse,
+    ) -> ConversationalDomainView | None:
+        """Return the verified Domain view of *this* turn, or ``None``.
+
+        The service owns no Domain authority (remediation MAJOR-02).  When no
+        canonical projection source is composed, the turn carries no Domain
+        visibility at all.  When one is composed, it may only return an
+        already-authorized Phase 10.45 ``DomainInterfaceProjection`` of this
+        request or ``None``; the projection is then verified against the
+        current request, canonical session, canonical Domain-resolution route
+        and application result before its conversational view is consumed, and
+        any mismatch fails closed with zero Domain references.
+        """
+
+        source = self._domain_projections
+        if source is None:
+            return None
+        projection = source.get_projection(
+            request_id=request_id,
+            session_id=session_id,
+            application_response=application_response,
+        )
+        if projection is None:
+            return None
+        return verify_domain_projection_binding(
+            projection=projection,
+            request_id=request_id,
+            session_id=session_id,
+            application_response=application_response,
+        )
+
     def _project(
         self,
         *,
@@ -674,7 +736,7 @@ class ConversationService:
         assistant_message_id: str,
         assistant_created_at: str,
         application_response: ApplicationResponse,
-        domain_view: ConversationalDomainView | None,
+        authorized_domain_view: ConversationalDomainView | None,
         requested_capabilities: tuple[str, ...],
         lineage: ConversationLineage,
     ) -> AssistantResponse:
@@ -685,7 +747,7 @@ class ConversationService:
             assistant_message_id=assistant_message_id,
             created_at=assistant_created_at,
             application_response=application_response,
-            domain_view=domain_view,
+            authorized_domain_view=authorized_domain_view,
             capability_state=self._capabilities.resolve(requested_capabilities),
             lineage=lineage,
         )

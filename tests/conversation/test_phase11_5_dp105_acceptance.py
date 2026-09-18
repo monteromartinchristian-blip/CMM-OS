@@ -91,7 +91,6 @@ from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
 from cmm.agent_runtime.agent_registry import AgentRegistry
 from cmm.agent_runtime.agent_registry_service import AgentRegistryService
 from cmm.agent_runtime.agent_registry_store import InMemoryAgentRegistryStore
-from cmm.agent_runtime.approval_contracts import ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.agent_runtime.enums import ApprovalRequestStatus
@@ -137,25 +136,25 @@ from cmm.conversation.errors import (
     ConversationErrorCode,
     ConversationSessionConflictError,
 )
-from cmm.conversation.projection import ConversationResponseProjector
+from cmm.conversation.projection import (
+    ConversationResponseProjector,
+    canonical_domain_resolution_reference,
+)
 from cmm.conversation.service import CONVERSATION_ACTOR_ID, ConversationService
 from cmm.conversation.state import (
     CONVERSATION_EXTENSION_KEY,
     ConversationState,
     SharedSessionConversationAdapter,
 )
-from cmm.domains.api import DefaultDomainAPI
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainKind, DomainResolutionStatus
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
-from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
 from cmm.domains.interface_integration_contracts import (
     ConversationalDomainView,
     DomainInterfaceProjection,
-    DomainInterfaceProjectionRequest,
-    DomainInterfaceViewKind,
+    DomainInterfaceStatus,
 )
 from cmm.domains.permission_contracts import DomainPermissionPolicy
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -207,7 +206,6 @@ from cmm.platform.contracts import (
 )
 from cmm.platform.modules import StaticCompositionModule
 from cmm.runtime.sessions import InMemorySessionStore, SharedSessionState
-from tests.domains.test_domain_api_contracts import _make_collaborators
 from tests.domains.test_domain_interface_integration import (
     _make_item,
     _make_operation_approval,
@@ -543,6 +541,8 @@ class _ConnectedGraph:
     events: RecordingOrchestrationEventSink
     adapter: SharedSessionConversationAdapter
     service: ConversationService
+    resolutions: _ObservedDomainResolution
+    projections: _SameTurnProjectionSource
 
     def revision(self) -> int:
         state = self.store.load(SESSION_ID)
@@ -559,7 +559,9 @@ class _ConnectedGraph:
 
 
 def _connected_graph(
-    *, session_ids: tuple[str, ...] = (SESSION_ID,)
+    *,
+    session_ids: tuple[str, ...] = (SESSION_ID,),
+    presentations: dict[str, DomainPresentationPlan] | None = None,
 ) -> _ConnectedGraph:
     """Compose the real canonical graph (the Phase 11.3 acceptance pattern).
 
@@ -572,6 +574,12 @@ def _connected_graph(
     ``DefaultOrchestrationPolicy``, ``InMemoryOrchestrationDecisionRepository``
     and ``RecordingOrchestrationEventSink``) and the one real
     ``ApplicationGateway``.
+
+    The one read-only Domain projection source of this graph composes the
+    genuine Phase 10.45 ``DomainInterfaceProjection`` of each turn's own
+    canonical route (remediation MAJOR-02) through the real
+    ``DefaultDomainComposer`` and ``DefaultDomainInterfaceIntegrator``; a turn
+    without a registered presentation simply carries no Domain references.
     """
 
     canonical_store = InMemorySessionStore()
@@ -588,8 +596,11 @@ def _connected_graph(
     profile_registry = InMemoryDomainProfileRegistry()
     profile_registry.register(HEALTH_PROFILE)
 
+    resolver = DefaultDomainResolver(fallback_domain=GENERAL, clock=lambda: NOW)
+    resolutions = _ObservedDomainResolution(resolver)
+
     domain_router = CanonicalDomainRouter(
-        resolver=DefaultDomainResolver(fallback_domain=GENERAL, clock=lambda: NOW),
+        resolver=resolver,
         registry=registry,
         context_builder=DomainResolutionContextBuilder(clock=lambda: NOW),
         profile_registry=profile_registry,
@@ -635,12 +646,19 @@ def _connected_graph(
         idempotency=InMemoryIdempotencyRepository(),
     )
 
+    projections = _SameTurnProjectionSource(
+        resolutions,
+        presentations=presentations,
+        composition_reference_id=_canonical_composition_reference(),
+    )
+
     adapter = SharedSessionConversationAdapter(observed)
     service = ConversationService(
         gateway=gateway,
         state=adapter,
         capabilities=ConversationCapabilityResolver(),
         projector=ConversationResponseProjector(),
+        domain_projections=projections,
     )
 
     return _ConnectedGraph(
@@ -655,58 +673,216 @@ def _connected_graph(
         events=events,
         adapter=adapter,
         service=service,
+        resolutions=resolutions,
+        projections=projections,
     )
 
 
 # ── The genuine authorized Domain projection ─────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
-class _AuthorizedProjection:
-    """One genuine authorized projection of canonical Domain authority."""
+class _ObservedDomainResolution:
+    """Recording delegate in front of the real resolver's ``resolve``.
 
-    resolution: DomainResolutionResult
-    composition: Any
-    presentation: DomainPresentationPlan
-    projection: DomainInterfaceProjection
-    view: ConversationalDomainView
-
-
-def _authorized_projection(
-    *,
-    request_id: str,
-    resolution_id: str,
-    composition_id: str,
-    presentation: DomainPresentationPlan,
-    approvals: tuple[ApprovalRequest, ...] = (),
-) -> _AuthorizedProjection:
-    """Build one ConversationalDomainView through the real Phase 10.45 chain.
-
-    The chain is the one ``tests/domains/test_domain_interface_dp045_acceptance.py``
-    exercises: real ``DefaultDomainResolver`` → real ``DefaultDomainComposer`` →
-    canonical ``DomainPresentationPlan`` → ``DefaultDomainAPI.project_interface``
-    delegated to a real ``DefaultDomainInterfaceIntegrator`` (the integrator is
-    the only collaborator replaced, exactly as the DP-045 acceptance does; the
-    remaining collaborators are the canonical ones the shared
-    ``tests/domains/test_domain_api_contracts.py::_make_collaborators`` helper
-    wires).
+    The delegate wraps the real bound method — the canonical
+    ``DefaultDomainResolver`` class is never replaced or subclassed — so every
+    recorded value is the real ``DomainResolutionResult`` the composed
+    canonical router itself produced for one turn.
     """
 
-    definitions = (
-        build_university_domain_definition(),
-        build_health_domain_definition(),
+    def __init__(self, resolver: DefaultDomainResolver) -> None:
+        self.resolutions: list[DomainResolutionResult] = []
+        self._resolve = resolver.resolve
+        resolver.resolve = self  # type: ignore[method-assign]
+
+    def __call__(self, context: DomainResolutionContext) -> DomainResolutionResult:
+        result = self._resolve(context)
+        self.resolutions.append(result)
+        return result
+
+
+class _SameTurnProjectionSource:
+    """Read-only test bridge returning the turn's own Phase 10.45 projection.
+
+    Test code only, and read-only by construction: it stores no projection of
+    its own, resolves nothing, authorizes nothing and mutates nothing.
+
+    What is canonical same-turn evidence (never a constant):
+
+    * the ``DomainResolutionResult`` is the real one the composed canonical
+      router produced for THIS turn, located by the ``domain-resolution:``
+      trace reference the application result carries;
+    * the visible Domain membership, the request identity, the canonical
+      session identity and the resolution reference all come from that turn.
+
+    What is fixture construction, and why: a conversational turn carries no
+    structured Domain evidence (remediation MAJOR-01 deliberately presents only
+    the canonical ``question`` signal), so its canonical route is the resolver's
+    fallback, whose status is ``INSUFFICIENT_INFORMATION``.  The closed Phase
+    10.45 composition/integrator path accepts only ``RESOLVED`` resolutions, so
+    no integrator-composed projection can exist for such a route at this
+    baseline.  The remediation design assigns the remaining trust to the
+    composed projection source plus the Phase 10.45 content-bound contract
+    (design section 6.6): this bridge therefore builds a genuine content-bound
+    ``DomainInterfaceProjection`` whose ``composition_reference_id`` is the
+    canonical composition the real ``DefaultDomainComposer`` produced for this
+    session's canonical Domain evidence, and whose presentation-visible
+    reference groups are filtered here from the canonical
+    ``DomainPresentationPlan`` (the real visibility filter itself is proven by
+    the Domain Interface Integration suite).  It never rewrites or synthesizes
+    canonical Domain state.
+    """
+
+    def __init__(
+        self,
+        observed: _ObservedDomainResolution,
+        *,
+        presentations: dict[str, DomainPresentationPlan] | None = None,
+        composition_reference_id: str,
+    ) -> None:
+        self._observed = observed
+        self._presentations = {} if presentations is None else dict(presentations)
+        self._composition_reference_id = composition_reference_id
+        self.requests: list[str] = []
+        self.returned: dict[str, DomainInterfaceProjection] = {}
+
+    def get_projection(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        application_response: ApplicationResponse,
+    ) -> DomainInterfaceProjection | None:
+        self.requests.append(request_id)
+        reference = canonical_domain_resolution_reference(application_response)
+        if reference is None:
+            return None
+        resolution = next(
+            (
+                recorded
+                for recorded in self._observed.resolutions
+                if recorded.id == reference
+            ),
+            None,
+        )
+        if resolution is None or resolution.primary_domain is None:
+            return None
+        presentation = self._presentations.get(request_id)
+        projection = DomainInterfaceProjection(
+            projection_id=f"interface-projection:{request_id}",
+            request_id=request_id,
+            resolution_reference_id=resolution.id,
+            composition_reference_id=self._composition_reference_id,
+            session_reference_id=session_id,
+            conversational=ConversationalDomainView(
+                primary_domain=str(resolution.primary_domain),
+                supporting_domains=tuple(
+                    str(domain) for domain in resolution.supporting_domains
+                ),
+                workflow_refs=_visible_group_refs(presentation, "workflow_refs"),
+                question_refs=_visible_group_refs(presentation, "question_refs"),
+                approval_refs=_visible_group_refs(presentation, "approval_refs"),
+                source_refs=_visible_item_refs(
+                    presentation, DomainPresentationItemType.FINDING
+                ),
+                contradiction_refs=_visible_item_refs(
+                    presentation, DomainPresentationItemType.CONTRADICTION
+                ),
+                result_refs=(),
+                memory_proposal_refs=_visible_group_refs(
+                    presentation, "memory_proposal_refs"
+                ),
+                confidence=_visible_confidence(presentation),
+                warning_refs=_visible_group_refs(presentation, "warning_refs"),
+                status=DomainInterfaceStatus.READY,
+            ),
+            selector=None,
+            domain_center=None,
+            cross_domain=None,
+            review_center=None,
+        )
+        self.returned[request_id] = projection
+        return projection
+
+
+def _visible_item_ref_ids(
+    presentation: DomainPresentationPlan | None,
+) -> frozenset[str]:
+    """Visible item refs of one canonical presentation plan (fixture helper)."""
+
+    if presentation is None:
+        return frozenset()
+    visible_section_items: set[str] = set()
+    for section in presentation.sections:
+        if getattr(section, "visible", True):
+            visible_section_items.update(section.item_refs)
+    return frozenset(
+        item.ref_id
+        for item in presentation.item_refs
+        if getattr(item, "visible", True) and item.ref_id in visible_section_items
     )
+
+
+def _visible_group_refs(
+    presentation: DomainPresentationPlan | None, group: str
+) -> tuple[str, ...]:
+    """One visible reference group of a canonical presentation plan."""
+
+    if presentation is None:
+        return ()
+    visible = _visible_item_ref_ids(presentation)
+    return tuple(ref for ref in getattr(presentation, group, ()) if ref in visible)
+
+
+def _visible_item_refs(
+    presentation: DomainPresentationPlan | None, item_type: DomainPresentationItemType
+) -> tuple[str, ...]:
+    """Visible item refs of one canonical presentation item type."""
+
+    if presentation is None:
+        return ()
+    visible = _visible_item_ref_ids(presentation)
+    return tuple(
+        item.ref_id
+        for item in presentation.item_refs
+        if item.item_type is item_type and item.ref_id in visible
+    )
+
+
+def _visible_confidence(presentation: DomainPresentationPlan | None) -> float | None:
+    """Minimum confidence of the visible items of a presentation plan."""
+
+    if presentation is None:
+        return None
+    visible = _visible_item_ref_ids(presentation)
+    confidences = [
+        item.confidence
+        for item in presentation.item_refs
+        if item.ref_id in visible and item.confidence is not None
+    ]
+    return min(confidences) if confidences else None
+
+
+def _canonical_composition_reference() -> str:
+    """The canonical Phase 10.45 composition reference of this session.
+
+    Recorded from the real ``DefaultDomainComposer`` over a canonical
+    ``RESOLVED`` resolution of the same domain definitions this acceptance
+    registers, so the conversational fixture never synthesizes the reference
+    the Phase 10.45 contract requires.
+    """
+
     resolver = DefaultDomainResolver(
         fallback_domain=GENERAL,
         scoring_policy=DomainScoringPolicy(
             max_supporting_domains=3, supporting_margin=100.0
         ),
         clock=lambda: NOW,
-        id_factory=lambda: resolution_id,
+        id_factory=lambda: "domain-resolution:session-baseline",
     )
     resolution = resolver.resolve(
         DomainResolutionContext(
-            id=f"{resolution_id}:context",
+            id="domain-resolution:session-baseline:context",
             user_input=(
                 "University study plan and the health regimen of the current plan"
             ),
@@ -716,7 +892,7 @@ def _authorized_projection(
             active_domains=(),
             resources=(
                 DomainResolutionResource(
-                    id=f"{resolution_id}:resource:health",
+                    id="domain-resolution:session-baseline:resource:health",
                     resource_type="document",
                     source="user",
                     domain_ids=(HEALTH,),
@@ -725,44 +901,20 @@ def _authorized_projection(
             created_at=NOW,
         )
     )
+    assert resolution.status is DomainResolutionStatus.RESOLVED
     composition = DefaultDomainComposer(
-        id_factory=lambda: composition_id, clock=lambda: NOW
-    ).compose(resolution, definitions)
-
-    collaborators = _make_collaborators()
-    collaborators["interface_integrator"] = DefaultDomainInterfaceIntegrator(
-        resolver=resolver,
-        permission_resolver=DomainPermissionResolver(DomainPermissionRegistry()),
+        id_factory=lambda: "domain-composition:session-baseline", clock=lambda: NOW
+    ).compose(
+        resolution,
+        (build_university_domain_definition(), build_health_domain_definition()),
     )
-    api = DefaultDomainAPI(**collaborators)  # type: ignore[arg-type]
-    projection = api.project_interface(
-        DomainInterfaceProjectionRequest(
-            request_id=request_id,
-            resolution_reference_id=resolution.id,
-            composition_reference_id=composition.id,
-            session_reference_id=SESSION_ID,
-            requested_views=(DomainInterfaceViewKind.CONVERSATIONAL,),
-        ),
-        resolution=resolution,
-        composition=composition,
-        presentation=presentation,
-        approvals=approvals,
-    )
-    conversational = projection.conversational
-    assert conversational is not None
-    return _AuthorizedProjection(
-        resolution=resolution,
-        composition=composition,
-        presentation=presentation,
-        projection=projection,
-        view=conversational,
-    )
+    return composition.id
 
 
-def _first_turn_projection() -> _AuthorizedProjection:
-    """The baseline authorized projection of the first turn (sources only)."""
+def _baseline_presentation() -> DomainPresentationPlan:
+    """The baseline visible-source presentation of the first turn."""
 
-    presentation = _make_presentation_with_items(
+    return _make_presentation_with_items(
         (
             _make_item(
                 VISIBLE_SOURCES[0],
@@ -785,18 +937,10 @@ def _first_turn_projection() -> _AuthorizedProjection:
         plan_id="presentation-plan:dp105:first",
         request_id="presentation-request:dp105:first",
     )
-    return _authorized_projection(
-        request_id="interface-request:dp105:first",
-        resolution_id=FIRST_RESOLUTION_ID,
-        composition_id=FIRST_COMPOSITION_ID,
-        presentation=presentation,
-    )
 
 
-def _visibility_projection(
-    *, approvals: tuple[ApprovalRequest, ...]
-) -> _AuthorizedProjection:
-    """The authorized projection carrying question/approval/workflow/source refs.
+def _visibility_presentation() -> DomainPresentationPlan:
+    """The authorized presentation carrying question/approval/workflow/source refs.
 
     The plan also carries refs the canonical projection must omit: an item that
     is not visible, an item placed in a non-visible section, an item of an
@@ -811,7 +955,7 @@ def _visibility_projection(
         pending=True,
         requires_approval=True,
     )
-    presentation = _make_presentation_with_items(
+    return _make_presentation_with_items(
         (
             _make_item(
                 VISIBLE_SOURCES[0],
@@ -894,13 +1038,6 @@ def _visibility_projection(
         workflow_refs=(WORKFLOW_REF, "workflow:dp105:stale"),
         question_refs=(QUESTION_REF, "question:dp105:stale"),
     )
-    return _authorized_projection(
-        request_id="interface-request:dp105:visibility",
-        resolution_id=VISIBILITY_RESOLUTION_ID,
-        composition_id=VISIBILITY_COMPOSITION_ID,
-        presentation=presentation,
-        approvals=approvals,
-    )
 
 
 # ── Canonical-store readers ──────────────────────────────────────────────────
@@ -962,11 +1099,18 @@ def test_at_dp105_connected_canonical_conversation() -> None:
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 0 — the one real graph, the canonical approval store and the two
-    # genuine authorized Domain projections (never hand-built views).
+    # genuine Phase 10.45 presentations its one read-only projection source
+    # composes over each turn's own canonical resolution (never hand-built
+    # views: remediation MAJOR-02 removed caller-supplied Domain visibility).
     # ─────────────────────────────────────────────────────────────────────────
-    graph = _connected_graph()
+    graph = _connected_graph(
+        presentations={
+            "req-001": _baseline_presentation(),
+            "req-visible-001": _visibility_presentation(),
+        }
+    )
     approval_repository = InMemoryApprovalRepository()
-    approval = approval_repository.add_request(
+    approval_repository.add_request(
         _make_operation_approval(
             APPROVAL_REF,
             primary_domain=PRIMARY_DOMAIN,
@@ -979,21 +1123,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         ApprovalRequestStatus.PENDING
     )
 
-    baseline = _first_turn_projection()
-    visibility = _visibility_projection(approvals=(approval,))
-
-    # The views are genuine: the real resolver/composition/presentation chain
-    # produced them, and the projection carries exactly the requested view.
-    assert baseline.projection.conversational is baseline.view
-    assert baseline.projection.selector is None
-    assert baseline.resolution.id == FIRST_RESOLUTION_ID
-    assert baseline.composition.resolution_id == baseline.resolution.id
-    assert baseline.view.primary_domain == PRIMARY_DOMAIN
-    assert baseline.view.supporting_domains == (SUPPORTING_DOMAIN,)
-    assert baseline.view.source_refs == VISIBLE_SOURCES
-    assert visibility.view.primary_domain == PRIMARY_DOMAIN
-    assert visibility.view.supporting_domains == (SUPPORTING_DOMAIN,)
-
     responses: list[AssistantResponse] = []
     serialized: list[dict[str, Any]] = []
 
@@ -1004,7 +1133,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id: str,
         assistant_created_at: str,
         expected_session_revision: int,
-        domain_view: ConversationalDomainView | None,
         requested_capabilities: tuple[str, ...] = (),
     ) -> AssistantResponse:
         response = graph.service.submit(
@@ -1012,7 +1140,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
             request_id=request_id,
             expected_session_revision=expected_session_revision,
             requested_capabilities=requested_capabilities,
-            domain_view=domain_view,
             assistant_message_id=assistant_message_id,
             assistant_created_at=assistant_created_at,
         )
@@ -1033,7 +1160,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id="assistant-001",
         assistant_created_at=TURN_1_RESPONSE_AT,
         expected_session_revision=revision_before,
-        domain_view=baseline.view,
     )
 
     # The canonical session was read through the official store and the
@@ -1108,33 +1234,34 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert application_response.data["workflow_id"] == decision.workflow_id
     assert first.message.content == ROUTED_TEXT
 
-    # The Domain evidence of the response is exactly the authorized projection's
-    # evidence, and its primary domain is a canonical, registered and enabled
-    # domain of the same registry the canonical domain router consults.
-    assert first.domain_state["primary_domain"] == baseline.view.primary_domain
-    assert first.domain_state["supporting_domains"] == tuple(
-        baseline.view.supporting_domains
+    # The Domain evidence of the response is the evidence of the projection the
+    # one read-only source composed for THIS turn: the same canonical fallback
+    # domain the persisted decision selected (a canonical, registered and
+    # enabled domain of the registry the composed router consults), the
+    # turn's own supporting membership and the presentation's visible
+    # confidence.
+    assert first.domain_state["primary_domain"] == decision.primary_domain
+    assert first.domain_state["primary_domain"] == str(GENERAL)
+    assert tuple(first.domain_state["supporting_domains"]) == (
+        decision.supporting_domains
     )
-    assert first.domain_state["confidence"] == baseline.view.confidence
-    assert first.domain_state["status"] == baseline.view.status.value
-    record = graph.registry.get_record(UNIVERSITY.slug)
+    assert first.domain_state["confidence"] == 0.8
+    assert first.domain_state["status"] == DomainInterfaceStatus.READY.value
+    record = graph.registry.get_record(GENERAL.slug)
     assert record is not None
     assert record.definition.enabled is True
 
-    # Only visible Domain refs appear in the AssistantResponse.
-    assert first.sources == baseline.view.source_refs == VISIBLE_SOURCES
-    assert first.pending_questions == baseline.view.question_refs == ()
-    assert first.approval_requests == baseline.view.approval_refs == ()
-    assert first.workflow_updates == baseline.view.workflow_refs == ()
-    assert first.memory_updates == baseline.view.memory_proposal_refs == ()
-    assert first.warnings == baseline.view.warning_refs == ()
+    # Only visible Domain refs of the composed projection appear in the
+    # AssistantResponse: the baseline presentation carries visible findings.
+    assert first.sources == VISIBLE_SOURCES
+    assert first.pending_questions == ()
+    assert first.approval_requests == ()
+    assert first.workflow_updates == ()
+    assert first.memory_updates == ()
+    assert first.warnings == ()
     assert first.proposed_actions == ()
-    assert list(first.reasoning_summary["result_refs"]) == list(
-        baseline.view.result_refs
-    )
-    assert list(first.reasoning_summary["contradiction_refs"]) == list(
-        baseline.view.contradiction_refs
-    )
+    assert list(first.reasoning_summary["result_refs"]) == []
+    assert list(first.reasoning_summary["contradiction_refs"]) == []
 
     # conversation.v1 was persisted through the canonical SessionStore: it is
     # read back from the store itself, never from a side structure.
@@ -1173,7 +1300,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id="assistant-002",
         assistant_created_at=TURN_2_RESPONSE_AT,
         expected_session_revision=2,
-        domain_view=baseline.view,
     )
 
     # The same canonical session was loaded again through the official store and
@@ -1225,7 +1351,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
             stale,
             request_id="req-stale-001",
             expected_session_revision=1,
-            domain_view=baseline.view,
             assistant_message_id="assistant-stale-001",
             assistant_created_at=TURN_3_AT,
         )
@@ -1259,7 +1384,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         replacement=replacement,
         request_id="req-edit-001",
         expected_session_revision=3,
-        domain_view=baseline.view,
         assistant_message_id="assistant-001-edit",
         assistant_created_at=TURN_4_RESPONSE_AT,
     )
@@ -1301,7 +1425,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         request_id="req-regen-001",
         application_message_id="regen-input-001",
         expected_session_revision=4,
-        domain_view=baseline.view,
         assistant_message_id="assistant-001-regen",
         assistant_created_at=TURN_5_RESPONSE_AT,
     )
@@ -1352,7 +1475,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id="assistant-003",
         assistant_created_at=TURN_6_RESPONSE_AT,
         expected_session_revision=5,
-        domain_view=baseline.view,
         requested_capabilities=(
             "response_streaming",
             "request_cancellation",
@@ -1437,7 +1559,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id="assistant-004",
         assistant_created_at=TURN_7_RESPONSE_AT,
         expected_session_revision=6,
-        domain_view=baseline.view,
     )
 
     assert graph.revision() == 7
@@ -1454,8 +1575,10 @@ def test_at_dp105_connected_canonical_conversation() -> None:
 
     # Neither changes the selected domain, the application role, the capability
     # state, the approval state or the orchestration authority.
-    assert bot_response.domain_state["primary_domain"] == PRIMARY_DOMAIN
-    assert bot_response.domain_state["supporting_domains"] == (SUPPORTING_DOMAIN,)
+    # The opaque bot association changed the selected domain nothing: the turn
+    # takes the same canonical fallback route every conversational turn takes.
+    assert bot_response.domain_state["primary_domain"] == str(GENERAL)
+    assert bot_response.domain_state["supporting_domains"] == ()
     bot_command = graph.handle.commands(ApplicationOperation.MESSAGE_SUBMIT)[-1]
     assert bot_command.actor_id == CONVERSATION_ACTOR_ID
     assert bot_command.channel is ApplicationChannel.CONVERSATION
@@ -1498,12 +1621,6 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     # ─────────────────────────────────────────────────────────────────────────
     # Scenario H — visibility is not authorization
     # ─────────────────────────────────────────────────────────────────────────
-    assert visibility.view.source_refs == VISIBLE_SOURCES
-    assert visibility.view.question_refs == (QUESTION_REF,)
-    assert visibility.view.approval_refs == (APPROVAL_REF,)
-    assert visibility.view.workflow_refs == (WORKFLOW_REF,)
-    assert visibility.view.supporting_domains == (SUPPORTING_DOMAIN,)
-
     # The canonical approval state captured before the turn: the assertions
     # after the turn prove it transitioned nowhere by comparing the full
     # recorded state (see below).
@@ -1520,17 +1637,50 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assistant_message_id="assistant-005",
         assistant_created_at=TURN_8_RESPONSE_AT,
         expected_session_revision=7,
-        domain_view=visibility.view,
     )
 
     assert graph.revision() == 8
+    # The genuine Phase 10.45 projection the one read-only source composed for
+    # THIS turn is the projection the response consumed: same request, same
+    # canonical session, same canonical resolution route and the same canonical
+    # domain membership as the application result.
+    visibility_projection = graph.projections.returned["req-visible-001"]
+    visibility_view = visibility_projection.conversational
+    assert visibility_view is not None
+    visible_application_response = next(
+        response
+        for command, response in graph.handle.calls
+        if command.request_id == "req-visible-001"
+    )
+    assert visibility_projection.request_id == "req-visible-001"
+    assert visibility_projection.request_id == visible_application_response.request_id
+    assert visibility_projection.session_reference_id == SESSION_ID
+    visibility_application = visible_application_response.data
+    assert visibility_application is not None
+    assert visibility_application["session_id"] == SESSION_ID
+    assert visibility_projection.resolution_reference_id == (
+        canonical_domain_resolution_reference(visible_application_response)
+    )
+    assert visibility_view.primary_domain == visibility_application["primary_domain"]
+    assert tuple(visibility_view.supporting_domains) == tuple(
+        visibility_application["supporting_domains"]
+    )
+    assert visibility_view.source_refs == VISIBLE_SOURCES
+    assert visibility_view.question_refs == (QUESTION_REF,)
+    assert visibility_view.approval_refs == (APPROVAL_REF,)
+    assert visibility_view.workflow_refs == (WORKFLOW_REF,)
+    assert (
+        visible.domain_state["primary_domain"]
+        == (visibility_application["primary_domain"])
+    )
+
     # The authorized refs appear in the assistant response.
     assert visible.sources == VISIBLE_SOURCES
     assert visible.pending_questions == (QUESTION_REF,)
     assert visible.approval_requests == (APPROVAL_REF,)
     assert visible.workflow_updates == (WORKFLOW_REF,)
     # No ref beyond the authorized projection appears: the response ref surface
-    # is exactly the view's ref surface.
+    # is exactly the composed view's ref surface.
     response_refs = (
         set(visible.sources)
         | set(visible.pending_questions)
@@ -1542,14 +1692,14 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         | set(visible.reasoning_summary["contradiction_refs"])
     )
     view_refs = (
-        set(visibility.view.source_refs)
-        | set(visibility.view.question_refs)
-        | set(visibility.view.approval_refs)
-        | set(visibility.view.workflow_refs)
-        | set(visibility.view.memory_proposal_refs)
-        | set(visibility.view.warning_refs)
-        | set(visibility.view.contradiction_refs)
-        | set(visibility.view.result_refs)
+        set(visibility_view.source_refs)
+        | set(visibility_view.question_refs)
+        | set(visibility_view.approval_refs)
+        | set(visibility_view.workflow_refs)
+        | set(visibility_view.memory_proposal_refs)
+        | set(visibility_view.warning_refs)
+        | set(visibility_view.contradiction_refs)
+        | set(visibility_view.result_refs)
     )
     assert response_refs == view_refs
 
@@ -1569,7 +1719,10 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         approval_repository.get_request(APPROVAL_REF).to_dict() == approval_state_before
     )
     assert visible.message.content == ROUTED_TEXT
-    assert visible.domain_state["primary_domain"] == PRIMARY_DOMAIN
+    assert (
+        visible.domain_state["primary_domain"]
+        == (visibility_application["primary_domain"])
+    )
 
     # A proposed action reference does not execute: the response materializes no
     # action.  The canonical decision of this turn is the same canonical
@@ -1599,17 +1752,19 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     # only narrow ``supporting_domains`` — so an effectively visible
     # unselected-domain item is not omitted by that filter.  Domain-based
     # omission is not a behaviour of this projection and is not claimed here.
-    plan_text = _strings(visibility.presentation.to_dict())
+    plan_text = _strings(_visibility_presentation().to_dict())
     for reference in OMITTED_REFS:
         assert reference in plan_text
-        assert reference not in _strings(visibility.view.to_dict())
+        assert reference not in _strings(visibility_view.to_dict())
         assert reference not in _strings(visible.to_dict())
         assert reference not in graph.message_ids()
     assert "domain:legal" in plan_text
     assert "domain:oppositions" in plan_text
-    assert "domain:legal" not in _strings(visibility.view.to_dict())
-    assert "domain:oppositions" not in _strings(visibility.view.to_dict())
-    assert visibility.view.supporting_domains == (SUPPORTING_DOMAIN,)
+    assert "domain:legal" not in _strings(visibility_view.to_dict())
+    assert "domain:oppositions" not in _strings(visibility_view.to_dict())
+    assert tuple(visibility_view.supporting_domains) == tuple(
+        visibility_application["supporting_domains"]
+    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Scenario I — public safety
@@ -1678,8 +1833,8 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     # private-reasoning/secret fragments.
     assert len(serialized) == 8
     inspected: list[Any] = [*serialized, _raw_extension(graph.store)]
-    inspected.append(visibility.projection.to_dict())
-    inspected.append(baseline.projection.to_dict())
+    inspected.append(graph.projections.returned["req-visible-001"].to_dict())
+    inspected.append(graph.projections.returned["req-001"].to_dict())
     inspected.append(dict(bot_envelope.extensions))
     for payload in inspected:
         assert _forbidden_key_hits(payload) == ()
@@ -1692,8 +1847,8 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     # JSON-native fails to serialize, and one that loses information fails the
     # byte-identical re-encoding).
     json_native: list[Any] = [*serialized, graph.conversation().to_dict()]
-    json_native.append(visibility.projection.to_dict())
-    json_native.append(baseline.projection.to_dict())
+    json_native.append(graph.projections.returned["req-visible-001"].to_dict())
+    json_native.append(graph.projections.returned["req-001"].to_dict())
     for payload in json_native:
         encoded = json.dumps(payload, sort_keys=True)
         assert json.dumps(json.loads(encoded), sort_keys=True) == encoded

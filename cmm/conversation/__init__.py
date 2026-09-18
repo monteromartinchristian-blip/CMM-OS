@@ -26,12 +26,15 @@ from cmm.conversation.errors import (
     ConversationBoundaryError,
     ConversationError,
     ConversationErrorCode,
+    ConversationProjectionBindingError,
     ConversationSessionConflictError,
     ConversationSessionNotFoundError,
 )
+from cmm.conversation.projection import AuthorizedDomainProjectionSource
 
 __all__ = [
     "AssistantResponse",
+    "AuthorizedDomainProjectionSource",
     "ConversationAttachmentRef",
     "ConversationBoundaryError",
     "ConversationCapabilityState",
@@ -41,6 +44,7 @@ __all__ = [
     "ConversationInteractionMode",
     "ConversationLineage",
     "ConversationMessage",
+    "ConversationProjectionBindingError",
     "ConversationRole",
     "ConversationSessionConflictError",
     "ConversationSessionNotFoundError",

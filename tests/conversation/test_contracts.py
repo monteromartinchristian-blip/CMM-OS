@@ -145,7 +145,7 @@ def _project(view: ConversationalDomainView | None) -> AssistantResponse:
         assistant_message_id="msg-2",
         created_at=TIMESTAMP,
         application_response=_application_response(),
-        domain_view=view,
+        authorized_domain_view=view,
         capability_state=(),
     )
 
