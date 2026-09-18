@@ -135,7 +135,10 @@ SECRET_LIKE_METADATA_KEYS = frozenset(
 )
 
 #: Normalized metadata key names that fail closed because they name internal
-#: failure detail or hidden reasoning rather than public conversational content.
+#: failure detail, hidden reasoning or hidden prompt content rather than public
+#: conversational content.  ``prompt`` covers every normalized spelling that
+#: contains it (``rawPrompt``, ``system_prompt``, ``private-prompt``), so a
+#: prompt-bearing key cannot become public conversational metadata.
 INTERNAL_DETAIL_METADATA_KEYS = frozenset(
     {
         "traceback",
@@ -143,6 +146,10 @@ INTERNAL_DETAIL_METADATA_KEYS = frozenset(
         "chainofthought",
         "scratchpad",
         "hiddenreasoning",
+        "privatereasoning",
+        "rawprompt",
+        "systemprompt",
+        "prompt",
     }
 )
 

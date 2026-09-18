@@ -37,6 +37,7 @@ See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-desi
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from typing import Any
 
@@ -78,6 +79,8 @@ from cmm.application.local_runtime import (
 )
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.contracts import (
+    INTERNAL_DETAIL_METADATA_KEYS,
+    SECRET_LIKE_METADATA_KEYS,
     AssistantResponse,
     ConversationInteractionMode,
     ConversationLineage,
@@ -137,6 +140,39 @@ FORBIDDEN_FRAGMENTS = (
     "cmm-internal-detail",
     "AKIA-EXAMPLE-SECRET-KEY",
 )
+
+#: Remediation MAJOR-03 — the separator-free denied key fragments of the
+#: production runtime screen, mirrored here so the transport walker weakens in
+#: lockstep with the screen it exercises.
+_FORBIDDEN_KEY_FRAGMENTS = tuple(
+    sorted(
+        {
+            key.replace("_", "")
+            for key in SECRET_LIKE_METADATA_KEYS | INTERNAL_DETAIL_METADATA_KEYS
+        }
+    )
+)
+
+
+def _forbidden_key_hits(payload: Any) -> tuple[str, ...]:
+    """Return every mapping key of *payload* the production screen would refuse."""
+
+    found: list[str] = []
+    if isinstance(payload, Mapping):
+        for key, value in payload.items():
+            if any(
+                fragment in str(key).lower().replace("_", "")
+                for fragment in _FORBIDDEN_KEY_FRAGMENTS
+            ):
+                found.append(str(key))
+            found.extend(_forbidden_key_hits(value))
+    elif isinstance(payload, Sequence) and not isinstance(
+        payload, str | bytes | bytearray | memoryview
+    ):
+        for item in payload:
+            found.extend(_forbidden_key_hits(item))
+    return tuple(found)
+
 
 #: The five additive conversation routes of Phase 11.5 (DP-105), under the
 #: existing ``/v1`` surface.
@@ -639,6 +675,33 @@ def test_conversation_state_model_re_validates_the_canonical_contract() -> None:
 
     with pytest.raises(TypeError):
         conversation_state_model_from(object())  # type: ignore[arg-type]
+
+
+def test_http_response_revalidation_never_sees_hidden_reasoning_or_prompt_keys() -> (
+    None
+):
+    """Remediation MAJOR-03: no served conversational payload carries a hidden key."""
+
+    message = ConversationMessage(
+        id=USER_MESSAGE_ID,
+        session_id=SESSION_ID,
+        role=ConversationRole.USER,
+        content=USER_CONTENT,
+        created_at=USER_CREATED_AT,
+    )
+
+    for key in ("private_reasoning", "rawPrompt", "system_prompt", "prompt"):
+        with pytest.raises(ValueError):
+            AssistantResponse(message=message, reasoning_summary={key: "hidden"})
+        with pytest.raises(ValueError):
+            AssistantResponse(message=message, domain_state={"nested": {key: "hidden"}})
+
+    response = AssistantResponse(
+        message=message, reasoning_summary={"result_refs": ["result:1"]}
+    )
+    dump = assistant_response_model_from(response).model_dump(mode="json")
+    assert _forbidden_key_hits(dump) == ()
+    assert set(dump["reasoning_summary"]) == {"result_refs"}
 
 
 def test_conversation_state_model_re_validates_the_closed_interaction_mode() -> None:

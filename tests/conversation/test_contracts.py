@@ -787,6 +787,33 @@ SEPARATOR_ONLY_KEYS = ("", "---", "___", " . ", "///")
 
 KEY_SCREEN_SURFACES = ("metadata", "reasoning_summary", "domain_state")
 
+#: Remediation MAJOR-03 — the normalized public-key spellings that name hidden
+#: prompt or hidden reasoning content.  The V1 audit reproduced
+#: ``private_reasoning``, ``raw_prompt``, ``system_prompt`` and ``prompt`` being
+#: accepted by the production runtime screen while the static gate already knew
+#: some of them, so every spelling below must fail closed at runtime.
+HIDDEN_REASONING_KEY_VARIANTS = (
+    "chain_of_thought",
+    "chainOfThought",
+    "chain-of-thought",
+    "scratchpad",
+    "hidden_reasoning",
+    "hiddenReasoning",
+    "hidden-reasoning",
+    "private_reasoning",
+    "privateReasoning",
+    "private-reasoning",
+    "raw_prompt",
+    "rawPrompt",
+    "raw-prompt",
+    "system_prompt",
+    "systemPrompt",
+    "system-prompt",
+    "prompt",
+    "Prompt",
+    "PROMPT",
+)
+
 
 def _construct_public_mapping(surface: str, mapping: Mapping[str, object]) -> object:
     """Bind *mapping* to one public mapping surface of the contract layer."""
@@ -821,6 +848,51 @@ def test_nested_non_ascii_metadata_keys_fail_closed() -> None:
 
     with pytest.raises(ValueError):
         _message(metadata={"outer": {FULLWIDTH_PASSWORD: "value"}})
+
+
+@pytest.mark.parametrize("key", HIDDEN_REASONING_KEY_VARIANTS)
+def test_public_runtime_rejects_hidden_reasoning_and_prompt_keys(key: str) -> None:
+    """Remediation MAJOR-03: the production screen, not only the static gate."""
+
+    with pytest.raises(ValueError):
+        _message(metadata={key: "value"})
+
+
+@pytest.mark.parametrize("surface", KEY_SCREEN_SURFACES)
+@pytest.mark.parametrize("key", HIDDEN_REASONING_KEY_VARIANTS)
+def test_hidden_reasoning_and_prompt_keys_fail_closed_on_every_surface(
+    surface: str, key: str
+) -> None:
+    with pytest.raises(ValueError):
+        _construct_public_mapping(surface, {key: "value"})
+
+
+def test_nested_hidden_reasoning_and_prompt_keys_fail_closed() -> None:
+    """Nested mappings and nested sequences are screened like the top level."""
+
+    with pytest.raises(ValueError):
+        _message(metadata={"outer": {"private_reasoning": "value"}})
+    with pytest.raises(ValueError):
+        _message(metadata={"items": [{"raw_prompt": "value"}]})
+    with pytest.raises(ValueError):
+        _response(reasoning_summary={"trace": [{"system_prompt": "value"}]})
+
+
+def test_from_dict_rejects_hidden_reasoning_and_prompt_keys() -> None:
+    message_payload = _message().to_dict()
+    message_payload["metadata"] = {"private_reasoning": "value"}
+    with pytest.raises(ValueError):
+        ConversationMessage.from_dict(message_payload)
+
+    response_payload = _response().to_dict()
+    response_payload["reasoning_summary"] = {"rawPrompt": "value"}
+    with pytest.raises(ValueError):
+        AssistantResponse.from_dict(response_payload)
+
+    response_payload["reasoning_summary"] = {}
+    response_payload["domain_state"] = {"nested": {"system-prompt": "value"}}
+    with pytest.raises(ValueError):
+        AssistantResponse.from_dict(response_payload)
 
 
 def test_non_ascii_values_stay_accepted() -> None:

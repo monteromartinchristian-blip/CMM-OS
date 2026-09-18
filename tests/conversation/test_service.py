@@ -71,6 +71,7 @@ See ``docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-desi
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -109,7 +110,9 @@ from cmm.application.requests import RequestApplicationService
 from cmm.application.sessions import SessionApplicationService
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.contracts import (
+    INTERNAL_DETAIL_METADATA_KEYS,
     MAX_METADATA_DEPTH,
+    SECRET_LIKE_METADATA_KEYS,
     AssistantResponse,
     ConversationAttachmentRef,
     ConversationCapabilityStatus,
@@ -501,6 +504,48 @@ def _racing_harness(*, session_ids: tuple[str, ...] = (SESSION_ID,)) -> _Harness
 # ── Public conversational input builders ─────────────────────────────────────
 
 
+#: The separator-free denied key fragments of the production runtime screen, so
+#: this walker weakens in lockstep with the screen it mirrors (remediation
+#: MAJOR-03 makes the production screen the load-bearing one).
+_FORBIDDEN_KEY_FRAGMENTS = tuple(
+    sorted(
+        {
+            key.replace("_", "")
+            for key in SECRET_LIKE_METADATA_KEYS | INTERNAL_DETAIL_METADATA_KEYS
+        }
+    )
+)
+
+
+def _keys(payload: Any) -> tuple[str, ...]:
+    """Return every mapping key of one payload."""
+
+    found: list[str] = []
+    if isinstance(payload, Mapping):
+        for key, value in payload.items():
+            found.append(str(key))
+            found.extend(_keys(value))
+    elif isinstance(payload, Sequence) and not isinstance(
+        payload, str | bytes | bytearray | memoryview
+    ):
+        for item in payload:
+            found.extend(_keys(item))
+    return tuple(found)
+
+
+def _forbidden_key_hits(payload: Any) -> tuple[str, ...]:
+    """Return every key of *payload* the production screen would refuse."""
+
+    return tuple(
+        key
+        for key in _keys(payload)
+        if any(
+            fragment in key.lower().replace("_", "")
+            for fragment in _FORBIDDEN_KEY_FRAGMENTS
+        )
+    )
+
+
 def _message(
     message_id: str = "user-001",
     *,
@@ -754,6 +799,68 @@ def test_submit_keeps_bot_id_references_and_attachments_in_conversation_state() 
     assert stored.references == ("reference:1",)
     assert stored.attachments == (attachment,)
     assert dict(stored.metadata) == {"topic": "plan"}
+
+
+def test_hidden_reasoning_and_prompt_metadata_never_enters_conversation_state() -> None:
+    """Remediation MAJOR-03: the runtime screen gates the submit path."""
+
+    harness = _harness()
+
+    for key in (
+        "private_reasoning",
+        "privateReasoning",
+        "raw_prompt",
+        "raw_prompt",
+        "system_prompt",
+        "prompt",
+    ):
+        with pytest.raises(ValueError):
+            _message(metadata={key: "hidden"})
+
+    # No turn and no canonical write can follow an unsafe message: the
+    # boundary never sanitizes-and-continues and never persists.
+    assert harness.recorder.commands == []
+    assert harness.adapter_store.saves == 0
+    assert harness.conversation() is None
+
+
+def test_submit_edit_and_regeneration_responses_carry_no_forbidden_keys() -> None:
+    """Every response of the canonical turn paths passes the runtime screen."""
+
+    harness = _harness()
+    response = _submit(harness, _message())
+    assert _forbidden_key_hits(response.to_dict()) == ()
+
+    edited = harness.service.edit(
+        original_message_id="user-001",
+        replacement=_message("user-002", content="edited question"),
+        request_id="request-2",
+        expected_session_revision=2,
+        assistant_message_id="assistant-002",
+        assistant_created_at=TIMESTAMP,
+    )
+    assert _forbidden_key_hits(edited.to_dict()) == ()
+
+    regenerated = harness.service.regenerate(
+        session_id=SESSION_ID,
+        response_message_id="assistant-002",
+        request_id="request-3",
+        application_message_id="application-message-3",
+        expected_session_revision=3,
+        assistant_message_id="assistant-003",
+        assistant_created_at=TIMESTAMP,
+    )
+    persisted = harness.conversation()
+    assert persisted is not None
+    hit_keys = _forbidden_key_hits(edited.to_dict()) + _forbidden_key_hits(
+        regenerated.to_dict()
+    )
+    hit_keys += _forbidden_key_hits(persisted.to_dict())
+    assert hit_keys == ()
+    # The stored transcript is the only durable shape, and it is clean.
+    assert all(
+        _forbidden_key_hits(message.to_dict()) == () for message in persisted.messages
+    )
 
 
 def test_submit_persists_user_and_assistant_in_one_canonical_commit() -> None:

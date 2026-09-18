@@ -291,7 +291,9 @@ RUNTIME_SEAM_BASELINE = tuple(
 #: ``cmm.conversation.contracts``, so a future production denial cannot
 #: silently escape this walker; the entries production does not screen
 #: (``private_reasoning``, ``raw_prompt``) are recorded in
-#: ``GATE_ONLY_SERIALIZED_FRAGMENTS`` as deliberate.
+#: ``GATE_ONLY_SERIALIZED_FRAGMENTS`` as deliberate.  Remediation MAJOR-03 moved
+#: ``private_reasoning`` and ``raw_prompt`` into the production runtime screen,
+#: so the gate now mirrors production exactly and no fragment is gate-only.
 FORBIDDEN_SERIALIZED_FRAGMENTS = (
     # The production key screen of ``cmm.conversation.contracts``, mirrored:
     "api_key",
@@ -309,19 +311,19 @@ FORBIDDEN_SERIALIZED_FRAGMENTS = (
     "scratchpad",
     "stack_trace",
     "traceback",
-    # The deliberate gate-only fragments (see ``GATE_ONLY_SERIALIZED_FRAGMENTS``):
     "private_reasoning",
     "raw_prompt",
+    "system_prompt",
+    "prompt",
 )
 
 #: The deliberate gate-only fragments: the walker screens them, the production
 #: key screen of ``cmm.conversation.contracts`` does not.  They are frozen so a
 #: silent widening (or narrowing) of the gate is a test failure, not a
-#: surprise.
-GATE_ONLY_SERIALIZED_FRAGMENTS = (
-    "private_reasoning",
-    "raw_prompt",
-)
+#: surprise.  Remediation MAJOR-03 emptied the list: the runtime now denies the
+#: same vocabulary, and ``test_no_fragment_remains_gate_only_while_the_runtime_accepts_mappings``
+#: keeps a future entry from silently re-opening a runtime gap.
+GATE_ONLY_SERIALIZED_FRAGMENTS: tuple[str, ...] = ()
 
 #: Identifier forms that would name a hidden-reasoning surface (spec section
 #: 23.1).  The scan is structural: it looks at identifiers the package
@@ -2204,6 +2206,29 @@ def test_the_serialization_walker_detects_every_forbidden_fragment() -> None:
 
             assert offenders, f"fragment not detected: {fragment!r} in {payload!r}"
             assert any(fragment in entry for entry in offenders)
+
+
+def test_no_fragment_remains_gate_only_while_the_runtime_accepts_mappings() -> None:
+    """Remediation MAJOR-03: the runtime screen, not the gate, is load-bearing.
+
+    The V1 audit reproduced the gate-only fragments (``private_reasoning``,
+    ``raw_prompt``) being accepted by the production runtime screen while the
+    static walker screened them, so the gate was stronger only on paper.  Every
+    fragment below must now fail closed at production construction time, and no
+    fragment may sit in the frozen gate-only list while it does.
+    """
+
+    assert GATE_ONLY_SERIALIZED_FRAGMENTS == ()
+    production = set(production_denied_fragments())
+    for fragment, spelling in (
+        ("privatereasoning", "private_reasoning"),
+        ("rawprompt", "rawPrompt"),
+        ("systemprompt", "system_prompt"),
+        ("prompt", "prompt"),
+    ):
+        assert fragment in production
+        with pytest.raises(ValueError):
+            _message(metadata={spelling: "value"})
 
 
 def test_the_serialized_fragment_gate_covers_every_production_denial() -> None:

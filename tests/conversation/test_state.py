@@ -475,6 +475,22 @@ def test_unsupported_interaction_mode_fails_closed_on_conversation_v1_load() -> 
         adapter.load_conversation("session-1")
 
 
+def test_conversation_v1_load_rejects_hidden_reasoning_and_prompt_keys() -> None:
+    """Remediation MAJOR-03: a stored prompt/reasoning key fails closed on load."""
+
+    store = InMemorySessionStore()
+    store.save(SharedSessionState(session_id="session-1"))
+    for hidden_key in ("private_reasoning", "rawPrompt", "system_prompt", "prompt"):
+        shared = store.load("session-1")
+        assert shared is not None
+        payload = _state(messages=(_message(),)).to_dict()
+        payload["messages"][0]["metadata"] = {hidden_key: "hidden"}
+        store.save(shared.with_extension(CONVERSATION_EXTENSION_KEY, payload))
+        adapter = SharedSessionConversationAdapter(store)
+        with pytest.raises(ConversationSessionConflictError):
+            adapter.load_conversation("session-1")
+
+
 def test_every_canonical_interaction_mode_round_trips_deterministically() -> None:
     """The seven canonical modes serialize as their exact string value."""
 
