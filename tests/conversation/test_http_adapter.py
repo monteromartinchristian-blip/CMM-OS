@@ -77,7 +77,10 @@ from cmm.application.local_runtime import (
     LocalApplicationRuntime,
     build_local_application_runtime,
 )
-from cmm.conversation.capabilities import ConversationCapabilityResolver
+from cmm.conversation.capabilities import (
+    CONVERSATION_CAPABILITY_IDS,
+    ConversationCapabilityResolver,
+)
 from cmm.conversation.contracts import (
     INTERNAL_DETAIL_METADATA_KEYS,
     SECRET_LIKE_METADATA_KEYS,
@@ -1405,3 +1408,70 @@ def test_action_state_round_trips_through_the_transport_model() -> None:
             "kind": "approval",
         }
     ]
+
+
+# ── Remediated conversation contracts over HTTP (MAJOR-01/02/04) ─────────────
+
+
+def test_conversation_request_bodies_reject_domain_projection_input() -> None:
+    """No HTTP request body gained Domain projection authority."""
+
+    for field in ("domain_view", "domain_projection", "domain_state"):
+        with pytest.raises(ValidationError):
+            ConversationMessageBody.model_validate(_message_body(**{field: {}}))
+        with pytest.raises(ValidationError):
+            ConversationEditBody.model_validate(_edit_body(**{field: {}}))
+    with pytest.raises(ValidationError):
+        ConversationRegenerateBody.model_validate(
+            _regenerate_body(domain_view={"primary_domain": "domain:health"})
+        )
+
+
+def test_the_conversation_surface_never_gains_an_approval_or_workflow_mutation() -> (
+    None
+):
+    """The five frozen routes are the whole conversational surface."""
+
+    harness = _harness(with_service=False)
+    document = harness.app.openapi()
+
+    published = {
+        (method, path)
+        for path, operations in document["paths"].items()
+        for method in operations
+        if path.startswith("/v1/conversations")
+    }
+    assert published == set(FROZEN_CONVERSATION_ROUTES)
+    joined = " ".join(f"{method} {path}" for method, path in FROZEN_CONVERSATION_ROUTES)
+    for forbidden in ("approve", "reject", "pause", "resume", "retry", "replan"):
+        assert forbidden not in joined
+
+
+def test_unavailable_control_capabilities_serialize_deterministically() -> None:
+    """Remediation MAJOR-04: the seven controls report unavailable every time."""
+
+    harness = _harness()
+    response = _submit(harness, requested_capabilities=["action_execution"])
+    assert response.status_code == 200
+    payload = response.json()["data"]
+
+    rows = {row["capability"]: row for row in payload["capability_state"]}
+    assert set(rows) == set(CONVERSATION_CAPABILITY_IDS)
+    assert rows["action_execution"] == {
+        "capability": "action_execution",
+        "requested": True,
+        "effective": None,
+        "status": "unavailable",
+        "reason": "NO_CANONICAL_ACTION_EXECUTOR",
+    }
+    assert rows["approval_response"]["status"] == "unavailable"
+    assert rows["approval_response"]["effective"] is None
+    assert rows["workflow_pause"]["reason"] == "NO_CANONICAL_WORKFLOW_CONTROL"
+    assert rows["request_cancellation"]["reason"] == "NO_CANCELLABLE_OWNER"
+
+    second = _harness()
+    other = _submit(second, requested_capabilities=["action_execution"])
+    assert other.status_code == 200
+    assert json.dumps(payload["capability_state"], sort_keys=True) == json.dumps(
+        other.json()["data"]["capability_state"], sort_keys=True
+    )
