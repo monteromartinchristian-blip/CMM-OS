@@ -1419,25 +1419,28 @@ The complete Phase 11.5 gate run and the exact-HEAD audit bundle are produced by
 the implementation plan's later verification tasks and reported in their
 handoff, to be independently re-verified by the independent audit.
 
-Remediation V1 documentary state:
+Remediation V2 documentary state:
 
 ```text
-PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
+F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
+NEXT=INDEPENDENT_REAUDIT_V2
 ```
 
-Phase 11.5 is remediated (Remediation V1, `INDEPENDENT_AUDIT_V1=FAIL_RECORDED`)
-and awaiting independent re-audit; it is not closed and not closure-eligible
-before that re-audit returns its evidence. The next subphase
-must not be described as started.
+Phase 11.5 is remediated (Remediation V2 after the independent Re-audit V1
+`FAIL`; `INDEPENDENT_AUDIT_V1=FAIL_RECORDED`,
+`INDEPENDENT_REAUDIT_V1=FAIL_RECORDED`) and awaiting independent Re-audit V2; it
+is not closed and not closure-eligible before that re-audit returns its
+evidence. The next subphase must not be described as started.
 
 Historical numbering collision, recorded explicitly: this document also carries
 a historical version-plan entry whose secondary heading is

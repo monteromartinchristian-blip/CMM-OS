@@ -25,28 +25,31 @@ implementation state)
 **Documentation base head while preparing the Remediation V2 section:** `6036ac3`
 
 ```text
-PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
+F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
+NEXT=INDEPENDENT_REAUDIT_V2
 ```
 
-Phase 11.5 is **remediated (Remediation V1) and awaiting independent
-re-audit**. The canonical
+Phase 11.5 is **remediated (Remediation V2 after independent Re-audit V1
+`FAIL`) and awaiting independent Re-audit V2**. The canonical
 conversational interface exists on `feature/phase-11-stable-integrated-platform`,
 `AT-DP-105` is green in this repository, and the inherited Phase 11 acceptances
-stay green — but no independent audit has examined this implementation yet.
-Nothing in this document claims closure, verification or closure eligibility:
-those states may only be recorded after an independent audit returns the
-evidence the design specification's §35 requires. This documentation is written
-to be independently re-verified, and every measurement it reports was produced
-in this repository at the documentation head named above.
+stay green — but no independent re-audit has examined this Remediation V2
+implementation yet. Nothing in this document claims closure, verification or
+closure eligibility: those states may only be recorded after an independent
+re-audit returns the evidence the design specification's §35 requires. This
+documentation is written to be independently re-verified, and every measurement
+it reports was produced in this repository at the documentation base head named
+above.
 
 ## 1. Purpose and ownership boundary
 
@@ -746,34 +749,38 @@ be independently re-verified by the independent re-audit.
 | Implementation plan | `docs/superpowers/plans/2026-09-17-phase-11.5-conversational-interface-implementation-plan.md` |
 | Inherited requirements reused | `F11-018` / `DP-104` (Phase 11.4), `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, not reopened and not modified |
 | Inherited acceptance regressions | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`; `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py`; `AT-DP-045` — `tests/domains/test_domain_interface_dp045_acceptance.py` |
-| Mapping status | `REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` |
-| Next step | independent re-audit of the exact-HEAD Remediation V1 bundle (see §20) |
+| Mapping status | `REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` |
+| Next step | independent Re-audit V2 of the exact-HEAD Remediation V2 bundle (see §21) |
 
 ## 19. Verification and audit state
 
 ```text
-PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
+F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
+NEXT=INDEPENDENT_REAUDIT_V2
 ```
 
-This document records the implemented Remediation V1 state: the independent
+This document records the implemented Remediation V2 state: the independent
 audit V1 returned `INDEPENDENT_AUDIT_V1=FAIL` and its findings were remediated
-in place (§20). Phase 11.5 may be closed only after an independent re-audit
-returns the closure-gate evidence the
-design specification's §35 requires — zero blockers, zero majors, the Design
-Point verified as existing, the connected acceptance passing, and closure
-eligibility granted. None of those states is claimed here, and no closure
-language is written for Phase 11.5 before that audit exists. The historical
-Phase 11.1–11.4 closure records referenced by this document remain unchanged
-and are owned by their own reference documents
+in place (§20); the independent Re-audit V1 then returned
+`INDEPENDENT_REAUDIT_V1=FAIL` with one new MAJOR and two new MINOR findings, all
+remediated in place by Remediation V2 (§21). Phase 11.5 may be closed only after
+independent Re-audit V2 returns the closure-gate evidence the design
+specification's §35 requires — zero blockers, zero majors, zero
+remediation-required minors, the Design Point verified as existing, the
+connected acceptance passing, and closure eligibility granted. None of those
+states is claimed here, and no closure language is written for Phase 11.5 before
+that re-audit exists. The historical Phase 11.1–11.4 closure records referenced
+by this document remain unchanged and are owned by their own reference documents
 (`docs/reference/phase-11-integration-core.md`,
 `docs/reference/phase-11-orchestration-layer.md`,
 `docs/reference/phase-11-application-backend.md`,
@@ -831,6 +838,72 @@ existing truthful behaviour; and a conversational turn carries no structured
 Domain evidence, so its canonical Domain route is the resolver's fallback while
 the interface projection stays bound to that same canonical route.
 
-Next step: independent re-audit of the exact-HEAD Remediation V1 bundle. No
+Next step at that state: independent re-audit of the exact-HEAD Remediation V1
+bundle. No closure, verification or closure-eligibility claim is made before
+that re-audit returns its evidence.  The independent Re-audit V1 of that bundle
+was subsequently performed and returned `INDEPENDENT_REAUDIT_V1=FAIL` with one
+new MAJOR and two new MINOR findings (§21).
+
+## 21. Remediation V2 — independent Re-audit V1 findings (implementation record)
+
+The independent Re-audit V1 of the exact-HEAD Remediation V1 bundle
+(`docs/audits/phase-11.5-conversational-interface-independent-reaudit-v1.md`)
+returned `INDEPENDENT_REAUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=1` and
+`MINORS=2`: the five original Audit V1 findings were independently verified as
+remediated, and three new findings required correction.
+
+```text
+MAJOR_R1_01=DOMAIN_PROJECTION_CAPABILITY_FAILS_OPEN_WITHOUT_CANONICAL_SOURCE
+MINOR_R1_01=AT_DP105_AND_REFERENCE_DOCS_MISSTATE_PROJECTION_PATH_AND_TEST_EVIDENCE
+MINOR_R1_02=SUPPORTING_DOMAIN_BINDING_NORMALIZES_MALFORMED_APPLICATION_EVIDENCE
+```
+
+Every finding was remediated in place by the Remediation V2 implementation plan
+(`docs/superpowers/plans/2026-09-18-phase-11.5-remediation-v2-implementation-plan.md`)
+under the Remediation V2 design
+(`docs/superpowers/specs/2026-09-18-phase-11.5-remediation-v2-design.md`).
+
+```text
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MAJOR_04=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+MAJOR_R1_01=REMEDIATED_IN_IMPLEMENTATION
+MINOR_R1_01=REMEDIATED_IN_IMPLEMENTATION
+MINOR_R1_02=REMEDIATED_IN_IMPLEMENTATION
+AT_DP_105=PASS_IN_REPOSITORY
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+```
+
+| Remediation V2 commit | Finding | Change recorded in production history |
+| --- | --- | --- |
+| `3a5ef5a` | MAJOR_R1_01 | `ConversationCapabilityResolver.resolve()` gains one keyword-only, exact-`bool` composition input (`domain_projection_available`, default `False`); a dedicated `_domain_projection_state` resolves `domain_projection` from that truth alone — `AVAILABLE` with the existing authorized effective mode while `ConversationService` composes an authorized read-only projection source, and `UNAVAILABLE` with `effective=None` and the canonical reason `NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE` otherwise; the service passes `self._domain_projections is not None` on the one response-projection path shared by `submit`, `edit` and `regenerate`; no new capability id, registry, store, runtime, engine or authority |
+| `6036ac3` | MINOR_R1_02 | `verify_domain_projection_binding` validates supporting-domain provenance strictly: the key must be present and the value an exact all-string sequence — missing, `None`, scalar, bytes-like, non-sequence and mixed-type evidence fails closed with `ConversationProjectionBindingError`; valid sequences bind exactly (order and membership preserved; no sort, dedupe, member drop or stringification) |
+| `fa5833a` | MINOR_R1_01 | acceptance header, `_connected_graph` docstring and the Phase 11.5 reference/roadmap evidence now state the plan-authorized same-turn projection fixture precisely (real routing evidence; test-only read-only `_SameTurnProjectionSource`; content-bound Phase 10.45 contract; `INSUFFICIENT_INFORMATION` fallback versus a `RESOLVED`-only integrator; public caller never supplies the view; binding verifier gates visibility), and the stale current-state counts were replaced with the measured Remediation V2 gate evidence |
+| state commit | state | this documentation commit records the Remediation V2 implementation state and contains no production or test code |
+
+Deliberate corrections of pins are part of this remediation and are recorded in
+the commit messages: the `test_capabilities.py` baseline truth table previously
+pinned `domain_projection` as unconditionally `AVAILABLE`, and the connected
+acceptance compared its capability state with a resolver call that omitted the
+graph's composition truth; both were corrected to the truthful behaviour. The
+accepted `AT-DP-105` test mechanics were preserved — the fixture source was not
+redesigned and the Phase 10.45 production integrator was not changed.
+
+Residual limits carried forward truthfully at this state: the seven control
+capabilities (`approval_response`, `workflow_pause`, `workflow_resume`,
+`workflow_cancel`, `workflow_retry`, `workflow_replan`, `action_execution`)
+remain `UNAVAILABLE` because no canonical approval, workflow-control or
+execution command exists at this baseline; streaming and cancellation keep their
+existing truthful behaviour; `domain_projection` is composition-aware; and a
+conversational turn carries no structured Domain evidence, so its canonical
+Domain route is the resolver's fallback while the interface projection stays
+bound to that same canonical route.
+
+Next step: independent Re-audit V2 of the exact-HEAD Remediation V2 bundle. No
 closure, verification or closure-eligibility claim is made before that re-audit
 returns its evidence.
