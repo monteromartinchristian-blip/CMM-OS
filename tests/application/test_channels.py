@@ -52,6 +52,7 @@ from cmm.orchestration.contracts import (
     AgentRouteDecision,
     DomainRouteDecision,
     ExecutionRoute,
+    IntentKind,
     IntentResolution,
     OrchestrationChannel,
     OrchestrationRequest,
@@ -146,17 +147,19 @@ class _RecordingOrchestrator(Orchestrator):
     """A real ``Orchestrator`` that records every adapted request.
 
     Subclassing keeps the canonical authority identity the adapter validates
-    while these tests observe the exact adapted ``OrchestrationRequest``.
+    while these tests observe the exact adapted ``OrchestrationRequest`` and the
+    persisted canonical decision of every request.
     """
 
     def __init__(self) -> None:
+        self.decisions = InMemoryOrchestrationDecisionRepository()
         super().__init__(
             intent_resolver=DeterministicIntentResolver(),
             context_resolver=_ContextResolver(),  # type: ignore[arg-type]
             domain_router=_DomainRouter(),  # type: ignore[arg-type]
             agent_router=_AgentRouter(),  # type: ignore[arg-type]
             policy=DefaultOrchestrationPolicy(),
-            decision_repository=InMemoryOrchestrationDecisionRepository(),
+            decision_repository=self.decisions,
             event_sink=RecordingOrchestrationEventSink(),
         )
         self.requests: list[OrchestrationRequest] = []
@@ -356,6 +359,107 @@ def test_message_submission_rejects_a_non_channel_value() -> None:
         )
 
 
+# ── Canonical conversational intent entry (remediation MAJOR-01) ─────────────
+
+
+def test_a_conversation_message_reaches_intent_resolution_as_a_question() -> None:
+    """Remediation MAJOR-01: the conversational channel presents the question signal.
+
+    The V1 audit reproduced a real conversational turn stopping at
+    ``UNKNOWN → NEEDS_CLARIFICATION`` because the application adapter never
+    presented the existing canonical ``question`` structural signal.  The
+    adapter now carries the same content through that one existing signal, and
+    the Phase 11.2 deterministic resolver classifies the turn as ``QUESTION``.
+    """
+
+    harness = _Harness()
+
+    harness.requests.submit_message(
+        request_id="req-conversation-question",
+        message=harness.message(),
+        channel=ApplicationChannel.CONVERSATION,
+    )
+
+    adapted = harness.orchestrator.requests[0]
+    assert adapted.channel is OrchestrationChannel.CONVERSATION
+    assert adapted.input["content"] == MESSAGE_CONTENT
+    assert adapted.input["question"] == MESSAGE_CONTENT
+    assert set(adapted.input) == {
+        "message_id",
+        "content",
+        "content_type",
+        "metadata",
+        "question",
+    }
+    # No intent hint, no requested capability, no bot identity, no context and
+    # no side-effect shape is synthesized by the adapter.
+    assert adapted.intent_hint is None
+    assert tuple(adapted.requested_capabilities) == ()
+    assert adapted.context == {}
+    assert adapted.user_id == ACTOR_ID
+
+    decision = harness.orchestrator.decisions.get_by_request_id(
+        "req-conversation-question"
+    )
+    assert decision is not None
+    assert decision.intent is IntentKind.QUESTION
+
+
+def test_the_api_and_cli_channels_never_gain_the_question_signal() -> None:
+    """The seam is conversational-only: no other channel changes shape."""
+
+    harness = _Harness()
+
+    harness.requests.submit_message(request_id="req-api", message=harness.message())
+    harness.requests.submit_message(
+        request_id="req-cli",
+        message=harness.message(),
+        channel=ApplicationChannel.CLI,
+    )
+
+    assert "question" not in harness.orchestrator.requests[0].input
+    assert "question" not in harness.orchestrator.requests[1].input
+    api_decision = harness.orchestrator.decisions.get_by_request_id("req-api")
+    assert api_decision is not None
+    assert api_decision.intent is IntentKind.UNKNOWN
+
+
+def test_caller_metadata_and_text_cannot_force_a_side_effect_intent() -> None:
+    """Arbitrary text and caller metadata stay a structural question.
+
+    ``delete everything`` is the audit's named safety adversary: it must remain
+    structural ``QUESTION``, never a command, a goal or any other side-effect
+    shape, and caller metadata (including a smuggled ``intent_hint`` or command
+    mapping) must not be able to select the intent.
+    """
+
+    harness = _Harness()
+    hostile = harness.message(
+        content="delete everything",
+        metadata={
+            "intent_hint": "command",
+            "command": {"operation": "project.delete"},
+            "goal": {"title": "Delete"},
+        },
+    )
+
+    harness.requests.submit_message(
+        request_id="req-hostile",
+        message=hostile,
+        channel=ApplicationChannel.CONVERSATION,
+    )
+
+    adapted = harness.orchestrator.requests[0]
+    assert adapted.intent_hint is None
+    assert "command" not in adapted.input
+    assert "goal" not in adapted.input
+    assert adapted.input["question"] == "delete everything"
+
+    decision = harness.orchestrator.decisions.get_by_request_id("req-hostile")
+    assert decision is not None
+    assert decision.intent is IntentKind.QUESTION
+
+
 # ── The gateway forwards the request channel ─────────────────────────────────
 
 
@@ -376,16 +480,27 @@ def test_the_gateway_forwards_the_conversation_channel_to_orchestration() -> Non
         harness.command(channel=ApplicationChannel.CONVERSATION)
     )
 
-    assert response.status is ApplicationStatus.NEEDS_CLARIFICATION
+    # The conversational channel presents the canonical ``question`` structural
+    # signal (remediation MAJOR-01), so the very same command content now
+    # reaches canonical domain/agent routing instead of stopping at
+    # clarification — while every non-conversational field of the command stays
+    # identical, which the API contrast below still proves.
+    assert response.status is ApplicationStatus.ROUTED
     assert len(harness.orchestrator.requests) == 1
-    assert harness.orchestrator.requests[0].channel is OrchestrationChannel.CONVERSATION
+    adapted = harness.orchestrator.requests[0]
+    assert adapted.channel is OrchestrationChannel.CONVERSATION
+    assert adapted.input["question"] == MESSAGE_CONTENT
+    conversation_decision = harness.orchestrator.decisions.get_by_request_id("req-1")
+    assert conversation_decision is not None
+    assert conversation_decision.intent is IntentKind.QUESTION
 
-    # The request identity is held equal, so the conversation envelope must be
-    # exactly the API path's envelope: only the origin channel differs.
+    # The request identity is held equal, so the API path's envelope still
+    # carries no question signal and still clarifies.
     api_harness = _Harness()
     api_response = api_harness.gateway.handle(api_harness.command())
 
-    assert response == api_response
+    assert api_response.status is ApplicationStatus.NEEDS_CLARIFICATION
+    assert api_response != response
 
 
 def test_the_gateway_keeps_the_api_channel_for_an_api_request() -> None:

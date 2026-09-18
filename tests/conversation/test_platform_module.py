@@ -122,10 +122,11 @@ ASSISTANT_MESSAGE_ID = "assistant-message-1"
 USER_CREATED_AT = "2026-09-17T10:00:00+00:00"
 ASSISTANT_CREATED_AT = "2026-09-17T10:00:01+00:00"
 
-#: The pinned public text of a canonical ``NEEDS_CLARIFICATION`` outcome: a
-#: plain conversational message carries no structured intent shape, so the
-#: deterministic canonical resolver answers clarification before routing.
-NEEDS_CLARIFICATION_TEXT = "Additional information is required."
+#: The pinned public text of a canonical routed conversational outcome: a plain
+#: conversational message is presented through the canonical ``question``
+#: signal (remediation MAJOR-01), so the deterministic canonical resolver
+#: classifies it as ``QUESTION`` and the canonical pipeline routes it.
+ROUTED_TEXT = "The request was routed through the canonical application boundary."
 
 
 # ── Canonical composition helpers ────────────────────────────────────────────
@@ -702,10 +703,11 @@ def test_the_composed_service_serves_a_real_conversational_turn() -> None:
 
     assert response.message.role is ConversationRole.ASSISTANT
     assert response.message.id == ASSISTANT_MESSAGE_ID
-    # A plain conversational message carries no structured intent, so the
-    # canonical deterministic resolver answers clarification; the point is that
-    # the composed service really traversed the canonical pipeline.
-    assert response.message.content == NEEDS_CLARIFICATION_TEXT
+    # A plain conversational message is presented through the canonical question
+    # signal (remediation MAJOR-01), so the canonical deterministic resolver
+    # routes it; the point is that the composed service really traversed the
+    # canonical pipeline.
+    assert response.message.content == ROUTED_TEXT
 
     state = SharedSessionConversationAdapter(runtime.session_store).load_conversation(
         SESSION_ID

@@ -183,10 +183,11 @@ ASSISTANT_TIMESTAMP = "2026-09-17T10:00:01+00:00"
 SESSION_ID = "session-1"
 OTHER_SESSION_ID = "session-2"
 
-#: The pinned public text of a canonical ``NEEDS_CLARIFICATION`` outcome: a
-#: plain conversational message carries no structured intent shape, so the
-#: deterministic canonical resolver answers clarification before routing.
-NEEDS_CLARIFICATION_TEXT = "Additional information is required."
+#: The pinned public text of a canonical routed conversational outcome: a plain
+#: conversational message is presented through the canonical ``question``
+#: signal (remediation MAJOR-01), so the deterministic canonical resolver
+#: classifies it as ``QUESTION`` and the canonical pipeline routes it.
+ROUTED_TEXT = "The request was routed through the canonical application boundary."
 
 GENERAL = DomainId(slug="general")
 HEALTH = DomainId(slug="health")
@@ -879,7 +880,7 @@ def test_submit_persists_user_and_assistant_in_one_canonical_commit() -> None:
     assert response.message.id == "assistant-001"
     assert response.message.session_id == SESSION_ID
     assert response.message.created_at == ASSISTANT_TIMESTAMP
-    assert response.message.content == NEEDS_CLARIFICATION_TEXT
+    assert response.message.content == ROUTED_TEXT
     assert response.message.references == ()
     assert response.message.attachments == ()
 

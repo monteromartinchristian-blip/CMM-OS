@@ -193,7 +193,7 @@ from cmm.orchestration.decision_repository import (
 from cmm.orchestration.domain_router import CanonicalDomainRouter
 from cmm.orchestration.events import RecordingOrchestrationEventSink
 from cmm.orchestration.intent import DeterministicIntentResolver
-from cmm.orchestration.orchestrator import REASON_INTENT_UNKNOWN, Orchestrator
+from cmm.orchestration.orchestrator import Orchestrator
 from cmm.orchestration.policy import (
     DefaultOrchestrationPolicy,
     OrchestrationConfiguration,
@@ -237,10 +237,12 @@ TURN_7_RESPONSE_AT = "2026-09-17T10:06:01+00:00"
 TURN_8_AT = "2026-09-17T10:07:00+00:00"
 TURN_8_RESPONSE_AT = "2026-09-17T10:07:01+00:00"
 
-#: The pinned public text of a canonical ``NEEDS_CLARIFICATION`` outcome: one
-#: plain public conversational message carries no structured intent shape, so
-#: deterministic canonical intent resolution stops at clarification.
-CLARIFICATION_TEXT = "Additional information is required."
+#: The pinned public text of a canonical routed conversational outcome: a plain
+#: public conversational message is presented through the existing canonical
+#: ``question`` structural signal (remediation MAJOR-01), so the deterministic
+#: canonical resolver classifies it as ``QUESTION`` and the canonical pipeline
+#: routes the selection instead of stopping at clarification.
+ROUTED_TEXT = "The request was routed through the canonical application boundary."
 
 GENERAL = DomainId(slug="general")
 HEALTH = DomainId(slug="health")
@@ -1059,18 +1061,19 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert decision is not None
     assert decision.session_id == SESSION_ID
     assert decision.channel is OrchestrationChannel.CONVERSATION
-    assert decision.intent is IntentKind.UNKNOWN
-    assert decision.execution_route is ExecutionRoute.NONE
+    assert decision.intent is IntentKind.QUESTION
+    assert decision.execution_route is ExecutionRoute.DIRECT_RESPONSE
     assert [event.event_type for event in graph.events.events()].count(
         "orchestration.request_received"
     ) == 1
 
-    # The canonical route selects no domain for one plain public conversational
-    # message (deterministic clarification), and the application response
-    # mirrors that decision without fabricating domain evidence.
-    assert decision.primary_domain is None
+    # The canonical route selects the registered General fallback domain for one
+    # plain public conversational message (remediation MAJOR-01: the message is
+    # presented through the canonical ``question`` signal), and the application
+    # response mirrors that decision without fabricating domain evidence.
+    assert decision.primary_domain == str(GENERAL)
     assert decision.supporting_domains == ()
-    assert application_response.status is ApplicationStatus.NEEDS_CLARIFICATION
+    assert application_response.status is ApplicationStatus.ROUTED
     assert application_response.error is None
     assert set(application_response.data) == {
         "session_id",
@@ -1089,13 +1092,11 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         "reason_codes",
     }
     assert application_response.data["session_id"] == SESSION_ID
-    assert application_response.data["status"] == (
-        ApplicationStatus.NEEDS_CLARIFICATION.value
-    )
-    # The canonical clarification reason of the persisted decision is the route
-    # the application layer reports: nothing is upgraded to a routed turn.
-    assert REASON_INTENT_UNKNOWN in decision.reason_codes
-    assert decision.policy_disposition is None
+    assert application_response.data["status"] == ApplicationStatus.ROUTED.value
+    # The canonical fallback reason of the persisted decision is the route the
+    # application layer reports: nothing is upgraded beyond the canonical route.
+    assert "DOMAIN_FALLBACK_SELECTED" in decision.reason_codes
+    assert decision.policy_disposition is PolicyDisposition.ALLOW_ROUTE
     assert application_response.data["intent"] == decision.intent.value
     assert application_response.data["primary_domain"] == decision.primary_domain
     assert list(application_response.data["supporting_domains"]) == list(
@@ -1105,7 +1106,7 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert application_response.data["decision_id"] == decision.decision_id
     assert application_response.data["agent_id"] == decision.selected_agent_id
     assert application_response.data["workflow_id"] == decision.workflow_id
-    assert first.message.content == CLARIFICATION_TEXT
+    assert first.message.content == ROUTED_TEXT
 
     # The Domain evidence of the response is exactly the authorized projection's
     # evidence, and its primary domain is a canonical, registered and enabled
@@ -1153,7 +1154,7 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert stored.messages[0] == turn_one
     assert stored.messages[0].role is ConversationRole.USER
     assert stored.messages[1].role is ConversationRole.ASSISTANT
-    assert stored.messages[1].content == CLARIFICATION_TEXT
+    assert stored.messages[1].content == ROUTED_TEXT
     assert ConversationState.from_dict(_raw_extension(graph.store)) == stored
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1474,8 +1475,11 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     )
     bot_decision = graph.decisions.get_by_request_id("req-bot-001")
     assert bot_decision is not None
-    assert bot_decision.execution_route is ExecutionRoute.NONE
-    assert bot_decision.primary_domain is None
+    # The opaque bot association selected nothing: the turn takes the same
+    # canonical question route every conversational turn takes (remediation
+    # MAJOR-01), and no agent, workflow or domain authority was derived from it.
+    assert bot_decision.execution_route is ExecutionRoute.DIRECT_RESPONSE
+    assert bot_decision.primary_domain == str(GENERAL)
     assert bot_decision.selected_agent_id is None
     assert bot_decision.workflow_id is None
 
@@ -1564,20 +1568,22 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert (
         approval_repository.get_request(APPROVAL_REF).to_dict() == approval_state_before
     )
-    assert visible.message.content == CLARIFICATION_TEXT
+    assert visible.message.content == ROUTED_TEXT
     assert visible.domain_state["primary_domain"] == PRIMARY_DOMAIN
 
     # A proposed action reference does not execute: the response materializes no
-    # action and the canonical decision recorded no execution route, no agent
-    # and no workflow.
+    # action.  The canonical decision of this turn is the same canonical
+    # question route every conversational turn takes (remediation MAJOR-01):
+    # it selects the fallback domain and the direct-response route, and it
+    # records no agent, no workflow and no approval of its own.
     assert visible.proposed_actions == ()
     visible_decision = graph.decisions.get_by_request_id("req-visible-001")
     assert visible_decision is not None
-    assert visible_decision.execution_route is ExecutionRoute.NONE
+    assert visible_decision.execution_route is ExecutionRoute.DIRECT_RESPONSE
     assert visible_decision.selected_agent_id is None
     assert visible_decision.workflow_id is None
     assert visible_decision.approval_refs == ()
-    assert visible_decision.policy_disposition is None
+    assert visible_decision.policy_disposition is PolicyDisposition.ALLOW_ROUTE
 
     # Refs the canonical Phase 10.45 projection omits stay absent from both the
     # authorized view and the conversational response.  The plan genuinely
@@ -1743,14 +1749,16 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     # The routing observation is the real composed router's own decision
     # surfaced canonically: the real orchestrator emits one
     # ``orchestration.domain_resolved`` event per request whose domain leg it
-    # ran, carrying the real ``DomainRouteDecision`` facts — exactly two exist,
-    # both from this control, and the seven conversational turns produced none.
+    # ran, carrying the real ``DomainRouteDecision`` facts.  Nine exist: the
+    # seven conversational turns (each now presented through the canonical
+    # question signal by remediation MAJOR-01) plus the two controls, and the
+    # two control events are the last two in emission order.
     domain_events = [
         event
         for event in graph.events.events()
         if event.event_type == "orchestration.domain_resolved"
     ]
-    assert [event.request_id for event in domain_events] == [
+    assert [event.request_id for event in domain_events][-2:] == [
         "control-domain-goal-001",
         "control-domain-question-001",
     ]
@@ -1807,9 +1815,12 @@ def test_at_dp105_connected_canonical_conversation() -> None:
         assert decision.trace_refs[1].startswith("domain-resolution-context:")
         assert all(ref.split(":", 1)[1] for ref in decision.trace_refs)
 
-    # The contrast keeps the control non-vacuous: every conversational decision
-    # of this session recorded no domain route at all, while the two structured
-    # control requests DID route a domain through the SAME composed routers.
+    # Every conversational decision of this session carries the canonical
+    # question route (remediation MAJOR-01) — the same registered General
+    # fallback domain and the same real canonical resolution trace references
+    # the two structured control requests carry, through the SAME composed
+    # routers — while the control's structured goal request additionally
+    # escalates.
     session_decisions = graph.decisions.list_for_session(SESSION_ID)
     conversational_decisions = [
         decision
@@ -1818,7 +1829,8 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     ]
     assert len(conversational_decisions) == 7
     assert all(
-        decision.primary_domain is None and decision.trace_refs == ()
+        decision.primary_domain == str(GENERAL)
+        and decision.trace_refs[0].startswith("domain-resolution:")
         for decision in conversational_decisions
     )
 
@@ -1835,7 +1847,7 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     ) == 9
     assert [event.event_type for event in graph.events.events()].count(
         "orchestration.domain_resolved"
-    ) == 2
+    ) == 9
     assert not any(
         message_id.startswith("control-domain-") for message_id in graph.message_ids()
     )

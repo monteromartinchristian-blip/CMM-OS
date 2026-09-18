@@ -228,17 +228,28 @@ class RequestApplicationService:
         # canonical request never receives a frozen public container and never
         # shares mutable state with the caller.
         public_message = message.to_dict()
+        request_input: dict[str, Any] = {
+            "message_id": public_message["message_id"],
+            "content": public_message["content"],
+            "content_type": public_message["content_type"],
+            "metadata": public_message["metadata"],
+        }
+        if channel is ApplicationChannel.CONVERSATION:
+            # Phase 11.5 (DP-105) remediation MAJOR-01: a conversational
+            # message's natural content is presented through the existing
+            # canonical, non-side-effect ``question`` structural signal, which
+            # the Phase 11.2 ``DeterministicIntentResolver`` already recognizes
+            # as ``IntentKind.QUESTION``.  The adapter infers no domain,
+            # operation, agent, workflow, capability, provider or route from
+            # the text, and it selects no intent itself: the canonical pipeline
+            # still decides.  Only this channel gains the signal.
+            request_input["question"] = public_message["content"]
         orchestration_request = OrchestrationRequest(
             request_id=request_id,
             user_id=message.actor_id,
             channel=_APPLICATION_TO_ORCHESTRATION_CHANNEL[channel],
             session_id=message.session_id,
-            input={
-                "message_id": public_message["message_id"],
-                "content": public_message["content"],
-                "content_type": public_message["content_type"],
-                "metadata": public_message["metadata"],
-            },
+            input=request_input,
             context={},
             requested_capabilities=(),
         )

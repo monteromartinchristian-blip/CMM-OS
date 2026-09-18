@@ -123,10 +123,11 @@ REGENERATED_ASSISTANT_CREATED_AT = "2026-09-17T10:02:01+00:00"
 USER_CONTENT = "What changed in the plan?"
 EDITED_CONTENT = "What changed in the plan, exactly?"
 
-#: The pinned public text of a canonical ``NEEDS_CLARIFICATION`` outcome: a
-#: plain conversational message carries no structured intent shape, so the
-#: deterministic canonical resolver answers clarification before routing.
-NEEDS_CLARIFICATION_TEXT = "Additional information is required."
+#: The pinned public text of a canonical routed conversational outcome: a plain
+#: conversational message is presented through the canonical ``question``
+#: signal (remediation MAJOR-01), so the deterministic canonical resolver
+#: classifies it as ``QUESTION`` and the canonical pipeline routes it.
+ROUTED_TEXT = "The request was routed through the canonical application boundary."
 
 #: Raw internal defect text that must never reach a client.
 RAW_DEFECT_TEXT = (
@@ -630,7 +631,7 @@ def test_assistant_response_model_re_validates_the_canonical_contract() -> None:
             id=ASSISTANT_MESSAGE_ID,
             session_id=SESSION_ID,
             role=ConversationRole.ASSISTANT,
-            content=NEEDS_CLARIFICATION_TEXT,
+            content=ROUTED_TEXT,
             created_at=ASSISTANT_CREATED_AT,
             lineage=ConversationLineage(),
         ),
@@ -774,7 +775,7 @@ def test_submit_returns_the_serialized_assistant_response() -> None:
     assert set(payload) == ASSISTANT_RESPONSE_FIELDS
     assert payload["message"]["id"] == ASSISTANT_MESSAGE_ID
     assert payload["message"]["role"] == ConversationRole.ASSISTANT.value
-    assert payload["message"]["content"] == NEEDS_CLARIFICATION_TEXT
+    assert payload["message"]["content"] == ROUTED_TEXT
     assert payload["message"]["session_id"] == SESSION_ID
     assert payload["message"]["lineage"] == {
         "supersedes_message_id": None,
@@ -845,7 +846,7 @@ def test_edit_preserves_the_original_and_binds_the_supersedes_lineage() -> None:
     payload = response.json()["data"]
     assert payload == harness.service.edited[0].to_dict()
     assert payload["message"]["id"] == EDITED_ASSISTANT_MESSAGE_ID
-    assert payload["message"]["content"] == NEEDS_CLARIFICATION_TEXT
+    assert payload["message"]["content"] == ROUTED_TEXT
 
     # Editing is append-only: the original is preserved byte-identical and the
     # replacement carries the enforced lineage; the service owns the lineage, so
@@ -886,7 +887,7 @@ def test_regeneration_preserves_the_original_and_binds_the_regenerates_lineage()
     payload = response.json()["data"]
     assert payload == harness.service.regenerated[0].to_dict()
     assert payload["message"]["id"] == REGENERATED_ASSISTANT_MESSAGE_ID
-    assert payload["message"]["content"] == NEEDS_CLARIFICATION_TEXT
+    assert payload["message"]["content"] == ROUTED_TEXT
     assert payload["message"]["lineage"] == {
         "supersedes_message_id": None,
         "regenerates_message_id": ASSISTANT_MESSAGE_ID,
