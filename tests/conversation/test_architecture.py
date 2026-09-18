@@ -2697,3 +2697,143 @@ def test_the_runtime_import_check_kills_its_own_violation(
 
         assert offenders, f"the runtime check survived its own violation: {probe}"
         assert any(expected in entry for entry in offenders), offenders
+
+
+# ── Remediation authority and safety gates (MAJOR-01/02/03/04) ───────────────
+
+
+#: Owner-like mutation verbs a production conversational projection source must
+#: never define: the one trusted seam is read-only.
+FORBIDDEN_SOURCE_MUTATION_METHODS = (
+    "save",
+    "put",
+    "register",
+    "resolve",
+    "compose",
+    "authorize",
+    "approve",
+    "execute",
+    "start",
+    "pause",
+    "resume",
+    "retry",
+    "replan",
+    "cancel",
+)
+
+#: The allowed read-only protocol member of the trusted projection source.
+ALLOWED_SOURCE_METHODS = ("get_projection",)
+
+
+def test_public_turn_methods_never_accept_a_per_turn_domain_view() -> None:
+    """Remediation MAJOR-02: no caller-supplied Domain visibility per turn."""
+
+    import inspect
+
+    from cmm.conversation.service import ConversationService
+
+    for method_name in ("submit", "edit", "regenerate"):
+        parameters = inspect.signature(
+            getattr(ConversationService, method_name)
+        ).parameters
+        assert "domain_view" not in parameters, method_name
+        assert "domain_projection" not in parameters, method_name
+        assert "ConversationalDomainView" not in {
+            str(parameter.annotation) for parameter in parameters.values()
+        }, method_name
+
+
+def test_the_trusted_projection_source_is_read_only() -> None:
+    """The one production projection seam exposes no owner-like mutation."""
+
+    from cmm.conversation import AuthorizedDomainProjectionSource
+
+    members = {
+        name
+        for name in dir(AuthorizedDomainProjectionSource)
+        if not name.startswith("_")
+    }
+    assert members == set(ALLOWED_SOURCE_METHODS)
+
+    # Production projection-source classes (the one trusted seam) are scanned
+    # structurally: a future source that grows an owner-like verb fails here.
+    for path in _package_files(CONVERSATION_PACKAGE):
+        tree = _parsed(path)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if "ProjectionSource" not in node.name:
+                continue
+            for child in node.body:
+                if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                    continue
+                name = child.name.strip("_")
+                assert (
+                    name in ALLOWED_SOURCE_METHODS
+                    or name not in FORBIDDEN_SOURCE_MUTATION_METHODS
+                ), f"{path.name}:{child.lineno} defines {child.name}"
+                assert not child.name.startswith("_") or child.name.startswith("__"), (
+                    f"{path.name}:{child.lineno} defines {child.name}"
+                )
+
+
+def test_cmm_conversation_never_becomes_its_own_intent_authority() -> None:
+    """The MAJOR-01 seam stays inside the existing application adapter."""
+
+    for path in _package_files(CONVERSATION_PACKAGE):
+        source = path.read_text(encoding="utf-8")
+        assert "cmm.orchestration.intent" not in source, path.name
+        assert "DeterministicIntentResolver" not in source, path.name
+        assert "IntentKind" not in source or path.name == "errors.py", path.name
+
+
+def test_cmm_conversation_never_imports_execution_or_approval_mutation() -> None:
+    """No workflow execution or approval mutation service is reachable here."""
+
+    forbidden = (
+        "cmm.domains.workflow_execution",
+        "cmm.domains.workflow_registry",
+        "cmm.agent_runtime.approval_repository",
+        "cmm.domains.composer",
+    )
+    for path in _package_files(CONVERSATION_PACKAGE):
+        source = path.read_text(encoding="utf-8")
+        for module in forbidden:
+            assert module not in source, f"{path.name} imports {module}"
+
+
+def test_the_action_state_contract_exposes_no_execution_surface() -> None:
+    """Remediation MAJOR-04: action state is descriptive, never authority."""
+
+    import dataclasses
+
+    from cmm.conversation import (
+        ConversationActionState,
+        ConversationActionStatus,
+    )
+
+    fields = {field.name for field in dataclasses.fields(ConversationActionState)}
+    assert fields == {"reference", "status", "reason", "kind"}
+
+    state = ConversationActionState(
+        reference="approval:1",
+        status=ConversationActionStatus.APPROVAL_REQUIRED,
+        kind="approval",
+    )
+    assert all(not callable(value) for value in dataclasses.asdict(state).values())
+    payload = state.to_dict()
+    assert set(payload) == fields
+    assert "execute" not in payload
+    assert ConversationActionStatus.APPROVAL_REQUIRED.value == "approval_required"
+
+
+def test_a_service_without_a_domain_view_parameter_still_binds_the_source() -> None:
+    """The source is a construction-time collaborator, never caller input."""
+
+    import inspect
+
+    from cmm.conversation.service import ConversationService
+
+    parameters = inspect.signature(ConversationService.__init__).parameters
+    assert "domain_projections" in parameters
+    assert parameters["domain_projections"].default is None
