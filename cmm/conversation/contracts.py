@@ -76,6 +76,7 @@ __all__ = [
     "ConversationAttachmentRef",
     "ConversationCapabilityState",
     "ConversationCapabilityStatus",
+    "ConversationInteractionMode",
     "ConversationLineage",
     "ConversationMessage",
     "ConversationRole",
@@ -168,6 +169,25 @@ class ConversationRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
+
+
+class ConversationInteractionMode(str, Enum):
+    """Closed public interaction mode of one canonical conversation.
+
+    The seven values are the roadmap interaction modes.  A mode is
+    interface/session metadata only: it creates no runtime and grants no
+    capability, no Domain, no goal, no workflow and no permission, and it adds
+    no behavior beyond the existing canonical message path.  An unsupported
+    mode is never accepted and never silently becomes ``general``.
+    """
+
+    GENERAL = "general"
+    DOMAIN = "domain"
+    LINKED_GOAL = "linked_goal"
+    LINKED_WORKFLOW = "linked_workflow"
+    REFLECTION = "reflection"
+    REVIEW = "review"
+    CONFIGURATION = "configuration"
 
 
 class ConversationCapabilityStatus(str, Enum):

@@ -57,6 +57,7 @@ import pytest
 from cmm.conversation import (
     ConversationBoundaryError,
     ConversationErrorCode,
+    ConversationInteractionMode,
     ConversationMessage,
     ConversationRole,
     ConversationSessionConflictError,
@@ -433,11 +434,81 @@ def test_from_dict_rejects_unsupported_or_missing_fields() -> None:
         ConversationState.from_dict(["not", "a", "mapping"])
 
 
-def test_state_rejects_blank_session_id_and_blank_mode() -> None:
+def test_state_rejects_blank_session_id() -> None:
     with pytest.raises(ValueError):
         _state(session_id="   ")
+
+
+# ── Closed interaction modes (remediation MINOR-01) ──────────────────────────
+
+
+def test_unsupported_interaction_mode_fails_closed() -> None:
+    """Remediation MINOR-01: an unknown mode is never accepted.
+
+    The V1 audit reproduced ``totally-unsupported-mode`` being accepted by the
+    open ``ConversationState.mode`` string; the closed contract must fail
+    closed in the direct constructor and in ``from_dict`` alike.
+    """
+
+    with pytest.raises((TypeError, ValueError)):
+        _state(mode="totally-unsupported-mode")
+
+    payload = dict(_state().to_dict(), mode="totally-unsupported-mode")
     with pytest.raises(ValueError):
-        _state(mode="  ")
+        ConversationState.from_dict(payload)
+
+
+def test_unsupported_interaction_mode_fails_closed_on_conversation_v1_load() -> None:
+    """The canonical ``conversation.v1`` load path fails closed too."""
+
+    store = InMemorySessionStore()
+    shared = store.save(SharedSessionState(session_id="session-1"))
+    store.save(
+        shared.with_extension(
+            CONVERSATION_EXTENSION_KEY,
+            dict(_state().to_dict(), mode="totally-unsupported-mode"),
+        )
+    )
+    adapter = SharedSessionConversationAdapter(store)
+
+    with pytest.raises(ConversationSessionConflictError):
+        adapter.load_conversation("session-1")
+
+
+def test_every_canonical_interaction_mode_round_trips_deterministically() -> None:
+    """The seven canonical modes serialize as their exact string value."""
+
+    for mode in ConversationInteractionMode:
+        state = _state(mode=mode)
+        assert state.mode is mode
+        assert state.to_dict()["mode"] == mode.value
+        restored = ConversationState.from_dict(state.to_dict())
+        assert restored == state
+        assert restored.mode is mode
+        # A JSON round trip (the persisted extension shape) is equally exact.
+        assert (
+            ConversationState.from_dict(json.loads(json.dumps(state.to_dict()))).mode
+            is mode
+        )
+
+
+def test_a_raw_string_interaction_mode_is_never_coerced() -> None:
+    """The direct constructor requires the closed member, exactly like ``role``."""
+
+    with pytest.raises(TypeError):
+        _state(mode="domain")
+    assert _state(mode=ConversationInteractionMode.DOMAIN).mode is (
+        ConversationInteractionMode.DOMAIN
+    )
+
+
+def test_from_dict_reads_every_canonical_mode_back_from_its_string_value() -> None:
+    for mode in ConversationInteractionMode:
+        payload = dict(_state().to_dict(), mode=mode.value)
+        assert ConversationState.from_dict(payload).mode is mode
+    for value in (None, 1, True, ["general"], {"mode": "general"}):
+        with pytest.raises((TypeError, ValueError)):
+            ConversationState.from_dict(dict(_state().to_dict(), mode=value))
 
 
 # ── Message integrity inside the state ───────────────────────────────────────

@@ -67,7 +67,10 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from cmm.conversation.contracts import (
+    ConversationInteractionMode,
     ConversationMessage,
+    _enum_from_value,
+    _enum_member,
     _identifier,
     _optional_identifier,
 )
@@ -183,7 +186,7 @@ class ConversationState:
 
     session_id: str
     messages: tuple[ConversationMessage, ...] = ()
-    mode: str = "general"
+    mode: ConversationInteractionMode = ConversationInteractionMode.GENERAL
     bot_id: str | None = None
     active_message_id: str | None = None
 
@@ -193,7 +196,11 @@ class ConversationState:
         )
         messages = _message_tuple(self.messages)
         object.__setattr__(self, "messages", messages)
-        object.__setattr__(self, "mode", _identifier(self.mode, "mode"))
+        object.__setattr__(
+            self,
+            "mode",
+            _enum_member(self.mode, ConversationInteractionMode, "mode"),
+        )
         object.__setattr__(self, "bot_id", _optional_identifier(self.bot_id, "bot_id"))
         object.__setattr__(
             self,
@@ -218,7 +225,7 @@ class ConversationState:
         return {
             "version": CONVERSATION_EXTENSION_VERSION,
             "session_id": self.session_id,
-            "mode": self.mode,
+            "mode": self.mode.value,
             "bot_id": self.bot_id,
             "active_message_id": self.active_message_id,
             "messages": [message.to_dict() for message in self.messages],
@@ -248,7 +255,11 @@ class ConversationState:
         return cls(
             session_id=data["session_id"],
             messages=_serialized_messages(data.get("messages", ())),
-            mode=data.get("mode", "general"),
+            mode=_enum_from_value(
+                data.get("mode", ConversationInteractionMode.GENERAL),
+                ConversationInteractionMode,
+                "mode",
+            ),
             bot_id=data.get("bot_id"),
             active_message_id=data.get("active_message_id"),
         )

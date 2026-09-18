@@ -79,6 +79,7 @@ from cmm.application.local_runtime import (
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.contracts import (
     AssistantResponse,
+    ConversationInteractionMode,
     ConversationLineage,
     ConversationMessage,
     ConversationRole,
@@ -638,6 +639,26 @@ def test_conversation_state_model_re_validates_the_canonical_contract() -> None:
 
     with pytest.raises(TypeError):
         conversation_state_model_from(object())  # type: ignore[arg-type]
+
+
+def test_conversation_state_model_re_validates_the_closed_interaction_mode() -> None:
+    """Remediation MINOR-01: an unsupported mode never passes revalidation."""
+
+    payload = ConversationState(session_id=SESSION_ID).to_dict()
+
+    assert [
+        ConversationStateModel.model_validate({**payload, "mode": mode.value}).mode
+        is mode
+        for mode in ConversationInteractionMode
+    ]
+    model = ConversationStateModel.model_validate({**payload, "mode": "general"})
+    assert model.mode is ConversationInteractionMode.GENERAL
+    assert model.model_dump(mode="json")["mode"] == "general"
+
+    with pytest.raises(ValidationError):
+        ConversationStateModel.model_validate(
+            {**payload, "mode": "totally-unsupported-mode"}
+        )
 
 
 # ── The published surface ────────────────────────────────────────────────────

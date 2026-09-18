@@ -35,6 +35,7 @@ from cmm.conversation import (
     ConversationCapabilityStatus,
     ConversationError,
     ConversationErrorCode,
+    ConversationInteractionMode,
     ConversationLineage,
     ConversationMessage,
     ConversationRole,
@@ -254,6 +255,7 @@ EXPECTED_FIELDS: dict[type, tuple[str, ...]] = {
 FROZEN_CONTRACT_NAMES = frozenset(
     {
         "ConversationRole",
+        "ConversationInteractionMode",
         "ConversationCapabilityStatus",
         "ConversationAttachmentRef",
         "ConversationLineage",
@@ -271,6 +273,20 @@ FROZEN_CONTRACT_NAMES = frozenset(
 
 def test_conversation_roles_are_frozen() -> None:
     assert {role.value for role in ConversationRole} == {"user", "assistant", "system"}
+
+
+def test_conversation_interaction_modes_are_frozen() -> None:
+    """Remediation MINOR-01: the mode contract is closed and ordered."""
+
+    assert [mode.value for mode in ConversationInteractionMode] == [
+        "general",
+        "domain",
+        "linked_goal",
+        "linked_workflow",
+        "reflection",
+        "review",
+        "configuration",
+    ]
 
 
 def test_conversation_capability_statuses_are_frozen() -> None:

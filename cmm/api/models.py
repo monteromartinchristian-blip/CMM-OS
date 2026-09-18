@@ -63,6 +63,7 @@ from cmm.conversation.contracts import (
     MAX_STRING_LENGTH,
     AssistantResponse,
     ConversationCapabilityStatus,
+    ConversationInteractionMode,
     ConversationRole,
 )
 from cmm.conversation.state import ConversationState
@@ -433,11 +434,16 @@ class AssistantResponseModel(_TransportModel):
 
 
 class ConversationStateModel(_TransportModel):
-    """Transport view of the canonical conversational state of one session."""
+    """Transport view of the canonical conversational state of one session.
+
+    ``mode`` is the closed interaction-mode contract, so a stored or served
+    payload carrying an unsupported mode fails closed at the transport
+    boundary instead of being published as a conversation state.
+    """
 
     version: int
     session_id: str
-    mode: str
+    mode: ConversationInteractionMode
     bot_id: str | None = None
     active_message_id: str | None = None
     messages: list[ConversationMessageModel] = Field(default_factory=list)
