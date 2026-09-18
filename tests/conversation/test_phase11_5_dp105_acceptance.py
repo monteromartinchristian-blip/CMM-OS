@@ -9,14 +9,16 @@ canonical SharedSessionState
 → ApplicationGateway
 → RequestApplicationService
 → real Phase 11.2 Orchestrator
-→ real canonical domain routing / authorized projection
-→ genuine authorized ConversationalDomainView
+→ real canonical Domain routing (real same-turn DomainResolutionResult)
+→ test-only read-only same-turn projection bridge (_SameTurnProjectionSource)
+→ real Phase 10.45 DomainInterfaceProjection contract (content-bound)
+→ verify_domain_projection_binding provenance gate
 → AssistantResponse
 → persisted conversation.v1 through the canonical SessionStore
 ```
 
-Nothing critical is mocked.  The graph is built from the canonical production
-components (``InMemorySessionStore``, ``SessionApplicationService``,
+The graph is built from the canonical production components
+(``InMemorySessionStore``, ``SessionApplicationService``,
 ``ApplicationGateway``, ``RequestApplicationService``, the real ``Orchestrator``
 with the real ``DeterministicIntentResolver`` / ``DefaultContextResolver`` /
 ``CanonicalDomainRouter`` / ``CanonicalAgentRouter`` /
@@ -24,12 +26,30 @@ with the real ``DeterministicIntentResolver`` / ``DefaultContextResolver`` /
 ``RecordingOrchestrationEventSink``, ``SharedSessionConversationAdapter``,
 ``ConversationCapabilityResolver``, ``ConversationResponseProjector`` and
 ``ConversationService``) exactly as ``tests/application/test_phase11_3_dp103_acceptance.py``
-composes it, and the authorized ``ConversationalDomainView`` is a genuine
-``DefaultDomainAPI.project_interface`` projection produced by a real
-``DefaultDomainInterfaceIntegrator`` over the real
-``DefaultDomainResolver`` → ``DefaultDomainComposer`` → ``DomainPresentationPlan``
-chain (the composition ``tests/domains/test_domain_interface_dp045_acceptance.py``
-exercises).  The view is never hand-built.
+composes it.  The application, orchestration and Domain-routing legs are real
+end to end; the visible Domain references are produced by the test-only
+read-only projection bridge, stated precisely below.
+
+Projection evidence, stated precisely (remediation MINOR_R1_01): every turn is
+a real conversational turn over the real application/orchestration route, and
+its canonical Domain routing emits a real same-turn ``DomainResolutionResult``
+(observed by wrapping the real resolver's ``resolve``; the resolver class is
+never replaced or subclassed).  A plain conversational turn deliberately
+carries no structured Domain evidence — remediation MAJOR-01 presents only the
+canonical ``question`` signal — so its canonical route is the resolver
+fallback, whose status is ``INSUFFICIENT_INFORMATION``, and the closed Phase
+10.45 composition/integrator path accepts only ``RESOLVED`` resolutions.  An
+integrator-composed projection therefore cannot exist for this same-turn
+fallback at this baseline.  The test-only, read-only ``_SameTurnProjectionSource``
+(this file) constructs a genuine, content-bound Phase 10.45
+``DomainInterfaceProjection`` from that same-turn
+request/session/resolution/domain evidence plus fixture presentation plans —
+the Phase 10.45 contract itself verifies the content digest in its constructor.
+This fixture path is explicitly permitted by the Remediation V1 implementation
+plan; the public caller never supplies a projection or a view per turn, and
+``verify_domain_projection_binding`` gates every visible reference before the
+``AssistantResponse`` is built.  This acceptance does not claim the Phase 10.45
+production integrator produced the fallback projection.
 
 Traversal is proven with instrumented *real* components: the real gateway's
 ``handle`` is wrapped by a recording delegate (the gateway class is never
@@ -43,8 +63,8 @@ wall-clock time.
 Scenario map (all connected, in one acceptance):
 
 - A first turn — canonical session → service → gateway → orchestrator →
-  authorized projection → ``AssistantResponse`` → ``conversation.v1`` read back
-  from the canonical store;
+  same-turn bound projection → ``AssistantResponse`` → ``conversation.v1`` read
+  back from the canonical store;
 - B second-turn continuity — the same session, its updated revision, the
   previous messages preserved, the path traversed again and no client-owned
   transcript;
@@ -53,13 +73,14 @@ Scenario map (all connected, in one acceptance):
 - E regeneration lineage — the original response preserved,
   ``regenerates_message_id`` bound, no hidden reasoning;
 - F capabilities and cancellation — ``response_streaming`` /
-  ``request_cancellation`` / ``document_upload`` and the canonical
-  ``CAPABILITY_UNAVAILABLE`` cancellation;
+  ``request_cancellation`` / ``document_upload`` /
+  ``domain_projection`` (composed canonical source → ``AVAILABLE``) and the
+  canonical ``CAPABILITY_UNAVAILABLE`` cancellation;
 - G Bot and attachment non-authority — visible, persisted, authoritative for
   nothing, no file bytes;
 - H visibility is not authorization — an authorized approval ref never becomes
-  approved, a proposed action never executes, and the refs the canonical
-  projection omits on effective-visibility grounds (an item flagged
+  approved, a proposed action never executes, and the refs the bound projection
+  omits on effective-visibility grounds (an item flagged
   ``visible=False``, an item placed only in a non-visible section, and stale
   group refs with no effectively visible display item) stay absent;
 - I public safety — attacker metadata fails before persistence and every
@@ -577,11 +598,14 @@ def _connected_graph(
     and ``RecordingOrchestrationEventSink``) and the one real
     ``ApplicationGateway``.
 
-    The one read-only Domain projection source of this graph composes the
-    genuine Phase 10.45 ``DomainInterfaceProjection`` of each turn's own
-    canonical route (remediation MAJOR-02) through the real
-    ``DefaultDomainComposer`` and ``DefaultDomainInterfaceIntegrator``; a turn
-    without a registered presentation simply carries no Domain references.
+    The one read-only Domain projection source of this graph is the test-only
+    ``_SameTurnProjectionSource`` below (remediation MINOR_R1_01 states the
+    fixture path precisely): it builds the content-bound Phase 10.45
+    ``DomainInterfaceProjection`` of each turn from that turn's own recorded
+    canonical ``DomainResolutionResult`` and its fixture presentation plan, a
+    step the closed Phase 10.45 composition/integrator path cannot perform for
+    this fallback route because it accepts only ``RESOLVED`` resolutions.  A
+    turn without a registered presentation simply carries no Domain references.
     """
 
     canonical_store = InMemorySessionStore()
@@ -1101,9 +1125,11 @@ def test_at_dp105_connected_canonical_conversation() -> None:
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 0 — the one real graph, the canonical approval store and the two
-    # genuine Phase 10.45 presentations its one read-only projection source
-    # composes over each turn's own canonical resolution (never hand-built
-    # views: remediation MAJOR-02 removed caller-supplied Domain visibility).
+    # fixture Phase 10.45 presentations its one test-only read-only projection
+    # source binds to each turn's own canonical resolution (remediation
+    # MAJOR-02 removed caller-supplied Domain visibility; remediation
+    # MINOR_R1_01 states the fixture path precisely — the projection is
+    # content-bound and built from the same-turn canonical resolution).
     # ─────────────────────────────────────────────────────────────────────────
     graph = _connected_graph(
         presentations={
@@ -1513,6 +1539,7 @@ def test_at_dp105_connected_canonical_conversation() -> None:
             "response_streaming",
             "request_cancellation",
             "document_upload",
+            "domain_projection",
         ),
     )
 
@@ -1534,6 +1561,19 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert upload.status is ConversationCapabilityStatus.UNAVAILABLE
     assert upload.effective is None
     assert upload.reason == REASON_NO_CANONICAL_STORAGE_OWNER
+    # The connected graph composes the canonical authorized projection source,
+    # so the composition-aware capability truth reports Domain projection
+    # available (remediation MAJOR_R1_01); requesting it changed requested only
+    # and created no authority.  The no-source state belongs to the focused
+    # service tests, not to this connected graph.
+    projection_row = rows["domain_projection"]
+    assert projection_row.requested is True
+    assert projection_row.status is ConversationCapabilityStatus.AVAILABLE
+    assert (
+        projection_row.effective
+        == "authorized_projection_when_supplied_by_canonical_integrator"
+    )
+    assert projection_row.reason is None
     # A request flag is descriptive only: the one command of the turn still
     # carries the public message alone.
     capability_command = graph.handle.commands(ApplicationOperation.MESSAGE_SUBMIT)[-1]

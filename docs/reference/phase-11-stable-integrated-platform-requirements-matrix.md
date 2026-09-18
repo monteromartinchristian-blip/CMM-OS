@@ -339,7 +339,7 @@ here, while no independent audit has examined it yet.
 | Acceptance test | `AT-DP-105 — Canonical Conversational Interaction Acceptance` — `tests/conversation/test_phase11_5_dp105_acceptance.py` |
 | Production package | `cmm/conversation/` (8 modules: `__init__.py`, `contracts.py`, `errors.py`, `state.py`, `capabilities.py`, `projection.py`, `service.py`, `platform_module.py`) |
 | Additive seams in closed packages | `cmm/application/contracts.py` (`ApplicationChannel.CONVERSATION`); `cmm/application/requests.py` (channel mapping); `cmm/application/local_runtime.py` (canonical `session_store` reference); `cmm/api/app.py` (optional `conversation` keyword and the five conversation routes); `cmm/api/models.py` (conversation transport DTOs) |
-| Focused suite | `tests/conversation/` (685 tests) |
+| Focused suite | `tests/conversation/` (860 tests at the Remediation V2 implementation state) |
 | Architecture/security gate | `tests/conversation/test_architecture.py` (125 tests); inherited `tests/application/test_architecture.py`, `tests/api/test_architecture.py`, `tests/platform/test_architecture.py` |
 | OpenAPI gate | `tests/api/test_openapi.py`; frozen route surface `tests/api/test_http_v1.py` |
 | Reference documentation | `docs/reference/phase-11-conversational-interface.md` |

@@ -15,13 +15,14 @@
 mapping); `cmm/application/local_runtime.py` (the canonical `session_store`
 reference); `cmm/api/app.py` (the optional `conversation` keyword and the five
 conversation routes); `cmm/api/models.py` (the conversation transport DTOs)
-**Focused suite:** `tests/conversation/` (685 tests)
+**Focused suite:** `tests/conversation/` (860 tests at the Remediation V2
+implementation state)
 **Architecture/security gate:** `tests/conversation/test_architecture.py`
-(125 tests)
+(132 tests)
 **Inherited gates touched:** `tests/application/test_architecture.py`;
 `tests/api/test_architecture.py`; `tests/platform/test_architecture.py`;
 `tests/api/test_openapi.py`; `tests/api/test_http_v1.py`
-**Documentation head while preparing this document:** `2aba69d`
+**Documentation base head while preparing the Remediation V2 section:** `6036ac3`
 
 ```text
 PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
@@ -667,39 +668,53 @@ does not implement:
 connected acceptance) exercises the real canonical vertical — canonical
 `SharedSessionState` -> official `InMemorySessionStore` -> `ConversationService`
 -> `ApplicationGateway` -> `RequestApplicationService` -> the real Phase 11.2
-`Orchestrator` -> real canonical domain routing and a genuine authorized
-`ConversationalDomainView` (a real `DefaultDomainInterfaceIntegrator` projection
-over the real resolver -> composer -> presentation chain) -> `AssistantResponse`
--> `conversation.v1` persisted through the canonical store. Nothing critical is
-mocked; traversal is proven with instrumented *real* components (the gateway's
-`handle` is wrapped, never subclassed) and cross-checked against the canonical
-decision repository and event sink. The scenario map is A–I (first turn;
-second-turn continuity; stale revision; edit lineage; regeneration lineage;
-capabilities and cancellation; Bot and attachment non-authority; visibility is
-not authorization; public safety), closed by the in-graph domain-route positive
-control described in §11. Frozen traversal totals are asserted at the end so a
-silently shortened run fails.
+`Orchestrator` -> real canonical Domain routing -> `AssistantResponse` ->
+`conversation.v1` persisted through the canonical store. Traversal is proven
+with instrumented *real* components (the gateway's `handle` is wrapped, never
+subclassed) and cross-checked against the canonical decision repository and
+event sink.
 
-Focused suite composition (`tests/conversation/`, 685 tests):
+Projection evidence, stated precisely (remediation MINOR_R1_01): every turn is a
+real conversational turn whose canonical Domain routing emits a real same-turn
+`DomainResolutionResult`. A plain conversational turn deliberately carries no
+structured Domain evidence (remediation MAJOR-01 presents only the canonical
+`question` signal), so its canonical route is the resolver fallback with status
+`INSUFFICIENT_INFORMATION`, and the closed Phase 10.45 composition/integrator
+path accepts only `RESOLVED` resolutions — an integrator-composed projection
+cannot exist for this same-turn fallback at this baseline. The test-only
+read-only `_SameTurnProjectionSource` (test code in the acceptance file, the
+fixture path explicitly permitted by the Remediation V1 plan) constructs a
+genuine, content-bound Phase 10.45 `DomainInterfaceProjection` whose constructor
+verifies its own content digest; `verify_domain_projection_binding` gates every
+visible reference against the current request, canonical session, canonical
+Domain-resolution route and Domain membership before any `AssistantResponse` is
+built, and the public caller never supplies a projection or a view per turn. The
+scenario map is A–I (first turn; second-turn continuity; stale revision; edit
+lineage; regeneration lineage; capabilities and cancellation; Bot and attachment
+non-authority; visibility is not authorization; public safety), closed by the
+in-graph domain-route positive control described in §11. Frozen traversal totals
+are asserted at the end so a silently shortened run fails.
+
+Focused suite composition at the Remediation V2 implementation state
+(`tests/conversation/`, 860 tests):
 
 ```text
-test_contracts.py                 256
-test_architecture.py              125
-test_service.py                    86
-test_state.py                      62
-test_projection.py                 48
-test_capabilities.py               41
-test_http_adapter.py               37
+test_contracts.py                 341
+test_architecture.py              132
+test_service.py                   103
+test_state.py                      68
+test_projection.py                 80
+test_capabilities.py               63
+test_http_adapter.py               43
 test_platform_module.py            29
 test_phase11_5_dp105_acceptance.py   1
 ```
 
-Pre-audit evidence observed in this repository while preparing this
-documentation (CWD `/Users/chris/CMM OS`, `"/Users/chris/CMM OS/.venv/bin/python"`,
-Python 3.14):
+Remediation V2 implementation evidence observed in this repository (CWD
+`/Users/chris/CMM OS`, `"/Users/chris/CMM OS/.venv/bin/python"`, Python 3.14):
 
 ```text
-tests/conversation                                     685 passed
+tests/conversation                                     860 passed
 tests/conversation/test_phase11_5_dp105_acceptance.py    1 passed
 inherited connected acceptance chain                   249 passed
   (AT-DP-105 + AT-DP-104 + AT-DP-103 + AT-DP-102 + AT-DP-101 + AT-DP-134 + AT-DP-045)
@@ -707,10 +722,10 @@ inherited connected acceptance chain                   249 passed
 
 The one `pytest` warning observed in the conversation suite is the pre-existing
 third-party `StarletteDeprecationWarning` from `fastapi.testclient`; it is
-unrelated to Phase 11.5. The complete Phase 11.5 gate run and the exact-HEAD
-audit bundle are produced by the implementation plan's later verification tasks
-and reported in their handoff, to be independently re-verified by the
-independent audit. No repo-wide suite has been run for this documentation task.
+unrelated to Phase 11.5. (Historical pre-remediation reference: the focused
+suite counted 685 tests before Remediation V1.) The complete Phase 11.5 gate run
+and the exact-HEAD audit bundle are reported in the Remediation V2 handoff, to
+be independently re-verified by the independent re-audit.
 
 ## 18. Traceability
 
@@ -721,8 +736,8 @@ independent audit. No repo-wide suite has been run for this documentation task.
 | Acceptance test | `AT-DP-105 — Canonical Conversational Interaction Acceptance` — `tests/conversation/test_phase11_5_dp105_acceptance.py` |
 | Production package | `cmm/conversation/` (8 modules) |
 | Additive seams in closed packages | `cmm/application/contracts.py`, `cmm/application/requests.py`, `cmm/application/local_runtime.py`, `cmm/api/app.py`, `cmm/api/models.py` |
-| Focused suite | `tests/conversation/` (685 tests) |
-| Architecture/security gate | `tests/conversation/test_architecture.py` (125 tests) |
+| Focused suite | `tests/conversation/` (860 tests at the Remediation V2 implementation state) |
+| Architecture/security gate | `tests/conversation/test_architecture.py` (132 tests) |
 | Inherited gates touched | `tests/application/test_architecture.py`; `tests/api/test_architecture.py`; `tests/platform/test_architecture.py`; `tests/api/test_http_v1.py`; `tests/api/test_openapi.py` |
 | Reference documentation | `docs/reference/phase-11-conversational-interface.md` (this document) |
 | Requirements matrix | `docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md` (`F11-019` -> `DP-105` -> `AT-DP-105`) |

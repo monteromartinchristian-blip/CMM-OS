@@ -1344,9 +1344,10 @@ platform, plus strictly additive seams in the closed packages:
   Phase 10.45 `ConversationalDomainView` -> `AssistantResponse` ->
   `conversation.v1` persisted through the canonical store; scenarios A–I plus
   the in-graph domain-route positive control);
-- focused suite — `tests/conversation/` (685 tests across nine modules);
+- focused suite — `tests/conversation/` (860 tests across nine modules at the
+  Remediation V2 implementation state);
 - architecture/security gate — `tests/conversation/test_architecture.py`
-  (125 tests) plus the inherited application/API/platform architecture gates
+  (132 tests) plus the inherited application/API/platform architecture gates
   and the API OpenAPI and frozen-route-surface gates;
 - reference documentation —
   [`docs/reference/phase-11-conversational-interface.md`](../reference/phase-11-conversational-interface.md);
@@ -1391,22 +1392,25 @@ with no assertion weakened.
 
 Conversational capability truth at this baseline:
 `continuous_conversation` / `message_editing` / `controlled_regeneration` /
-`attachments` / `bot_association` / `domain_projection` are `available`
+`attachments` / `bot_association` are `available`
 (`session_backed_multi_turn` / `append_only_lineage` / `canonical_reexecution` /
-`reference_only` / `opaque_non_authoritative` /
-`authorized_projection_when_supplied_by_canonical_integrator`);
-`response_streaming` is `degraded` with the effective mode
+`reference_only` / `opaque_non_authoritative`); `domain_projection` is
+composition-aware (remediation V2 MAJOR_R1_01): `available` with the effective
+mode `authorized_projection_when_supplied_by_canonical_integrator` while
+`ConversationService` composes an authorized read-only projection source, and
+`unavailable` with `effective=None` and reason
+`NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE` otherwise — a request flag never
+changes availability. `response_streaming` is `degraded` with the effective mode
 `response_event_stream` (no provider token-streaming runtime exists);
 `request_cancellation` is `unavailable` with reason `NO_CANCELLABLE_OWNER` (the
 canonical cancellation answer stays `CAPABILITY_UNAVAILABLE`); `document_upload`
 is `unavailable` with reason `NO_CANONICAL_STORAGE_OWNER`.
 
-Pre-audit evidence observed in this repository while preparing the Phase 11.5
-documentation (CWD `/Users/chris/CMM OS`,
-`"/Users/chris/CMM OS/.venv/bin/python"`, Python 3.14):
+Remediation V2 implementation evidence observed in this repository (CWD
+`/Users/chris/CMM OS`, `"/Users/chris/CMM OS/.venv/bin/python"`, Python 3.14):
 
 ```text
-tests/conversation                                     685 passed
+tests/conversation                                     860 passed
 tests/conversation/test_phase11_5_dp105_acceptance.py    1 passed
 inherited connected acceptance chain                   249 passed
 ```
