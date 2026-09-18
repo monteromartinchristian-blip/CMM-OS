@@ -81,6 +81,20 @@ CLI_ADAPTER_MODULES = (
 #: adapter).
 CONVERSATION_PACKAGE = REPO_ROOT / "cmm" / "conversation"
 
+#: The conversational real-model execution consumer of the application
+#: boundary: CMMChat Wave E0 (this task) sanctions ``cmm.model_execution`` as a
+#: consumer of the canonical Phase 11.4 local runtime composition
+#: (``cmm.model_execution -> cmm.application``, via
+#: ``build_local_application_runtime``) because the canary must drive the real
+#: canonical runtime rather than a hand-built graph.  The package owns no
+#: application authority of its own: it submits through the canonical
+#: ``ConversationService`` and consumes only the canonical decision record.
+#: Like the Phase 11.5 exemption this is a *subtree* exemption, so
+#: ``test_the_model_execution_package_exemption_is_live_and_honest`` below
+#: asserts both halves of the bargain: the subtree really imports
+#: ``cmm.application`` and no module in it may import ``cmm.api``.
+MODEL_EXECUTION_PACKAGE = REPO_ROOT / "cmm" / "model_execution"
+
 #: Layers the design places below the application backend.
 LOWER_LAYERS = (
     "cmm/platform",
@@ -364,6 +378,8 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
                 continue
             if CONVERSATION_PACKAGE in path.parents:
                 continue
+            if MODEL_EXECUTION_PACKAGE in path.parents:
+                continue
             if path in CLI_ADAPTER_MODULES:
                 continue
             for module in _imported_modules(path):
@@ -413,6 +429,45 @@ def test_the_conversation_package_exemption_is_live_and_honest() -> None:
     assert not api_importers, (
         "cmm.conversation must consume the application boundary, never the "
         f"HTTP adapter (spec section 25): {api_importers}"
+    )
+
+
+def test_the_model_execution_package_exemption_is_live_and_honest() -> None:
+    """The E0 consumer exists, imports the backend and stays bounded.
+
+    The exemption above may not go stale and may not exceed its sanction: the
+    package must exist, at least one of its modules must really import
+    ``cmm.application`` (the canonical Phase 11.4 local runtime composition the
+    canary drives) — and, because the same skip also lifts the ``cmm.api`` half
+    of the closing scan for the whole subtree, no module of it may import the
+    HTTP adapter.
+    """
+
+    assert MODEL_EXECUTION_PACKAGE.is_dir(), (
+        f"stale model execution exemption: {MODEL_EXECUTION_PACKAGE}"
+    )
+
+    imported = {
+        module
+        for path in sorted(MODEL_EXECUTION_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+    }
+
+    assert any(
+        module == "cmm.application" or module.startswith("cmm.application.")
+        for module in imported
+    ), "no cmm.model_execution module imports the application boundary"
+
+    api_importers = sorted(
+        f"{path.relative_to(REPO_ROOT)} -> {module}"
+        for path in sorted(MODEL_EXECUTION_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+        if module == "cmm.api" or module.startswith("cmm.api.")
+    )
+
+    assert not api_importers, (
+        "cmm.model_execution must consume the application boundary, never the "
+        f"HTTP adapter: {api_importers}"
     )
 
 
