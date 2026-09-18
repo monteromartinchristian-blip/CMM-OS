@@ -64,6 +64,7 @@ from cmm.conversation import (
 from cmm.conversation.projection import (
     AuthorizedDomainProjectionSource,
     ConversationResponseProjector,
+    _strict_public_string_sequence,
     canonical_domain_resolution_reference,
     verify_domain_projection_binding,
 )
@@ -874,6 +875,150 @@ def test_a_projection_with_other_supporting_domains_fails_closed() -> None:
 
     with pytest.raises(ConversationProjectionBindingError):
         _verify(projection)
+
+
+# ── Strict supporting-domain provenance (remediation MINOR_R1_02) ────────────
+
+#: Sentinel: the application result omits the ``supporting_domains`` key entirely.
+_MISSING_SUPPORTING_DOMAINS = object()
+
+
+def _response_with_supporting_domains(value: object) -> ApplicationResponse:
+    """One real route response carrying *value* as its supporting-domain evidence.
+
+    The canonical ``ApplicationResponse`` freezes its public data against the
+    bounded safe grammar, so binary and arbitrary objects are rejected by the
+    contract itself; the sentinel omits the key entirely.  Every other malformed
+    value travels through the real contract envelope.
+    """
+
+    base = _route_response()
+    data: dict[str, Any] = dict(base.data or {})
+    if value is _MISSING_SUPPORTING_DOMAINS:
+        data.pop("supporting_domains", None)
+    else:
+        data["supporting_domains"] = value
+    return ApplicationResponse(
+        request_id=base.request_id,
+        api_version=base.api_version,
+        status=base.status,
+        data=data,
+    )
+
+
+def test_missing_supporting_domain_evidence_fails_closed() -> None:
+    """A missing key is malformed provenance, never an empty sequence.
+
+    Before this remediation the binder read the field with
+    ``data.get("supporting_domains")`` and normalized the absent value to ``()``,
+    so evidence-free application data bound successfully whenever the projection
+    reported no supporting domains.
+    """
+
+    application = _response_with_supporting_domains(_MISSING_SUPPORTING_DOMAINS)
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(supporting_domains=()), application_response=application
+        )
+
+
+def test_none_supporting_domain_evidence_fails_closed() -> None:
+    """``None`` is invalid provenance, never an empty sequence (MINOR_R1_02)."""
+
+    application = _response_with_supporting_domains(None)
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(supporting_domains=()), application_response=application
+        )
+
+
+def test_a_non_string_member_never_normalizes_to_an_empty_sequence() -> None:
+    application = _response_with_supporting_domains([7])
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(supporting_domains=()), application_response=application
+        )
+
+
+def test_mixed_type_supporting_domain_evidence_never_drops_members() -> None:
+    """The audited adversary: ``["domain:general", 7]`` never normalizes.
+
+    Before this remediation the non-string member was silently dropped and the
+    malformed evidence bound to the projection's normalized tuple.
+    """
+
+    application = _response_with_supporting_domains(["domain:general", 7])
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(supporting_domains=("domain:general",)),
+            application_response=application,
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["domain:foo", {}],
+    ids=["scalar-string", "mapping"],
+)
+def test_non_sequence_supporting_domain_evidence_fails_closed(value: object) -> None:
+    application = _response_with_supporting_domains(value)
+
+    with pytest.raises(ConversationProjectionBindingError):
+        _verify(
+            _bound_projection(supporting_domains=()), application_response=application
+        )
+
+
+@pytest.mark.parametrize(
+    "supporting_domains",
+    [(), ["domain:foo"], ("domain:foo", "domain:bar")],
+    ids=["empty", "single", "ordered-pair"],
+)
+def test_valid_supporting_domain_evidence_binds_exactly(
+    supporting_domains: object,
+) -> None:
+    """Exact order and membership are preserved; nothing is sorted or deduped."""
+
+    application = _response_with_supporting_domains(supporting_domains)
+    projection = _bound_projection(
+        supporting_domains=tuple(supporting_domains)  # type: ignore[arg-type]
+    )
+
+    view = _verify(projection, application_response=application)
+
+    assert tuple(view.supporting_domains) == tuple(supporting_domains)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "domain:foo", b"domain:foo", 7, {}, object(), ["domain:foo", 7], [7]],
+    ids=[
+        "none",
+        "scalar-string",
+        "bytes",
+        "int",
+        "mapping",
+        "object",
+        "mixed-sequence",
+        "non-string-member",
+    ],
+)
+def test_the_strict_sequence_validator_rejects_every_malformed_value(
+    value: object,
+) -> None:
+    """The strict validator never repairs provenance (MINOR_R1_02).
+
+    ``bytes`` and ``object()`` cannot travel through a real
+    ``ApplicationResponse`` (its frozen public grammar rejects them at
+    construction, which is fail closed even earlier); the validator itself is
+    the pinned backstop for every malformed shape.
+    """
+
+    assert _strict_public_string_sequence(value) is None
 
 
 def test_a_response_without_canonical_route_evidence_fails_closed() -> None:

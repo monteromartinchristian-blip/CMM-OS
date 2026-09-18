@@ -18,10 +18,13 @@ reach the conversational boundary (remediation MAJOR-02):
 - ``verify_domain_projection_binding`` re-verifies, before any visibility is
   projected, that the returned projection belongs to *this* request, *this*
   canonical session, *this* canonical Domain-resolution route and *this*
-  application result.  A mismatch fails closed and exposes zero Domain
-  references; the conversational layer never reconstructs Domain visibility
-  from application data, metadata, trace payloads, session metadata or caller
-  references.
+  application result, and that the application result's own supporting-domain
+  evidence is well-formed provenance — absent, ``None``, scalar, bytes-like,
+  non-sequence or mixed-type evidence fails closed and is never normalized,
+  dropped or stringified (remediation MINOR_R1_02).  A mismatch fails closed and
+  exposes zero Domain references; the conversational layer never reconstructs
+  Domain visibility from application data, metadata, trace payloads, session
+  metadata or caller references.
 
 Every structured surface the projector emits is either a public reference
 projected from the canonical Phase 10.45 view or a bounded public value.  The
@@ -144,14 +147,23 @@ def _bound(response: ApplicationResponse) -> Mapping[str, Any]:
     return data
 
 
-def _public_sequence(value: object) -> tuple[str, ...] | None:
-    """Return one public reference sequence as a tuple, or ``None`` when absent."""
+def _strict_public_string_sequence(value: object) -> tuple[str, ...] | None:
+    """Return *value* as an exact tuple of strings, or ``None`` when malformed.
 
-    if value is None:
-        return ()
+    This is the adversarial provenance boundary of the binding verifier
+    (remediation MINOR_R1_02): the value must be an actual sequence — never a
+    string, a bytes-like value, a mapping or an arbitrary object — whose every
+    member is already a string.  Malformed evidence is never repaired: no member
+    is dropped or stringified and no absent value becomes an empty sequence; a
+    valid sequence is returned as the exact tuple it received, preserving order
+    and membership.
+    """
+
     if isinstance(value, _BYTES_LIKE) or not isinstance(value, Sequence):
         return None
-    return tuple(item for item in value if isinstance(item, str))
+    if not all(isinstance(item, str) for item in value):
+        return None
+    return tuple(value)
 
 
 def verify_domain_projection_binding(
@@ -174,7 +186,12 @@ def verify_domain_projection_binding(
     has already verified its content digest.
 
     Any mismatch raises ``ConversationProjectionBindingError``: the turn fails
-    closed and exposes zero Domain references rather than a foreign one.
+    closed and exposes zero Domain references rather than a foreign one.  The
+    application result's ``supporting_domains`` evidence is validated strictly
+    (remediation MINOR_R1_02): the key must be present and must be a sequence
+    whose every member is already a string — ``None``, a scalar, a bytes-like
+    value, a non-sequence and any mixed-type sequence are malformed provenance
+    and fail closed, and no member is ever dropped or stringified.
     """
 
     if type(projection) is not DomainInterfaceProjection:
@@ -196,10 +213,16 @@ def verify_domain_projection_binding(
     if data.get("session_id") != session_id:
         raise ConversationProjectionBindingError()
     # Domain-membership binding: the visible Domain membership is exactly the
-    # membership the canonical application result reports.
+    # membership the canonical application result reports, and the reported
+    # evidence itself must be well-formed provenance (remediation MINOR_R1_02):
+    # a missing key, ``None``, a scalar, a bytes-like value, a non-sequence or
+    # any non-string member fails closed instead of being normalized, dropped or
+    # stringified.
     if conversational.primary_domain != data.get("primary_domain"):
         raise ConversationProjectionBindingError()
-    supporting_domains = _public_sequence(data.get("supporting_domains"))
+    if "supporting_domains" not in data:
+        raise ConversationProjectionBindingError()
+    supporting_domains = _strict_public_string_sequence(data["supporting_domains"])
     if supporting_domains is None:
         raise ConversationProjectionBindingError()
     if tuple(conversational.supporting_domains) != supporting_domains:

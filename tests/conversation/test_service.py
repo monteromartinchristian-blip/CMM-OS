@@ -380,6 +380,32 @@ class _StructuredResponseGateway(_GatewayRecorder):
         )
 
 
+class _MalformedProvenanceGateway(_GatewayRecorder):
+    """A recording delegate answering with malformed supporting-domain evidence.
+
+    Like ``_GatewayRecorder`` it wraps the real bound ``handle`` of the one
+    canonical gateway (the class is never replaced, subclassed or mutated) and
+    records every constructed command, but it rewrites the real application
+    result's ``supporting_domains`` evidence to the audited malformed mixed-type
+    sequence (``["domain:university", 7]``) before the service ever sees it
+    (remediation MINOR_R1_02).  The domain token is one the real conversational
+    route does not select, so the malformed evidence can never collide with the
+    route's own primary domain.
+    """
+
+    def __call__(self, request: ApplicationRequest) -> ApplicationResponse:
+        self.commands.append(request)
+        response = self._handle(request)
+        data: dict[str, Any] = dict(response.data or {})
+        data["supporting_domains"] = ["domain:university", 7]
+        return ApplicationResponse(
+            request_id=response.request_id,
+            api_version=response.api_version,
+            status=response.status,
+            data=data,
+        )
+
+
 @dataclass
 class _Harness:
     canonical_store: InMemorySessionStore
@@ -1196,6 +1222,27 @@ def test_a_projection_with_other_supporting_domains_fails_closed() -> None:
     harness = _harness(
         domain_projections=_same_turn_source(supporting_domains=("domain:university",))
     )
+
+    _assert_binding_failure(harness, _message())
+
+
+def test_malformed_supporting_domain_provenance_cannot_become_domain_visibility() -> (
+    None
+):
+    """Adversarial application evidence never becomes persisted Domain visibility.
+
+    Remediation MINOR_R1_02: the real canonical gateway answers the turn, and
+    the application result's ``supporting_domains`` evidence is then the audited
+    malformed mixed-type sequence (``["domain:university", 7]``) the
+    pre-remediation binder normalized to the projection's own tuple.  The strict
+    binder must fail the turn closed — the safe binding error, zero Domain
+    references and zero commits, with nothing persisted — instead of letting
+    malformed provenance authorize Domain visibility.
+    """
+
+    source = _same_turn_source(supporting_domains=("domain:university",))
+    harness = _harness(domain_projections=source)
+    _MalformedProvenanceGateway(harness.gateway)
 
     _assert_binding_failure(harness, _message())
 
