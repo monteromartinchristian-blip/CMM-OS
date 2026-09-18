@@ -1236,6 +1236,38 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert application_response.data["workflow_id"] == decision.workflow_id
     assert first.message.content == ROUTED_TEXT
 
+    # ── The connected same-turn proof (remediation MAJOR-01 + MAJOR-02) ───────
+    # The one read-only projection source composed a projection for THIS turn,
+    # and the response consumed exactly it: every mandatory binding points at
+    # the same canonical request, session, Domain-resolution route and Domain
+    # membership the real Orchestrator decision recorded.
+    first_projection = graph.projections.returned["req-001"]
+    first_view = first_projection.conversational
+    assert first_view is not None
+    assert graph.projections.requests.count("req-001") == 1
+
+    assert decision.channel is OrchestrationChannel.CONVERSATION
+    assert decision.intent is IntentKind.QUESTION
+    assert decision.primary_domain is not None
+    assert application_response.request_id == "req-001"
+    assert application_response.data["session_id"] == SESSION_ID
+    assert application_response.data["primary_domain"] == decision.primary_domain
+    assert tuple(application_response.data["supporting_domains"]) == (
+        decision.supporting_domains
+    )
+    assert first_projection.request_id == application_response.request_id
+    assert first_projection.session_reference_id == SESSION_ID
+    assert first_projection.resolution_reference_id == (
+        canonical_domain_resolution_reference(application_response)
+    )
+    assert first_view.primary_domain == decision.primary_domain
+    assert tuple(first_view.supporting_domains) == decision.supporting_domains
+    # The visible response references derive only from the bound projection.
+    assert first.domain_state["primary_domain"] == first_view.primary_domain
+    assert first.sources == first_view.source_refs
+    assert first.approval_requests == first_view.approval_refs
+    assert first.workflow_updates == first_view.workflow_refs
+
     # The Domain evidence of the response is the evidence of the projection the
     # one read-only source composed for THIS turn: the same canonical fallback
     # domain the persisted decision selected (a canonical, registered and
@@ -1880,7 +1912,9 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert graph.observed.committed[-1].revision == 8
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Domain-route positive control — the composed canonical domain leg is live
+    # Supplemental Domain-route control — the composed canonical domain leg is
+    # live.  This control is NOT the connected acceptance: the connected
+    # same-turn proof is the assertion block of scenario A above.
     # ─────────────────────────────────────────────────────────────────────────
     # This is the SAME graph whose conversational turns above canonically
     # clarify: one plain public conversational message carries no structured
