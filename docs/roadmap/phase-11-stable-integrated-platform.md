@@ -1164,7 +1164,7 @@ compileall and `git diff --check` are produced by the Phase 11.4 implementation
 plan's verification task and reported in its handoff, to be independently
 re-verified by the independent audit.
 
-Pre-audit documentary state:
+Remediation V1 documentary state:
 
 ```text
 PHASE11_4=CLOSED
@@ -1415,22 +1415,24 @@ The complete Phase 11.5 gate run and the exact-HEAD audit bundle are produced by
 the implementation plan's later verification tasks and reported in their
 handoff, to be independently re-verified by the independent audit.
 
-Pre-audit documentary state:
+Remediation V1 documentary state:
 
 ```text
-PHASE11_5=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-DP_105=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-AT_DP_105=GREEN_IN_REPOSITORY
+F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
 
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
-NEXT=INDEPENDENT_AUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT
 ```
 
-Phase 11.5 is implemented and awaiting independent audit; it is not closed and
-not closure-eligible before that audit returns its evidence. The next subphase
+Phase 11.5 is remediated (Remediation V1, `INDEPENDENT_AUDIT_V1=FAIL_RECORDED`)
+and awaiting independent re-audit; it is not closed and not closure-eligible
+before that re-audit returns its evidence. The next subphase
 must not be described as started.
 
 Historical numbering collision, recorded explicitly: this document also carries

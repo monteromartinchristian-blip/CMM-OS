@@ -21,21 +21,23 @@ conversation routes); `cmm/api/models.py` (the conversation transport DTOs)
 **Inherited gates touched:** `tests/application/test_architecture.py`;
 `tests/api/test_architecture.py`; `tests/platform/test_architecture.py`;
 `tests/api/test_openapi.py`; `tests/api/test_http_v1.py`
-**Documentation head while preparing this document:** `0bb2a45`
+**Documentation head while preparing this document:** `2aba69d`
 
 ```text
-PHASE11_5=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-DP_105=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-AT_DP_105=GREEN_IN_REPOSITORY
+F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
 
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
-NEXT=INDEPENDENT_AUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT
 ```
 
-Phase 11.5 is **implemented and awaiting independent audit**. The canonical
+Phase 11.5 is **remediated (Remediation V1) and awaiting independent
+re-audit**. The canonical
 conversational interface exists on `feature/phase-11-stable-integrated-platform`,
 `AT-DP-105` is green in this repository, and the inherited Phase 11 acceptances
 stay green — but no independent audit has examined this implementation yet.
@@ -729,25 +731,28 @@ independent audit. No repo-wide suite has been run for this documentation task.
 | Implementation plan | `docs/superpowers/plans/2026-09-17-phase-11.5-conversational-interface-implementation-plan.md` |
 | Inherited requirements reused | `F11-018` / `DP-104` (Phase 11.4), `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, not reopened and not modified |
 | Inherited acceptance regressions | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`; `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py`; `AT-DP-045` — `tests/domains/test_domain_interface_dp045_acceptance.py` |
-| Mapping status | `IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` |
-| Next step | independent audit of the exact-HEAD implementation bundle |
+| Mapping status | `REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` |
+| Next step | independent re-audit of the exact-HEAD Remediation V1 bundle (see §20) |
 
 ## 19. Verification and audit state
 
 ```text
-PHASE11_5=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
+PHASE11_5=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
 
-F11_019=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-DP_105=IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT
-AT_DP_105=GREEN_IN_REPOSITORY
+F11_019=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+DP_105=REMEDIATION_V1_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
 
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=PENDING_INDEPENDENT_AUDIT
-NEXT=INDEPENDENT_AUDIT
+AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT
 ```
 
-This document records the implemented pre-audit state only. Phase 11.5 may be
-closed only after an independent audit returns the closure-gate evidence the
+This document records the implemented Remediation V1 state: the independent
+audit V1 returned `INDEPENDENT_AUDIT_V1=FAIL` and its findings were remediated
+in place (§20). Phase 11.5 may be closed only after an independent re-audit
+returns the closure-gate evidence the
 design specification's §35 requires — zero blockers, zero majors, the Design
 Point verified as existing, the connected acceptance passing, and closure
 eligibility granted. None of those states is claimed here, and no closure
@@ -758,3 +763,59 @@ and are owned by their own reference documents
 `docs/reference/phase-11-orchestration-layer.md`,
 `docs/reference/phase-11-application-backend.md`,
 `docs/reference/phase-11-cli.md`).
+
+## 20. Remediation V1 — independent-audit findings (implementation record)
+
+The independent audit V1 of the exact-HEAD Phase 11.5 implementation bundle
+(`docs/audits/phase-11.5-conversational-interface-independent-audit-v1.md`) returned `INDEPENDENT_AUDIT_V1=FAIL`
+with `BLOCKERS=0`. Every finding was remediated in place by the Remediation V1
+implementation plan
+(`docs/superpowers/plans/2026-09-18-phase-11.5-remediation-v1-implementation-plan.md`)
+under the remediation design
+(`docs/superpowers/specs/2026-09-18-phase-11.5-remediation-v1-design.md`).
+
+```text
+REMEDIATION_V1=IMPLEMENTED_IN_REPOSITORY
+MINOR_01=REMEDIATED_IN_IMPLEMENTATION
+MAJOR_01=REMEDIATED_IN_IMPLEMENTATION
+MAJOR_02=REMEDIATED_IN_IMPLEMENTATION
+MAJOR_03=REMEDIATED_IN_IMPLEMENTATION
+MAJOR_04=REMEDIATED_IN_IMPLEMENTATION
+AT_DP_105=PASS_IN_REPOSITORY_AWAITING_INDEPENDENT_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+CLOSURE_ELIGIBLE=NO
+```
+
+| Remediation commit | Finding | Change recorded in production history |
+| --- | --- | --- |
+| `0814edb` | MINOR-01 | closed `ConversationInteractionMode` contract; unsupported modes fail closed in the constructor, `from_dict`, `conversation.v1` and HTTP revalidation instead of normalising to `general` |
+| `2d6f1ee` | MAJOR-03 | the production runtime public-safety screen rejects `private_reasoning`, `raw_prompt`, `system_prompt` and `prompt` at every entry path, so the text-only architecture gate is no longer the only line of defence |
+| `b77ed27` | MAJOR-01 (A) | only the `CONVERSATION` application channel presents the canonical `question` signal to the intent seam; API, CLI and other channels are unchanged and the conversational turn reaches Domain routing as a real question |
+| `c2ba7f7` | MAJOR-02 | the public per-turn `domain_view` parameter was removed from `submit`, `edit` and `regenerate`; a read-only `AuthorizedDomainProjectionSource` seam plus `verify_domain_projection_binding` bind every visible Domain reference to the same canonical request, session, Domain-resolution route and Domain membership, failing closed otherwise |
+| `e915ba7` | MAJOR-04 | the closed `ConversationActionStatus` / public `ConversationActionState` surface reports requested-versus-effective action, approval and workflow state truthfully (a visible approval reference projects as `approval_required` only), and the frozen capability list grows from nine to sixteen IDs with seven control capabilities explicitly `UNAVAILABLE` and no canonical owner at this baseline |
+| `23ea0f3` | Task 6 | the connected `AT-DP-105` acceptance carries the mandatory same-turn proof: one real conversational turn, one canonical request, one session, one Domain-resolution route, one read-only projection binding chain, and the visible references consumed only from that bound projection |
+| `8418dd7` | Task 7 | architecture gates fail closed on a re-introduced per-turn Domain view, on an owner-like mutation verb on a production projection source, on `cmm.conversation` importing the intent resolver, on reaching workflow execution / workflow registry / approval mutation / Domain composition, and on an execution surface on the action-state contract |
+| `2aba69d` | Task 8 | HTTP coverage: conversation bodies reject Domain projection input, the surface stays the five frozen routes with no approval or workflow mutation, the mode contract revalidates and fails closed, the action-state surface round-trips, and the seven unavailable controls serialise deterministically |
+
+Deliberate corrections of inherited test expectations are part of this
+remediation and are recorded here explicitly: `tests/application/test_channels.py`,
+`tests/conversation/test_service.py`, `tests/conversation/test_platform_module.py`,
+`tests/conversation/test_http_adapter.py` and
+`tests/conversation/test_phase11_5_dp105_acceptance.py` contained pins that fixed
+the pre-remediation behaviour (a conversational turn clarifying like a raw API
+call, and a caller-supplied conversational Domain view). Those pins were updated
+to the truthful post-remediation behaviour and are disclosed in the
+corresponding commit messages.
+
+Residual limits carried forward truthfully at this state: the seven control
+capabilities (`approval_response`, `workflow_pause`, `workflow_resume`,
+`workflow_cancel`, `workflow_retry`, `workflow_replan`, `action_execution`)
+remain `UNAVAILABLE` because no canonical approval, workflow-control or
+execution command exists at this baseline; streaming and cancellation keep their
+existing truthful behaviour; and a conversational turn carries no structured
+Domain evidence, so its canonical Domain route is the resolver's fallback while
+the interface projection stays bound to that same canonical route.
+
+Next step: independent re-audit of the exact-HEAD Remediation V1 bundle. No
+closure, verification or closure-eligibility claim is made before that re-audit
+returns its evidence.
