@@ -73,6 +73,8 @@ __all__ = [
     "MAX_STRING_LENGTH",
     "SECRET_LIKE_METADATA_KEYS",
     "AssistantResponse",
+    "ConversationActionState",
+    "ConversationActionStatus",
     "ConversationAttachmentRef",
     "ConversationCapabilityState",
     "ConversationCapabilityStatus",
@@ -102,6 +104,7 @@ _MESSAGE_FIELDS = frozenset(
 _CAPABILITY_STATE_FIELDS = frozenset(
     {"capability", "requested", "effective", "status", "reason"}
 )
+_ACTION_STATE_FIELDS = frozenset({"reference", "status", "reason", "kind"})
 _RESPONSE_FIELDS = frozenset(
     {
         "message",
@@ -111,6 +114,7 @@ _RESPONSE_FIELDS = frozenset(
         "proposed_actions",
         "approval_requests",
         "workflow_updates",
+        "action_state",
         "domain_state",
         "capability_state",
         "memory_updates",
@@ -213,6 +217,26 @@ class ConversationCapabilityStatus(str, Enum):
 
 #: Statuses that provide no effective mode; ``effective`` must stay absent.
 _EFFECTIVELESS_STATUSES = frozenset({ConversationCapabilityStatus.UNAVAILABLE})
+
+
+class ConversationActionStatus(str, Enum):
+    """Closed public interaction status of one projected action or approval.
+
+    The status is descriptive only: only the canonical approval, permission and
+    execution authorities may change real state, and the conversational layer
+    never infers a terminal status (``approved``, ``rejected``, ``completed``)
+    without canonical state that says so.
+    """
+
+    PROPOSED = "proposed"
+    APPROVAL_REQUIRED = "approval_required"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+    UNAVAILABLE = "unavailable"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 # ── Secret-free key detection ────────────────────────────────────────────────
@@ -522,6 +546,20 @@ def _lineage_member(value: object) -> ConversationLineage:
     if not isinstance(value, ConversationLineage):
         raise TypeError("lineage must be a ConversationLineage")
     return value
+
+
+def _action_states(value: object, field_name: str) -> tuple[Any, ...]:
+    """Freeze action state; raw payloads are never silently coerced."""
+
+    if value is None:
+        return ()
+    states: list[Any] = []
+    for item in _sequence_items(value, field_name):
+        if not isinstance(item, ConversationActionState):
+            raise TypeError(f"{field_name} must contain ConversationActionState values")
+        states.append(item)
+    _check_collection_size(states, field_name)
+    return tuple(states)
 
 
 def _capability_states(value: object, field_name: str) -> tuple[Any, ...]:
@@ -834,6 +872,58 @@ class ConversationCapabilityState:
         )
 
 
+# ── Action-state contract ────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationActionState:
+    """One public projection of a canonical action or approval state.
+
+    The value carries a public reference and a closed status only: it never
+    carries an executable payload, a callback, an authority token or arbitrary
+    metadata, and visibility is never authorization.
+    """
+
+    reference: str
+    status: ConversationActionStatus
+    reason: str | None = None
+    kind: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "reference", _identifier(self.reference, "reference"))
+        object.__setattr__(
+            self,
+            "status",
+            _enum_member(self.status, ConversationActionStatus, "status"),
+        )
+        object.__setattr__(
+            self, "reason", _optional_text(self.reason, "reason", MAX_STRING_LENGTH)
+        )
+        object.__setattr__(self, "kind", _optional_identifier(self.kind, "kind"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reference": self.reference,
+            "status": self.status.value,
+            "reason": self.reason,
+            "kind": self.kind,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> ConversationActionState:
+        payload = _payload(data, "action_state", _ACTION_STATE_FIELDS)
+        return cls(
+            reference=_require(payload, "reference", "action_state"),
+            status=_enum_from_value(
+                _require(payload, "status", "action_state"),
+                ConversationActionStatus,
+                "status",
+            ),
+            reason=payload.get("reason"),
+            kind=payload.get("kind"),
+        )
+
+
 # ── Assistant response contract ──────────────────────────────────────────────
 
 
@@ -853,6 +943,7 @@ class AssistantResponse:
     proposed_actions: tuple[str, ...] = ()
     approval_requests: tuple[str, ...] = ()
     workflow_updates: tuple[str, ...] = ()
+    action_state: tuple[ConversationActionState, ...] = ()
     domain_state: Mapping[str, Any] = field(default_factory=dict)
     capability_state: tuple[ConversationCapabilityState, ...] = ()
     memory_updates: tuple[str, ...] = ()
@@ -889,6 +980,11 @@ class AssistantResponse:
         )
         object.__setattr__(
             self,
+            "action_state",
+            _action_states(self.action_state, "action_state"),
+        )
+        object.__setattr__(
+            self,
             "domain_state",
             _freeze_public_mapping(self.domain_state, "domain_state"),
         )
@@ -915,6 +1011,7 @@ class AssistantResponse:
             "proposed_actions": list(self.proposed_actions),
             "approval_requests": list(self.approval_requests),
             "workflow_updates": list(self.workflow_updates),
+            "action_state": [state.to_dict() for state in self.action_state],
             "domain_state": _thaw(self.domain_state),
             "capability_state": [state.to_dict() for state in self.capability_state],
             "memory_updates": list(self.memory_updates),
@@ -934,6 +1031,7 @@ class AssistantResponse:
             proposed_actions=payload.get("proposed_actions", ()),
             approval_requests=payload.get("approval_requests", ()),
             workflow_updates=payload.get("workflow_updates", ()),
+            action_state=_serialized_action_states(payload.get("action_state", ())),
             domain_state=payload.get("domain_state", {}),
             capability_state=_serialized_capability_states(
                 payload.get("capability_state", ())
@@ -949,6 +1047,24 @@ def _serialized_message(value: object) -> ConversationMessage:
     if not isinstance(value, Mapping):
         raise TypeError("message must be a ConversationMessage or a mapping")
     return ConversationMessage.from_dict(value)
+
+
+def _serialized_action_states(
+    value: object,
+) -> tuple[ConversationActionState, ...]:
+    """Read action state back out of a serialized public payload."""
+
+    if value is None:
+        return ()
+    states: list[ConversationActionState] = []
+    for item in _sequence_items(value, "action_state"):
+        if isinstance(item, ConversationActionState):
+            states.append(item)
+        elif isinstance(item, Mapping):
+            states.append(ConversationActionState.from_dict(item))
+        else:
+            raise TypeError("action_state must contain ConversationActionState values")
+    return tuple(states)
 
 
 def _serialized_capability_states(

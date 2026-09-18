@@ -62,6 +62,7 @@ from cmm.conversation.contracts import (
     MAX_COLLECTION_ITEMS,
     MAX_STRING_LENGTH,
     AssistantResponse,
+    ConversationActionStatus,
     ConversationCapabilityStatus,
     ConversationInteractionMode,
     ConversationRole,
@@ -76,6 +77,7 @@ __all__ = [
     "ApplicationResponseModel",
     "ApplicationSessionModel",
     "AssistantResponseModel",
+    "ConversationActionStateModel",
     "ConversationAttachmentRefBody",
     "ConversationAttachmentRefModel",
     "ConversationCapabilityStateModel",
@@ -410,6 +412,19 @@ class ConversationCapabilityStateModel(_TransportModel):
     reason: str | None = None
 
 
+class ConversationActionStateModel(_TransportModel):
+    """Transport view of one requested-vs-effective action/approval state.
+
+    The state is descriptive: a reference is never an execution payload and a
+    visible approval reference is never an approval.
+    """
+
+    reference: str
+    status: ConversationActionStatus
+    reason: str | None = None
+    kind: str | None = None
+
+
 class AssistantResponseModel(_TransportModel):
     """Transport view of one canonical ``AssistantResponse``.
 
@@ -425,6 +440,7 @@ class AssistantResponseModel(_TransportModel):
     proposed_actions: list[str] = Field(default_factory=list)
     approval_requests: list[str] = Field(default_factory=list)
     workflow_updates: list[str] = Field(default_factory=list)
+    action_state: list[ConversationActionStateModel] = Field(default_factory=list)
     domain_state: dict[str, JsonValue] = Field(default_factory=dict)
     capability_state: list[ConversationCapabilityStateModel] = Field(
         default_factory=list

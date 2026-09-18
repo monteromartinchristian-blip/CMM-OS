@@ -30,6 +30,8 @@ from cmm.application.contracts import (
 )
 from cmm.conversation import (
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationAttachmentRef,
     ConversationCapabilityState,
     ConversationCapabilityStatus,
@@ -244,12 +246,14 @@ EXPECTED_FIELDS: dict[type, tuple[str, ...]] = {
         "proposed_actions",
         "approval_requests",
         "workflow_updates",
+        "action_state",
         "domain_state",
         "capability_state",
         "memory_updates",
         "warnings",
     ),
     ConversationError: ("code", "message"),
+    ConversationActionState: ("reference", "status", "reason", "kind"),
 }
 
 FROZEN_CONTRACT_NAMES = frozenset(
@@ -261,6 +265,7 @@ FROZEN_CONTRACT_NAMES = frozenset(
         "ConversationLineage",
         "ConversationMessage",
         "ConversationCapabilityState",
+        "ConversationActionState",
         "AssistantResponse",
         "ConversationErrorCode",
         "ConversationError",
@@ -273,6 +278,22 @@ FROZEN_CONTRACT_NAMES = frozenset(
 
 def test_conversation_roles_are_frozen() -> None:
     assert {role.value for role in ConversationRole} == {"user", "assistant", "system"}
+
+
+def test_conversation_action_statuses_are_frozen() -> None:
+    """Remediation MAJOR-04: the action status contract is closed and ordered."""
+
+    assert [status.value for status in ConversationActionStatus] == [
+        "proposed",
+        "approval_required",
+        "approved",
+        "rejected",
+        "blocked",
+        "unavailable",
+        "completed",
+        "failed",
+        "cancelled",
+    ]
 
 
 def test_conversation_interaction_modes_are_frozen() -> None:
@@ -1729,3 +1750,96 @@ def test_public_package_does_not_export_internal_helpers() -> None:
     assert "freeze_public_mapping" not in conversation.__all__
     assert "is_secret_like_key" not in conversation.__all__
     assert "thaw" not in conversation.__all__
+
+
+# ── Action-state contract (remediation MAJOR-04) ─────────────────────────────
+
+
+def test_action_state_defaults_to_empty_and_serializes_exactly() -> None:
+    assert _response().action_state == ()
+
+    response = _response(
+        action_state=(
+            ConversationActionState(
+                reference="approval:1",
+                status=ConversationActionStatus.APPROVAL_REQUIRED,
+                kind="approval",
+            ),
+        )
+    )
+
+    payload = response.to_dict()
+    assert payload["action_state"] == [
+        {
+            "reference": "approval:1",
+            "status": "approval_required",
+            "reason": None,
+            "kind": "approval",
+        }
+    ]
+    assert AssistantResponse.from_dict(payload) == response
+    assert payload["action_state"][0]["status"] == "approval_required"
+
+
+def test_action_state_round_trips_every_status() -> None:
+    for status in ConversationActionStatus:
+        state = ConversationActionState(reference="action:1", status=status)
+        assert state.to_dict()["status"] == status.value
+        assert ConversationActionState.from_dict(state.to_dict()) == state
+        restored = AssistantResponse.from_dict(
+            _response(action_state=(state,)).to_dict()
+        ).action_state[0]
+        assert restored.status is status
+
+
+def test_action_state_requires_a_real_status_member_and_a_public_reference() -> None:
+    with pytest.raises(TypeError):
+        ConversationActionState(reference="action:1", status="approval_required")
+    with pytest.raises(TypeError):
+        ConversationActionState(reference="action:1", status="totally-unknown")
+    with pytest.raises(ValueError):
+        ConversationActionState(
+            reference="   ", status=ConversationActionStatus.PROPOSED
+        )
+    with pytest.raises(ValueError):
+        ConversationActionState.from_dict(
+            {"reference": "action:1", "status": "totally-unknown"}
+        )
+    with pytest.raises(TypeError):
+        AssistantResponse.from_dict(
+            _response().to_dict() | {"action_state": [{"reference": "a", "status": 1}]}
+        )
+
+
+def test_action_state_carries_no_executable_payload_and_no_arbitrary_metadata() -> None:
+    """A reference is never an execution payload, a callback or an authority token."""
+
+    for payload in (
+        {"reference": "action:1", "status": "proposed", "execute": "shell"},
+        {"reference": "action:1", "status": "proposed", "callback": "run"},
+        {
+            "reference": "action:1",
+            "status": "proposed",
+            "authority_token": "opaque",
+        },
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            ConversationActionState.from_dict(payload)
+
+    # Only the four public fields exist: a callable can never be carried.
+    with pytest.raises(TypeError):
+        ConversationActionState(
+            reference="action:1",
+            status=ConversationActionStatus.PROPOSED,
+            reason=lambda: None,  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError):
+        _response(
+            action_state=(
+                ConversationActionState(
+                    reference="action:1",
+                    status=ConversationActionStatus.PROPOSED,
+                ),
+                {"reference": "action:2", "status": "proposed"},
+            )
+        )

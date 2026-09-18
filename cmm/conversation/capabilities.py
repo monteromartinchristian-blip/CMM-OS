@@ -7,8 +7,14 @@ an effective mode.  Effective state derives exclusively from the injected
 canonical application declarations — the resolver reads nothing from a
 provider, a model, a registry or any live runtime.
 
-The nine fixed capability IDs of Phase 11.5 are always resolved, in the fixed
-plan order, whether or not they were requested.  The frozen baseline truth
+The sixteen fixed capability IDs of Phase 11.5 are always resolved, in the
+fixed plan order, whether or not they were requested.  Remediation MAJOR-04
+added the seven explicit control capabilities (``approval_response``, the five
+workflow controls and ``action_execution``): no canonical application command
+owns them at this baseline, so each stays ``UNAVAILABLE`` with ``effective=None``
+and a canonical reason code, and availability is never inferred from a workflow
+reference, an approval reference, a registered workflow, an Orchestrator route,
+a Bot ID or a Domain package.  The frozen baseline truth
 table is honest about the current phase:
 
 - streaming is ``DEGRADED``: the public SSE boundary delivers deterministic
@@ -51,7 +57,10 @@ from cmm.conversation.errors import ConversationBoundaryError
 __all__ = [
     "CONVERSATION_CAPABILITY_IDS",
     "REASON_NO_CANCELLABLE_OWNER",
+    "REASON_NO_CANONICAL_ACTION_EXECUTOR",
+    "REASON_NO_CANONICAL_APPROVAL_COMMAND",
     "REASON_NO_CANONICAL_STORAGE_OWNER",
+    "REASON_NO_CANONICAL_WORKFLOW_CONTROL",
     "REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE",
     "ConversationCapabilityResolver",
 ]
@@ -68,6 +77,13 @@ CONVERSATION_CAPABILITY_IDS = (
     "document_upload",
     "bot_association",
     "domain_projection",
+    "approval_response",
+    "workflow_pause",
+    "workflow_resume",
+    "workflow_cancel",
+    "workflow_retry",
+    "workflow_replan",
+    "action_execution",
 )
 
 #: No provider token-streaming runtime owns live generation at this baseline;
@@ -80,6 +96,18 @@ REASON_NO_CANCELLABLE_OWNER = "NO_CANCELLABLE_OWNER"
 
 #: No canonical storage owner exists for document upload in this phase.
 REASON_NO_CANONICAL_STORAGE_OWNER = "NO_CANONICAL_STORAGE_OWNER"
+
+#: No canonical application command submits an approval response at this
+#: baseline, so approving from the conversational boundary stays unavailable.
+REASON_NO_CANONICAL_APPROVAL_COMMAND = "NO_CANONICAL_APPROVAL_COMMAND"
+
+#: No canonical application command controls a workflow (pause, resume, cancel,
+#: retry, replan) at this baseline; workflow control is never inferred from a
+#: visible workflow reference or a registered workflow.
+REASON_NO_CANONICAL_WORKFLOW_CONTROL = "NO_CANONICAL_WORKFLOW_CONTROL"
+
+#: No canonical application command executes an action at this baseline.
+REASON_NO_CANONICAL_ACTION_EXECUTOR = "NO_CANONICAL_ACTION_EXECUTOR"
 
 #: The conversational ID of the cancellation capability.
 _CANCELLATION_CAPABILITY = "request_cancellation"
@@ -140,6 +168,41 @@ _BASELINE_STATES: Mapping[
             ConversationCapabilityStatus.AVAILABLE,
             "authorized_projection_when_supplied_by_canonical_integrator",
             None,
+        ),
+        "approval_response": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_APPROVAL_COMMAND,
+        ),
+        "workflow_pause": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_WORKFLOW_CONTROL,
+        ),
+        "workflow_resume": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_WORKFLOW_CONTROL,
+        ),
+        "workflow_cancel": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_WORKFLOW_CONTROL,
+        ),
+        "workflow_retry": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_WORKFLOW_CONTROL,
+        ),
+        "workflow_replan": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_WORKFLOW_CONTROL,
+        ),
+        "action_execution": (
+            ConversationCapabilityStatus.UNAVAILABLE,
+            None,
+            REASON_NO_CANONICAL_ACTION_EXECUTOR,
         ),
     }
 )
@@ -216,9 +279,9 @@ class ConversationCapabilityResolver:
         self,
         requested: Iterable[str] = (),
     ) -> tuple[ConversationCapabilityState, ...]:
-        """Return the effective state of all nine fixed capabilities, in order.
+        """Return the effective state of all sixteen fixed capabilities, in order.
 
-        Every requested ID must be one of the nine fixed conversational
+        Every requested ID must be one of the sixteen fixed conversational
         capability IDs; an unknown, blank or non-string ID *inside* the
         iterable fails closed with the conversational ``INVALID_REQUEST``
         boundary error.  A ``None`` (or otherwise non-iterable) ``requested``

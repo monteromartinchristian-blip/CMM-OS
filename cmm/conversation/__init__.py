@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from cmm.conversation.contracts import (
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationAttachmentRef,
     ConversationCapabilityState,
     ConversationCapabilityStatus,
@@ -35,6 +37,8 @@ from cmm.conversation.projection import AuthorizedDomainProjectionSource
 __all__ = [
     "AssistantResponse",
     "AuthorizedDomainProjectionSource",
+    "ConversationActionState",
+    "ConversationActionStatus",
     "ConversationAttachmentRef",
     "ConversationBoundaryError",
     "ConversationCapabilityState",

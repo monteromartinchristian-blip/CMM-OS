@@ -52,6 +52,8 @@ from cmm.application.contracts import (
 )
 from cmm.conversation import (
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationCapabilityState,
     ConversationCapabilityStatus,
     ConversationLineage,
@@ -84,6 +86,7 @@ ASSISTANT_RESPONSE_FIELDS = frozenset(
         "proposed_actions",
         "approval_requests",
         "workflow_updates",
+        "action_state",
         "domain_state",
         "capability_state",
         "memory_updates",
@@ -958,3 +961,46 @@ def test_projection_module_never_constructs_a_conversational_domain_view() -> No
     assert not constructions, (
         "the projector consumes an authorized view and never creates one"
     )
+
+
+# ── Action state (remediation MAJOR-04) ─────────────────────────────────────
+
+
+def test_no_authorized_view_leaves_action_state_empty() -> None:
+    assert _project().action_state == ()
+    assert _project(authorized_domain_view=None).action_state == ()
+
+
+def test_approval_refs_project_as_approval_required_only() -> None:
+    """A visible approval reference is never an approval."""
+
+    response = _project(
+        authorized_domain_view=_conversational_view(approval_refs=("approval:1",))
+    )
+
+    assert response.approval_requests == ("approval:1",)
+    assert response.action_state == (
+        ConversationActionState(
+            reference="approval:1",
+            status=ConversationActionStatus.APPROVAL_REQUIRED,
+            kind="approval",
+        ),
+    )
+    statuses = {state.status for state in response.action_state}
+    assert statuses == {ConversationActionStatus.APPROVAL_REQUIRED}
+    assert ConversationActionStatus.APPROVED not in statuses
+    assert ConversationActionStatus.REJECTED not in statuses
+    assert ConversationActionStatus.COMPLETED not in statuses
+
+
+def test_the_action_state_is_bounded_and_deterministic() -> None:
+    view = _conversational_view(approval_refs=("approval:1", "approval:2"))
+
+    first = _project(authorized_domain_view=view)
+    second = _project(authorized_domain_view=view)
+
+    assert first.action_state == second.action_state
+    assert [state.reference for state in first.action_state] == [
+        "approval:1",
+        "approval:2",
+    ]

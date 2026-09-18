@@ -82,6 +82,8 @@ from cmm.conversation.contracts import (
     INTERNAL_DETAIL_METADATA_KEYS,
     SECRET_LIKE_METADATA_KEYS,
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationInteractionMode,
     ConversationLineage,
     ConversationMessage,
@@ -234,6 +236,7 @@ ASSISTANT_RESPONSE_FIELDS = frozenset(
         "proposed_actions",
         "approval_requests",
         "workflow_updates",
+        "action_state",
         "domain_state",
         "capability_state",
         "memory_updates",
@@ -1368,3 +1371,37 @@ def test_every_conversation_route_delegates_to_the_service_once() -> None:
         stored.message(REGENERATED_ASSISTANT_MESSAGE_ID).lineage.regenerates_message_id
         == EDITED_ASSISTANT_MESSAGE_ID
     )
+
+
+def test_action_state_round_trips_through_the_transport_model() -> None:
+    """Remediation MAJOR-04: the additive action-state surface is re-validated."""
+
+    response = AssistantResponse(
+        message=ConversationMessage(
+            id=ASSISTANT_MESSAGE_ID,
+            session_id=SESSION_ID,
+            role=ConversationRole.ASSISTANT,
+            content=ROUTED_TEXT,
+            created_at=ASSISTANT_CREATED_AT,
+        ),
+        approval_requests=("approval:1",),
+        action_state=(
+            ConversationActionState(
+                reference="approval:1",
+                status=ConversationActionStatus.APPROVAL_REQUIRED,
+                kind="approval",
+            ),
+        ),
+    )
+
+    dump = assistant_response_model_from(response).model_dump(mode="json")
+
+    assert dump == response.to_dict()
+    assert dump["action_state"] == [
+        {
+            "reference": "approval:1",
+            "status": "approval_required",
+            "reason": None,
+            "kind": "approval",
+        }
+    ]

@@ -55,6 +55,8 @@ from typing import Any, Protocol, runtime_checkable
 from cmm.application.contracts import ApplicationResponse, ApplicationStatus
 from cmm.conversation.contracts import (
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationCapabilityState,
     ConversationLineage,
     ConversationMessage,
@@ -287,11 +289,14 @@ class ConversationResponseProjector:
         reasoning_summary: dict[str, Any]
         domain_state: dict[str, Any]
 
+        action_state: tuple[ConversationActionState, ...]
+
         if authorized_domain_view is None:
             sources = ()
             pending_questions = ()
             approval_requests = ()
             workflow_updates = ()
+            action_state = ()
             memory_updates = ()
             warnings = ()
             reasoning_summary = {}
@@ -301,6 +306,18 @@ class ConversationResponseProjector:
             pending_questions = authorized_domain_view.question_refs
             approval_requests = authorized_domain_view.approval_refs
             workflow_updates = authorized_domain_view.workflow_refs
+            # A visible approval reference is never an approval (remediation
+            # MAJOR-04): the only canonical fact a visible approval reference
+            # carries is that the approval is required/pending, so the action
+            # state reports exactly that and never a terminal status.
+            action_state = tuple(
+                ConversationActionState(
+                    reference=reference,
+                    status=ConversationActionStatus.APPROVAL_REQUIRED,
+                    kind="approval",
+                )
+                for reference in authorized_domain_view.approval_refs
+            )
             memory_updates = authorized_domain_view.memory_proposal_refs
             warnings = authorized_domain_view.warning_refs
             reasoning_summary = {
@@ -334,6 +351,7 @@ class ConversationResponseProjector:
             proposed_actions=(),
             approval_requests=approval_requests,
             workflow_updates=workflow_updates,
+            action_state=action_state,
             domain_state=domain_state,
             capability_state=capability_state,
             memory_updates=memory_updates,

@@ -126,6 +126,8 @@ from cmm.conversation.contracts import (
     INTERNAL_DETAIL_METADATA_KEYS,
     SECRET_LIKE_METADATA_KEYS,
     AssistantResponse,
+    ConversationActionState,
+    ConversationActionStatus,
     ConversationAttachmentRef,
     ConversationCapabilityStatus,
     ConversationLineage,
@@ -1679,6 +1681,19 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert visible.pending_questions == (QUESTION_REF,)
     assert visible.approval_requests == (APPROVAL_REF,)
     assert visible.workflow_updates == (WORKFLOW_REF,)
+    # A visible approval reference is never an approval (remediation MAJOR-04):
+    # the action state carries the canonical approval-required truth only, and
+    # the canonical approval authority still reports the request pending.
+    assert visible.action_state == (
+        ConversationActionState(
+            reference=APPROVAL_REF,
+            status=ConversationActionStatus.APPROVAL_REQUIRED,
+            kind="approval",
+        ),
+    )
+    assert {state.status for state in visible.action_state} == {
+        ConversationActionStatus.APPROVAL_REQUIRED
+    }
     # No ref beyond the authorized projection appears: the response ref surface
     # is exactly the composed view's ref surface.
     response_refs = (

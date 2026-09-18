@@ -1,12 +1,12 @@
 """Phase 11.5 — requested versus effective conversational capability state.
 
 These tests pin the Task 3 seam of the committed Phase 11.5 plan: the
-conversational boundary reports the *effective* state of its nine fixed
+conversational boundary reports the *effective* state of its sixteen fixed
 capabilities, and requesting a capability never creates execution authority.
 
 Proven here:
 
-- the resolver returns all nine fixed capability IDs in the fixed plan order;
+- the resolver returns all sixteen fixed capability IDs in the fixed plan order;
 - the frozen baseline truth table: streaming is truthfully degraded to
   ``response_event_stream`` (no provider token-streaming runtime exists),
   document upload is unavailable (no canonical storage owner) and attachments
@@ -69,6 +69,13 @@ FIXED_CAPABILITY_IDS = (
     "document_upload",
     "bot_association",
     "domain_projection",
+    "approval_response",
+    "workflow_pause",
+    "workflow_resume",
+    "workflow_cancel",
+    "workflow_retry",
+    "workflow_replan",
+    "action_execution",
 )
 
 #: The frozen Phase 11.5 baseline truth table (cancellation included: the real
@@ -129,7 +136,61 @@ BASELINE_TRUTH_TABLE = (
         "authorized_projection_when_supplied_by_canonical_integrator",
         None,
     ),
+    (
+        "approval_response",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_APPROVAL_COMMAND",
+    ),
+    (
+        "workflow_pause",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_WORKFLOW_CONTROL",
+    ),
+    (
+        "workflow_resume",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_WORKFLOW_CONTROL",
+    ),
+    (
+        "workflow_cancel",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_WORKFLOW_CONTROL",
+    ),
+    (
+        "workflow_retry",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_WORKFLOW_CONTROL",
+    ),
+    (
+        "workflow_replan",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_WORKFLOW_CONTROL",
+    ),
+    (
+        "action_execution",
+        ConversationCapabilityStatus.UNAVAILABLE,
+        None,
+        "NO_CANONICAL_ACTION_EXECUTOR",
+    ),
 )
+
+#: Remediation MAJOR-04 — the control capabilities that have no canonical
+#: application command at this baseline, with their frozen public reason code.
+CONTROL_CAPABILITY_REASONS = {
+    "approval_response": "NO_CANONICAL_APPROVAL_COMMAND",
+    "workflow_pause": "NO_CANONICAL_WORKFLOW_CONTROL",
+    "workflow_resume": "NO_CANONICAL_WORKFLOW_CONTROL",
+    "workflow_cancel": "NO_CANONICAL_WORKFLOW_CONTROL",
+    "workflow_retry": "NO_CANONICAL_WORKFLOW_CONTROL",
+    "workflow_replan": "NO_CANONICAL_WORKFLOW_CONTROL",
+    "action_execution": "NO_CANONICAL_ACTION_EXECUTOR",
+}
 
 
 def _baseline_resolver() -> ConversationCapabilityResolver:
@@ -559,3 +620,55 @@ def test_the_resolver_copies_and_never_mutates_its_inputs() -> None:
     second = _by_id(resolver.resolve())["request_cancellation"]
     assert second.status is ConversationCapabilityStatus.AVAILABLE
     assert second.effective == "canonical_cancellable_requests"
+
+
+# ── Control capabilities without a canonical command (remediation MAJOR-04) ──
+
+
+def test_every_control_capability_is_explicitly_unavailable() -> None:
+    """No canonical application command exists: each control is unavailable."""
+
+    states = _by_id(_baseline_resolver().resolve(tuple(CONTROL_CAPABILITY_REASONS)))
+
+    for capability, reason in CONTROL_CAPABILITY_REASONS.items():
+        entry = states[capability]
+        assert entry.requested is True
+        assert entry.status is ConversationCapabilityStatus.UNAVAILABLE
+        assert entry.effective is None
+        assert entry.reason == reason
+
+
+def test_requesting_a_control_capability_creates_no_authority() -> None:
+    resolver = ConversationCapabilityResolver(build_default_capabilities())
+
+    request = resolver.resolve(("action_execution", "workflow_pause"))
+
+    for state in request:
+        if state.capability in CONTROL_CAPABILITY_REASONS:
+            assert state.status is ConversationCapabilityStatus.UNAVAILABLE
+            assert state.effective is None
+
+
+def test_no_injected_application_capability_unlocks_a_control_state_by_itself() -> None:
+    """Availability is never inferred from a ref, a route or a domain package."""
+
+    injected = tuple(
+        item
+        for item in build_default_capabilities()
+        if item.capability_id != "request-cancellation"
+    )
+    states = _by_id(ConversationCapabilityResolver(injected).resolve())
+
+    for capability, reason in CONTROL_CAPABILITY_REASONS.items():
+        assert states[capability].status is ConversationCapabilityStatus.UNAVAILABLE
+        assert states[capability].effective is None
+        assert states[capability].reason == reason
+
+
+def test_request_cancellation_stays_separate_from_workflow_cancel() -> None:
+    states = _by_id(_baseline_resolver().resolve())
+
+    assert states["request_cancellation"].capability == "request_cancellation"
+    assert states["workflow_cancel"].capability == "workflow_cancel"
+    assert states["request_cancellation"].reason == "NO_CANCELLABLE_OWNER"
+    assert states["workflow_cancel"].reason == "NO_CANONICAL_WORKFLOW_CONTROL"
