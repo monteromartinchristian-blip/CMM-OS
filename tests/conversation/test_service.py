@@ -108,7 +108,10 @@ from cmm.application.health import HealthApplicationService
 from cmm.application.idempotency import InMemoryIdempotencyRepository
 from cmm.application.requests import RequestApplicationService
 from cmm.application.sessions import SessionApplicationService
-from cmm.conversation.capabilities import ConversationCapabilityResolver
+from cmm.conversation.capabilities import (
+    REASON_NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE,
+    ConversationCapabilityResolver,
+)
 from cmm.conversation.contracts import (
     INTERNAL_DETAIL_METADATA_KEYS,
     MAX_METADATA_DEPTH,
@@ -1064,12 +1067,24 @@ def test_submit_projects_only_the_verified_same_turn_projection() -> None:
 
 
 def test_submit_without_a_projection_source_exposes_no_domain_visibility() -> None:
-    """No composed source means no Domain visibility: nothing is reconstructed."""
+    """No composed source: no Domain visibility and a truthful capability.
+
+    Remediation MAJOR_R1_01: absence of the canonical projection source is a
+    service-composition fact, so the capability itself must report
+    ``UNAVAILABLE`` with ``effective=None`` and the canonical reason — never a
+    frozen ``AVAILABLE`` row the service composition cannot honour.
+    """
 
     harness = _harness(domain_projections=None)
 
     response = _submit(harness, _message())
 
+    projection = {state.capability: state for state in response.capability_state}[
+        "domain_projection"
+    ]
+    assert projection.status is ConversationCapabilityStatus.UNAVAILABLE
+    assert projection.effective is None
+    assert projection.reason == REASON_NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE
     assert response.sources == ()
     assert response.pending_questions == ()
     assert response.approval_requests == ()
@@ -1085,6 +1100,47 @@ def test_a_source_returning_no_projection_leaves_the_turn_domain_free() -> None:
 
     response = _submit(harness, _message())
 
+    assert response.sources == ()
+    assert dict(response.domain_state) == {}
+
+
+def test_submit_with_a_composed_source_reports_domain_projection_available() -> None:
+    """A composed canonical source is the one fact that makes it available."""
+
+    harness = _harness(domain_projections=_same_turn_source())
+
+    response = _submit(harness, _message())
+
+    entry = {state.capability: state for state in response.capability_state}[
+        "domain_projection"
+    ]
+    assert entry.status is ConversationCapabilityStatus.AVAILABLE
+    assert (
+        entry.effective == "authorized_projection_when_supplied_by_canonical_integrator"
+    )
+    assert entry.reason is None
+
+
+def test_a_source_returning_no_projection_keeps_the_capability_available() -> None:
+    """Availability is per-service composition, not per-turn success.
+
+    A composed source may validly answer ``None`` for one turn; that turn then
+    carries no Domain visibility while the capability stays ``AVAILABLE``
+    because the canonical mechanism is composed and callable.
+    """
+
+    harness = _harness(domain_projections=_FakeProjectionSource())
+
+    response = _submit(harness, _message())
+
+    entry = {state.capability: state for state in response.capability_state}[
+        "domain_projection"
+    ]
+    assert entry.status is ConversationCapabilityStatus.AVAILABLE
+    assert (
+        entry.effective == "authorized_projection_when_supplied_by_canonical_integrator"
+    )
+    assert entry.reason is None
     assert response.sources == ()
     assert dict(response.domain_state) == {}
 

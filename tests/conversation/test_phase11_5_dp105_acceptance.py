@@ -1617,7 +1617,13 @@ def test_at_dp105_connected_canonical_conversation() -> None:
     assert bot_command.actor_id == CONVERSATION_ACTOR_ID
     assert bot_command.channel is ApplicationChannel.CONVERSATION
     assert set(bot_command.payload) == {"message_id", "content", "content_type"}
-    assert bot_response.capability_state == ConversationCapabilityResolver().resolve(())
+    # The opaque association selects nothing: the canonical capability truth is
+    # the same one an association-free turn reports.  The graph composes the
+    # canonical projection source, so the equivalent resolver call carries that
+    # composition truth (remediation MAJOR_R1_01).
+    assert bot_response.capability_state == ConversationCapabilityResolver().resolve(
+        (), domain_projection_available=True
+    )
     bot_rows = {state.capability: state for state in bot_response.capability_state}
     assert bot_rows["bot_association"].status is (
         ConversationCapabilityStatus.AVAILABLE

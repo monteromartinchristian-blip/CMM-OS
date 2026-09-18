@@ -740,7 +740,15 @@ class ConversationService:
         requested_capabilities: tuple[str, ...],
         lineage: ConversationLineage,
     ) -> AssistantResponse:
-        """Project one application response through the safe public projection."""
+        """Project one application response through the safe public projection.
+
+        The service owns the Domain projection composition truth (remediation
+        MAJOR_R1_01): the capability resolver is told *whether* a canonical
+        authorized projection source is composed — never the source object, and
+        never whether this particular turn produced a view — so the reported
+        ``domain_projection`` capability always matches the actual service
+        composition.
+        """
 
         return self._projector.project(
             request_message=request_message,
@@ -748,7 +756,10 @@ class ConversationService:
             created_at=assistant_created_at,
             application_response=application_response,
             authorized_domain_view=authorized_domain_view,
-            capability_state=self._capabilities.resolve(requested_capabilities),
+            capability_state=self._capabilities.resolve(
+                requested_capabilities,
+                domain_projection_available=self._domain_projections is not None,
+            ),
             lineage=lineage,
         )
 

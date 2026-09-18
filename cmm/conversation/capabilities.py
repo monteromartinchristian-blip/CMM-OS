@@ -26,6 +26,14 @@ table is honest about the current phase:
   ``request-cancellation`` explicitly reports ``CapabilityStatus.AVAILABLE``;
 - ``document_upload`` is ``UNAVAILABLE``: no canonical storage owner exists in
   this phase and the later file/artifact authority stays reserved;
+- ``domain_projection`` is composition-aware (remediation MAJOR_R1_01): it
+  reports ``AVAILABLE`` with the existing authorized effective mode only while
+  ``ConversationService`` is composed with an authorized read-only projection
+  source, and resolves ``UNAVAILABLE`` with ``effective=None`` and the
+  canonical ``NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE`` reason otherwise.  A
+  request flag never changes availability, and availability is never inferred
+  from a visible reference, an application trace, a Domain package, a session or
+  request metadata, a Bot association, an Orchestrator result or a registry;
 - ``attachments`` are ``reference_only`` and ``bot_association`` is
   ``opaque_non_authoritative`` — a bot association can never grant tools,
   permissions, provider selection or memory policy by itself.
@@ -56,6 +64,7 @@ from cmm.conversation.errors import ConversationBoundaryError
 
 __all__ = [
     "CONVERSATION_CAPABILITY_IDS",
+    "REASON_NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE",
     "REASON_NO_CANCELLABLE_OWNER",
     "REASON_NO_CANONICAL_ACTION_EXECUTOR",
     "REASON_NO_CANONICAL_APPROVAL_COMMAND",
@@ -90,6 +99,10 @@ CONVERSATION_CAPABILITY_IDS = (
 #: streaming stays a deterministic response-event delivery.
 REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE = "PROVIDER_TOKEN_STREAMING_UNAVAILABLE"
 
+#: No canonical authorized projection source is composed at the service, so no
+#: callable Domain projection mechanism exists for the conversational boundary.
+REASON_NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE = "NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE"
+
 #: The cancellation surface exists on the application boundary, but no
 #: canonical cancellable-request owner exists at this baseline.
 REASON_NO_CANCELLABLE_OWNER = "NO_CANCELLABLE_OWNER"
@@ -112,6 +125,9 @@ REASON_NO_CANONICAL_ACTION_EXECUTOR = "NO_CANONICAL_ACTION_EXECUTOR"
 #: The conversational ID of the cancellation capability.
 _CANCELLATION_CAPABILITY = "request_cancellation"
 
+#: The conversational ID of the Domain projection capability.
+_DOMAIN_PROJECTION_CAPABILITY = "domain_projection"
+
 #: The canonical application capability ID that may authorize cancellation.
 _APPLICATION_CANCELLATION_CAPABILITY_ID = "request-cancellation"
 
@@ -120,11 +136,21 @@ _APPLICATION_CANCELLATION_CAPABILITY_ID = "request-cancellation"
 #: boundary can now own; it is never granted by a request flag.
 _CANCELLABLE_EFFECTIVE = "canonical_cancellable_requests"
 
+#: The effective mode of Domain projection once, and only while, the service is
+#: composed with an authorized read-only ``AuthorizedDomainProjectionSource``:
+#: the projection is supplied by the canonical integrator, never by a request
+#: flag and never inferred from a turn's visible data.
+_DOMAIN_PROJECTION_EFFECTIVE = (
+    "authorized_projection_when_supplied_by_canonical_integrator"
+)
+
 #: The frozen baseline state of every capability whose effective mode does not
-#: depend on an injected canonical declaration: capable ID -> (status,
-#: effective, reason).  ``request_cancellation`` is resolved separately.  The
-#: table is frozen at runtime too (``MappingProxyType``), so a later rewrite
-#: raises ``TypeError`` instead of silently changing resolved state.
+#: depend on a composition fact: capable ID -> (status, effective, reason).
+#: ``request_cancellation`` (resolved from an injected canonical application
+#: declaration) and ``domain_projection`` (resolved from the service-composition
+#: truth) are resolved separately.  The table is frozen at runtime too
+#: (``MappingProxyType``), so a later rewrite raises ``TypeError`` instead of
+#: silently changing resolved state.
 _BASELINE_STATES: Mapping[
     str, tuple[ConversationCapabilityStatus, str | None, str | None]
 ] = MappingProxyType(
@@ -162,11 +188,6 @@ _BASELINE_STATES: Mapping[
         "bot_association": (
             ConversationCapabilityStatus.AVAILABLE,
             "opaque_non_authoritative",
-            None,
-        ),
-        "domain_projection": (
-            ConversationCapabilityStatus.AVAILABLE,
-            "authorized_projection_when_supplied_by_canonical_integrator",
             None,
         ),
         "approval_response": (
@@ -278,6 +299,8 @@ class ConversationCapabilityResolver:
     def resolve(
         self,
         requested: Iterable[str] = (),
+        *,
+        domain_projection_available: bool = False,
     ) -> tuple[ConversationCapabilityState, ...]:
         """Return the effective state of all sixteen fixed capabilities, in order.
 
@@ -288,20 +311,47 @@ class ConversationCapabilityResolver:
         value is a Python-boundary type defect of the call site and raises the
         natural ``TypeError`` instead — the same fail-closed convention the
         application boundary uses for malformed call-site types.
+
+        ``domain_projection_available`` is the service-composition truth of
+        ``domain_projection`` (remediation MAJOR_R1_01): ``ConversationService``
+        supplies ``self._domain_projections is not None`` — never the source
+        object itself and never whether a particular turn produced a view.  It
+        is keyword-only, is validated as an exact ``bool`` (a truthy or falsy
+        stand-in is a call-site type defect and raises ``TypeError``), and
+        defaults to ``False`` so a resolver used without composition evidence
+        never claims the capability.
         """
+
+        if type(domain_projection_available) is not bool:
+            raise TypeError(
+                "domain_projection_available must be a bool, "
+                f"not {type(domain_projection_available).__name__}"
+            )
 
         flags = _requested_flags(requested)
 
         return tuple(
-            self._state_for(capability_id, capability_id in flags)
+            self._state_for(
+                capability_id,
+                capability_id in flags,
+                domain_projection_available=domain_projection_available,
+            )
             for capability_id in CONVERSATION_CAPABILITY_IDS
         )
 
     def _state_for(
-        self, capability_id: str, requested: bool
+        self,
+        capability_id: str,
+        requested: bool,
+        *,
+        domain_projection_available: bool,
     ) -> ConversationCapabilityState:
         if capability_id == _CANCELLATION_CAPABILITY:
             return self._cancellation_state(requested)
+        if capability_id == _DOMAIN_PROJECTION_CAPABILITY:
+            return self._domain_projection_state(
+                requested, domain_projection_available=domain_projection_available
+            )
 
         status, effective, reason = _BASELINE_STATES[capability_id]
 
@@ -311,6 +361,40 @@ class ConversationCapabilityResolver:
             effective=effective,
             status=status,
             reason=reason,
+        )
+
+    @staticmethod
+    def _domain_projection_state(
+        requested: bool, *, domain_projection_available: bool
+    ) -> ConversationCapabilityState:
+        """Report Domain projection from the service-composition truth only.
+
+        The capability describes presence of the canonical authorized
+        projection mechanism (remediation MAJOR_R1_01), not the success of one
+        turn: a composed source may validly answer ``None`` for a particular
+        turn without degrading the capability.  While the service is composed
+        with an authorized read-only projection source, the row keeps the
+        existing authorized effective mode; without one it resolves
+        ``UNAVAILABLE`` with ``effective=None`` and the canonical
+        ``NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE`` reason.  A request flag
+        changes ``requested`` only.
+        """
+
+        if domain_projection_available:
+            return ConversationCapabilityState(
+                capability=_DOMAIN_PROJECTION_CAPABILITY,
+                requested=requested,
+                effective=_DOMAIN_PROJECTION_EFFECTIVE,
+                status=ConversationCapabilityStatus.AVAILABLE,
+                reason=None,
+            )
+
+        return ConversationCapabilityState(
+            capability=_DOMAIN_PROJECTION_CAPABILITY,
+            requested=requested,
+            effective=None,
+            status=ConversationCapabilityStatus.UNAVAILABLE,
+            reason=REASON_NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE,
         )
 
     def _cancellation_state(self, requested: bool) -> ConversationCapabilityState:

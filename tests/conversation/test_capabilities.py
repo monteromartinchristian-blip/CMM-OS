@@ -11,6 +11,18 @@ Proven here:
   ``response_event_stream`` (no provider token-streaming runtime exists),
   document upload is unavailable (no canonical storage owner) and attachments
   are available only as references;
+- the composition-aware Domain projection truth (remediation MAJOR_R1_01):
+  ``domain_projection`` resolves from service-composition evidence only — a
+  default or explicitly ``False`` resolution reports ``UNAVAILABLE`` with
+  ``effective=None`` and the canonical
+  ``NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE`` reason, an explicitly ``True``
+  resolution reports the existing authorized-projection effective mode, and a
+  request flag never changes availability;
+- the composition boolean is validated exactly (``type(...) is bool``): a
+  truthy or falsy stand-in — ``1``, ``0``, ``"true"``, ``"false"``, ``None``
+  or an arbitrary object — fails closed with ``TypeError`` and is never
+  coerced, and it is keyword-only so positional composition truth is never
+  accepted;
 - cancellation stays ``UNAVAILABLE`` at the real ``build_default_capabilities``
   baseline and becomes available only when an injected canonical application
   declaration reports ``request-cancellation`` as available;
@@ -131,10 +143,13 @@ BASELINE_TRUTH_TABLE = (
         None,
     ),
     (
+        # Remediation MAJOR_R1_01: a default resolution carries no
+        # service-composition evidence, so the Domain projection capability
+        # fails closed instead of claiming a mechanism that may be absent.
         "domain_projection",
-        ConversationCapabilityStatus.AVAILABLE,
-        "authorized_projection_when_supplied_by_canonical_integrator",
+        ConversationCapabilityStatus.UNAVAILABLE,
         None,
+        "NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE",
     ),
     (
         "approval_response",
@@ -253,6 +268,91 @@ def test_the_frozen_baseline_truth_table_is_exactly_the_effective_state(
     assert entry.status is status
     assert entry.effective == effective
     assert entry.reason == reason
+
+
+# ── Composition-aware Domain projection truth (remediation MAJOR_R1_01) ──────
+
+
+def test_domain_projection_fails_closed_without_composition_evidence() -> None:
+    """A resolver used without service-composition evidence claims nothing."""
+
+    entry = _by_id(_baseline_resolver().resolve())["domain_projection"]
+
+    assert entry.requested is False
+    assert entry.status is ConversationCapabilityStatus.UNAVAILABLE
+    assert entry.effective is None
+    assert entry.reason == "NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE"
+
+
+def test_domain_projection_with_explicit_false_evidence_stays_unavailable() -> None:
+    entry = _by_id(_baseline_resolver().resolve(domain_projection_available=False))[
+        "domain_projection"
+    ]
+
+    assert entry.status is ConversationCapabilityStatus.UNAVAILABLE
+    assert entry.effective is None
+    assert entry.reason == "NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE"
+
+
+def test_domain_projection_with_true_evidence_is_available() -> None:
+    entry = _by_id(_baseline_resolver().resolve(domain_projection_available=True))[
+        "domain_projection"
+    ]
+
+    assert entry.requested is False
+    assert entry.status is ConversationCapabilityStatus.AVAILABLE
+    assert (
+        entry.effective == "authorized_projection_when_supplied_by_canonical_integrator"
+    )
+    assert entry.reason is None
+
+
+def test_requesting_domain_projection_never_changes_availability() -> None:
+    """A request flag is descriptive only: the composition truth decides."""
+
+    unavailable = _by_id(
+        _baseline_resolver().resolve(
+            ("domain_projection",), domain_projection_available=False
+        )
+    )["domain_projection"]
+    assert unavailable.requested is True
+    assert unavailable.status is ConversationCapabilityStatus.UNAVAILABLE
+    assert unavailable.effective is None
+    assert unavailable.reason == "NO_AUTHORIZED_DOMAIN_PROJECTION_SOURCE"
+
+    available = _by_id(
+        _baseline_resolver().resolve(
+            ("domain_projection",), domain_projection_available=True
+        )
+    )["domain_projection"]
+    assert available.requested is True
+    assert available.status is ConversationCapabilityStatus.AVAILABLE
+    assert (
+        available.effective
+        == "authorized_projection_when_supplied_by_canonical_integrator"
+    )
+    assert available.reason is None
+
+
+def test_the_composition_boolean_is_keyword_only() -> None:
+    """Positional composition truth is never accepted (fail closed)."""
+
+    with pytest.raises(TypeError):
+        _baseline_resolver().resolve((), True)  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [1, 0, "true", "false", None, object()],
+    ids=["int-1", "int-0", "str-true", "str-false", "none", "object"],
+)
+def test_non_boolean_composition_evidence_fails_closed(value: object) -> None:
+    """Only an exact ``bool`` composition fact is accepted; never coerced."""
+
+    with pytest.raises(TypeError, match="domain_projection_available must be a bool"):
+        _baseline_resolver().resolve(
+            domain_projection_available=value  # type: ignore[arg-type]
+        )
 
 
 # ── Streaming truth (plan step 1, section 17) ────────────────────────────────
