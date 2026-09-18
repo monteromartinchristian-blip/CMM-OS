@@ -328,7 +328,7 @@ here, while no independent audit has examined it yet.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-019` | Canonical Conversational Interface. CMM OS shall expose one canonical, version-aware, interface-neutral, fail-closed conversational boundary that provides persistent multi-turn natural interaction over canonical shared sessions; uses the existing Phase 11.3 `ApplicationGateway` for application-facing message submission and reaches the canonical Phase 11.2 `Orchestrator` rather than implementing alternate routing; consumes existing authorized Domain Intelligence interface projections rather than reconstructing domain state; preserves canonical session revision and optimistic-concurrency semantics; supports safe public conversational messages, responses and versioned contracts; exposes requested versus effective conversational capabilities; exposes authorized context, domain, source, question, workflow, action, approval, result, contradiction, warning and memory-proposal references when available; supports auditable editing and controlled regeneration without destructive transcript rewriting; represents attachment/document references without creating a parallel file authority; exposes streaming and cancellation truthfully according to canonical effective capability; keeps normal conversation usable without Bot or Agent binding and treats optional Bot identifiers as non-authoritative; leaks no hidden reasoning, secrets, raw sensitive context, internal exceptions, credentials or unauthorized references; remains consumable by CMMChat and alternative clients through stable contracts; and introduces no parallel stores, engines, runtimes, registries, routers, planners, approval managers, permission engines, memory systems, knowledge systems, provider systems or session systems. | `SRC-R11` (detailed Phase 11 roadmap §11.5); `docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md` §3–§7, §25–§26 | Phase 11.5 | `cmm/conversation/__init__.py`; `contracts.py`; `errors.py`; `state.py`; `capabilities.py`; `projection.py`; `service.py`; `platform_module.py`; `cmm/application/contracts.py`; `cmm/application/requests.py`; `cmm/application/local_runtime.py`; `cmm/api/app.py`; `cmm/api/models.py` | `REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` | `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` |
+| `F11-019` | Canonical Conversational Interface. CMM OS shall expose one canonical, version-aware, interface-neutral, fail-closed conversational boundary that provides persistent multi-turn natural interaction over canonical shared sessions; uses the existing Phase 11.3 `ApplicationGateway` for application-facing message submission and reaches the canonical Phase 11.2 `Orchestrator` rather than implementing alternate routing; consumes existing authorized Domain Intelligence interface projections rather than reconstructing domain state; preserves canonical session revision and optimistic-concurrency semantics; supports safe public conversational messages, responses and versioned contracts; exposes requested versus effective conversational capabilities; exposes authorized context, domain, source, question, workflow, action, approval, result, contradiction, warning and memory-proposal references when available; supports auditable editing and controlled regeneration without destructive transcript rewriting; represents attachment/document references without creating a parallel file authority; exposes streaming and cancellation truthfully according to canonical effective capability; keeps normal conversation usable without Bot or Agent binding and treats optional Bot identifiers as non-authoritative; leaks no hidden reasoning, secrets, raw sensitive context, internal exceptions, credentials or unauthorized references; remains consumable by CMMChat and alternative clients through stable contracts; and introduces no parallel stores, engines, runtimes, registries, routers, planners, approval managers, permission engines, memory systems, knowledge systems, provider systems or session systems. | `SRC-R11` (detailed Phase 11 roadmap §11.5); `docs/superpowers/specs/2026-09-17-phase-11.5-conversational-interface-design.md` §3–§7, §25–§26 | Phase 11.5 | `cmm/conversation/__init__.py`; `contracts.py`; `errors.py`; `state.py`; `capabilities.py`; `projection.py`; `service.py`; `platform_module.py`; `cmm/application/contracts.py`; `cmm/application/requests.py`; `cmm/application/local_runtime.py`; `cmm/api/app.py`; `cmm/api/models.py` | `VERIFIED_EXISTING` | `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` |
 
 ### 4.12 `F11-019` traceability
 
@@ -352,16 +352,16 @@ here, while no independent audit has examined it yet.
 | Inherited requirements reused | `F11-018` / `DP-104` (Phase 11.4), `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
 | Inherited acceptance regressions | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`; `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py`; `AT-DP-045` — `tests/domains/test_domain_interface_dp045_acceptance.py` |
 | Closed-phase adjustments | two additive architecture-gate seams (`tests/application/test_architecture.py`, `tests/api/test_architecture.py`) and the repaired exact-set/allowlist pins (`tests/application/test_channels.py`, `tests/application/test_local_runtime.py`, `tests/api/test_http_v1.py`, `tests/api/test_openapi.py`, `tests/application/test_phase11_3_dp103_acceptance.py`, `tests/platform/test_architecture.py`) — every change additive, documented with a Phase 11.5/DP-105 comment and recorded in the reference document |
-| Mapping status | `REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` |
-| Next step | independent Re-audit V2 of the exact-HEAD Phase 11.5 Remediation V2 bundle |
+| Mapping status | `VERIFIED_EXISTING` |
+| Next step | fresh inspection of the next planned Phase 11 subphase |
 
-`F11-019` is `REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` and
+`F11-019` is `VERIFIED_EXISTING` and
 `DP_105` is implemented in production architecture after Remediation V2 — which
 followed the independent Re-audit V1 `INDEPENDENT_REAUDIT_V1=FAIL_RECORDED`
 (`BLOCKERS=0`, `MAJORS=1`, `MINORS=2`; the five original Audit V1 findings
 independently verified as remediated) — and after the original
 `INDEPENDENT_AUDIT_V1=FAIL_RECORDED`; `AT-DP-105` passes in this repository.
-No closure, no verification and no closure eligibility is claimed for Phase 11.5
+Final closure, verification and closure eligibility are recorded for Phase 11.5 after Independent Re-audit V2 `PASS`
 before an independent re-audit returns its evidence. The pre-audit state, the
 implemented surface, the capability truth table and the recorded residual limits
 are documented in
@@ -846,18 +846,18 @@ The Phase 11.5 conversational interface is a separate subphase and is reported
 here in its Remediation V2 state:
 
 ```text
-PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=CLOSED
 
-F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
-REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
-NEXT=INDEPENDENT_REAUDIT_V2
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 ```
 
 Phase 11.5 introduces exactly one new requirement identifier (`F11-019`), one
@@ -920,6 +920,39 @@ The implemented surface, the `conversation.v1` extension semantics, the
 `ConversationService` public API, the capability truth table, the HTTP routes
 and the measured architecture-gate residual limits are documented in
 [`docs/reference/phase-11-conversational-interface.md`](phase-11-conversational-interface.md).
-No closure, verification or closure-eligibility claim is made for Phase 11.5 in
+Closure, verification and closure eligibility for Phase 11.5 are recorded after Independent Re-audit V2 `PASS` in
 this section; an independent audit must examine the exact-HEAD implementation
 first.
+
+<!-- PHASE11_5_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.5 — Final closure evidence
+
+```text
+PHASE11_5=CLOSED
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_02=VERIFIED_REMEDIATED
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+AUDITED_HEAD=9fde9db154c5ff957565f8f4ab6ca2391037b15c
+AUDITED_TREE=937f4312592baf33a6aedf59e37a2ca475a8e036
+AUDITED_BUNDLE_SHA256=56d5eee4f2d1f908465f1b65bc16237ea4b4d40b64f3fc49bc2c6840bef13511
+FINAL_REPORT=docs/audits/phase-11.5-conversational-interface-independent-reaudit-v2.md
+FINAL_REPORT_SHA256=f5a4f72c12734052f24df63250bb1c28d5017e90d99129e5d56afbf5d71bd67c
+AUDIT_REPORT_COMMIT=e3a713bfdb2b108c4db7a38a4da556cc1ce83c86
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
+```
+
+Phase 11.5 is closed by the dedicated docs-only closure commit after the
+Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
+evidence remains immutable.

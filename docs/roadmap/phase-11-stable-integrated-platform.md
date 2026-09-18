@@ -1328,7 +1328,7 @@ When relevant, the interface must show:
 
 ### 11.5 implementation status
 
-**Status:** `IMPLEMENTED — AWAITING INDEPENDENT AUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS`
 
 Implemented by the new `cmm/conversation/` package over the closed Phase 11.1–11.4
 platform, plus strictly additive seams in the closed packages:
@@ -1422,24 +1422,24 @@ handoff, to be independently re-verified by the independent audit.
 Remediation V2 documentary state:
 
 ```text
-PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=CLOSED
 
-F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
-REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
-NEXT=INDEPENDENT_REAUDIT_V2
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 ```
 
 Phase 11.5 is remediated (Remediation V2 after the independent Re-audit V1
 `FAIL`; `INDEPENDENT_AUDIT_V1=FAIL_RECORDED`,
-`INDEPENDENT_REAUDIT_V1=FAIL_RECORDED`) and awaiting independent Re-audit V2; it
-is not closed and not closure-eligible before that re-audit returns its
+`INDEPENDENT_REAUDIT_V1=FAIL_RECORDED`) and closed after Independent Re-audit V2 `PASS`; it
+is closed and closure-eligible because that re-audit returned its
 evidence. The next subphase must not be described as started.
 
 Historical numbering collision, recorded explicitly: this document also carries
@@ -6792,3 +6792,36 @@ Integrate everything into a stable platform
 Future evolution
 Persistent, proactive, and supervised personal system
 ```
+
+<!-- PHASE11_5_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.5 — Final closure evidence
+
+```text
+PHASE11_5=CLOSED
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_02=VERIFIED_REMEDIATED
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+AUDITED_HEAD=9fde9db154c5ff957565f8f4ab6ca2391037b15c
+AUDITED_TREE=937f4312592baf33a6aedf59e37a2ca475a8e036
+AUDITED_BUNDLE_SHA256=56d5eee4f2d1f908465f1b65bc16237ea4b4d40b64f3fc49bc2c6840bef13511
+FINAL_REPORT=docs/audits/phase-11.5-conversational-interface-independent-reaudit-v2.md
+FINAL_REPORT_SHA256=f5a4f72c12734052f24df63250bb1c28d5017e90d99129e5d56afbf5d71bd67c
+AUDIT_REPORT_COMMIT=e3a713bfdb2b108c4db7a38a4da556cc1ce83c86
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
+```
+
+Phase 11.5 is closed by the dedicated docs-only closure commit after the
+Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
+evidence remains immutable.

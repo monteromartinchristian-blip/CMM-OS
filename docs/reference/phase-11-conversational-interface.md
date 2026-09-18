@@ -1,6 +1,6 @@
 # Phase 11 — Conversational Interface reference
 
-**Status:** `IMPLEMENTED — AWAITING INDEPENDENT AUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS`
 **Phase:** 11.5 — Conversational Interface
 **Requirement:** `F11-019 — Canonical Conversational Interface`
 **Design Point:** `DP-105 — Session-Backed Canonical Conversation Boundary`
@@ -25,22 +25,22 @@ implementation state)
 **Documentation base head while preparing the Remediation V2 section:** `6036ac3`
 
 ```text
-PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=CLOSED
 
-F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
-REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
-NEXT=INDEPENDENT_REAUDIT_V2
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 ```
 
 Phase 11.5 is **remediated (Remediation V2 after independent Re-audit V1
-`FAIL`) and awaiting independent Re-audit V2**. The canonical
+`FAIL`) and closed after Independent Re-audit V2 `PASS`**. The canonical
 conversational interface exists on `feature/phase-11-stable-integrated-platform`,
 `AT-DP-105` is green in this repository, and the inherited Phase 11 acceptances
 stay green — but no independent re-audit has examined this Remediation V2
@@ -749,24 +749,24 @@ be independently re-verified by the independent re-audit.
 | Implementation plan | `docs/superpowers/plans/2026-09-17-phase-11.5-conversational-interface-implementation-plan.md` |
 | Inherited requirements reused | `F11-018` / `DP-104` (Phase 11.4), `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, not reopened and not modified |
 | Inherited acceptance regressions | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`; `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py`; `AT-DP-045` — `tests/domains/test_domain_interface_dp045_acceptance.py` |
-| Mapping status | `REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT` |
+| Mapping status | `VERIFIED_EXISTING` |
 | Next step | independent Re-audit V2 of the exact-HEAD Remediation V2 bundle (see §21) |
 
 ## 19. Verification and audit state
 
 ```text
-PHASE11_5=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
+PHASE11_5=CLOSED
 
-F11_019=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-DP_105=REMEDIATION_V2_IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-AT_DP_105=PASS_IN_REPOSITORY
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
 
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
-REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-CLOSURE_ELIGIBLE=NO
-AUDIT_STATUS=AWAITING_INDEPENDENT_REAUDIT_V2
-NEXT=INDEPENDENT_REAUDIT_V2
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 ```
 
 This document records the implemented Remediation V2 state: the independent
@@ -872,11 +872,11 @@ MINOR_01=VERIFIED_REMEDIATED
 MAJOR_R1_01=REMEDIATED_IN_IMPLEMENTATION
 MINOR_R1_01=REMEDIATED_IN_IMPLEMENTATION
 MINOR_R1_02=REMEDIATED_IN_IMPLEMENTATION
-AT_DP_105=PASS_IN_REPOSITORY
+AT_DP_105=PASS
 INDEPENDENT_AUDIT_V1=FAIL_RECORDED
 INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
-REMEDIATION_V2=IMPLEMENTED_AWAITING_INDEPENDENT_REAUDIT
-CLOSURE_ELIGIBLE=NO
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
 ```
 
 | Remediation V2 commit | Finding | Change recorded in production history |
@@ -907,3 +907,36 @@ bound to that same canonical route.
 Next step: independent Re-audit V2 of the exact-HEAD Remediation V2 bundle. No
 closure, verification or closure-eligibility claim is made before that re-audit
 returns its evidence.
+
+<!-- PHASE11_5_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.5 — Final closure evidence
+
+```text
+PHASE11_5=CLOSED
+F11_019=VERIFIED_EXISTING
+DP_105=VERIFIED_EXISTING
+AT_DP_105=PASS
+INDEPENDENT_AUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V1=FAIL_RECORDED
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_01=VERIFIED_REMEDIATED
+MINOR_R1_02=VERIFIED_REMEDIATED
+REMEDIATION_V2=INDEPENDENTLY_REAUDITED_PASS
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V2_PASS
+AUDITED_HEAD=9fde9db154c5ff957565f8f4ab6ca2391037b15c
+AUDITED_TREE=937f4312592baf33a6aedf59e37a2ca475a8e036
+AUDITED_BUNDLE_SHA256=56d5eee4f2d1f908465f1b65bc16237ea4b4d40b64f3fc49bc2c6840bef13511
+FINAL_REPORT=docs/audits/phase-11.5-conversational-interface-independent-reaudit-v2.md
+FINAL_REPORT_SHA256=f5a4f72c12734052f24df63250bb1c28d5017e90d99129e5d56afbf5d71bd67c
+AUDIT_REPORT_COMMIT=e3a713bfdb2b108c4db7a38a4da556cc1ce83c86
+NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
+```
+
+Phase 11.5 is closed by the dedicated docs-only closure commit after the
+Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
+evidence remains immutable.
