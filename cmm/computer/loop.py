@@ -36,7 +36,9 @@ _PLANNER_SYSTEM = (
     '{"action":"pointer.scroll","dy":<negative scrolls down>}\n'
     '{"action":"wait","seconds":<0.5-5>}\n'
     '{"action":"finish","summary":"<what was accomplished>"}\n'
-    "Rules: act on the current observation only; prefer element ids over "
+    "Rules: act on the current observation only; before typing or using "
+    "shortcuts, make sure the target application is frontmost (use app.open "
+    "or app.activate first when it is not); prefer element ids over "
     "coordinates; one action per reply; never repeat an action that produced "
     "no observable change — adapt or finish honestly; finish as soon as the "
     "task is done; never invent elements that are not listed."
