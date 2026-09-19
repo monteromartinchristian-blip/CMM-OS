@@ -24,6 +24,12 @@ CMM OS provider **without adding any provider machinery of its own**:
 Loopback rule: a non-loopback endpoint is refused at composition time, so this
 seam can never reach the router over LAN even if the configuration is edited.
 
+Local runtime lane: the seam additionally composes one ordinary canonical
+provider for a loopback-only, OpenAI-compatible local model runtime (configured
+through the environment variables named below).  It is registered in the same
+canonical registry and catalog and executed by the same canonical factory,
+router and provider abstraction — no second or provider-specific machinery.
+
 Residual limit (stated openly): the bearer itself is resolved by the canonical
 ``ProviderSpec`` at call time, so a *later* environment change is honoured by
 the canonical mechanism; only the endpoint is pinned here.
@@ -49,12 +55,19 @@ __all__ = [
     "CHAT_ONLY_ROUTER_CONTEXT_WINDOW",
     "CHAT_ONLY_ROUTER_MODEL_ENV",
     "CHAT_ONLY_ROUTER_PROVIDER_ID",
+    "LOCAL_RUNTIME_BASE_URL_ENV",
+    "LOCAL_RUNTIME_DEFAULT_BASE_URL",
+    "LOCAL_RUNTIME_MODEL_IDS_ENV",
+    "LOCAL_RUNTIME_PROVIDER_ID",
     "LocalModelExecution",
     "build_local_model_execution",
     "chat_only_router_provider_spec",
+    "configured_local_runtime_model_ids",
     "configured_model_ids",
     "discover_chat_only_router_models",
+    "local_runtime_provider_spec",
     "register_chat_only_router",
+    "register_local_runtime",
 ]
 
 #: The one provider identity the CMMChat Router holds inside CMM OS.
@@ -77,6 +90,15 @@ CHAT_ONLY_ROUTER_CONTEXT_WINDOW = 32_000
 
 #: The Phase 11.1 composition service id of the one canonical provider registry.
 PROVIDER_REGISTRY_SERVICE_ID = "provider.registry"
+
+#: The identity, endpoint and configuration of the loopback local model
+#: runtime lane.  Model ids are configured explicitly (never bulk-discovered)
+#: so credit-gated or broken advertisements cannot enter the catalog.
+LOCAL_RUNTIME_PROVIDER_ID = "local-runtime"
+LOCAL_RUNTIME_DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
+LOCAL_RUNTIME_BASE_URL_ENV = "CMM_LOCAL_RUNTIME_BASE_URL"
+LOCAL_RUNTIME_MODEL_IDS_ENV = "CMM_LOCAL_RUNTIME_MODEL_IDS"
+LOCAL_RUNTIME_CONTEXT_WINDOW = 32_000
 
 #: Hosts that count as loopback for the router endpoint.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -225,6 +247,99 @@ def register_chat_only_router(
     return registered, tuple(models)
 
 
+def local_runtime_provider_spec(*, base_url: str | None = None) -> ProviderSpec:
+    """Return the canonical provider definition of the local model runtime."""
+
+    resolved = base_url
+    if resolved is None:
+        resolved = (
+            os.getenv(LOCAL_RUNTIME_BASE_URL_ENV) or LOCAL_RUNTIME_DEFAULT_BASE_URL
+        )
+    return ProviderSpec(
+        id=LOCAL_RUNTIME_PROVIDER_ID,
+        provider_type="local",
+        api_style="chat_completions",
+        base_url=_require_loopback_endpoint(resolved),
+        capabilities=ProviderCapabilities(chat_completions=True),
+    )
+
+
+def configured_local_runtime_model_ids() -> tuple[str, ...] | None:
+    """Return the explicitly configured local runtime identities, or ``None``.
+
+    The local runtime lane is opt-in: absent configuration composes exactly
+    the router-only seam as before.
+    """
+
+    raw = os.getenv(LOCAL_RUNTIME_MODEL_IDS_ENV)
+    if raw is None:
+        return None
+    identities = tuple(
+        dict.fromkeys(part.strip() for part in raw.split(",") if part.strip())
+    )
+    return identities or None
+
+
+def register_local_runtime(
+    *,
+    provider_registry: ProviderRegistry,
+    model_catalog: ModelCatalog,
+    model_ids: tuple[str, ...],
+    base_url: str | None = None,
+) -> tuple[ProviderSpec, tuple[ModelSpec, ...]]:
+    """Register the local runtime provider and its models canonically.
+
+    Same guarantees as :func:`register_chat_only_router`: the definition lives
+    in the caller's canonical registry, the models in the canonical catalog
+    bound to it, re-registration of the canonical definition is idempotent and
+    a divergent definition claiming this identity fails closed.
+    """
+
+    if provider_registry is None or not isinstance(provider_registry, ProviderRegistry):
+        raise TypeError("provider_registry must be a ProviderRegistry")
+    if model_catalog is None or not isinstance(model_catalog, ModelCatalog):
+        raise TypeError("model_catalog must be a ModelCatalog")
+    if model_catalog.provider_registry is not provider_registry:
+        raise TypeError(
+            "model_catalog must be bound to the supplied canonical provider_registry"
+        )
+
+    identities = tuple(dict.fromkeys(model_ids))
+    if not identities:
+        raise ValueError("model_ids cannot be empty")
+    for identity in identities:
+        if not isinstance(identity, str) or not identity.strip():
+            raise ValueError("model_ids must contain non-empty strings")
+
+    declared = local_runtime_provider_spec(base_url=base_url)
+    if provider_registry.has(declared.id):
+        registered = provider_registry.get(declared.id)
+        if registered != declared:
+            raise ValueError(
+                "a different provider definition already claims the local "
+                f"runtime identity: {declared.id}"
+            )
+    else:
+        registered = provider_registry.register(declared)
+
+    models: list[ModelSpec] = []
+    for identity in identities:
+        normalized = identity.strip()
+        if model_catalog.has(normalized, provider_id=registered.id):
+            models.append(model_catalog.get(normalized, provider_id=registered.id))
+            continue
+        models.append(
+            model_catalog.register(
+                ModelSpec(
+                    id=normalized,
+                    provider_id=registered.id,
+                    context_window=LOCAL_RUNTIME_CONTEXT_WINDOW,
+                )
+            )
+        )
+    return registered, tuple(models)
+
+
 @dataclass(frozen=True, slots=True)
 class LocalModelExecution:
     """One composed local model execution graph.
@@ -269,6 +384,13 @@ def build_local_model_execution(
         model_ids=tuple(resolved_ids),
         base_url=base_url,
     )
+    local_ids = configured_local_runtime_model_ids()
+    if local_ids:
+        register_local_runtime(
+            provider_registry=provider_registry,
+            model_catalog=model_catalog,
+            model_ids=local_ids,
+        )
 
     executor = CanonicalModelExecutor(
         model_router=ModelRouter(
