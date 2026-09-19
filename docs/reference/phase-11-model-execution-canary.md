@@ -190,7 +190,7 @@ interpreter `/Users/christian/CMM OS/.venv/bin/python`, CPython 3.14.7):
 
 ```text
 python -m pytest tests/model_execution -q                     → 200 passed
-python -m pytest tests -q                                     → 3121 passed, 0 failed
+python -m pytest tests -q                                     → 21505 passed, 2 warnings in 496.20s (0:08:16), 0 failed
 ruff check cmm/model_execution tests/model_execution tests/application/test_architecture.py → All checks passed
 ruff format --check …                                          → 15 files already formatted
 ```
@@ -230,3 +230,34 @@ model catalog, model selector UX, token streaming, SSE redesign, hard
 cancellation, retry/fork real inference, Project/attachment/artifact
 intelligence, Web Search, Computer Use, Skills, MCP, plugins, CMM Usage, Cowork,
 CMM Bots, remote node transport, LAN exposure, iPhone, Web.
+
+<!-- WAVE_E0_HERMETIC_FINAL_VERIFICATION -->
+
+### Final hermetic verification — 2026-09-19
+
+The earlier non-hermetic full-tree runs that reported 36/33 failures were environment-invalid for closure purposes: the test environment had validation tooling installed but did not have the `cmm-os` project itself installed as a distribution for subprocess/fresh-import tests. They are superseded by the isolated verification below.
+
+Measured final evidence on exact E0 HEAD `1cab7f622629ed9acacb76c1c8dc0c0db8206772`:
+
+- isolated E0 environment: `cmm-os[dev]` installed from the E0 worktree;
+- isolated baseline environment: `cmm-os[dev]` installed from baseline `5beea9d0c32a10732a027f1c368281ddd727d89c`;
+- package metadata / fresh import sanity: PASS in both environments;
+- `tests/validation`: `533 passed` on E0;
+- baseline `tests/validation`: `533 passed`;
+- full E0 tree: `21505 passed, 2 warnings in 496.20s (0:08:16)`;
+- E0 full-tree failures: `0`;
+- E0 worktree remained clean after verification;
+- `PUSH=NO`;
+- `MERGE=NO`.
+
+Closure gates:
+
+```text
+E0_VALIDATION=PASS
+FULL_TREE=PASS
+E0_INTRODUCED_FULL_TREE_FAILURES=0
+REAL_MODEL_EXECUTION=PASS
+REAL_CANARY=PASS
+CMM_ROUTERS_CHANGED=NO
+CMMCHAT_ROUTER_LOOPBACK_ONLY=PASS
+```
