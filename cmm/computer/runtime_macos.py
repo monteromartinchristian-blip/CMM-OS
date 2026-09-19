@@ -420,12 +420,26 @@ class MacComputerRuntime:
 
     @staticmethod
     def _keyboard_type(Quartz: Any, text: str) -> ActionResult:
-        for char in text:
-            for down in (True, False):
-                event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-                Quartz.CGEventKeyboardSetUnicodeString(event, len(char), char)
-                Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
-            time.sleep(0.008)
+        """Type text through the pasteboard: CGEventKeyboardSetUnicodeString is
+        not delivered on current macOS, while cmd+v is reliable and fast. The
+        user's previous clipboard content is restored afterwards."""
+
+        import AppKit
+
+        pasteboard = AppKit.NSPasteboard.generalPasteboard()
+        previous = pasteboard.stringForType_(AppKit.NSPasteboardTypeString)
+        pasteboard.clearContents()
+        if not pasteboard.setString_forType_(text, AppKit.NSPasteboardTypeString):
+            return ActionResult(False, "the text could not be placed on the pasteboard")
+        for down in (True, False):
+            event = Quartz.CGEventCreateKeyboardEvent(None, 9, down)  # keycode 9 = 'v'
+            Quartz.CGEventSetFlags(event, Quartz.kCGEventFlagMaskCommand)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+            time.sleep(0.02)
+        time.sleep(0.4)
+        pasteboard.clearContents()
+        if previous is not None:
+            pasteboard.setString_forType_(previous, AppKit.NSPasteboardTypeString)
         return ActionResult(True, f"typed {len(text)} characters")
 
     @staticmethod
