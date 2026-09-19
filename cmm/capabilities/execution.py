@@ -128,6 +128,9 @@ class CapabilityExecution:
                 system=system,
                 history=(),
                 cancel_event=cancel_event,
+                # Decision calls are bounded: a runaway reasoning model must
+                # never stall a supervised tool loop.
+                max_tokens=800,
             ):
                 parts.append(delta)
             return "".join(parts)
