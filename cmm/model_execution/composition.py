@@ -55,6 +55,7 @@ __all__ = [
     "CHAT_ONLY_ROUTER_CONTEXT_WINDOW",
     "CHAT_ONLY_ROUTER_MODEL_ENV",
     "CHAT_ONLY_ROUTER_PROVIDER_ID",
+    "LOCAL_RUNTIME_API_KEY_ENV",
     "LOCAL_RUNTIME_BASE_URL_ENV",
     "LOCAL_RUNTIME_DEFAULT_BASE_URL",
     "LOCAL_RUNTIME_MODEL_IDS_ENV",
@@ -94,10 +95,14 @@ PROVIDER_REGISTRY_SERVICE_ID = "provider.registry"
 #: The identity, endpoint and configuration of the loopback local model
 #: runtime lane.  Model ids are configured explicitly (never bulk-discovered)
 #: so credit-gated or broken advertisements cannot enter the catalog.
+#: The credential stays an env-resolved name: a loopback runtime ignores its
+#: value, but the canonical OpenAI-compatible transport requires a non-empty
+#: bearer, so the launcher supplies a placeholder through this variable.
 LOCAL_RUNTIME_PROVIDER_ID = "local-runtime"
 LOCAL_RUNTIME_DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
 LOCAL_RUNTIME_BASE_URL_ENV = "CMM_LOCAL_RUNTIME_BASE_URL"
 LOCAL_RUNTIME_MODEL_IDS_ENV = "CMM_LOCAL_RUNTIME_MODEL_IDS"
+LOCAL_RUNTIME_API_KEY_ENV = "CMM_LOCAL_RUNTIME_API_KEY"
 LOCAL_RUNTIME_CONTEXT_WINDOW = 32_000
 
 #: Hosts that count as loopback for the router endpoint.
@@ -259,6 +264,7 @@ def local_runtime_provider_spec(*, base_url: str | None = None) -> ProviderSpec:
         id=LOCAL_RUNTIME_PROVIDER_ID,
         provider_type="local",
         api_style="chat_completions",
+        api_key_env=LOCAL_RUNTIME_API_KEY_ENV,
         base_url=_require_loopback_endpoint(resolved),
         capabilities=ProviderCapabilities(chat_completions=True),
     )

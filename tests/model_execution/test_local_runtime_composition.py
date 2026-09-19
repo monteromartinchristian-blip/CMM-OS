@@ -17,6 +17,7 @@ import pytest
 from cmm.model_execution.composition import (
     CHAT_ONLY_ROUTER_MODEL_ENV,
     CHAT_ONLY_ROUTER_PROVIDER_ID,
+    LOCAL_RUNTIME_API_KEY_ENV,
     LOCAL_RUNTIME_BASE_URL_ENV,
     LOCAL_RUNTIME_DEFAULT_BASE_URL,
     LOCAL_RUNTIME_MODEL_IDS_ENV,
@@ -47,7 +48,18 @@ def test_the_local_runtime_provider_is_a_loopback_chat_completions_provider() ->
     assert spec.provider_type == "local"
     assert spec.api_style == "chat_completions"
     assert spec.resolve_base_url() == LOCAL_RUNTIME_DEFAULT_BASE_URL
+    # The credential is an env name, never a value in code; a loopback runtime
+    # receives whatever placeholder the launcher configures.
+    assert spec.api_key_env == LOCAL_RUNTIME_API_KEY_ENV
     assert spec.resolve_api_key() is None
+
+
+def test_the_local_runtime_credential_resolves_through_the_env_mechanism(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(LOCAL_RUNTIME_API_KEY_ENV, "placeholder-not-a-secret")
+    spec = local_runtime_provider_spec()
+    assert spec.resolve_api_key() == "placeholder-not-a-secret"
 
 
 def test_a_non_loopback_local_runtime_endpoint_is_refused(
