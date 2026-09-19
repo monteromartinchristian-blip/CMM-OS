@@ -21,6 +21,14 @@ openai = [
     "openai>=2.0,<3",
     "python-dotenv>=1.0,<2",
 ]
+web = [
+    "httpx>=0.28,<1",
+]
+computer = [
+    "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+]
 validation = [
     "ruff>=0.9,<1",
     "bandit>=1.7,<2",
