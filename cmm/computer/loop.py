@@ -120,8 +120,7 @@ class ComputerUseService:
         feedback = ""
         approvals = rejections = 0
         observation: Observation | None = None
-        last_signature: tuple[str, str] | None = None
-        repeats = 0
+        attempts: dict[tuple[str, str], int] = {}
 
         for step in range(self._limits.max_steps):
             if cancel_event is not None and cancel_event.is_set():
@@ -255,17 +254,13 @@ class ComputerUseService:
 
             description = action.describe(observation)
             signature = (kind, json.dumps(params, sort_keys=True, default=str))
-            if signature == last_signature:
-                repeats += 1
-            else:
-                repeats = 0
-            last_signature = signature
-            if repeats >= 1:
+            attempts[signature] = attempts.get(signature, 0) + 1
+            if attempts[signature] > 2:
                 feedback = (
-                    f"The action “{description}” was already executed "
-                    f"{repeats + 1} times with no observable change. Do not "
-                    "repeat it: choose a different action, or finish honestly "
-                    "describing what could not be completed."
+                    f"The action “{description}” was already attempted "
+                    f"{attempts[signature] - 1} times with no observable change. "
+                    "Do not repeat it: choose a different approach, or finish "
+                    "honestly describing what could not be completed."
                 )
                 warnings.append(f"repeated action: {description}")
                 continue

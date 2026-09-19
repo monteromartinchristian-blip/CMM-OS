@@ -340,21 +340,24 @@ class MacComputerRuntime:
             )
         import AppKit
 
-        cls._await_frontmost(AppKit, app)
+        if not cls._await_frontmost(AppKit, app):
+            return ActionResult(
+                False, f"{app} opened but did not come to the front"
+            )
         return ActionResult(True, f"opened {app}")
 
     @classmethod
     def _app_activate(cls, AppKit: Any, app: str) -> ActionResult:
+        options = (
+            AppKit.NSApplicationActivateIgnoringOtherApps
+            | AppKit.NSApplicationActivateAllWindows
+        )
         for candidate in AppKit.NSWorkspace.sharedWorkspace().runningApplications():
             if str(candidate.localizedName() or "").lower() == app.lower():
-                candidate.activateWithOptions_(
-                    AppKit.NSApplicationActivateIgnoringOtherApps
-                )
+                candidate.activateWithOptions_(options)
                 if cls._await_frontmost(AppKit, app, timeout=2.0):
                     return ActionResult(True, f"activated {app}")
-                candidate.activateWithOptions_(
-                    AppKit.NSApplicationActivateIgnoringOtherApps
-                )
+                candidate.activateWithOptions_(options)
                 if cls._await_frontmost(AppKit, app, timeout=2.0):
                     return ActionResult(True, f"activated {app}")
                 return ActionResult(

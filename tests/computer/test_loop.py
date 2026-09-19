@@ -251,14 +251,29 @@ def test_repeated_identical_actions_are_refused_with_feedback():
         [
             json.dumps({"action": "app.activate", "app": "TextEdit"}),
             json.dumps({"action": "app.activate", "app": "TextEdit"}),
+            json.dumps({"action": "app.activate", "app": "TextEdit"}),
             json.dumps({"action": "finish", "summary": "adaptado"}),
         ]
     )
     service = ComputerUseService(runtime=runtime, plan=plan)
     outcome = service.run_task("activa TextEdit")
-    assert len(runtime.executed) == 1
+    # Two identical attempts are tolerated (timing), the third is refused.
+    assert len(runtime.executed) == 2
     assert any("repeated action" in warning for warning in outcome.warnings)
-    assert "no observable change" in plan.prompts[2]
+    assert "no observable change" in plan.prompts[3]
+
+
+def test_alternating_repeats_are_also_refused():
+    runtime = FakeRuntime()
+    replies = []
+    for _ in range(3):
+        replies.append(json.dumps({"action": "app.open", "app": "TextEdit"}))
+        replies.append(json.dumps({"action": "app.activate", "app": "TextEdit"}))
+    replies.append(json.dumps({"action": "finish", "summary": "ok"}))
+    service = ComputerUseService(runtime=runtime, plan=ScriptedPlan(replies))
+    outcome = service.run_task("activa TextEdit")
+    assert len(runtime.executed) == 4
+    assert sum("repeated action" in warning for warning in outcome.warnings) >= 2
 
 
 # ── policy unit behavior ────────────────────────────────────────────────────
