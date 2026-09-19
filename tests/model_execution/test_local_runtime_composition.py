@@ -222,3 +222,32 @@ def test_the_local_runtime_shares_one_registry_and_one_catalog(
         LOCAL_MODEL_ID, provider_id=LOCAL_RUNTIME_PROVIDER_ID
     )
     assert isinstance(qualified, ModelSpec)
+
+
+def test_router_disabled_composes_the_local_lane_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CMM_ROUTER_DISABLED", "1")
+    monkeypatch.setenv(LOCAL_RUNTIME_MODEL_IDS_ENV, LOCAL_MODEL_ID)
+    monkeypatch.delenv(CHAT_ONLY_ROUTER_MODEL_ENV, raising=False)
+
+    class ExplodingClient:
+        def list_models(self):  # pragma: no cover - must never be called
+            raise AssertionError("the router must not be contacted when disabled")
+
+    execution = build_local_model_execution(
+        provider_registry=ProviderRegistry(), client=ExplodingClient()
+    )
+    assert execution.provider_spec.id == LOCAL_RUNTIME_PROVIDER_ID
+    assert {model.provider_id for model in execution.executor.catalog()} == {
+        LOCAL_RUNTIME_PROVIDER_ID
+    }
+
+
+def test_router_disabled_without_a_local_lane_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CMM_ROUTER_DISABLED", "true")
+    monkeypatch.delenv(LOCAL_RUNTIME_MODEL_IDS_ENV, raising=False)
+    with pytest.raises(ValueError):
+        build_local_model_execution(provider_registry=ProviderRegistry())

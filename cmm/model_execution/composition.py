@@ -69,6 +69,7 @@ __all__ = [
     "local_runtime_provider_spec",
     "register_chat_only_router",
     "register_local_runtime",
+    "router_disabled",
 ]
 
 #: The one provider identity the CMMChat Router holds inside CMM OS.
@@ -161,6 +162,21 @@ def configured_model_ids() -> tuple[str, ...] | None:
         dict.fromkeys(part.strip() for part in raw.split(",") if part.strip())
     )
     return identities or None
+
+
+def router_disabled() -> bool:
+    """Whether the router lane is explicitly disabled by configuration.
+
+    Disabling is a launcher decision (``CMM_ROUTER_DISABLED=1``): the seam then
+    composes only the configured lanes (e.g. the local runtime) and never
+    contacts the router.
+    """
+
+    return os.getenv("CMM_ROUTER_DISABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 def discover_chat_only_router_models(
@@ -379,23 +395,35 @@ def build_local_model_execution(
     if provider_registry is None or not isinstance(provider_registry, ProviderRegistry):
         raise TypeError("provider_registry must be the canonical ProviderRegistry")
 
-    resolved_ids = model_ids if model_ids is not None else configured_model_ids()
-    if resolved_ids is None:
-        resolved_ids = discover_chat_only_router_models(client=client)
-
     model_catalog = ModelCatalog(provider_registry)
-    provider_spec, models = register_chat_only_router(
-        provider_registry=provider_registry,
-        model_catalog=model_catalog,
-        model_ids=tuple(resolved_ids),
-        base_url=base_url,
-    )
+    provider_spec: ProviderSpec | None = None
+    models: tuple[ModelSpec, ...] = ()
+
+    if not router_disabled():
+        resolved_ids = model_ids if model_ids is not None else configured_model_ids()
+        if resolved_ids is None:
+            resolved_ids = discover_chat_only_router_models(client=client)
+        provider_spec, models = register_chat_only_router(
+            provider_registry=provider_registry,
+            model_catalog=model_catalog,
+            model_ids=tuple(resolved_ids),
+            base_url=base_url,
+        )
+
     local_ids = configured_local_runtime_model_ids()
     if local_ids:
-        register_local_runtime(
+        local_spec, local_models = register_local_runtime(
             provider_registry=provider_registry,
             model_catalog=model_catalog,
             model_ids=local_ids,
+        )
+        if provider_spec is None:
+            provider_spec, models = local_spec, local_models
+
+    if provider_spec is None:
+        raise ValueError(
+            "no model lane is configured: enable the CMMChat Router or "
+            "configure the local runtime"
         )
 
     executor = CanonicalModelExecutor(
