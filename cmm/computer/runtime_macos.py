@@ -316,7 +316,18 @@ class MacComputerRuntime:
         )
 
     @staticmethod
-    def _app_open(app: str) -> ActionResult:
+    def _await_frontmost(AppKit: Any, app: str, timeout: float = 3.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            frontmost = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+            name = str(frontmost.localizedName() or "") if frontmost else ""
+            if name.lower() == app.lower():
+                return True
+            time.sleep(0.15)
+        return False
+
+    @classmethod
+    def _app_open(cls, app: str) -> ActionResult:
         if not app:
             return ActionResult(False, "no application name")
         completed = subprocess.run(
@@ -327,18 +338,28 @@ class MacComputerRuntime:
                 f"The application {app} could not be opened.",
                 code="COMPUTER_TARGET_UNAVAILABLE",
             )
-        time.sleep(1.0)
+        import AppKit
+
+        cls._await_frontmost(AppKit, app)
         return ActionResult(True, f"opened {app}")
 
-    @staticmethod
-    def _app_activate(AppKit: Any, app: str) -> ActionResult:
+    @classmethod
+    def _app_activate(cls, AppKit: Any, app: str) -> ActionResult:
         for candidate in AppKit.NSWorkspace.sharedWorkspace().runningApplications():
             if str(candidate.localizedName() or "").lower() == app.lower():
                 candidate.activateWithOptions_(
                     AppKit.NSApplicationActivateIgnoringOtherApps
                 )
-                time.sleep(0.4)
-                return ActionResult(True, f"activated {app}")
+                if cls._await_frontmost(AppKit, app, timeout=2.0):
+                    return ActionResult(True, f"activated {app}")
+                candidate.activateWithOptions_(
+                    AppKit.NSApplicationActivateIgnoringOtherApps
+                )
+                if cls._await_frontmost(AppKit, app, timeout=2.0):
+                    return ActionResult(True, f"activated {app}")
+                return ActionResult(
+                    False, f"activation did not bring {app} to the front"
+                )
         return ActionResult(False, f"application not running: {app}")
 
     def _window_focus(self, AppKit: Any, AXS: Any, title: str) -> ActionResult:
