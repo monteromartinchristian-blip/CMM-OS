@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Iterator, Sequence
+from threading import Event
 from typing import Any
 
 from kernel.llm.exceptions import ProviderError
@@ -74,6 +76,62 @@ class OpenAICompatibleClient:
             completion_tokens,
             finish_reason,
         )
+
+    def stream_chat(
+        self,
+        *,
+        model: str,
+        messages: Sequence[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        cancel_event: Event | None = None,
+    ) -> Iterator[str]:
+        """Yield provider-independent content deltas from a streamed chat call.
+
+        ``messages`` is the already-composed transcript; this transport only
+        serializes it and reads back ``choices[0].delta.content`` per chunk. A
+        set ``cancel_event`` stops the read loop and the stream is always
+        closed.  Every transport defect is normalized through
+        :meth:`_raise_provider_error`, so no upstream text or credential
+        escapes the yielded deltas.
+        """
+
+        client = self._client or self._build_client()
+
+        parameters: dict[str, Any] = {
+            "model": model,
+            "messages": list(messages),
+            "temperature": temperature,
+            "stream": True,
+        }
+        if max_tokens is not None:
+            parameters["max_tokens"] = max_tokens
+
+        try:
+            stream = client.chat.completions.create(**parameters)
+        except Exception as error:  # noqa: BLE001
+            self._raise_provider_error(error)
+
+        try:
+            for chunk in stream:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None) if delta is not None else None
+                if content:
+                    yield content
+        except Exception as error:  # noqa: BLE001
+            self._raise_provider_error(error)
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001, S110 - best effort
+                    pass
 
     def list_models(self) -> tuple[str, ...]:
         """Discover model IDs via the administrative /models endpoint.

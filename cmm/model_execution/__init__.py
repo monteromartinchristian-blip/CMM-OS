@@ -26,6 +26,8 @@ from cmm.model_execution.contracts import (
     ModelExecutionRequest,
     ModelExecutionResult,
     ModelExecutionStatus,
+    NormalizedModel,
+    ResolvedChatModel,
 )
 from cmm.model_execution.errors import ModelExecutionError
 from cmm.model_execution.executor import CanonicalModelExecutor
@@ -39,4 +41,6 @@ __all__ = [
     "ModelExecutionRequest",
     "ModelExecutionResult",
     "ModelExecutionStatus",
+    "NormalizedModel",
+    "ResolvedChatModel",
 ]

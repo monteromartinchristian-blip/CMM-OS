@@ -108,6 +108,8 @@ ALLOWED_OWNERS = frozenset(
         "ModelExecutionStatus",
         "ModelTurnRequest",
         "ModelTurnResult",
+        "NormalizedModel",
+        "ResolvedChatModel",
     }
 )
 
@@ -131,6 +133,7 @@ ALLOWED_EXTERNAL_IMPORT_ROOTS = frozenset(
         "enum",
         "math",
         "os",
+        "threading",
         "time",
         "types",
         "typing",

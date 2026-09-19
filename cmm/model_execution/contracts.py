@@ -31,10 +31,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 from cmm.orchestration.contracts import ExecutionRoute, OrchestrationDecisionRecord
+from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_selection import ModelRequirements
+from kernel.llm.provider_registry import ProviderSpec
 
 __all__ = [
     "MAX_EXECUTION_TEMPERATURE",
@@ -45,6 +47,8 @@ __all__ = [
     "ModelExecutionRequest",
     "ModelExecutionResult",
     "ModelExecutionStatus",
+    "NormalizedModel",
+    "ResolvedChatModel",
 ]
 
 #: The canonical temperature band the seam accepts.  It mirrors the range the
@@ -360,3 +364,74 @@ class ModelExecutionResult:
             "finish_reason": self.finish_reason,
             "error": None if self.error is None else self.error.to_dict(),
         }
+
+
+#: The normalized availability a catalog entry reports to CMMChat.  A model is
+#: *available* exactly when it is routable right now; the vocabulary is closed so
+#: no provider-specific availability string can reach a client.
+ModelAvailability = Literal["available", "unavailable"]
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedModel:
+    """One CMM OS model projected for the CMMChat selector.
+
+    This is a product-neutral, provider-free view of a canonical ``ModelSpec``
+    and its ``ProviderSpec``.  ``model_id`` is the stable selection identity the
+    client sends back; ``display_name`` is a human label derived from it; no
+    field may carry a provider implementation detail.
+    """
+
+    model_id: str
+    display_name: str
+    provider_id: str
+    locality: str  # "local" | "cloud"
+    availability: ModelAvailability = "available"
+    capabilities: Mapping[str, bool] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "model_id", _non_empty_text(self.model_id, label="model_id")
+        )
+        object.__setattr__(
+            self,
+            "display_name",
+            _non_empty_text(self.display_name, label="display_name"),
+        )
+        object.__setattr__(
+            self, "provider_id", _non_empty_text(self.provider_id, label="provider_id")
+        )
+        if self.locality not in {"local", "cloud"}:
+            raise ValueError("locality must be 'local' or 'cloud'")
+        if self.availability not in ("available", "unavailable"):
+            raise ValueError("availability must be 'available' or 'unavailable'")
+        object.__setattr__(
+            self, "capabilities", MappingProxyType(dict(self.capabilities))
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedChatModel:
+    """One model selection resolved against the canonical authorities.
+
+    ``policy`` is ``"cmm-auto"`` when the canonical ``ModelRouter`` chose the
+    model or ``"explicit"`` when the caller named it.  ``spec`` and ``provider``
+    are the canonical, immutable catalog and registry entries the seam resolved;
+    they are opaque to callers and are the only handle the seam needs to
+    materialize a provider for streaming.
+    """
+
+    model: NormalizedModel
+    policy: str
+    spec: ModelSpec
+    provider: ProviderSpec
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model, NormalizedModel):
+            raise TypeError("model must be a NormalizedModel")
+        if self.policy not in {"cmm-auto", "explicit"}:
+            raise ValueError("policy must be 'cmm-auto' or 'explicit'")
+        if not isinstance(self.spec, ModelSpec):
+            raise TypeError("spec must be a canonical ModelSpec")
+        if not isinstance(self.provider, ProviderSpec):
+            raise TypeError("provider must be a canonical ProviderSpec")

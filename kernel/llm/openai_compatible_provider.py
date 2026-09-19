@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from threading import Event
 from typing import Protocol
 
 from kernel.llm.exceptions import ProviderError
@@ -22,6 +24,17 @@ class OpenAICompatibleClientProtocol(Protocol):
         max_tokens: int | None = None,
     ) -> tuple[str, int, int, str]:
         """Generate text through an OpenAI-compatible endpoint."""
+
+    def stream_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        cancel_event: Event | None = None,
+    ) -> Iterator[str]:
+        """Stream content deltas through an OpenAI-compatible endpoint."""
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -53,15 +66,7 @@ class OpenAICompatibleProvider(LLMProvider):
         if not request.prompt.strip():
             raise ProviderError("Prompt cannot be empty")
 
-        max_tokens = request.metadata.get("max_tokens")
-        resolved_max_tokens = None
-        if max_tokens is not None:
-            try:
-                resolved_max_tokens = int(max_tokens)
-            except (TypeError, ValueError) as error:
-                raise ProviderError(
-                    "max_tokens must be an integer"
-                ) from error
+        max_tokens = self._max_tokens(request)
 
         (
             content,
@@ -73,7 +78,7 @@ class OpenAICompatibleProvider(LLMProvider):
             system=request.system_prompt,
             prompt=request.prompt,
             temperature=request.temperature,
-            max_tokens=resolved_max_tokens,
+            max_tokens=max_tokens,
         )
 
         return LLMResponse(
@@ -88,3 +93,33 @@ class OpenAICompatibleProvider(LLMProvider):
                 "api_style": "chat_completions",
             },
         )
+
+    def stream(
+        self, request: LLMRequest, *, cancel_event: Event | None = None
+    ) -> Iterator[str]:
+        """Stream provider-independent content deltas for the supplied request."""
+
+        if not isinstance(request, LLMRequest):
+            raise ProviderError("Request must be an LLMRequest")
+        if not request.prompt.strip():
+            raise ProviderError("Prompt cannot be empty")
+
+        yield from self.client.stream_chat(
+            model=self.model,
+            messages=request.transcript(),
+            temperature=request.temperature,
+            max_tokens=self._max_tokens(request),
+            cancel_event=cancel_event,
+        )
+
+    @staticmethod
+    def _max_tokens(request: LLMRequest) -> int | None:
+        """Resolve an optional integer max_tokens from request metadata."""
+
+        max_tokens = request.metadata.get("max_tokens")
+        if max_tokens is None:
+            return None
+        try:
+            return int(max_tokens)
+        except (TypeError, ValueError) as error:
+            raise ProviderError("max_tokens must be an integer") from error

@@ -26,25 +26,39 @@ Failure semantics: every provider, transport and response defect becomes a
 normalized, secret-free :class:`ModelExecutionResult` failure.  No provider
 message, response body, credential or traceback can reach a result, and only the
 canonical route ``DIRECT_RESPONSE`` may reach a model at all.
+
+The Wave E chat surface lives on this same seam — a normalized catalog
+projection, AUTO/explicit chat-model resolution through the canonical router and
+catalog, and token streaming through the canonical provider abstraction.  It
+adds no parallel authority: the same injected ``ModelRouter``,
+``ProviderRegistry``, ``ModelCatalog`` and ``ProviderFactory`` answer for it.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
+from threading import Event
 from typing import Any
 
 from cmm.model_execution.contracts import (
     ModelExecutionErrorCode,
     ModelExecutionFailure,
+    ModelExecutionParameters,
     ModelExecutionRequest,
     ModelExecutionResult,
+    NormalizedModel,
+    ResolvedChatModel,
 )
+from cmm.model_execution.errors import ModelExecutionError
 from cmm.orchestration.contracts import ExecutionRoute
-from kernel.llm.model_catalog import ModelCatalog
+from kernel.llm.exceptions import ProviderError
+from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter, RoutingDecision
-from kernel.llm.models import LLMRequest, LLMResponse
+from kernel.llm.model_selection import ModelRequirements
+from kernel.llm.models import ChatTurn, LLMRequest, LLMResponse
 from kernel.llm.provider import LLMProvider
 from kernel.llm.provider_factory import ProviderFactory
-from kernel.llm.provider_registry import ProviderRegistry
+from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 __all__ = ["CanonicalModelExecutor"]
 
@@ -65,6 +79,28 @@ MODEL_UNAVAILABLE_MESSAGE = "No canonical model satisfies the request"
 PROVIDER_UNAVAILABLE_MESSAGE = "The canonical model provider is not available"
 PROVIDER_FAILURE_MESSAGE = "The model provider failed to complete the request"
 PROVIDER_RESPONSE_INVALID_MESSAGE = "The model provider returned an unusable response"
+NO_MODELS_AVAILABLE_MESSAGE = "No canonical model is currently available"
+CHAT_PROMPT_INVALID_MESSAGE = "A chat request requires a non-empty prompt"
+
+#: Safe normalized codes of the chat surface's fail-closed defects.  They extend
+#: the :class:`ModelExecutionErrorCode` vocabulary only for conditions the
+#: result-shaped error enum does not describe (chat resolution raises, it does
+#: not return a result).
+NO_MODELS_AVAILABLE_CODE = "NO_MODELS_AVAILABLE"
+CHAT_PROMPT_INVALID_CODE = "CHAT_PROMPT_INVALID"
+
+#: The selection values that mean "let the canonical router choose".
+AUTO_SELECTION_VALUES = frozenset({"", "cmm-auto", "auto"})
+AUTO_POLICY = "cmm-auto"
+EXPLICIT_POLICY = "explicit"
+
+#: Catalog and registry states that make a model unroutable right now.  The
+#: sets mirror the canonical router's own rejection conditions.
+UNAVAILABLE_MODEL_STATES = frozenset({"unavailable", "disabled"})
+UNAVAILABLE_PROVIDER_STATES = frozenset({"unavailable", "disabled"})
+
+#: The capability flags projected for a chat model selector, provider-free.
+CHAT_CAPABILITY_FIELDS = ("reasoning", "vision", "tool_calling", "structured_output")
 
 
 def _require_canonical_role(name: str, implementation: object, contract: type) -> None:
@@ -177,6 +213,88 @@ class CanonicalModelExecutor:
             finish_reason=response.finish_reason,
         )
 
+    # ── Chat surface: catalog / resolution / streaming ───────────────────────
+
+    def catalog(self) -> tuple[NormalizedModel, ...]:
+        """Project the canonical catalog as provider-free, selectable models.
+
+        A model is listed exactly when its current canonical provider is
+        registered and enabled; a model whose catalog or provider state makes it
+        unroutable right now is reported as *unavailable* instead of being
+        hidden, so a selector can show it honestly.
+        """
+
+        projected: list[NormalizedModel] = []
+        for spec in self._model_catalog.list():
+            provider = self._current_provider(spec.provider_id)
+            if provider is None or not provider.enabled:
+                continue
+            projected.append(self._normalized_model(spec, provider))
+        return tuple(projected)
+
+    def resolve_chat(self, selection: str | None = None) -> ResolvedChatModel:
+        """Resolve one chat-model selection against the canonical authorities.
+
+        ``None``, ``"cmm-auto"`` and ``"auto"`` delegate to the canonical
+        ``ModelRouter``; any other value is an explicit selection resolved by
+        qualified id, alias or bare model id through the canonical
+        ``ModelCatalog``.  A failure is a :class:`ModelExecutionError` whose
+        message is a constant — the selection text never reaches it.
+        """
+
+        normalized = (selection or "").strip().lower()
+        if normalized in AUTO_SELECTION_VALUES:
+            return self._resolve_auto()
+        return self._resolve_explicit(normalized)
+
+    def stream(
+        self,
+        resolved: ResolvedChatModel,
+        *,
+        prompt: str,
+        system: str | None = None,
+        history: Sequence[tuple[str, str]] = (),
+        cancel_event: Event | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ) -> Iterator[str]:
+        """Stream normalized content deltas for one resolved chat model.
+
+        Caller defects (a bad ``ResolvedChatModel``, blank prompt or malformed
+        history) raise at call time; every provider and transport defect is
+        normalized to a secret-free :class:`ModelExecutionError`.
+        """
+
+        if not isinstance(resolved, ResolvedChatModel):
+            raise TypeError(
+                f"resolved must be a ResolvedChatModel, got {type(resolved).__name__}"
+            )
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ModelExecutionError(
+                CHAT_PROMPT_INVALID_MESSAGE, code=CHAT_PROMPT_INVALID_CODE
+            )
+
+        parameters = ModelExecutionParameters(
+            temperature=temperature, max_tokens=max_tokens
+        )
+        transcript_history = tuple(
+            ChatTurn(role=role, content=content) for role, content in history
+        )
+
+        provider = self._chat_provider(resolved)
+
+        metadata: dict[str, Any] = {}
+        if parameters.max_tokens is not None:
+            metadata["max_tokens"] = parameters.max_tokens
+        request = LLMRequest(
+            prompt=prompt,
+            system_prompt=system,
+            temperature=parameters.temperature,
+            metadata=metadata,
+            history=transcript_history,
+        )
+        return self._stream_deltas(provider, request, cancel_event)
+
     # ── Canonical delegation ─────────────────────────────────────────────────
 
     def _routing_decision(
@@ -235,6 +353,161 @@ class CanonicalModelExecutor:
                 routing_decision_id=decision.id,
             )
         return provider
+
+    def _resolve_auto(self) -> ResolvedChatModel:
+        """Let the canonical router pick the chat model, or fail closed."""
+
+        try:
+            decision = self._model_router.decide(ModelRequirements())
+        except Exception:  # noqa: BLE001 - a routing defect is an unavailable model
+            raise ModelExecutionError(
+                NO_MODELS_AVAILABLE_MESSAGE, code=NO_MODELS_AVAILABLE_CODE
+            ) from None
+
+        if (
+            not isinstance(decision, RoutingDecision)
+            or decision.status != "selected"
+            or decision.selected_provider_id is None
+            or decision.selected_model_id is None
+        ):
+            raise ModelExecutionError(
+                NO_MODELS_AVAILABLE_MESSAGE, code=NO_MODELS_AVAILABLE_CODE
+            )
+
+        try:
+            spec = self._model_catalog.get(
+                decision.selected_model_id,
+                provider_id=decision.selected_provider_id,
+            )
+            provider = self._provider_registry.get(decision.selected_provider_id)
+        except ProviderError:
+            raise ModelExecutionError(
+                NO_MODELS_AVAILABLE_MESSAGE, code=NO_MODELS_AVAILABLE_CODE
+            ) from None
+
+        return ResolvedChatModel(
+            model=self._normalized_model(spec, provider),
+            policy=AUTO_POLICY,
+            spec=spec,
+            provider=provider,
+        )
+
+    def _resolve_explicit(self, normalized_id: str) -> ResolvedChatModel:
+        """Resolve one named chat model through the canonical catalog.
+
+        The canonical catalog resolves qualified ids and aliases; a bare model
+        id is found by scanning the same canonical listing, so no second
+        lookup table exists.  Unknown, unavailable and disabled everything all
+        report the same constant message.
+        """
+
+        try:
+            spec = self._model_catalog.get(normalized_id)
+        except ProviderError:
+            spec = next(
+                (
+                    model
+                    for model in self._model_catalog.list()
+                    if model.id == normalized_id
+                ),
+                None,
+            )
+        if spec is None:
+            raise ModelExecutionError(
+                MODEL_UNAVAILABLE_MESSAGE,
+                code=ModelExecutionErrorCode.MODEL_UNAVAILABLE.value,
+            )
+
+        provider = self._current_provider(spec.provider_id)
+        if (
+            provider is None
+            or not provider.enabled
+            or provider.availability in UNAVAILABLE_PROVIDER_STATES
+            or spec.availability in UNAVAILABLE_MODEL_STATES
+        ):
+            raise ModelExecutionError(
+                MODEL_UNAVAILABLE_MESSAGE,
+                code=ModelExecutionErrorCode.MODEL_UNAVAILABLE.value,
+            )
+
+        return ResolvedChatModel(
+            model=self._normalized_model(spec, provider),
+            policy=EXPLICIT_POLICY,
+            spec=spec,
+            provider=provider,
+        )
+
+    def _chat_provider(self, resolved: ResolvedChatModel) -> LLMProvider:
+        """Materialize the provider for one resolved chat model.
+
+        The canonical factory re-applies the provider and model gates, so a
+        disabled or unavailable provider is refused at the stream boundary
+        even for a hand-built ``ResolvedChatModel``.
+        """
+
+        try:
+            provider = self._provider_factory.create(
+                provider=resolved.provider,
+                model=resolved.spec,
+                client=self._client,
+            )
+        except Exception:  # noqa: BLE001 - every defect becomes a safe failure
+            raise ModelExecutionError(
+                PROVIDER_UNAVAILABLE_MESSAGE,
+                code=ModelExecutionErrorCode.PROVIDER_UNAVAILABLE.value,
+            ) from None
+
+        if not isinstance(provider, LLMProvider):
+            raise ModelExecutionError(
+                PROVIDER_UNAVAILABLE_MESSAGE,
+                code=ModelExecutionErrorCode.PROVIDER_UNAVAILABLE.value,
+            )
+        return provider
+
+    @staticmethod
+    def _stream_deltas(
+        provider: LLMProvider, request: LLMRequest, cancel_event: Event | None
+    ) -> Iterator[str]:
+        """Yield the provider's content deltas, normalizing every failure."""
+
+        try:
+            yield from provider.stream(request, cancel_event=cancel_event)
+        except Exception:  # noqa: BLE001 - every defect becomes a safe failure
+            raise ModelExecutionError(
+                PROVIDER_FAILURE_MESSAGE,
+                code=ModelExecutionErrorCode.PROVIDER_FAILURE.value,
+            ) from None
+
+    def _current_provider(self, provider_id: str) -> ProviderSpec | None:
+        """Return the provider the canonical registry resolves *now*, if any."""
+
+        try:
+            return self._provider_registry.get(provider_id)
+        except ProviderError:
+            return None
+
+    @staticmethod
+    def _normalized_model(spec: ModelSpec, provider: ProviderSpec) -> NormalizedModel:
+        """Project one canonical catalog entry into a chat selector's view."""
+
+        model_id = spec.id
+        display_name = model_id.rsplit("/", 1)[-1].split(":", 1)[0] or model_id
+        capabilities = {
+            name: bool(getattr(spec.capabilities, name, False))
+            for name in CHAT_CAPABILITY_FIELDS
+        }
+        available = (
+            spec.availability not in UNAVAILABLE_MODEL_STATES
+            and provider.availability not in UNAVAILABLE_PROVIDER_STATES
+        )
+        return NormalizedModel(
+            model_id=model_id,
+            display_name=display_name,
+            provider_id=provider.id,
+            locality="local" if provider.provider_type == "local" else "cloud",
+            availability="available" if available else "unavailable",
+            capabilities=capabilities,
+        )
 
     def _generated_response(
         self,
