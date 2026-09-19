@@ -135,21 +135,29 @@ class MacComputerRuntime:
             Quartz.kCGNullWindowID,
         ) or []
         for info in infos:
+            # Normal application windows only: skip menu-bar/status layers and
+            # zero-sized surfaces so the observation stays useful.
+            if int(info.get("kCGWindowLayer", 0)) != 0:
+                continue
             bounds = info.get("kCGWindowBounds") or {}
+            width = int(bounds.get("Width", 0))
+            height = int(bounds.get("Height", 0))
+            if width < 40 or height < 40:
+                continue
             title = str(info.get("kCGWindowName") or "")
             owner = str(info.get("kCGWindowOwnerName") or "")
-            if not title and owner != app_name:
-                continue
             windows.append(
                 WindowInfo(
                     title=title,
                     app=owner,
                     x=int(bounds.get("X", 0)),
                     y=int(bounds.get("Y", 0)),
-                    width=int(bounds.get("Width", 0)),
-                    height=int(bounds.get("Height", 0)),
+                    width=width,
+                    height=height,
                 )
             )
+        # The frontmost application's windows are the actionable ones.
+        windows.sort(key=lambda window: 0 if window.app == app_name else 1)
 
         self._elements = {}
         self._element_roles = {}
@@ -177,13 +185,27 @@ class MacComputerRuntime:
             actions = self._attr(AXS, element, "AXActionNames") or []
             x, y = self._geometry(AXS, element, "AXPosition", point=True)
             width, height = self._geometry(AXS, element, "AXSize", point=False)
+            label = ""
+            for attribute in (
+                "AXTitle",
+                "AXValue",
+                "AXDescription",
+                "AXHelp",
+                "AXRoleDescription",
+                "AXIdentifier",
+                "AXPlaceholderValue",
+            ):
+                candidate = str(self._attr(AXS, element, attribute) or "").strip()
+                if candidate:
+                    label = candidate
+                    break
             self._elements[element_id] = element
             self._element_roles[element_id] = role
             out.append(
                 ElementInfo(
                     element_id=element_id,
                     role=role,
-                    title=str(self._attr(AXS, element, "AXTitle") or "")[:120],
+                    title=label[:120],
                     value=str(self._attr(AXS, element, "AXValue") or "")[:120],
                     x=int(x),
                     y=int(y),
