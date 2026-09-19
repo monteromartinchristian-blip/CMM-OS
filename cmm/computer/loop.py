@@ -37,8 +37,9 @@ _PLANNER_SYSTEM = (
     '{"action":"wait","seconds":<0.5-5>}\n'
     '{"action":"finish","summary":"<what was accomplished>"}\n'
     "Rules: act on the current observation only; prefer element ids over "
-    "coordinates; one action per reply; finish as soon as the task is done; "
-    "never invent elements that are not listed."
+    "coordinates; one action per reply; never repeat an action that produced "
+    "no observable change — adapt or finish honestly; finish as soon as the "
+    "task is done; never invent elements that are not listed."
 )
 
 
@@ -81,7 +82,6 @@ class ComputerUseService:
                 "detail": state.detail,
             }
         return {
-            "capability": "computer.use",
             "available": available and permissions["accessibility"],
             "runtime_available": available,
             "permissions": permissions,
@@ -120,6 +120,8 @@ class ComputerUseService:
         feedback = ""
         approvals = rejections = 0
         observation: Observation | None = None
+        last_signature: tuple[str, str] | None = None
+        repeats = 0
 
         for step in range(self._limits.max_steps):
             if cancel_event is not None and cancel_event.is_set():
@@ -252,6 +254,21 @@ class ComputerUseService:
                 )
 
             description = action.describe(observation)
+            signature = (kind, json.dumps(params, sort_keys=True, default=str))
+            if signature == last_signature:
+                repeats += 1
+            else:
+                repeats = 0
+            last_signature = signature
+            if repeats >= 1:
+                feedback = (
+                    f"The action “{description}” was already executed "
+                    f"{repeats + 1} times with no observable change. Do not "
+                    "repeat it: choose a different action, or finish honestly "
+                    "describing what could not be completed."
+                )
+                warnings.append(f"repeated action: {description}")
+                continue
             self._emit(
                 "tool.progress",
                 {"tool_run_id": tool_run_id, "capability": "computer.use",

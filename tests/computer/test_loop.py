@@ -245,6 +245,22 @@ def test_step_budget_forces_an_honest_finish():
     assert "step budget exhausted" in outcome.warnings
 
 
+def test_repeated_identical_actions_are_refused_with_feedback():
+    runtime = FakeRuntime()
+    plan = ScriptedPlan(
+        [
+            json.dumps({"action": "app.activate", "app": "TextEdit"}),
+            json.dumps({"action": "app.activate", "app": "TextEdit"}),
+            json.dumps({"action": "finish", "summary": "adaptado"}),
+        ]
+    )
+    service = ComputerUseService(runtime=runtime, plan=plan)
+    outcome = service.run_task("activa TextEdit")
+    assert len(runtime.executed) == 1
+    assert any("repeated action" in warning for warning in outcome.warnings)
+    assert "no observable change" in plan.prompts[2]
+
+
 # ── policy unit behavior ────────────────────────────────────────────────────
 
 
