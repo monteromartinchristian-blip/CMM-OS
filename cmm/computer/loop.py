@@ -59,12 +59,14 @@ class ComputerUseService:
         approval_gate: ApprovalGate | None = None,
         emit: Callable[[str, dict[str, Any]], None] | None = None,
         limits: ComputerUseLimits | None = None,
+        web_search: Any | None = None,
     ) -> None:
         self._runtime = runtime
         self._plan = plan
         self._gate = approval_gate
         self._emit = emit or (lambda kind, data: None)
         self._limits = limits or ComputerUseLimits()
+        self._web_search = web_search
 
     def status(self) -> dict[str, Any]:
         """Honest availability/permission report for the product surface."""
@@ -143,7 +145,7 @@ class ComputerUseService:
             forced = step == self._limits.max_steps - 1
             decision = self._plan(
                 self._planner_prompt(task, observation, actions, feedback, forced),
-                _PLANNER_SYSTEM,
+                self._planner_system(),
                 cancel_event,
             )
             feedback = ""
@@ -186,6 +188,9 @@ class ComputerUseService:
                 )
 
             try:
+                if kind == "web.search":
+                    feedback = self._run_web_search(params, tool_run_id, step)
+                    continue
                 action = Action(kind=kind, params=params)
             except ValueError:
                 feedback = f"Unknown action “{kind}”; use only the allowed actions."
@@ -270,6 +275,65 @@ class ComputerUseService:
             "The computer task did not converge within the step budget.",
             code="CAPABILITY_UNSUPPORTED",
         )
+
+    def _planner_system(self) -> str:
+        if self._web_search is None:
+            return _PLANNER_SYSTEM
+        return (
+            _PLANNER_SYSTEM
+            + '\nAdditionally allowed when the task needs current web information:\n'
+            '{"action":"web.search","query":"<web query>"}'
+        )
+
+    def _run_web_search(
+        self, params: dict[str, Any], tool_run_id: str, step: int
+    ) -> str:
+        from cmm.web.contracts import WebSearchRequest
+        from cmm.web.errors import WebCapabilityError
+
+        query = str(params.get("query", "")).strip()
+        search_run_id = f"{tool_run_id}-web-{step}"
+        if not query or self._web_search is None:
+            return "Web search is not available or the query was empty."
+        self._emit(
+            "tool.requested",
+            {"tool_run_id": search_run_id, "capability": "web.search",
+             "tool": "search", "summary": query},
+        )
+        self._emit(
+            "tool.started",
+            {"tool_run_id": search_run_id, "capability": "web.search",
+             "tool": "search", "summary": query},
+        )
+        try:
+            result = self._web_search.search(WebSearchRequest(query=query))
+        except WebCapabilityError as error:
+            self._emit(
+                "tool.failed",
+                {"tool_run_id": search_run_id, "capability": "web.search",
+                 "tool": "search",
+                 "error": {"code": error.code, "message": error.message}},
+            )
+            return f"The web search failed ({error.code}); adapt the plan."
+        sources = [
+            {"title": item.title, "url": item.url, "domain": item.domain,
+             "snippet": item.snippet, "rank": item.rank,
+             "retrieved_at": item.searched_at.isoformat(), "inspected": False}
+            for item in result.items[:6]
+        ]
+        self._emit(
+            "tool.completed",
+            {"tool_run_id": search_run_id, "capability": "web.search",
+             "tool": "search", "status": "completed",
+             "summary": f"{len(sources)} sources for “{query}”",
+             "sources": sources},
+        )
+        listing = "\n".join(
+            f"[{source['rank']}] {source['title']} — {source['url']} "
+            f"({source['domain']}): {source['snippet'][:160]}"
+            for source in sources
+        )
+        return f"Web search results for “{query}”:\n{listing}"
 
     @staticmethod
     def _planner_prompt(
