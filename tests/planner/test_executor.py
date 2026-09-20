@@ -2,13 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from kernel.planner.execution_plan import ExecutionPlan
-from kernel.planner.exceptions import PlannerError
 from kernel.planner.executor import ExecutionResult, Executor
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation, ReplaceMethodOperation
-from kernel.planner.registry import CreateClassHandler, EnsureImportHandler, InsertMethodHandler, OperationRegistry, ReplaceMethodHandler
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+    ReplaceMethodOperation,
+)
+from kernel.planner.registry import (
+    CreateClassHandler,
+    EnsureImportHandler,
+    InsertMethodHandler,
+    OperationRegistry,
+    ReplaceMethodHandler,
+)
 
 
 class FakeEngine:

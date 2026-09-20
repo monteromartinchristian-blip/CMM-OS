@@ -1,14 +1,11 @@
 import os
 import sys
-import time
 from pathlib import Path
-
-import pytest
 
 from cmm.validation import ValidationExecutor, ValidationRegistry
 from cmm.validation.context import ValidationContext
-from cmm.validation.steps import ValidationStep, ValidationStepType
 from cmm.validation.enums import ValidationStatus
+from cmm.validation.steps import ValidationStep, ValidationStepType
 
 
 def _context(tmp_path: Path) -> ValidationContext:
@@ -174,8 +171,8 @@ class WarnValidator:
     name = "warn"
 
     def validate(self, context: ValidationContext, step: ValidationStep):
-        from cmm.validation.findings import ValidationFinding
         from cmm.validation.enums import ValidationSeverity
+        from cmm.validation.findings import ValidationFinding
 
         f = ValidationFinding(
             code="W", message="w", severity=ValidationSeverity.WARNING, source="int"

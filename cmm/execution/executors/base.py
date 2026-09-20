@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from cmm.execution.action_planner import ActionType
 
@@ -17,7 +17,7 @@ class ExecutionResult:
     message: str
     artifacts: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    execution_time: Optional[float] = None
+    execution_time: float | None = None
 
 
 @dataclass

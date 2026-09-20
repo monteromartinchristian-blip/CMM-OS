@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from kernel.protocol.parser import PlanParser
 from kernel.semantic import SemanticOperation, SemanticResult
@@ -24,7 +25,7 @@ class PlannedOperation:
     reason: str = ""
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "PlannedOperation":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> PlannedOperation:
         domain = payload.get("domain") or payload.get("tool")
         operation_type = payload.get("type") or payload.get("action")
         parameters = payload.get("parameters", {})
@@ -60,7 +61,7 @@ class DevelopmentPlan:
     risks: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any], expected_goal: str | None = None) -> "DevelopmentPlan":
+    def from_mapping(cls, payload: Mapping[str, Any], expected_goal: str | None = None) -> DevelopmentPlan:
         if not isinstance(payload, Mapping):
             raise PlanValidationError("The provider plan must be a mapping.")
         goal = payload.get("goal", expected_goal)

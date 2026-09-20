@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 
-from kernel.llm.clients.ollama_client import OllamaClient
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.models import LLMRequest, LLMResponse
 from kernel.llm.ollama_provider import OllamaProvider

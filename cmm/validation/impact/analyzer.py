@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
@@ -13,17 +14,10 @@ from .contracts import (
     ChangeImpactResult,
     ChangeSet,
     ChangeType,
-    DependencyGraph,
     FileChangeKind,
-    ImportChangeKind,
-    PublicAPIChange,
-    PublicAPIChangeKind,
-    SymbolChange,
-    SymbolChangeKind,
 )
 from .diff import PythonModuleDiff, diff_python_sources
 from .graph import affected_dependents, build_dependency_graph, module_name_from_path
-
 
 TestSelector = Callable[[ValidationContext], Any]
 

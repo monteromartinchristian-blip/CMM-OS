@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Mapping, Optional
 
 
 class RelationType(str, Enum):
@@ -26,7 +26,7 @@ class KnowledgeNode:
     title: str
     kind: str
     summary: str = ""
-    source_path: Optional[Path] = None
+    source_path: Path | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
 
 

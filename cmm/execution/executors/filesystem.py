@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path, PurePath
 import tempfile
+from pathlib import Path, PurePath
 
 from cmm.execution.action_planner import ActionType
 from cmm.execution.executor_registry import UnsupportedActionError
-from cmm.execution.executors.base import ActionExecutor, ExecutionContext, ExecutionResult
+from cmm.execution.executors.base import (
+    ActionExecutor,
+    ExecutionContext,
+    ExecutionResult,
+)
 
 
 class FilesystemExecutor(ActionExecutor):
@@ -50,7 +54,9 @@ class FilesystemExecutor(ActionExecutor):
             safe_path = self._safe_path(getattr(context.action, "target", ""), context.working_directory)
             if isinstance(safe_path, ExecutionResult):
                 return safe_path
-            from cmm.execution.executors.read_only_filesystem import ReadOnlyFilesystemExecutor
+            from cmm.execution.executors.read_only_filesystem import (
+                ReadOnlyFilesystemExecutor,
+            )
 
             return ReadOnlyFilesystemExecutor().execute(context)
         metadata = getattr(context.action, "metadata", {})
@@ -123,7 +129,7 @@ class FilesystemExecutor(ActionExecutor):
             resolved.relative_to(root)
             existing = candidate.parent.resolve(strict=False)
             existing.relative_to(root)
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError):
             return self._error(f"Path escapes project: {target}", candidate, "unsafe_path")
         return resolved
 

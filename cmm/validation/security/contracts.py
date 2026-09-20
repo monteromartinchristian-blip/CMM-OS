@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from cmm.validation.errors import ValidationContractError
 
@@ -184,7 +185,7 @@ class CommandPolicy:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "CommandPolicy":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> CommandPolicy:
         return cls(
             allowed_executables=_as_tuple(payload.get("allowed_executables", ())),
             forbidden_arguments=_as_tuple(payload.get("forbidden_arguments", ())),
@@ -255,7 +256,7 @@ class SecurityAnalysisPlan:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "SecurityAnalysisPlan":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> SecurityAnalysisPlan:
         return cls(
             project_root=Path(str(payload["project_root"])),
             scope=SecurityScope(

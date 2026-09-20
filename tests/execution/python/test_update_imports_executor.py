@@ -8,8 +8,8 @@ from cmm.execution.python import (
     PythonModuleWriter,
     PythonProjectParser,
     PythonUpdateImportsExecutor,
-    SemanticContextBuilder,
     RelativeImportResolver,
+    SemanticContextBuilder,
 )
 from cmm.transformations import ExecutionRequest, UpdateImportsOperation
 

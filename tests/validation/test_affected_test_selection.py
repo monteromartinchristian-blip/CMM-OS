@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from cmm.validation.context import ValidationContext
-from cmm.validation.testing.discovery import discover_tests
 from cmm.validation.testing.selection import (
     TestSelection as _TestSelection,
+)
+from cmm.validation.testing.selection import (
     select_affected_tests,
 )
 

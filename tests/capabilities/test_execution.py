@@ -493,3 +493,26 @@ def test_capability_request_normalizes_computer_use():
     assert CapabilityRequest(computer_use="auto").computer_mode == "auto"
     with pytest.raises(ValueError):
         CapabilityRequest(computer_use="maybe")
+
+
+def test_auto_ordinary_chat_streams_token_by_token():
+    class ChunkedExecutor:
+        def stream(self, resolved, **kwargs):
+            yield "Hola "
+            yield "mundo"
+
+    facade = CapabilityExecution(
+        executor=ChunkedExecutor(),
+        search_service=FakeSearch(),
+        computer_runtime=FakeRuntime(),
+    )
+    events = list(
+        facade.stream(
+            RESOLVED,
+            prompt="hola",
+            capabilities=CapabilityRequest(web_search="auto", computer_use="auto"),
+        )
+    )
+    assert kinds(events) == ["message.delta", "message.delta", "run.summary"]
+    assert events[0].data["delta"] == "Hola "
+    assert events[-1].data["mode"] == "chat"

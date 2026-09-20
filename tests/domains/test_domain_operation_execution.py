@@ -11,9 +11,6 @@ from cmm.agent_runtime.operation_execution_contracts import (
     AgentOperationRequest,
 )
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
-from cmm.domains.validation_integration import (
-    resolve_domain_operation_validation_requirements,
-)
 from cmm.domains import (
     DefaultDomainOperationOrchestrator,
     DomainOperationDefinition,
@@ -23,6 +20,9 @@ from cmm.domains import (
     DomainOperationType,
     DomainOperationValidationError,
     InMemoryDomainOperationRegistry,
+)
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
 )
 
 

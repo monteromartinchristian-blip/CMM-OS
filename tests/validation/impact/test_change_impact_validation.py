@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cmm.validation.catalog import build_default_validation_registry
 from cmm.validation.context import ValidationContext
 from cmm.validation.executor import ValidationExecutor
 from cmm.validation.pipeline import ValidationPipeline
-from cmm.validation.registry import ValidationRegistry
 from cmm.validation.testing_defaults import default_validation_steps
-from cmm.validation.catalog import build_default_validation_registry
 
 
 def _write(path: Path, content: str) -> None:

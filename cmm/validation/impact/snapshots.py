@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-
-from cmm.validation.context import ValidationContext
-from cmm.validation.errors import ValidationContractError
 
 from .contracts import (
     ChangeSet,
@@ -17,7 +14,7 @@ from .contracts import (
     FileVersion,
     ProjectSnapshot,
 )
-from .git import GitChangeSetAdapter, GitSnapshotBundle
+from .git import GitChangeSetAdapter
 
 _EXCLUDED_DIRS = {
     ".git",

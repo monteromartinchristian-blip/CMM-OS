@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import shutil
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import ValidationStep, ValidationStepResult
+
 from .artifacts import build_pytest_artifact
 from .selection import TestSelection
 

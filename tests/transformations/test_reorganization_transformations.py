@@ -21,8 +21,8 @@ from cmm.transformations import (
     SplitModuleOperation,
     SplitModuleTransformation,
 )
-from cmm.transformations.reorganization_impact import ReorganizationImpactRequest
 from cmm.transformations.impact_analysis import ImpactDiscrepancyCode
+from cmm.transformations.reorganization_impact import ReorganizationImpactRequest
 from cmm.transformations.reorganization_validation import TopLevelSideEffectAnalyzer
 
 

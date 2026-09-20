@@ -2,7 +2,11 @@ import pytest
 
 from kernel.llm.exceptions import ParserError
 from kernel.llm.parser import OperationPlanParser
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+)
 
 
 def test_parser_raises_on_invalid_json() -> None:

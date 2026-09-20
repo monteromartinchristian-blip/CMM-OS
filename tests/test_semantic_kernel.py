@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from cmm.transformations import CreateFileOperation
 from kernel.actions.filesystem import WriteFileAction
 from kernel.executor import Executor
 from kernel.runtime import Runtime
@@ -16,14 +17,15 @@ from kernel.semantic import (
     SemanticRuntime,
     SemanticValidationError,
 )
-from kernel.semantic_adapters import operation_from_legacy_action, operation_from_transformation
+from kernel.semantic_adapters import (
+    operation_from_legacy_action,
+    operation_from_transformation,
+)
 from kernel.semantic_executors import (
     FileSystemSemanticExecutor,
-    NoOpSemanticExecutor,
     TransformationSemanticExecutor,
     create_default_semantic_registry,
 )
-from cmm.transformations import CreateFileOperation
 
 
 class RecordingExecutor(SemanticExecutor):

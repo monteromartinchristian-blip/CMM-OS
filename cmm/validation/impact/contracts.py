@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact
-from cmm.validation.findings import ValidationFinding
 from cmm.validation.errors import ValidationContractError
+from cmm.validation.findings import ValidationFinding
 
 
 def _as_path(value: Path | str | None) -> Path | None:
@@ -95,7 +96,7 @@ class FileVersion:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "FileVersion":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> FileVersion:
         return cls(
             path=Path(str(payload["path"])),
             exists=bool(payload["exists"]),
@@ -144,7 +145,7 @@ class FileChange:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "FileChange":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> FileChange:
         before = payload.get("before")
         after = payload.get("after")
         return cls(
@@ -213,7 +214,7 @@ class SymbolChange:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "SymbolChange":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> SymbolChange:
         return cls(
             module=str(payload["module"]),
             symbol=str(payload["symbol"]),
@@ -276,7 +277,7 @@ class ImportChange:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ImportChange":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ImportChange:
         return cls(
             module=str(payload["module"]),
             imported_module=str(payload["imported_module"]),
@@ -332,7 +333,7 @@ class PublicAPIChange:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "PublicAPIChange":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> PublicAPIChange:
         return cls(
             module=str(payload["module"]),
             added=tuple(str(item) for item in payload.get("added", ())),
@@ -362,7 +363,7 @@ class DependencyEdge:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "DependencyEdge":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> DependencyEdge:
         return cls(
             source=str(payload["source"]),
             target=str(payload["target"]),
@@ -408,7 +409,7 @@ class DependencyGraph:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "DependencyGraph":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> DependencyGraph:
         return cls(
             modules=tuple(str(item) for item in payload.get("modules", ())),
             edges=tuple(
@@ -442,7 +443,7 @@ class ProjectSnapshot:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ProjectSnapshot":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ProjectSnapshot:
         return cls(
             root=Path(str(payload["root"])),
             source=str(payload.get("source", "snapshot")),
@@ -524,7 +525,7 @@ class ChangeSet:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ChangeSet":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ChangeSet:
         dependency_graph = payload.get("dependency_graph")
         return cls(
             project_root=Path(str(payload["project_root"])),
@@ -617,7 +618,7 @@ class ChangeImpactResult:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ChangeImpactResult":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ChangeImpactResult:
         return cls(
             change_type=ChangeType(str(payload.get("change_type", "unknown"))),
             affected_modules=tuple(

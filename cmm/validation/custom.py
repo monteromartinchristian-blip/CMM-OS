@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import (
     Any,
-    Dict,
-    Optional,
     Protocol,
-    Sequence,
-    Tuple,
     runtime_checkable,
 )
 
@@ -39,7 +36,7 @@ class CustomValidator(Protocol):
 class CustomValidatorAdapter:
     """Adapts a CustomValidator (validate(context)) to an InternalValidator (validate(context, step))."""
 
-    __slots__ = ("_validator", "_step_name", "_logical_name")
+    __slots__ = ("_logical_name", "_step_name", "_validator")
 
     def __init__(self, validator: CustomValidator, step_name: str) -> None:
         self._validator = validator
@@ -179,7 +176,7 @@ def _validate_name_string(name: Any) -> str:
 def build_custom_validation_step(
     validator: CustomValidator,
     *,
-    validation_registry: Optional[ValidationRegistry] = None,
+    validation_registry: ValidationRegistry | None = None,
 ) -> ValidationStep:
     """Build a ValidationStep from a CustomValidator instance."""
     if not hasattr(validator, "name"):
@@ -187,9 +184,9 @@ def build_custom_validation_step(
             code="invalid_custom_validator",
             message="Custom validator must have a 'name' attribute",
         )
-    val_name = _validate_name_string(getattr(validator, "name"))
+    val_name = _validate_name_string(validator.name)
     if not hasattr(validator, "validate") or not callable(
-        getattr(validator, "validate")
+        validator.validate
     ):
         raise ValidationRegistryError(
             code="invalid_custom_validator",
@@ -237,7 +234,7 @@ class CustomValidatorRegistry:
     __slots__ = ("_validators",)
 
     def __init__(self) -> None:
-        self._validators: Dict[str, CustomValidator] = {}
+        self._validators: dict[str, CustomValidator] = {}
 
     def register(self, validator: CustomValidator) -> CustomValidator:
         if not hasattr(validator, "name"):
@@ -245,9 +242,9 @@ class CustomValidatorRegistry:
                 code="invalid_custom_validator",
                 message="Custom validator must have a 'name' attribute",
             )
-        name = _validate_name_string(getattr(validator, "name"))
+        name = _validate_name_string(validator.name)
         if not hasattr(validator, "validate") or not callable(
-            getattr(validator, "validate")
+            validator.validate
         ):
             raise ValidationRegistryError(
                 code="invalid_custom_validator",
@@ -270,7 +267,7 @@ class CustomValidatorRegistry:
             )
         return self._validators.pop(valid_name)
 
-    def get(self, name: str) -> Optional[CustomValidator]:
+    def get(self, name: str) -> CustomValidator | None:
         valid_name = _validate_name_string(name)
         return self._validators.get(valid_name)
 
@@ -295,10 +292,10 @@ class CustomValidatorRegistry:
     def __contains__(self, name: str) -> bool:
         return self.contains(name)
 
-    def names(self) -> Tuple[str, ...]:
+    def names(self) -> tuple[str, ...]:
         return tuple(self._validators.keys())
 
-    def validators(self) -> Tuple[CustomValidator, ...]:
+    def validators(self) -> tuple[CustomValidator, ...]:
         return tuple(self._validators.values())
 
     def __len__(self) -> int:
@@ -314,7 +311,7 @@ class CustomValidatorRegistry:
         self,
         name: str,
         *,
-        validation_registry: Optional[ValidationRegistry] = None,
+        validation_registry: ValidationRegistry | None = None,
     ) -> ValidationStep:
         validator = self.require(name)
         return build_custom_validation_step(
@@ -326,8 +323,8 @@ class CustomValidatorRegistry:
         self,
         names: Sequence[str],
         *,
-        validation_registry: Optional[ValidationRegistry] = None,
-    ) -> Tuple[ValidationStep, ...]:
+        validation_registry: ValidationRegistry | None = None,
+    ) -> tuple[ValidationStep, ...]:
         seen: set[str] = set()
         ordered_names: list[str] = []
         for n in names:
@@ -354,8 +351,8 @@ class CustomValidatorRegistry:
 
 __all__ = [
     "CustomValidator",
-    "CustomValidatorRegistry",
     "CustomValidatorAdapter",
+    "CustomValidatorRegistry",
     "build_custom_validation_step",
     "custom_validator_step",
 ]

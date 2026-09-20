@@ -13,9 +13,9 @@ from .test_layout import TestLayoutValidator
 
 __all__ = [
     "ProjectManifestValidator",
-    "ValidationContractValidator",
     "PublicApiValidator",
     "TestLayoutValidator",
-    "default_custom_validators",
+    "ValidationContractValidator",
     "build_default_custom_validator_registry",
+    "default_custom_validators",
 ]

@@ -1,4 +1,4 @@
-from cmm.validation.enums import ValidationStatus, ValidationSeverity
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
 
 
 def test_validation_status_values():

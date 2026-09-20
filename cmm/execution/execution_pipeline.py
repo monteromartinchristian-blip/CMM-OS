@@ -16,17 +16,22 @@ from cmm.execution.execution_result import (
     RollbackResult,
     StructuredExecutionError,
 )
-from cmm.execution.operation_executor_registry import OperationExecutorRegistry
-from cmm.execution.operation_executor_registry import UnsupportedOperationExecutorError
+from cmm.execution.operation_executor_registry import (
+    OperationExecutorRegistry,
+    UnsupportedOperationExecutorError,
+)
 from cmm.execution.python.semantic_context import SemanticContext
 from cmm.transformations.execution_plan import ExecutionPlan
 from cmm.transformations.execution_request import ExecutionRequest
-from cmm.transformations.preconditions import PreconditionResult, TransformationPrecondition
 from cmm.transformations.operations import (
     CopySymbolOperation,
-    ReorganizationOperation,
     RenameSymbolOperation,
+    ReorganizationOperation,
     UpdateImportsOperation,
+)
+from cmm.transformations.preconditions import (
+    PreconditionResult,
+    TransformationPrecondition,
 )
 
 
@@ -328,9 +333,7 @@ class ExecutionPipeline:
     def _changed_paths(self, snapshot: dict[Path, _SnapshotEntry]) -> tuple[Path, ...]:
         changed = []
         for path, entry in snapshot.items():
-            if entry.existed != path.exists():
-                changed.append(path)
-            elif entry.is_file and path.is_file() and entry.content != path.read_bytes():
+            if entry.existed != path.exists() or entry.is_file and path.is_file() and entry.content != path.read_bytes():
                 changed.append(path)
         return tuple(sorted(changed))
 

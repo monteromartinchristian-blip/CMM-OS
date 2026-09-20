@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any
 
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
@@ -90,7 +91,7 @@ def serialize_path(path: Path | str, project_root: Path) -> str:
 
 def format_syntax_error_info(
     rel_path: str, exc: SyntaxError
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Format bounded syntax error message and metadata without exposing source code snippets."""
     line = exc.lineno or 1
     col = exc.offset or 1

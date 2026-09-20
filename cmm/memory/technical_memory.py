@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from time import perf_counter
-from typing import Optional, Union
 
 from cmm.memory.graph import KnowledgeGraph
 from cmm.memory.indexer import ProjectIndexer
@@ -51,12 +50,12 @@ class TechnicalMemory:
                 f"Memory repository belongs to {repository_root}, not {requested_root}."
             )
         self._project_root = requested_root or repository_root
-        self._query: Optional[KnowledgeQuery] = None
-        self._graph: Optional[KnowledgeGraph] = None
-        self._snapshot: Optional[ProjectSnapshot] = None
+        self._query: KnowledgeQuery | None = None
+        self._graph: KnowledgeGraph | None = None
+        self._snapshot: ProjectSnapshot | None = None
 
     @classmethod
-    def for_project(cls, project_root: Path) -> "TechnicalMemory":
+    def for_project(cls, project_root: Path) -> TechnicalMemory:
         """Create a persistent memory facade using the project's local `.cmm` store."""
 
         return cls(project_root=project_root)
@@ -157,7 +156,7 @@ class TechnicalMemory:
         else:
             self._repository.save(graph)
 
-    def _repository_root(self) -> Optional[Path]:
+    def _repository_root(self) -> Path | None:
         root = getattr(self._repository, "project_root", None)
         if root is not None:
             return Path(root).resolve(strict=False)
@@ -178,7 +177,7 @@ class TechnicalMemory:
         allowed_kinds = {"Module", "Class", "Function", "Method"}
         return [node for node in matching_nodes if node.kind in allowed_kinds]
 
-    def find_module(self, name: str) -> Optional[KnowledgeNode]:
+    def find_module(self, name: str) -> KnowledgeNode | None:
         """Find a module node by module name.
 
         Args:
@@ -189,7 +188,7 @@ class TechnicalMemory:
         """
         return self._get_query().find_module(name)
 
-    def find_class(self, name: str) -> Optional[KnowledgeNode]:
+    def find_class(self, name: str) -> KnowledgeNode | None:
         """Find a class node by class name.
 
         Args:
@@ -200,7 +199,7 @@ class TechnicalMemory:
         """
         return self._get_query().find_class(name)
 
-    def find_function(self, name: str) -> Optional[KnowledgeNode]:
+    def find_function(self, name: str) -> KnowledgeNode | None:
         """Find a function node by function name.
 
         Args:
@@ -211,7 +210,7 @@ class TechnicalMemory:
         """
         return self._get_query().find_function(name)
 
-    def find_method(self, name: str) -> Optional[KnowledgeNode]:
+    def find_method(self, name: str) -> KnowledgeNode | None:
         """Find a method node by method name.
 
         Args:
@@ -222,7 +221,7 @@ class TechnicalMemory:
         """
         return self._get_query().find_method(name)
 
-    def find_callers(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_callers(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find functions or methods that call the specified symbol.
 
         Args:
@@ -233,7 +232,7 @@ class TechnicalMemory:
         """
         return self._get_query().callers(symbol)
 
-    def find_callees(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_callees(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find functions or methods called by the specified symbol.
 
         Args:
@@ -244,35 +243,35 @@ class TechnicalMemory:
         """
         return self._get_query().callees(symbol)
 
-    def find_parents(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_parents(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find symbols that directly contain the specified symbol."""
         return self._get_query().parents(symbol)
 
-    def find_children(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_children(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find symbols directly contained by the specified symbol."""
         return self._get_query().children(symbol)
 
-    def find_imports(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_imports(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find project modules imported by the specified symbol."""
         return self._get_query().imports(symbol)
 
-    def find_imported_by(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_imported_by(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find project modules that import the specified symbol."""
         return self._get_query().imported_by(symbol)
 
-    def find_base_classes(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_base_classes(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find direct base classes of the specified symbol."""
         return self._get_query().inherits_from(symbol)
 
-    def find_derived_classes(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_derived_classes(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find classes that directly inherit from the specified symbol."""
         return self._get_query().derived_classes(symbol)
 
-    def find_uses(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_uses(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find classes directly used by the specified symbol."""
         return self._get_query().uses(symbol)
 
-    def find_used_by(self, symbol: Union[str, KnowledgeNode]) -> list[KnowledgeNode]:
+    def find_used_by(self, symbol: str | KnowledgeNode) -> list[KnowledgeNode]:
         """Find classes that directly use the specified symbol."""
         return self._get_query().used_by(symbol)
 

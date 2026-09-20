@@ -8,9 +8,9 @@ from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.python import PythonProjectParser, SemanticContextBuilder
 from cmm.transformations import (
     DependencyEdge,
-    ImpactDiscrepancyCode,
     ImpactAnalysisRequest,
     ImpactAnalyzer,
+    ImpactDiscrepancyCode,
     ImpactIssueCode,
     ImpactSeverity,
     ReferenceKind,

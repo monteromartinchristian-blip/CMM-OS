@@ -10,8 +10,6 @@ from cmm.transformations.operations.extract_method import ExtractMethodOperation
 from cmm.transformations.operations.extract_module import ExtractModuleOperation
 from cmm.transformations.operations.move_symbol import MoveSymbolOperation
 from cmm.transformations.operations.rename_symbol import RenameSymbolOperation
-from cmm.transformations.operations.update_imports import UpdateImportsOperation
-from cmm.transformations.operations.validate_project import ValidateProjectOperation
 from cmm.transformations.operations.reorganize import (
     MergeModulesOperation,
     MoveModuleOperation,
@@ -22,6 +20,8 @@ from cmm.transformations.operations.reorganize import (
     SplitModuleGroup,
     SplitModuleOperation,
 )
+from cmm.transformations.operations.update_imports import UpdateImportsOperation
+from cmm.transformations.operations.validate_project import ValidateProjectOperation
 
 __all__ = [
     "CopySymbolOperation",
@@ -32,16 +32,16 @@ __all__ = [
     "DeleteSymbolOperation",
     "ExtractMethodOperation",
     "ExtractModuleOperation",
-    "MoveSymbolOperation",
-    "RenameSymbolOperation",
-    "UpdateImportsOperation",
-    "ValidateProjectOperation",
     "MergeModulesOperation",
     "MoveModuleOperation",
     "MovePackageOperation",
+    "MoveSymbolOperation",
     "RenameModuleOperation",
     "RenamePackageOperation",
+    "RenameSymbolOperation",
     "ReorganizationOperation",
     "SplitModuleGroup",
     "SplitModuleOperation",
+    "UpdateImportsOperation",
+    "ValidateProjectOperation",
 ]

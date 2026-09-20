@@ -5,7 +5,11 @@ from kernel.llm.operation_parsers import (
     InsertMethodOperationParser,
     OperationParserRegistry,
 )
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+)
 
 
 def test_registry_registers_and_resolves_parsers() -> None:

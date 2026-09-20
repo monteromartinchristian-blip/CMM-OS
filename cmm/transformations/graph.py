@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
 
 from cmm.transformations.models import TransformationGraphNode
 from cmm.transformations.plan import TransformationPlan
@@ -46,7 +46,7 @@ class TransformationGraph:
         object.__setattr__(self, "nodes", MappingProxyType(nodes))
 
     @classmethod
-    def from_plan(cls, plan: TransformationPlan) -> "TransformationGraph":
+    def from_plan(cls, plan: TransformationPlan) -> TransformationGraph:
         """Build a graph from step-local dependency declarations."""
         seen: set[str] = set()
         nodes: dict[str, TransformationGraphNode] = {}

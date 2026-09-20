@@ -91,16 +91,12 @@ class TopLevelSideEffectAnalyzer:
             eager.extend(node.bases)
             eager.extend(keyword.value for keyword in node.keywords)
             for statement in node.body:
-                if isinstance(statement, ast.Assign):
-                    eager.append(statement.value)
-                elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                if isinstance(statement, ast.Assign) or isinstance(statement, ast.AnnAssign) and statement.value is not None:
                     eager.append(statement.value)
                 elif isinstance(
                     statement,
                     (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Pass),
-                ):
-                    continue
-                elif (
+                ) or (
                     isinstance(statement, ast.Expr)
                     and isinstance(statement.value, ast.Constant)
                     and isinstance(statement.value.value, str)

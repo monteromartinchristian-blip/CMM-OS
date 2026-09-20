@@ -161,6 +161,21 @@ class CapabilityExecution:
 
         return complete
 
+    def _stream_call(self, resolved: Any):
+        def stream(
+            prompt: str, system: str | None, cancel_event: threading.Event | None = None
+        ):
+            return self._executor.stream(
+                resolved,
+                prompt=prompt,
+                system=system,
+                history=(),
+                cancel_event=cancel_event,
+                max_tokens=4000,
+            )
+
+        return stream
+
     def stream(
         self,
         resolved: Any,
@@ -274,6 +289,7 @@ class CapabilityExecution:
                 limits=ResearchLimits(),
                 computer=delegate,
                 allow_search=caps.web_search != "off",
+                stream=self._stream_call(resolved),
             )
             try:
                 outcome = research.research(
@@ -305,7 +321,7 @@ class CapabilityExecution:
                 mode = "chat"
             return {
                 "mode": mode,
-                "answer": outcome.answer,
+                "answer": "" if outcome.streamed else outcome.answer,
                 "citations": citations,
                 "warnings": list(outcome.warnings),
                 "searches": outcome.searches,

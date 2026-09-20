@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.custom_validators.manifest import ProjectManifestValidator
-from cmm.validation.enums import ValidationStatus, ValidationSeverity
+from cmm.validation.enums import ValidationStatus
 
 
 def test_project_manifest_valid(tmp_path: Path) -> None:

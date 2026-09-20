@@ -1,11 +1,10 @@
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from cmm.validation.findings import ValidationFinding
 from cmm.validation.enums import ValidationSeverity
 from cmm.validation.errors import ValidationContractError
+from cmm.validation.findings import ValidationFinding
 
 
 def test_create_and_serialize_finding():

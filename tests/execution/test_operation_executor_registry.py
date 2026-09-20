@@ -12,9 +12,9 @@ from cmm.execution.python import (
     PythonCopySymbolExecutor,
     PythonCreateModuleExecutor,
     PythonDeleteSymbolExecutor,
+    PythonProjectParser,
     PythonUpdateImportsExecutor,
     PythonValidateProjectExecutor,
-    PythonProjectParser,
     SemanticContextBuilder,
 )
 from cmm.transformations import (

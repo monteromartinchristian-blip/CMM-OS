@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import codecs
-from pathlib import Path
-from typing import Any
-
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationSeverity, ValidationStatus

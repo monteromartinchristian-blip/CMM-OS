@@ -6,21 +6,21 @@ import importlib.util
 import os
 import re
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
+from cmm.validation.impact.contracts import ChangeSet, ChangeType
+from cmm.validation.impact.snapshots import ChangeSetBuilder
 from cmm.validation.steps import (
     ValidationStep,
     ValidationStepResult,
     ValidationStepType,
 )
-
-from cmm.validation.impact.contracts import ChangeSet, ChangeType
-from cmm.validation.impact.snapshots import ChangeSetBuilder
 
 from .contracts import (
     CommandPolicy,
@@ -1554,8 +1554,8 @@ def _looks_broad_github_permissions(lower: str) -> bool:
 
 
 __all__ = [
-    "bandit_step",
     "SecurityValidator",
+    "bandit_step",
     "build_security_plan",
     "default_security_steps",
     "evaluate_command_policy",

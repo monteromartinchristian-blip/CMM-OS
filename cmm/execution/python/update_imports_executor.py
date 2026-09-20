@@ -1,9 +1,9 @@
 """LibCST executor for minimal project-wide from-import updates."""
 
+from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.import_resolver import ImportResolver
-from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter
 from cmm.execution.python.semantic_context import SemanticContext

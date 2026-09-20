@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Tuple
-
 from cmm.validation.custom import CustomValidator, CustomValidatorRegistry
+
 from .contracts import ValidationContractValidator
 from .manifest import ProjectManifestValidator
 from .public_api import PublicApiValidator
 from .test_layout import TestLayoutValidator
 
 
-def default_custom_validators() -> Tuple[CustomValidator, ...]:
+def default_custom_validators() -> tuple[CustomValidator, ...]:
     """Return a tuple of fresh instances of all default CMM OS custom validators."""
     return (
         ProjectManifestValidator(),

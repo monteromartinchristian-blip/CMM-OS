@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.models import TransformationStep
 from cmm.transformations.operations import (
     CopySymbolOperation,
@@ -14,14 +15,13 @@ from cmm.transformations.operations import (
 )
 from cmm.transformations.plan import TransformationPlan
 from cmm.transformations.preconditions import (
+    ImpactAnalysisPrecondition,
     ModuleExistsPrecondition,
+    SupportedSymbolReferencesPrecondition,
     SymbolAbsentPrecondition,
     SymbolDependenciesPrecondition,
     SymbolExistsPrecondition,
-    SupportedSymbolReferencesPrecondition,
-    ImpactAnalysisPrecondition,
 )
-from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.transformation import Transformation
 
 

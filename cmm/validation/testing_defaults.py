@@ -15,6 +15,7 @@ from cmm.validation.policy import (
 )
 from cmm.validation.security import bandit_step, pip_audit_step
 from cmm.validation.steps import ValidationStep
+
 from .testing_catalog import default_testing_steps
 
 

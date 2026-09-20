@@ -52,9 +52,6 @@ from cmm.development.models import DevelopmentPlan
 from cmm.development.providers import DeterministicPlanningProvider
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.identifiers import DomainId
-from cmm.domains.validation_integration import (
-    resolve_domain_operation_validation_requirements,
-)
 from cmm.domains.memory_contracts import sha256_digest
 from cmm.domains.operation_contracts import (
     DomainOperationDefinition,
@@ -104,6 +101,9 @@ from cmm.domains.trace_contracts import (
     DomainTraceReferenceKind,
     DomainTraceReferences,
     DomainTraceStatus,
+)
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
 )
 from cmm.validation.commit_gate.evaluator import CommitGateEvaluator
 from cmm.validation.context import ValidationContext

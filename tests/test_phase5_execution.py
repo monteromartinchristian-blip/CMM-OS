@@ -6,12 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from cmm.development.models import DevelopmentPlan
 from cmm.development import AutonomousDevelopmentService
 from cmm.development.providers import DeterministicPlanningProvider
-from cmm.execution import Action, ActionType, ActionPlanner, ExecutorRegistry
+from cmm.execution import Action, ActionPlanner, ActionType
 from cmm.execution.development import AutonomousExecutionService
-from cmm.execution.executors import ExecutionContext, FilesystemExecutor, GitExecutor, PythonExecutor
+from cmm.execution.executors import (
+    ExecutionContext,
+    FilesystemExecutor,
+    GitExecutor,
+    PythonExecutor,
+)
 from cmm.runtime import ActionRuntime, ActionStatus
 
 

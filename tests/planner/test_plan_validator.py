@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import uuid4
 
 from kernel.planner.execution_plan import ExecutionPlan
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+)
 from kernel.planner.plan_validator import PlanValidator
 
 

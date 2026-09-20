@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
-from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
-from cmm.validation.enums import ValidationSeverity, ValidationStatus
-from cmm.validation.findings import ValidationFinding
+from cmm.validation.enums import ValidationStatus
 from cmm.validation.steps import (
     ValidationStep,
     ValidationStepResult,

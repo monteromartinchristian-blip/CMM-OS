@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.custom import (
@@ -24,7 +25,7 @@ from cmm.validation.registry import ValidationRegistry
 from cmm.validation.steps import ValidationStep
 from cmm.validation.testing_defaults import _build_broad_validation_steps
 
-_DYNAMIC_TEST_SCOPES: Set[str] = {
+_DYNAMIC_TEST_SCOPES: set[str] = {
     "affected_tests",
     "unit_tests",
     "integration_tests",
@@ -47,14 +48,14 @@ _DYNAMIC_TEST_SCOPES: Set[str] = {
 class ValidationPlan:
     """Immutable representation of a resolved validation execution plan."""
 
-    steps: Tuple[ValidationStep, ...]
+    steps: tuple[ValidationStep, ...]
     registry: ValidationRegistry = field(compare=False, repr=False)
-    policy: Optional[ValidationPolicy] = None
-    selected_custom_validators: Tuple[str, ...] = ()
-    missing_optional_custom_validators: Tuple[str, ...] = ()
-    excluded_steps: Tuple[str, ...] = ()
+    policy: ValidationPolicy | None = None
+    selected_custom_validators: tuple[str, ...] = ()
+    missing_optional_custom_validators: tuple[str, ...] = ()
+    excluded_steps: tuple[str, ...] = ()
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """Serialize plan metadata excluding runtime objects."""
         return {
             "policy": self.policy.serialize() if self.policy is not None else None,
@@ -78,7 +79,7 @@ class ValidationPlan:
 
 def _build_effective_aliases(
     custom_reg: CustomValidatorRegistry,
-) -> Dict[str, Tuple[str, ...]]:
+) -> dict[str, tuple[str, ...]]:
     """Build step aliases mapping including registered custom validators."""
     aliases = dict(_STEP_ALIASES)
     for name in custom_reg.names():
@@ -89,9 +90,9 @@ def _build_effective_aliases(
 
 def _sort_steps_deterministically(
     steps: Sequence[ValidationStep],
-) -> Tuple[ValidationStep, ...]:
+) -> tuple[ValidationStep, ...]:
     """Sort validation steps into a stable, execution-optimal order."""
-    order_groups: Dict[str, int] = {
+    order_groups: dict[str, int] = {
         "syntax": 10,
         "formatter_check": 20,
         "lint_check": 30,
@@ -114,7 +115,7 @@ def _sort_steps_deterministically(
         "full_suite": 130,
     }
 
-    def get_order(step: ValidationStep) -> Tuple[int, str]:
+    def get_order(step: ValidationStep) -> tuple[int, str]:
         if step.name in order_groups:
             return (order_groups[step.name], step.name)
         if step.name.startswith("custom."):
@@ -127,7 +128,7 @@ def _sort_steps_deterministically(
 def validate_custom_policy(
     policy: ValidationPolicy,
     *,
-    custom_registry: Optional[CustomValidatorRegistry] = None,
+    custom_registry: CustomValidatorRegistry | None = None,
 ) -> ValidationPolicy:
     """Validate that a ValidationPolicy only references valid labels and registered custom validators."""
     custom_reg = (
@@ -155,10 +156,10 @@ def validate_custom_policy(
 
 def build_validation_plan(
     context: ValidationContext,
-    policy: Optional[ValidationPolicy] = None,
+    policy: ValidationPolicy | None = None,
     *,
-    registry: Optional[ValidationRegistry] = None,
-    custom_registry: Optional[CustomValidatorRegistry] = None,
+    registry: ValidationRegistry | None = None,
+    custom_registry: CustomValidatorRegistry | None = None,
 ) -> ValidationPlan:
     """Build a complete, explicit ValidationPlan linking steps and registry handlers."""
     resolved_policy = (
@@ -187,19 +188,19 @@ def build_validation_plan(
     )
 
     # 2. Build custom steps from custom_registry and register their handlers in val_registry
-    custom_steps_dict: Dict[str, ValidationStep] = {}
+    custom_steps_dict: dict[str, ValidationStep] = {}
     for name in custom_reg.names():
         validator = custom_reg.require(name)
         step = build_custom_validation_step(validator, validation_registry=val_registry)
         custom_steps_dict[step.name] = step
 
-    all_available_steps_dict: Dict[str, ValidationStep] = {
+    all_available_steps_dict: dict[str, ValidationStep] = {
         s.name: s for s in built_in_steps
     }
     all_available_steps_dict.update(custom_steps_dict)
 
     # 3. Handle explicit step exclusion (context.excluded_steps)
-    excluded_canonical_names: Set[str] = set()
+    excluded_canonical_names: set[str] = set()
     if context.excluded_steps:
         try:
             expanded_excluded = expand_validation_step_labels(
@@ -212,9 +213,9 @@ def build_validation_plan(
         excluded_canonical_names = set(expanded_excluded)
 
     # 4. Handle requested steps vs policy selection
-    selected_steps_list: List[ValidationStep] = []
-    selected_step_names: Set[str] = set()
-    missing_optional_custom: List[str] = []
+    selected_steps_list: list[ValidationStep] = []
+    selected_step_names: set[str] = set()
+    missing_optional_custom: list[str] = []
 
     from dataclasses import replace
 
@@ -325,8 +326,8 @@ def build_validation_plan(
 def build_default_validation_plan(
     context: ValidationContext,
     *,
-    registry: Optional[ValidationRegistry] = None,
-    custom_registry: Optional[CustomValidatorRegistry] = None,
+    registry: ValidationRegistry | None = None,
+    custom_registry: CustomValidatorRegistry | None = None,
 ) -> ValidationPlan:
     """Build a default ValidationPlan using default policies and default custom validators."""
     policy = resolve_validation_policy(context)

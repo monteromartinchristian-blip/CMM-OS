@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 try:
     import tomllib
@@ -19,7 +18,8 @@ from cmm.validation.custom import CustomValidator
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import ValidationStepResult
-from ._utils import aggregate_status, read_file_safe, safe_read_text, serialize_path
+
+from ._utils import aggregate_status, read_file_safe, serialize_path
 
 REQUIRED_DEV_TOOLS = ("pytest", "mypy", "vulture")
 REQUIRED_VALIDATION_TOOLS = ("bandit", "pip-audit", "mypy", "vulture")
@@ -45,14 +45,14 @@ class ProjectManifestValidator(CustomValidator):
         manifest_path = context.project_root / "pyproject.toml"
         rel_manifest_path = serialize_path(manifest_path, context.project_root)
 
-        findings: List[ValidationFinding] = []
+        findings: list[ValidationFinding] = []
         project_name: str | None = None
         version: str | None = None
         requires_python: str | None = None
-        scripts: Dict[str, Any] | None = None
-        optional_groups: List[str] | None = None
-        missing_reqs: List[str] = []
-        duplicate_reqs: List[str] = []
+        scripts: dict[str, Any] | None = None
+        optional_groups: list[str] | None = None
+        missing_reqs: list[str] = []
+        duplicate_reqs: list[str] = []
 
         if not manifest_path.is_file():
             findings.append(
@@ -263,10 +263,10 @@ class ProjectManifestValidator(CustomValidator):
                 optional_groups = list(opt_deps.keys())
 
                 # Check duplicates & collect tools per group
-                tools_in_group: Dict[str, Set[str]] = {}
+                tools_in_group: dict[str, set[str]] = {}
                 for grp, req_list in opt_deps.items():
                     if isinstance(req_list, list):
-                        seen_in_group: Set[str] = set()
+                        seen_in_group: set[str] = set()
                         tools_in_group[grp] = set()
                         for r in req_list:
                             if isinstance(r, str):
@@ -354,17 +354,17 @@ class ProjectManifestValidator(CustomValidator):
 
     def _build_result(
         self,
-        findings: List[ValidationFinding],
+        findings: list[ValidationFinding],
         started_at: datetime,
         duration_ms: int,
         rel_path: str,
         project_name: str | None,
         version: str | None,
         requires_python: str | None,
-        scripts: Dict[str, Any] | None,
-        optional_groups: List[str] | None,
-        missing_reqs: List[str],
-        duplicate_reqs: List[str],
+        scripts: dict[str, Any] | None,
+        optional_groups: list[str] | None,
+        missing_reqs: list[str],
+        duplicate_reqs: list[str],
     ) -> ValidationStepResult:
         status = aggregate_status(findings)
         completed_at = datetime.now(timezone.utc)

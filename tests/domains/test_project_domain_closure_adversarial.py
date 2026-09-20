@@ -34,9 +34,6 @@ from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapte
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.development.analyzer import ProjectContext
 from cmm.domains.approval_bridge import to_approval_requirement
-from cmm.domains.validation_integration import (
-    resolve_domain_operation_validation_requirements,
-)
 from cmm.domains.errors import (
     DomainOperationRegistryError,
     DomainPermissionRegistryError,
@@ -116,6 +113,9 @@ from cmm.domains.trace_contracts import (
     DomainTrace,
     DomainTraceReferenceKind,
     DomainTraceStatus,
+)
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
 )
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 from cmm.workflows.registry import InMemoryWorkflowRegistry

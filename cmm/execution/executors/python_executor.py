@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
-
-from kernel.services.python_index import PythonIndex
-from kernel.semantic import SemanticOperation, SemanticRuntime
-from kernel.semantic_executors import create_default_semantic_registry
 
 from cmm.execution.action_planner import ActionType
 from cmm.execution.executor_registry import UnsupportedActionError
-from cmm.execution.executors.base import ActionExecutor, ExecutionContext, ExecutionResult
+from cmm.execution.executors.base import (
+    ActionExecutor,
+    ExecutionContext,
+    ExecutionResult,
+)
+from kernel.semantic import SemanticOperation, SemanticRuntime
+from kernel.semantic_executors import create_default_semantic_registry
+from kernel.services.python_index import PythonIndex
 
 
 class PythonExecutor(ActionExecutor):

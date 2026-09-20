@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, is_dataclass
 import json
+from dataclasses import FrozenInstanceError, is_dataclass
 
 import pytest
 

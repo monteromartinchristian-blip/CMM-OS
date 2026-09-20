@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Optional, Tuple, Any
+from typing import Any
 
 from .errors import ValidationContractError
 
@@ -10,18 +11,18 @@ from .errors import ValidationContractError
 @dataclass(frozen=True, slots=True)
 class ValidationContext:
     project_root: Path
-    changed_files: Tuple[Path, ...] = ()
+    changed_files: tuple[Path, ...] = ()
     change_type: str = "full"
     execution_mode: str = "local"
-    requested_steps: Optional[Tuple[str, ...]] = None
-    excluded_steps: Tuple[str, ...] = ()
+    requested_steps: tuple[str, ...] | None = None
+    excluded_steps: tuple[str, ...] = ()
     environment: Mapping[str, str] = field(default_factory=dict)
     allow_commit: bool = False
-    branch: Optional[str] = None
-    base_commit: Optional[str] = None
-    requested_policy: Optional[str] = None
-    actor: Optional[str] = None
-    workflow_id: Optional[str] = None
+    branch: str | None = None
+    base_commit: str | None = None
+    requested_policy: str | None = None
+    actor: str | None = None
+    workflow_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

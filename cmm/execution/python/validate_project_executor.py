@@ -1,9 +1,10 @@
 """Read-only LibCST executor for validate-project operations."""
 
+from pathlib import Path
+
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.python_project_parser import PythonProjectParser
-from pathlib import Path
 from cmm.execution.python.semantic_context_builder import SemanticContextBuilder
 from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.operation import TransformationOperation

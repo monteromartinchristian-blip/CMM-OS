@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from cmm.validation.artifacts import ValidationArtifact
+
 from .selection import TestSelection
 
 if TYPE_CHECKING:

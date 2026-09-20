@@ -3,7 +3,10 @@
 from dataclasses import dataclass
 
 from cmm.transformations.models import TransformationStep
-from cmm.transformations.operations import ExtractMethodOperation, ValidateProjectOperation
+from cmm.transformations.operations import (
+    ExtractMethodOperation,
+    ValidateProjectOperation,
+)
 from cmm.transformations.plan import TransformationPlan
 from cmm.transformations.preconditions import (
     ExtractMethodPrecondition,

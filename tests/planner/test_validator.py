@@ -3,7 +3,6 @@ from kernel.planner.operations import (
     CreateClassOperation,
     EnsureImportOperation,
     InsertMethodOperation,
-    ReplaceMethodOperation,
 )
 from kernel.planner.validator import PlanValidator
 

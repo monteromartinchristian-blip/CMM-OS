@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from cmm.validation.catalog import (
+    ast_step,
+    build_default_validation_registry,
+    default_security_steps,
+    default_structural_steps,
     formatter_check_step,
     lint_check_step,
-    syntax_step,
-    ast_step,
-    structural_step,
-    default_structural_steps,
-    default_security_steps,
     security_step,
-    build_default_validation_registry,
+    structural_step,
+    syntax_step,
 )
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStepType

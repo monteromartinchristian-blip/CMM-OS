@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import keyword
 
-from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.execution_context import ExecutionContext
+from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter

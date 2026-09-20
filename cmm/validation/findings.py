@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Mapping, Optional, Any
+from typing import Any
 
 from .enums import ValidationSeverity
 from .errors import ValidationContractError
@@ -15,12 +15,12 @@ class ValidationFinding:
     message: str
     severity: ValidationSeverity
     source: str
-    file_path: Optional[Path] = None
-    line: Optional[int] = None
-    column: Optional[int] = None
+    file_path: Path | None = None
+    line: int | None = None
+    column: int | None = None
     blocking: bool = False
-    suggested_fix: Optional[str] = None
-    documentation_url: Optional[str] = None
+    suggested_fix: str | None = None
+    documentation_url: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

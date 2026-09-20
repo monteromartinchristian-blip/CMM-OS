@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import ast
 import builtins
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 class ReferenceKind(str, Enum):

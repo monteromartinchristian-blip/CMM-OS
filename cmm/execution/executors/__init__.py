@@ -12,11 +12,11 @@ __all__ = [
     "CompositeExecutor",
     "ExecutionContext",
     "ExecutionResult",
-    "NoOpExecutor",
-    "ReadOnlyFilesystemExecutor",
     "FilesystemExecutor",
-    "PythonExecutor",
     "GitExecutor",
+    "NoOpExecutor",
+    "PythonExecutor",
+    "ReadOnlyFilesystemExecutor",
 ]
 
 
@@ -26,7 +26,9 @@ def __getattr__(name: str):
 
         return CompositeExecutor
     if name == "ReadOnlyFilesystemExecutor":
-        from cmm.execution.executors.read_only_filesystem import ReadOnlyFilesystemExecutor
+        from cmm.execution.executors.read_only_filesystem import (
+            ReadOnlyFilesystemExecutor,
+        )
 
         return ReadOnlyFilesystemExecutor
     if name == "FilesystemExecutor":

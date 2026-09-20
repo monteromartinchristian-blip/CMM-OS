@@ -1,7 +1,7 @@
 import pytest
 
-from cmm.validation.steps import ValidationStep, ValidationStepType
-from cmm.validation.pipeline import _topological_sort, _subset_with_dependencies
+from cmm.validation.pipeline import _subset_with_dependencies, _topological_sort
+from cmm.validation.steps import ValidationStep
 
 
 def test_topological_sort_and_missing_dep():

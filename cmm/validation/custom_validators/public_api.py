@@ -7,7 +7,6 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
@@ -15,6 +14,7 @@ from cmm.validation.custom import CustomValidator
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import ValidationStepResult
+
 from ._utils import (
     aggregate_status,
     format_syntax_error_info,
@@ -38,9 +38,9 @@ def _defines_top_level_all(tree: ast.AST) -> bool:
     return False
 
 
-def _find_target_init_files(project_root: Path) -> List[Path]:
+def _find_target_init_files(project_root: Path) -> list[Path]:
     """Identify controlled target __init__.py files for public API inspection."""
-    mandatory: List[Path] = []
+    mandatory: list[Path] = []
     for cand in (
         project_root / "cmm" / "__init__.py",
         project_root / "cmm" / "validation" / "__init__.py",
@@ -48,7 +48,7 @@ def _find_target_init_files(project_root: Path) -> List[Path]:
         if cand.is_file():
             mandatory.append(cand)
 
-    optional_targets: List[Path] = []
+    optional_targets: list[Path] = []
     cmm_dir = project_root / "cmm"
     if cmm_dir.is_dir():
         for item in sorted(cmm_dir.iterdir()):
@@ -64,8 +64,8 @@ def _find_target_init_files(project_root: Path) -> List[Path]:
                         except SyntaxError:
                             pass
 
-    seen: Set[Path] = set()
-    result: List[Path] = []
+    seen: set[Path] = set()
+    result: list[Path] = []
     for t in mandatory + sorted(optional_targets):
         if t not in seen:
             seen.add(t)
@@ -73,10 +73,10 @@ def _find_target_init_files(project_root: Path) -> List[Path]:
     return result
 
 
-def _extract_top_level_names(tree: ast.AST) -> Tuple[Set[str], List[str]]:
+def _extract_top_level_names(tree: ast.AST) -> tuple[set[str], list[str]]:
     """Extract top-level defined or imported symbol names and duplicate import names."""
-    names: Set[str] = set()
-    duplicates: List[str] = []
+    names: set[str] = set()
+    duplicates: list[str] = []
 
     def _add(name: str) -> None:
         if name in names:
@@ -117,13 +117,13 @@ class PublicApiValidator(CustomValidator):
 
         init_files = _find_target_init_files(context.project_root)
 
-        findings: List[ValidationFinding] = []
-        scanned_modules: List[str] = []
-        exports_by_module: Dict[str, List[str]] = {}
-        unresolved_exports: List[str] = []
-        duplicate_exports: List[str] = []
-        private_exports: List[str] = []
-        parse_errors: List[str] = []
+        findings: list[ValidationFinding] = []
+        scanned_modules: list[str] = []
+        exports_by_module: dict[str, list[str]] = {}
+        unresolved_exports: list[str] = []
+        duplicate_exports: list[str] = []
+        private_exports: list[str] = []
+        parse_errors: list[str] = []
 
         for init_file in init_files:
             rel_path = serialize_path(init_file, context.project_root)
@@ -164,7 +164,7 @@ class PublicApiValidator(CustomValidator):
                 continue
 
             # Check __all__ assignments
-            all_assigns: List[ast.AST] = []
+            all_assigns: list[ast.AST] = []
             for stmt in tree.body:
                 if isinstance(stmt, ast.Assign):
                     for target in stmt.targets:
@@ -198,7 +198,7 @@ class PublicApiValidator(CustomValidator):
 
             all_node = all_assigns[0]
             is_literal_seq = False
-            raw_exports: List[str] = []
+            raw_exports: list[str] = []
 
             if isinstance(all_node, (ast.List, ast.Tuple)):
                 is_literal_seq = True
@@ -224,7 +224,7 @@ class PublicApiValidator(CustomValidator):
             exports_by_module[rel_path] = raw_exports
 
             # Check __all__ items
-            seen_exports: Set[str] = set()
+            seen_exports: set[str] = set()
             defined_names, duplicate_imports = _extract_top_level_names(tree)
 
             for dup_imp in set(duplicate_imports):

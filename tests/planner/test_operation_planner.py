@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import pytest
-
 from kernel.planner.execution_plan import ExecutionPlan
 from kernel.planner.mock_llm_provider import MockLLMProvider
-from kernel.planner.operation_planner import OperationPlanner
 from kernel.planner.operation_catalog import OperationCatalog
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation, ReplaceMethodOperation
-from kernel.planner.planner_strategy import LLMPlannerStrategy, PlannerStrategy, RuleBasedPlannerStrategy
+from kernel.planner.operation_planner import OperationPlanner
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+    ReplaceMethodOperation,
+)
 from kernel.planner.planner_response_parser import parse as parse_planner_response
+from kernel.planner.planner_strategy import (
+    LLMPlannerStrategy,
+    PlannerStrategy,
+    RuleBasedPlannerStrategy,
+)
 
 
 class DummyPlannerStrategy(PlannerStrategy):

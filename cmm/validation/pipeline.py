@@ -422,7 +422,7 @@ class ValidationPipeline:
             return final_result
         except (
             Exception
-        ) as exc:  # pragma: no cover - unexpected safety net  # noqa: BLE001
+        ) as exc:  # pragma: no cover - unexpected safety net
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
                 status=ValidationStatus.ERROR,

@@ -39,10 +39,16 @@ from typing import Any
 import pytest
 
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
-from cmm.agent_runtime.enums import WorkflowPlanStatus
+from cmm.agent_runtime.enums import (
+    AgentValidationDecision,
+    AgentValidationStatus,
+    WorkflowPlanStatus,
+)
 from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
 from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+from cmm.agent_runtime.validation_integration_contracts import AgentValidationResult
 from cmm.agent_runtime.workflow_planner_adapter import (
     AgentPlanningService,
     DefaultWorkflowPlannerAdapter,
@@ -68,16 +74,6 @@ from cmm.domains.operation_execution import (
     DefaultDomainOperationOrchestrator,
     DomainOperationExecutionDelegate,
 )
-from cmm.agent_runtime.enums import (
-    AgentValidationDecision,
-    AgentValidationStage,
-    AgentValidationStatus,
-)
-from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
-from cmm.agent_runtime.validation_integration_contracts import AgentValidationResult
-from cmm.domains.validation_integration import (
-    resolve_domain_operation_validation_requirements,
-)
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_contracts import DomainPermissionPolicy
 from cmm.domains.permission_gate import DomainPermissionGate
@@ -96,6 +92,9 @@ from cmm.domains.resolution_contracts import (
 )
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resolver_contracts import DomainScoringPolicy
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains.workflow_contracts import (
     DomainWorkflowContext,
     DomainWorkflowDefinition,
@@ -1148,9 +1147,6 @@ def test_at_dp042_real_project_pack_operation_planning_chain() -> None:
     # recording rollback executor (idle on the success path).
     from cmm.agent_runtime.checkpoint_manager import CheckpointManager
     from cmm.agent_runtime.transaction_manager import TransactionManager
-    from cmm.agent_runtime.validation_execution_adapter import (
-        AgentValidationAdapter,
-    )
 
     planned_operation = result.plan.operations[0].operation_name
     rollback_calls: list[tuple[str, str | None]] = []

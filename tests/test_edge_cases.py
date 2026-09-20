@@ -1,5 +1,4 @@
 import ast
-from pathlib import Path
 
 from kernel.services.python_editor import PythonEditor
 from kernel.services.python_locator import PythonLocator

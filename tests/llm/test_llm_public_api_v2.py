@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import kernel.llm as llm
+from kernel import llm
 
 
 def test_multimodel_contracts_are_public() -> None:

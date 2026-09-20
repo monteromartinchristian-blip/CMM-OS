@@ -7,6 +7,8 @@ import pytest
 from cmm.validation.context import ValidationContext
 from cmm.validation.testing.escalation import (
     TestEscalationDecision as _TestEscalationDecision,
+)
+from cmm.validation.testing.escalation import (
     decide_test_escalation,
 )
 from cmm.validation.testing.selection import TestSelection as _TestSelection

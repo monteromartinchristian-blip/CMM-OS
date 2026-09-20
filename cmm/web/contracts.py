@@ -122,3 +122,4 @@ class ResearchOutcome:
     reads: int = 0
     computer_uses: int = 0
     warnings: tuple[str, ...] = ()
+    streamed: bool = False

@@ -8,7 +8,12 @@ from cmm.execution import (
     ExecutorRegistry,
     UnsupportedActionError,
 )
-from cmm.execution.executors import ActionExecutor, ExecutionContext, ExecutionResult, NoOpExecutor
+from cmm.execution.executors import (
+    ActionExecutor,
+    ExecutionContext,
+    ExecutionResult,
+    NoOpExecutor,
+)
 
 
 class ReadClassExecutor(ActionExecutor):

@@ -1,17 +1,16 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
+from cmm.validation.errors import ValidationContractError
+from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import (
     ValidationStep,
-    ValidationStepType,
     ValidationStepResult,
+    ValidationStepType,
 )
-from cmm.validation.enums import ValidationStatus, ValidationSeverity
-from cmm.validation.findings import ValidationFinding
-from cmm.validation.errors import ValidationContractError
-
 
 # Note: ValidationFinding.severity expects ValidationSeverity
 

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
-import os
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Optional
+from typing import Any
 
 from cmm.execution.action_planner import ActionPlanner
-from cmm.execution.executor_registry import ExecutorRegistry, create_default_executor_registry
+from cmm.execution.executor_registry import (
+    ExecutorRegistry,
+    create_default_executor_registry,
+)
 from cmm.execution.executors.base import ExecutionContext, ExecutionResult
 
 
@@ -31,9 +34,9 @@ class ActionExecution:
 
     action: object
     status: ActionStatus
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    error: Optional[str] = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
     result: object = None
 
 
@@ -168,7 +171,7 @@ class ActionRuntime:
             for action in actions
         )
 
-    def next_action(self) -> Optional[object]:
+    def next_action(self) -> object | None:
         """Return the first pending action without changing its state."""
         for execution in self._executions:
             if execution.status == ActionStatus.PENDING:
@@ -212,7 +215,7 @@ class ActionRuntime:
     def mark_skipped(
         self,
         action_id: str,
-        reason: Optional[str] = None,
+        reason: str | None = None,
     ) -> ActionExecution:
         """Mark a pending or running action as skipped."""
         return self._transition(
@@ -262,9 +265,9 @@ class ActionRuntime:
         action_id: str,
         expected_statuses: set[ActionStatus],
         new_status: ActionStatus,
-        started_at: Optional[datetime] = None,
-        finished_at: Optional[datetime] = None,
-        error: Optional[str] = None,
+        started_at: datetime | None = None,
+        finished_at: datetime | None = None,
+        error: str | None = None,
         result: object = None,
     ) -> ActionExecution:
         index, execution = self._find_execution(action_id)

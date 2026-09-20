@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping, Tuple, Optional, Any
+from typing import Any
 
+from .artifacts import ValidationArtifact
 from .enums import ValidationStatus
 from .findings import ValidationFinding
-from .artifacts import ValidationArtifact
 from .steps import ValidationStepResult
 
 
@@ -15,16 +16,16 @@ from .steps import ValidationStepResult
 class ValidationResult:
     id: str
     status: ValidationStatus
-    policy: Optional[str] = None
-    steps: Tuple[ValidationStepResult, ...] = ()
-    artifacts: Tuple[ValidationArtifact, ...] = ()
-    blocking_findings: Tuple[ValidationFinding, ...] = ()
-    warnings: Tuple[ValidationFinding, ...] = ()
-    changed_files: Tuple[Path, ...] = ()
-    affected_tests: Tuple[str, ...] = ()
+    policy: str | None = None
+    steps: tuple[ValidationStepResult, ...] = ()
+    artifacts: tuple[ValidationArtifact, ...] = ()
+    blocking_findings: tuple[ValidationFinding, ...] = ()
+    warnings: tuple[ValidationFinding, ...] = ()
+    changed_files: tuple[Path, ...] = ()
+    affected_tests: tuple[str, ...] = ()
     duration_ms: int = 0
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     can_commit: bool = False
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -53,11 +54,11 @@ class ValidationResult:
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     @property
-    def failed_steps(self) -> Tuple[ValidationStepResult, ...]:
+    def failed_steps(self) -> tuple[ValidationStepResult, ...]:
         return tuple(s for s in self.steps if s.status == ValidationStatus.FAILED)
 
     @property
-    def skipped_steps(self) -> Tuple[ValidationStepResult, ...]:
+    def skipped_steps(self) -> tuple[ValidationStepResult, ...]:
         return tuple(s for s in self.steps if s.status == ValidationStatus.SKIPPED)
 
     @property

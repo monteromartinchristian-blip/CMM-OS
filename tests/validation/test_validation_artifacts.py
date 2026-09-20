@@ -1,7 +1,8 @@
-from cmm.validation.artifacts import ValidationArtifact
-from cmm.validation.findings import ValidationFinding
-from cmm.validation.enums import ValidationSeverity
 from pathlib import Path
+
+from cmm.validation.artifacts import ValidationArtifact
+from cmm.validation.enums import ValidationSeverity
+from cmm.validation.findings import ValidationFinding
 
 
 def test_create_and_serialize_artifact():

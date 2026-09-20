@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from cmm.memory import KnowledgeGraph, ProjectIndexer, TechnicalMemory, TechnicalReasoner
+from cmm.memory import (
+    KnowledgeGraph,
+    ProjectIndexer,
+    TechnicalMemory,
+    TechnicalReasoner,
+)
 from cmm.planner import ExecutionPlan, PlanStep, TaskPlanner
 
 

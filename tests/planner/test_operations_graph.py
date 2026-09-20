@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, InsertMethodOperation, Operation, ReplaceMethodOperation
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    InsertMethodOperation,
+    Operation,
+    ReplaceMethodOperation,
+)
 
 
 def test_operation_generates_uuid_automatically() -> None:

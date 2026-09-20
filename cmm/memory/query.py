@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Union
+from typing import Union
 
 from cmm.memory.graph import KnowledgeGraph
 from cmm.memory.models import KnowledgeEdge, KnowledgeNode, RelationType
-
 
 NodeRef = Union[str, KnowledgeNode]
 
@@ -28,15 +28,15 @@ class KnowledgeQuery:
             self._outgoing.setdefault(edge.source_id, []).append(edge)
             self._incoming.setdefault(edge.target_id, []).append(edge)
 
-    def find_node(self, identifier: str) -> Optional[KnowledgeNode]:
+    def find_node(self, identifier: str) -> KnowledgeNode | None:
         """Find a node by its stable identifier."""
 
         return self.graph.nodes.get(identifier)
 
     def find_nodes(
         self,
-        node_type: Optional[str] = None,
-        name: Optional[str] = None,
+        node_type: str | None = None,
+        name: str | None = None,
     ) -> list[KnowledgeNode]:
         """Find nodes by optional type and display name."""
 
@@ -58,22 +58,22 @@ class KnowledgeQuery:
 
         return list(nodes)
 
-    def find_module(self, name: str) -> Optional[KnowledgeNode]:
+    def find_module(self, name: str) -> KnowledgeNode | None:
         """Find a module node by module name."""
 
         return self._find_one("Module", name)
 
-    def find_class(self, name: str) -> Optional[KnowledgeNode]:
+    def find_class(self, name: str) -> KnowledgeNode | None:
         """Find a class node by class name."""
 
         return self._find_one("Class", name)
 
-    def find_function(self, name: str) -> Optional[KnowledgeNode]:
+    def find_function(self, name: str) -> KnowledgeNode | None:
         """Find a function node by function name."""
 
         return self._find_one("Function", name)
 
-    def find_method(self, name: str) -> Optional[KnowledgeNode]:
+    def find_method(self, name: str) -> KnowledgeNode | None:
         """Find a method node by method name."""
 
         return self._find_one("Method", name)
@@ -114,7 +114,7 @@ class KnowledgeQuery:
     def relations(
         self,
         node: NodeRef,
-        relation_type: Optional[RelationType] = None,
+        relation_type: RelationType | None = None,
     ) -> list[KnowledgeEdge]:
         """Return all relationships connected to a node, optionally filtered by type."""
 
@@ -189,7 +189,7 @@ class KnowledgeQuery:
 
         return self._sources(node, RelationType.USES)
 
-    def _find_one(self, node_type: str, name: str) -> Optional[KnowledgeNode]:
+    def _find_one(self, node_type: str, name: str) -> KnowledgeNode | None:
         matches = self.find_nodes(node_type=node_type, name=name)
         if not matches:
             return None
@@ -258,7 +258,7 @@ class KnowledgeQuery:
 
         return results
 
-    def _resolve_node(self, node: NodeRef) -> Optional[KnowledgeNode]:
+    def _resolve_node(self, node: NodeRef) -> KnowledgeNode | None:
         if isinstance(node, KnowledgeNode):
             return node
 

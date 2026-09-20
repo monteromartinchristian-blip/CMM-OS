@@ -4,19 +4,29 @@ from __future__ import annotations
 
 import ast
 import difflib
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path, PurePath
 from time import perf_counter
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any
 
 from cmm.development.analyzer import ProjectAnalyzer
-from cmm.development.models import DevelopmentPlan, DevelopmentResult, PlanValidationError, ValidationRecord
+from cmm.development.models import (
+    DevelopmentPlan,
+    DevelopmentResult,
+    PlanValidationError,
+    ValidationRecord,
+)
 from cmm.development.providers import PlanningProvider
-from cmm.execution import Action, ActionPlanner, ActionType, create_default_executor_registry
-from cmm.runtime import ActionRuntime
+from cmm.execution import (
+    Action,
+    ActionPlanner,
+    ActionType,
+    create_default_executor_registry,
+)
 from cmm.memory import TechnicalMemory, TechnicalReasoner
 from cmm.planner import TaskPlanner
-from kernel.semantic import SemanticOperation, SemanticResult
-
+from cmm.runtime import ActionRuntime
+from kernel.semantic import SemanticResult
 
 _ACTION_TYPES = {item.value: item for item in ActionType}
 _ALLOWED_VALIDATIONS = {"python_ast", "python_compile"}

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import ast
 import difflib
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path, PurePath
 from time import perf_counter
-from typing import Callable, Iterable, Mapping
 
 from cmm.development.analyzer import ProjectAnalyzer
 from cmm.development.models import (
@@ -20,7 +20,6 @@ from cmm.development.providers import PlanningProvider
 from kernel.protocol.parser import PlanParser
 from kernel.semantic import SemanticOperation, SemanticRuntime
 from kernel.semantic_executors import create_default_semantic_registry
-
 
 _ALLOWED_VALIDATIONS = {"python_ast", "python_compile"}
 

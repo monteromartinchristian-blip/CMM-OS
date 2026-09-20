@@ -215,7 +215,6 @@ def test_policy_context_can_authorize_commit_after_success(tmp_path: Path) -> No
     )
 
     from cmm.validation import ValidationExecutor, ValidationPipeline
-    from cmm.validation.enums import ValidationStatus
     from cmm.validation.registry import ValidationRegistry
     from cmm.validation.steps import (
         ValidationStep,
@@ -371,7 +370,6 @@ def test_select_policy_steps_includes_dependencies(tmp_path: Path) -> None:
 
 def test_can_commit_denied_by_policy(tmp_path: Path) -> None:
     from cmm.validation import ValidationExecutor, ValidationPipeline
-    from cmm.validation.enums import ValidationStatus
     from cmm.validation.registry import ValidationRegistry
     from cmm.validation.steps import (
         ValidationStep,
@@ -410,7 +408,6 @@ def test_can_commit_denied_by_policy(tmp_path: Path) -> None:
 
 def test_can_commit_denied_by_failed_result(tmp_path: Path) -> None:
     from cmm.validation import ValidationExecutor, ValidationPipeline
-    from cmm.validation.enums import ValidationStatus
     from cmm.validation.findings import ValidationFinding, ValidationSeverity
     from cmm.validation.registry import ValidationRegistry
     from cmm.validation.steps import (

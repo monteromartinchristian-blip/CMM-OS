@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from cmm.memory.technical_memory import TechnicalMemory
 
 
@@ -18,7 +16,7 @@ class TechnicalReasoner:
         """Initialize the reasoner with a loaded technical-memory facade."""
         self._memory = memory
 
-    def summarize_symbol(self, name: str) -> Optional[dict[str, object]]:
+    def summarize_symbol(self, name: str) -> dict[str, object] | None:
         """Return a structured summary for the first symbol matching ``name``."""
         symbol = self._find_symbol(name)
         if symbol is None:
@@ -43,7 +41,7 @@ class TechnicalReasoner:
             },
         }
 
-    def explain_dependencies(self, name: str) -> Optional[dict[str, object]]:
+    def explain_dependencies(self, name: str) -> dict[str, object] | None:
         """Return the direct dependency relationships for a symbol."""
         symbol = self._find_symbol(name)
         if symbol is None:
@@ -59,7 +57,7 @@ class TechnicalReasoner:
             "derived_classes": self._memory.find_derived_classes(symbol),
         }
 
-    def explain_call_graph(self, name: str) -> Optional[dict[str, object]]:
+    def explain_call_graph(self, name: str) -> dict[str, object] | None:
         """Return direct callers and callees for a symbol."""
         symbol = self._find_symbol(name)
         if symbol is None:
@@ -71,7 +69,7 @@ class TechnicalReasoner:
             "callees": self._memory.find_callees(symbol),
         }
 
-    def impact_analysis(self, name: str) -> Optional[dict[str, object]]:
+    def impact_analysis(self, name: str) -> dict[str, object] | None:
         """Estimate change impact from the symbol's direct graph dependents."""
         symbol = self._find_symbol(name)
         if symbol is None:
@@ -102,7 +100,7 @@ class TechnicalReasoner:
         """Return symbols whose names contain ``keyword``."""
         return list(self._memory.search_symbols(keyword))
 
-    def _find_symbol(self, name: str) -> Optional[object]:
+    def _find_symbol(self, name: str) -> object | None:
         symbols = self._memory.find_symbol(name)
         return symbols[0] if symbols else None
 
@@ -111,7 +109,7 @@ class TechnicalReasoner:
         unique_nodes = []
 
         for node in nodes:
-            identifier = getattr(node, "identifier")
+            identifier = node.identifier
             if identifier in seen_identifiers:
                 continue
 

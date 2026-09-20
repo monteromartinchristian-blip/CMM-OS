@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
-
-from kernel.services.project_analyzer import ProjectAnalyzer
-from kernel.services.python_index import PythonIndex
+from typing import Any
 
 from cmm.memory.graph import KnowledgeGraph
 from cmm.memory.models import KnowledgeEdge, KnowledgeNode, RelationType
+from kernel.services.project_analyzer import ProjectAnalyzer
+from kernel.services.python_index import PythonIndex
 
 
 @dataclass

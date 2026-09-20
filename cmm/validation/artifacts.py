@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Optional, Any, Tuple
+from typing import Any
 
 from .findings import ValidationFinding
 
@@ -13,9 +14,9 @@ class ValidationArtifact:
     id: str
     kind: str
     source: str
-    path: Optional[Path] = None
+    path: Path | None = None
     content: Mapping[str, Any] = field(default_factory=dict)
-    findings: Tuple[ValidationFinding, ...] = ()
+    findings: tuple[ValidationFinding, ...] = ()
     metrics: Mapping[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Mapping[str, Any] = field(default_factory=dict)

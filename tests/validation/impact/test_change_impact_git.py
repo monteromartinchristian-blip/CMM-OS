@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from cmm.validation.impact import ChangeSetBuilder, GitChangeSetAdapter, FileChangeKind
+from cmm.validation.impact import ChangeSetBuilder, FileChangeKind, GitChangeSetAdapter
 
 
 def _write(path: Path, content: str) -> None:

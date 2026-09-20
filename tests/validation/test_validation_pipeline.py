@@ -2,19 +2,19 @@ import sys
 from pathlib import Path
 
 from cmm.validation import (
-    ValidationPipeline,
-    ValidationExecutor,
-    ValidationRegistry,
     CancellationToken,
+    ValidationExecutor,
+    ValidationPipeline,
+    ValidationRegistry,
 )
 from cmm.validation.context import ValidationContext
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
+from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import (
     ValidationStep,
-    ValidationStepType,
     ValidationStepResult,
+    ValidationStepType,
 )
-from cmm.validation.enums import ValidationStatus, ValidationSeverity
-from cmm.validation.findings import ValidationFinding
 
 
 class PassValidator:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cmm.transformations.preconditions import TransformationPrecondition
 from cmm.transformations.operation import TransformationOperation
+from cmm.transformations.preconditions import TransformationPrecondition
 
 
 @dataclass(frozen=True)

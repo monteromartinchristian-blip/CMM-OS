@@ -6,7 +6,8 @@ import importlib
 import json
 import os
 import re
-from typing import Any, Mapping, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 
 from cmm.development.analyzer import ProjectContext
 from cmm.development.models import DevelopmentPlan, PlanValidationError
@@ -251,7 +252,7 @@ class OllamaPlanningProvider:
             message = response["message"]
             if isinstance(message, Mapping):
                 return str(message["content"])
-            return str(getattr(message, "content"))
+            return str(message.content)
         return str(response.message.content)
 
     def _prompt(self, goal: str, context: ProjectContext) -> str:

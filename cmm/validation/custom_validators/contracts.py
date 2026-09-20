@@ -6,7 +6,6 @@ import ast
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
@@ -14,6 +13,7 @@ from cmm.validation.custom import CustomValidator
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import ValidationStepResult
+
 from ._utils import (
     aggregate_status,
     format_syntax_error_info,
@@ -53,15 +53,15 @@ REQUIRED_EXPORTS = (
 
 def _extract_module_symbols(
     tree: ast.AST,
-) -> Tuple[Set[str], Dict[str, Tuple[str | None, int, str]]]:
+) -> tuple[set[str], dict[str, tuple[str | None, int, str]]]:
     """Extract top-level defined/imported symbols and relative imports from AST.
 
     Returns:
         (defined_or_imported_symbols, relative_imports)
         where relative_imports is {local_alias: (module_name, level, imported_symbol_name)}
     """
-    symbols: Set[str] = set()
-    rel_imports: Dict[str, Tuple[str | None, int, str]] = {}
+    symbols: set[str] = set()
+    rel_imports: dict[str, tuple[str | None, int, str]] = {}
 
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -92,7 +92,7 @@ def _resolve_relative_import_target(
     module: str | None,
     level: int,
     imported_sym: str,
-) -> Tuple[bool, str, str]:
+) -> tuple[bool, str, str]:
     """Resolve a relative import to its target file and verify symbol presence.
 
     Returns:
@@ -152,12 +152,12 @@ class ValidationContractValidator(CustomValidator):
         validation_dir = context.project_root / "cmm" / "validation"
         rel_validation_dir = serialize_path(validation_dir, context.project_root)
 
-        findings: List[ValidationFinding] = []
-        missing_modules: List[str] = []
-        resolved_exports: List[str] = []
-        missing_exports: List[str] = []
-        duplicate_exports: List[str] = []
-        unresolved_exports: List[str] = []
+        findings: list[ValidationFinding] = []
+        missing_modules: list[str] = []
+        resolved_exports: list[str] = []
+        missing_exports: list[str] = []
+        duplicate_exports: list[str] = []
+        unresolved_exports: list[str] = []
 
         # 1. Check required modules
         for mod_name in REQUIRED_VALIDATION_MODULES:
@@ -246,7 +246,7 @@ class ValidationContractValidator(CustomValidator):
             )
 
         # 3. Extract __all__ and validate strictly
-        all_assigns: List[ast.AST] = []
+        all_assigns: list[ast.AST] = []
         for stmt in tree.body:
             if isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
@@ -306,7 +306,7 @@ class ValidationContractValidator(CustomValidator):
         all_value_node = all_assigns[0]
         is_literal_seq = False
         has_invalid_item = False
-        all_exports: List[str] = []
+        all_exports: list[str] = []
 
         if isinstance(all_value_node, (ast.List, ast.Tuple)):
             is_literal_seq = True
@@ -364,7 +364,7 @@ class ValidationContractValidator(CustomValidator):
             )
 
         # Check duplicates in __all__
-        seen_all: Set[str] = set()
+        seen_all: set[str] = set()
         for sym in all_exports:
             if sym in seen_all:
                 duplicate_exports.append(sym)
@@ -456,14 +456,14 @@ class ValidationContractValidator(CustomValidator):
 
     def _build_result(
         self,
-        findings: List[ValidationFinding],
+        findings: list[ValidationFinding],
         started_at: datetime,
         duration_ms: int,
-        missing_modules: List[str],
-        resolved_exports: List[str],
-        missing_exports: List[str],
-        duplicate_exports: List[str],
-        unresolved_exports: List[str],
+        missing_modules: list[str],
+        resolved_exports: list[str],
+        missing_exports: list[str],
+        duplicate_exports: list[str],
+        unresolved_exports: list[str],
     ) -> ValidationStepResult:
         status = aggregate_status(findings)
         completed_at = datetime.now(timezone.utc)

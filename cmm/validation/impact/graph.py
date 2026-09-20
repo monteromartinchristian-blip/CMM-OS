@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from kernel.services.project_analyzer import ProjectAnalyzer
 from kernel.services.python_index import PythonIndex
-from cmm.validation.errors import ValidationContractError
 
 from .contracts import DependencyEdge, DependencyGraph
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.enums import ValidationSeverity, ValidationStatus

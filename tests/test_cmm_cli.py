@@ -7,9 +7,9 @@ import pytest
 
 import cmm.__main__ as cmm_main
 from kernel.planner.execution_plan import ExecutionPlan
+from kernel.planner.executor import ExecutionResult
 from kernel.planner.operations import CreateClassOperation
 from kernel.planner.plan_validator import ValidationResult
-from kernel.planner.executor import ExecutionResult
 
 
 @dataclass

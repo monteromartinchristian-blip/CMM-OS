@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Tuple
 
-from .protocols import InternalValidator
 from .exceptions import ValidationRegistryError
+from .protocols import InternalValidator
 
 
 @dataclass(slots=True)
 class ValidationRegistry:
     """In-memory registry of internal validators."""
 
-    _validators: Dict[str, InternalValidator] = field(default_factory=dict)
+    _validators: dict[str, InternalValidator] = field(default_factory=dict)
 
     def register(
         self, name: str, validator: InternalValidator, *, replace: bool = False
@@ -55,7 +54,7 @@ class ValidationRegistry:
             return False
         return name in self._validators
 
-    def names(self) -> Tuple[str, ...]:
+    def names(self) -> tuple[str, ...]:
         # deterministic order by insertion in Python 3.7+ is preserved; convert to tuple
         return tuple(self._validators.keys())
 

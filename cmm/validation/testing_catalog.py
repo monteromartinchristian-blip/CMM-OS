@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStep, ValidationStepType
+
 from .testing.artifacts import create_pytest_report_paths
 from .testing.discovery import classify_test_path, discover_tests
 from .testing.escalation import decide_test_escalation

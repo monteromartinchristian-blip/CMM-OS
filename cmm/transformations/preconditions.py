@@ -421,7 +421,9 @@ class ReorganizationPrecondition:
 
     def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
         from cmm.transformations.operations import ReorganizationOperation
-        from cmm.transformations.reorganization_validation import ReorganizationValidator
+        from cmm.transformations.reorganization_validation import (
+            ReorganizationValidator,
+        )
 
         if not isinstance(self.operation, ReorganizationOperation):
             return PreconditionResult(self.name, False, "Invalid reorganization operation.", step_id)

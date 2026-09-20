@@ -338,7 +338,7 @@ class ValidationObservabilityService:
             self._repo.save_log(entry)
         except (
             Exception
-        ) as exc:  # persistence failure must not hide results  # noqa: BLE001
+        ) as exc:  # persistence failure must not hide results
             self._record_persistence_failure(validation_id, exc, "log")
 
     # ------------------------------------------------------------------

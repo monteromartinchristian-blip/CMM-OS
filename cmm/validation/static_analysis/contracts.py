@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from cmm.validation.errors import ValidationContractError
 
@@ -57,7 +58,7 @@ class StaticAnalysisPlan:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "StaticAnalysisPlan":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> StaticAnalysisPlan:
         return cls(
             project_root=Path(str(payload["project_root"])),
             scope=StaticAnalysisScope(str(payload.get("scope", "affected"))),

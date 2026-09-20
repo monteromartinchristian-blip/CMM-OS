@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
 import pytest
 
 from cmm.memory import (
     KnowledgeGraph,
-    KnowledgeNode,
     ProjectIndexer,
     TechnicalMemory,
 )
-from cmm.memory.repository import KnowledgeRepository
 
 
 class InMemoryKnowledgeRepository:

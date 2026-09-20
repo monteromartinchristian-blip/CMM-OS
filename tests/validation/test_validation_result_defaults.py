@@ -1,5 +1,5 @@
-from cmm.validation.results import ValidationResult
 from cmm.validation.enums import ValidationStatus
+from cmm.validation.results import ValidationResult
 
 
 def test_validation_result_defaults_and_serialize():

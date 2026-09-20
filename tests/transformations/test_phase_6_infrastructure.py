@@ -3,7 +3,6 @@ from __future__ import annotations
 from cmm.execution import ExecutionContext
 from cmm.transformations import (
     CreateFileOperation,
-    DeleteFileOperation,
     FileExistsPrecondition,
     GraphValidationResult,
     ModuleExistsPrecondition,

@@ -9,8 +9,8 @@ from cmm.memory import (
     CorruptRepositoryError,
     IncompatibleRepositoryError,
     PersistentKnowledgeRepository,
-    ProjectMismatchError,
     ProjectIndexer,
+    ProjectMismatchError,
     TechnicalMemory,
     TechnicalReasoner,
 )

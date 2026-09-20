@@ -4,7 +4,12 @@ import stat
 
 import pytest
 
-from cmm.execution import Action, ActionType, UnsupportedActionError, create_default_executor_registry
+from cmm.execution import (
+    Action,
+    ActionType,
+    UnsupportedActionError,
+    create_default_executor_registry,
+)
 from cmm.execution.executors import (
     CompositeExecutor,
     ExecutionContext,

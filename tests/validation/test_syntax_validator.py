@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cmm.validation.catalog import syntax_step
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStep
 from cmm.validation.validators.syntax import PythonSyntaxValidator

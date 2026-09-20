@@ -79,6 +79,7 @@ class WebResearchService:
         limits: ResearchLimits | None = None,
         computer: Any | None = None,
         allow_search: bool = True,
+        stream: Any | None = None,
     ) -> None:
         self._search = search_service or WebSearchService()
         self._fetch = fetch or fetch_source
@@ -87,6 +88,7 @@ class WebResearchService:
         self._limits = limits or ResearchLimits()
         self._computer = computer
         self._allow_search = allow_search
+        self._stream = stream
 
     # ── public surface ────────────────────────────────────────────────────
 
@@ -113,13 +115,23 @@ class WebResearchService:
                 searches >= self._limits.max_searches
                 and reads >= self._limits.max_reads
             ) or turn == self._limits.max_turns - 1
-            decision_text = self._complete(
-                self._decision_prompt(
-                    prompt, evidence, forced=forced, feedback=feedback
-                ),
-                self._planner_system(system),
-                cancel_event,
+            decision_prompt = self._decision_prompt(
+                prompt, evidence, forced=forced, feedback=feedback
             )
+            planner_system = self._planner_system(system)
+            if turn == 0 and self._stream is not None and not forced:
+                # Ordinary chat must keep token streaming: the first decision
+                # is streamed, and only a JSON-looking start enters the loop.
+                streamed = self._stream_first_decision(
+                    decision_prompt, planner_system, cancel_event
+                )
+                if isinstance(streamed, ResearchOutcome):
+                    return streamed
+                decision_text = streamed
+            else:
+                decision_text = self._complete(
+                    decision_prompt, planner_system, cancel_event
+                )
             feedback = ""
             decision = _parse_decision(decision_text)
             if decision is None:
@@ -392,6 +404,45 @@ class WebResearchService:
         )
 
     # ── helpers ───────────────────────────────────────────────────────────
+
+    def _stream_first_decision(
+        self, prompt_text: str, system_text: str, cancel_event: Event | None
+    ) -> ResearchOutcome | str:
+        """Stream the first planner call.
+
+        A reply starting with JSON (or a code fence) is buffered and returned
+        as the decision text; any other reply is a direct answer and is
+        streamed to the product as ``message.delta`` events.
+        """
+
+        buffer: list[str] = []
+        answer: list[str] = []
+        mode: str | None = None
+        for delta in self._stream(
+            prompt=prompt_text, system=system_text, cancel_event=cancel_event
+        ):
+            if mode is None:
+                buffer.append(delta)
+                head = "".join(buffer).lstrip()
+                if head[:1] in ("{", "`"):
+                    mode = "json"
+                elif head or sum(len(part) for part in buffer) > 64:
+                    mode = "direct"
+                    for piece in buffer:
+                        self._emit("message.delta", {"delta": piece})
+                    answer.extend(buffer)
+                continue
+            if mode == "json":
+                buffer.append(delta)
+            else:
+                self._emit("message.delta", {"delta": delta})
+                answer.append(delta)
+        if mode != "direct":
+            return "".join(buffer)
+        text = "".join(answer).strip()
+        if not text:
+            return ""
+        return ResearchOutcome(answer=text, citations=(), streamed=True)
 
     def _planner_system(self, system: str | None) -> str:
         """Compose the action protocol with only the available capabilities."""

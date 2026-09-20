@@ -3,15 +3,14 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
-
-from cmm.validation.context import ValidationContext
-from cmm.validation.steps import ValidationStep, ValidationStepType
 
 from cmm.validation.catalog import select_python_files
+from cmm.validation.context import ValidationContext
 from cmm.validation.impact.contracts import ChangeSet, ChangeType
 from cmm.validation.impact.snapshots import ChangeSetBuilder
+from cmm.validation.steps import ValidationStep, ValidationStepType
 
 from .contracts import StaticAnalysisPlan, StaticAnalysisScope
 

@@ -2,23 +2,22 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Any, Optional
 
 from .artifacts import ValidationArtifact
+from .command_parsers import CommandResultParser
 from .context import ValidationContext
-from .enums import ValidationStatus, ValidationSeverity
-from .steps import ValidationStep, ValidationStepType, ValidationStepResult
-from .registry import ValidationRegistry
+from .enums import ValidationSeverity, ValidationStatus
 from .exceptions import ValidationExecutionError
 from .findings import ValidationFinding
-from .command_parsers import CommandResultParser
+from .registry import ValidationRegistry
 from .security.contracts import CommandPolicy, default_command_policy
 from .security.validation import evaluate_command_policy
+from .steps import ValidationStep, ValidationStepResult, ValidationStepType
 
 
 @dataclass(slots=True)
@@ -47,7 +46,7 @@ class ValidationExecutor:
 
     def _select_cwd(
         self, context: ValidationContext, step: ValidationStep
-    ) -> Optional[Path]:
+    ) -> Path | None:
         return step.working_directory or context.project_root
 
     def _resolve_command_policy(
@@ -76,7 +75,7 @@ class ValidationExecutor:
         self,
         context: ValidationContext,
         step: ValidationStep,
-        registry: Optional[ValidationRegistry] = None,
+        registry: ValidationRegistry | None = None,
     ) -> ValidationStepResult:
         if step.step_type == ValidationStepType.COMMAND:
             return self._execute_command(context, step)

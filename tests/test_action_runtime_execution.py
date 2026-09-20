@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from cmm.execution import Action, ActionPlanner, ActionType, ExecutorRegistry
-from cmm.execution.executors import ActionExecutor, ExecutionContext, ExecutionResult, NoOpExecutor
+from cmm.execution.executors import (
+    ActionExecutor,
+    ExecutionContext,
+    ExecutionResult,
+    NoOpExecutor,
+)
 from cmm.memory import TechnicalMemory, TechnicalReasoner
 from cmm.planner import TaskPlanner
 from cmm.runtime import ActionRuntime, ActionStatus

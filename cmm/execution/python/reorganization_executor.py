@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-import shutil
 from typing import Any
 
 import libcst as cst
@@ -444,7 +443,10 @@ class PythonReorganizationExecutor(OperationExecutor):
     def _relocate_import_statement(
         self, statement: cst.BaseStatement, source_module: str, target_module: str
     ) -> cst.BaseStatement:
-        from cmm.execution.python.visitors.reorganization_transformer import module_node, dotted_name
+        from cmm.execution.python.visitors.reorganization_transformer import (
+            dotted_name,
+            module_node,
+        )
         from cmm.transformations.relative_import_resolver import RelativeImportResolver
 
         if not isinstance(statement, cst.SimpleStatementLine):

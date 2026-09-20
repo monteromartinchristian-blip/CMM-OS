@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 from cmm.validation.artifacts import ValidationArtifact

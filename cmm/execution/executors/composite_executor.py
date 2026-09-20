@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from cmm.execution.action_planner import ActionType
 from cmm.execution.executor_registry import UnsupportedActionError
-from cmm.execution.executors.base import ActionExecutor, ExecutionContext, ExecutionResult
+from cmm.execution.executors.base import (
+    ActionExecutor,
+    ExecutionContext,
+    ExecutionResult,
+)
 
 
 class CompositeExecutor(ActionExecutor):

@@ -6,11 +6,10 @@ from pathlib import Path
 
 from kernel.end_to_end_runner import EndToEndRunner
 from kernel.planner.execution_plan import ExecutionPlan
-from kernel.planner.operations import CreateClassOperation, InsertMethodOperation
-from kernel.planner.operation_planner import OperationPlanner
-from kernel.planner.planner_strategy import RuleBasedPlannerStrategy
-from kernel.planner.planner_strategy import PlannerStrategy
 from kernel.planner.operation_catalog import OperationCatalog
+from kernel.planner.operation_planner import OperationPlanner
+from kernel.planner.operations import CreateClassOperation, InsertMethodOperation
+from kernel.planner.planner_strategy import PlannerStrategy, RuleBasedPlannerStrategy
 
 
 class DuplicateCreateClassStrategy(PlannerStrategy):

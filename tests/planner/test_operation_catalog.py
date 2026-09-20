@@ -7,7 +7,15 @@ from kernel.knowledge.base import KnowledgeBase
 from kernel.knowledge.delta import KnowledgeDelta
 from kernel.planner.operation_catalog import OperationCatalog
 from kernel.planner.operation_metadata import OperationMetadata
-from kernel.planner.operations import CreateClassOperation, EnsureImportOperation, ExtractFactsOperation, InsertMethodOperation, MergeKnowledgeOperation, ReadPDFOperation, ReplaceMethodOperation
+from kernel.planner.operations import (
+    CreateClassOperation,
+    EnsureImportOperation,
+    ExtractFactsOperation,
+    InsertMethodOperation,
+    MergeKnowledgeOperation,
+    ReadPDFOperation,
+    ReplaceMethodOperation,
+)
 
 
 def test_catalog_discovers_all_registered_operations() -> None:

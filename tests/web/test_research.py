@@ -363,3 +363,47 @@ def test_planner_protocol_adapts_to_available_capabilities():
     system = complete.prompts[0][1]
     assert '"action":"computer"' in system
     assert '"action":"search"' in system
+
+
+def test_first_decision_streams_direct_answers():
+    events = []
+    emit = lambda kind, data: events.append((kind, data))
+
+    def fake_stream(prompt, system, cancel_event=None):
+        yield "La prescripción "
+        yield "adquisitiva es un modo de adquirir."
+
+    complete = ScriptedComplete([])
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=complete,
+        emit=emit,
+        stream=fake_stream,
+    )
+    outcome = service.research("Explícame la prescripción adquisitiva.")
+    assert outcome.streamed is True
+    assert outcome.answer.startswith("La prescripción")
+    assert complete.prompts == []
+    assert [kind for kind, _ in events] == ["message.delta", "message.delta"]
+
+
+def test_first_decision_json_start_enters_the_protocol_loop():
+    events = []
+    emit = lambda kind, data: events.append((kind, data))
+
+    def fake_stream(prompt, system, cancel_event=None):
+        yield '{"action":'
+        yield '"answer","text":"ok","citations":[]}'
+
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=ScriptedComplete([]),
+        emit=emit,
+        stream=fake_stream,
+    )
+    outcome = service.research("x")
+    assert outcome.answer == "ok"
+    assert outcome.streamed is False
+    assert events == []

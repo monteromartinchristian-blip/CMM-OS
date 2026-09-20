@@ -6,12 +6,12 @@ import pytest
 
 from kernel.cli import build_parser, main
 from kernel.core.kernel import AgentKernel
+from kernel.core.result import KernelResult
 from kernel.planner.context import PlanningContext
 from kernel.planner.execution_plan import ExecutionPlan
-from kernel.planner.validator import ValidationResult
 from kernel.planner.executor import ExecutionResult
-from kernel.core.result import KernelResult
 from kernel.planner.operations import CreateClassOperation
+from kernel.planner.validator import ValidationResult
 
 
 class DummyPlanner:

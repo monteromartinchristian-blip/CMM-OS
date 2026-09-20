@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from cmm.development.analyzer import ProjectContext
 from cmm.development.models import DevelopmentPlan, DevelopmentResult
@@ -41,7 +42,7 @@ class CorrectionProvider(Protocol):
         context: ProjectContext,
         previous_plan: DevelopmentPlan | None,
         previous_result: DevelopmentResult,
-        failure: "FailureClassification",
+        failure: FailureClassification,
     ) -> DevelopmentPlan | Mapping[str, Any] | None:
         """Return a corrected plan, or None to use the normal planning hook."""
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.custom_validators.public_api import PublicApiValidator

@@ -6,15 +6,15 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from cmm.memory.graph import KnowledgeGraph
 from cmm.memory.models import KnowledgeEdge, KnowledgeNode, RelationType
 from cmm.memory.results import ProjectChangeSet
-
 
 SCHEMA_VERSION = 1
 _EXCLUDED_PARTS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
@@ -58,7 +58,7 @@ class FileFingerprint:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "FileFingerprint":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> FileFingerprint:
         required = {"path", "sha256", "size", "mtime_ns"}
         if not required.issubset(payload):
             raise CorruptRepositoryError("File fingerprint is missing required fields.")
@@ -83,7 +83,7 @@ class ProjectSnapshot:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ProjectSnapshot":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ProjectSnapshot:
         files = payload.get("files")
         if not isinstance(files, Mapping) or not isinstance(payload.get("project_root"), str):
             raise CorruptRepositoryError("Project snapshot has an invalid schema.")

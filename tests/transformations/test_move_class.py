@@ -9,7 +9,6 @@ from cmm.transformations import (
     DeleteSymbolOperation,
     MoveClassTransformation,
     TransformationGraph,
-    TransformationStep,
     UpdateImportsOperation,
     ValidateProjectOperation,
 )

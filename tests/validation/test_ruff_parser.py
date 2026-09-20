@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from cmm.validation.tools.ruff import parse_ruff_results
-from cmm.validation.steps import ValidationStep
-from cmm.validation.context import ValidationContext
 
 
 def test_parse_ruff_results_empty_json():

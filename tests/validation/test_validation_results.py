@@ -1,12 +1,11 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from cmm.validation.results import ValidationResult
-from cmm.validation.enums import ValidationStatus
-from cmm.validation.findings import ValidationFinding
 from cmm.validation.artifacts import ValidationArtifact
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
+from cmm.validation.findings import ValidationFinding
+from cmm.validation.results import ValidationResult
 from cmm.validation.steps import ValidationStepResult
-from cmm.validation.enums import ValidationSeverity
 
 
 def test_validation_result_aggregation_and_serialization():

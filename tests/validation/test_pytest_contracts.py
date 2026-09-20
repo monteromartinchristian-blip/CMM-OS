@@ -6,8 +6,8 @@ import pytest
 
 
 def test_testing_package_imports_cleanly() -> None:
-    import cmm.validation.testing  # noqa: F401
-    import cmm.validation.testing_catalog  # noqa: F401
+    import cmm.validation.testing
+    import cmm.validation.testing_catalog
     import cmm.validation.testing_defaults  # noqa: F401
 
 

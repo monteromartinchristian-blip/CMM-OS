@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationStatus
 from cmm.validation.steps import (
     ValidationStep,

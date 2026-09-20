@@ -6,7 +6,6 @@ import ast
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
 
 from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
@@ -14,6 +13,7 @@ from cmm.validation.custom import CustomValidator
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.steps import ValidationStepResult
+
 from ._utils import (
     aggregate_status,
     format_syntax_error_info,
@@ -23,7 +23,7 @@ from ._utils import (
 )
 
 
-def _count_tests_in_ast(tree: ast.AST) -> Tuple[int, int, bool]:
+def _count_tests_in_ast(tree: ast.AST) -> tuple[int, int, bool]:
     """Count test functions, Test classes, and check for pytest/parametrize references in AST.
 
     Returns:
@@ -83,15 +83,15 @@ class TestLayoutValidator(CustomValidator):
         t0 = time.monotonic()
         source_name = f"validation.custom.{self.name}"
 
-        findings: List[ValidationFinding] = []
+        findings: list[ValidationFinding] = []
         tests_dir = context.project_root / "tests"
         cmm_dir = context.project_root / "cmm"
 
-        empty_files: List[str] = []
-        files_without_tests: List[str] = []
-        syntax_errors: List[str] = []
-        source_tree_tests: List[str] = []
-        naming_issues: List[str] = []
+        empty_files: list[str] = []
+        files_without_tests: list[str] = []
+        syntax_errors: list[str] = []
+        source_tree_tests: list[str] = []
+        naming_issues: list[str] = []
 
         total_fn_count = 0
         total_class_count = 0
@@ -158,13 +158,13 @@ class TestLayoutValidator(CustomValidator):
                     )
 
         # 3. Discover python files under tests/
-        all_py_files: List[Path] = []
+        all_py_files: list[Path] = []
         for p in sorted(tests_dir.rglob("*.py")):
             if not is_ignored_path(p):
                 all_py_files.append(p)
 
-        canonical_test_files: List[Path] = []
-        auxiliary_files: List[Path] = []
+        canonical_test_files: list[Path] = []
+        auxiliary_files: list[Path] = []
 
         for p in all_py_files:
             fname = p.name
@@ -218,7 +218,7 @@ class TestLayoutValidator(CustomValidator):
             )
 
         # 4. Check case-insensitive Python module path collisions among canonical test files
-        seen_module_casefold: Dict[str, str] = {}
+        seen_module_casefold: dict[str, str] = {}
         for p in canonical_test_files:
             rel_p = serialize_path(p, context.project_root)
             try:
@@ -341,17 +341,17 @@ class TestLayoutValidator(CustomValidator):
 
     def _build_result(
         self,
-        findings: List[ValidationFinding],
+        findings: list[ValidationFinding],
         started_at: datetime,
         duration_ms: int,
         test_file_count: int,
         test_fn_count: int,
         test_class_count: int,
-        empty_files: List[str],
-        files_without_tests: List[str],
-        syntax_errors: List[str],
-        source_tree_tests: List[str],
-        naming_issues: List[str],
+        empty_files: list[str],
+        files_without_tests: list[str],
+        syntax_errors: list[str],
+        source_tree_tests: list[str],
+        naming_issues: list[str],
     ) -> ValidationStepResult:
         status = aggregate_status(findings)
         completed_at = datetime.now(timezone.utc)

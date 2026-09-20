@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from kernel.llm.exceptions import ParserError
@@ -12,7 +10,6 @@ from kernel.llm.provider import LLMProvider
 from kernel.planner.context import PlanningContext
 from kernel.planner.execution_plan import ExecutionPlan
 from kernel.planner.llm_planner import LLMPlanner
-from kernel.planner.operations import InsertMethodOperation
 
 
 class DummyProvider(LLMProvider):

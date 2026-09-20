@@ -15,8 +15,6 @@ from cmm.transformations.operations import (
     DeleteFileOperation,
     DeleteModuleOperation,
     DeleteSymbolOperation,
-    RenameSymbolOperation,
-    UpdateImportsOperation,
     ExtractMethodOperation,
     ExtractModuleOperation,
     MergeModulesOperation,
@@ -24,8 +22,10 @@ from cmm.transformations.operations import (
     MovePackageOperation,
     RenameModuleOperation,
     RenamePackageOperation,
+    RenameSymbolOperation,
     ReorganizationOperation,
     SplitModuleOperation,
+    UpdateImportsOperation,
 )
 
 
@@ -61,7 +61,10 @@ class ExecutionContext:
 
     def analyze_impact(self, request: object) -> object:
         """Run one cached impact analysis against the current semantic snapshot."""
-        from cmm.transformations.impact_analysis import ImpactAnalyzer, ImpactAnalysisRequest
+        from cmm.transformations.impact_analysis import (
+            ImpactAnalysisRequest,
+            ImpactAnalyzer,
+        )
         from cmm.transformations.reorganization_impact import (
             ReorganizationImpactAnalyzer,
             ReorganizationImpactRequest,
@@ -124,6 +127,7 @@ class ExecutionContext:
         if self.impact_result is None:
             return None
         from dataclasses import replace
+
         from cmm.transformations.impact_analysis import ImpactAnalyzer
         from cmm.transformations.reorganization_impact import (
             ReorganizationImpactAnalyzer,
@@ -210,7 +214,7 @@ class ExecutionContext:
 
     def module_path(self, module_name: str) -> Path:
         """Return the expected path for a Python module in this project."""
-        normalized_name = module_name[:-3] if module_name.endswith(".py") else module_name
+        normalized_name = module_name.removesuffix(".py")
         if not normalized_name or any(part in {"", ".", ".."} for part in normalized_name.split(".")):
             raise ProjectPathError(f"Invalid module name: {module_name}.")
         return self.resolve_project_path(Path(*normalized_name.split(".")).with_suffix(".py"))
@@ -264,10 +268,11 @@ class ExecutionContext:
         new_symbol_name: str,
     ) -> tuple[bool, str]:
         """Validate statically rewritable direct, from, relative, and qualified references."""
-        from cmm.execution.python.visitors import ReferenceLocator
-        from cmm.transformations.relative_import_resolver import RelativeImportResolver
-        from cmm.transformations.impact_analysis import ImpactAnalysisRequest
         import libcst as cst
+
+        from cmm.execution.python.visitors import ReferenceLocator
+        from cmm.transformations.impact_analysis import ImpactAnalysisRequest
+        from cmm.transformations.relative_import_resolver import RelativeImportResolver
 
         impact = self.analyze_impact(ImpactAnalysisRequest(
             source_module=source_module,
@@ -517,7 +522,9 @@ class ExecutionContext:
         start_index: int,
         end_index: int,
     ) -> tuple[bool, str]:
-        from cmm.execution.python.extract_method_analysis import analyze_method_extraction
+        from cmm.execution.python.extract_method_analysis import (
+            analyze_method_extraction,
+        )
 
         path = self.module_path(module)
         analysis, message = analyze_method_extraction(
@@ -545,8 +552,9 @@ class ExecutionContext:
         allow_missing_target: bool = False,
     ) -> tuple[bool, str]:
         import libcst as cst
-        from cmm.transformations.relative_import_resolver import RelativeImportResolver
+
         from cmm.execution.python.visitors import SymbolLocator
+        from cmm.transformations.relative_import_resolver import RelativeImportResolver
 
         if not symbols:
             return False, "Symbol selection is empty."

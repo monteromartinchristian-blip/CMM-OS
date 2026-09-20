@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Mapping, Optional, Tuple, Any
-from datetime import datetime, timezone
+from typing import Any
 
-from .errors import ValidationContractError
-from .enums import ValidationStatus
-from .findings import ValidationFinding
 from .artifacts import ValidationArtifact
+from .enums import ValidationStatus
+from .errors import ValidationContractError
+from .findings import ValidationFinding
 
 
 class ValidationStepType(str, Enum):
@@ -21,15 +22,15 @@ class ValidationStepType(str, Enum):
 class ValidationStep:
     name: str
     step_type: ValidationStepType = ValidationStepType.COMMAND
-    command: Tuple[str, ...] = ()
+    command: tuple[str, ...] = ()
     required: bool = True
     timeout_seconds: int = 60
     stop_on_failure: bool = True
-    allowed_exit_codes: Tuple[int, ...] = (0,)
+    allowed_exit_codes: tuple[int, ...] = (0,)
     environment: Mapping[str, str] = field(default_factory=dict)
-    working_directory: Optional[Path] = None
-    dependencies: Tuple[str, ...] = ()
-    tags: Tuple[str, ...] = ()
+    working_directory: Path | None = None
+    dependencies: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -77,14 +78,14 @@ class ValidationStep:
 class ValidationStepResult:
     name: str
     status: ValidationStatus
-    exit_code: Optional[int] = None
+    exit_code: int | None = None
     duration_ms: int = 0
     stdout: str = ""
     stderr: str = ""
-    findings: Tuple[ValidationFinding, ...] = ()
-    artifacts: Tuple[ValidationArtifact, ...] = ()
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    findings: tuple[ValidationFinding, ...] = ()
+    artifacts: tuple[ValidationArtifact, ...] = ()
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

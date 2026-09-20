@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.models import TransformationStep
 from cmm.transformations.operations import (
     CreateModuleOperation,
@@ -14,7 +15,6 @@ from cmm.transformations.preconditions import (
     ImpactAnalysisPrecondition,
     ModuleExistsPrecondition,
 )
-from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.transformation import Transformation
 
 

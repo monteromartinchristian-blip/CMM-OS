@@ -15,11 +15,11 @@ from cmm.transformations.impact_analysis import (
     ImpactAnalyzer,
     ImpactDiscrepancy,
     ImpactDiscrepancyCode,
+    ImpactedModule,
+    ImpactedSymbol,
     ImpactIssue,
     ImpactIssueCode,
     ImpactSeverity,
-    ImpactedModule,
-    ImpactedSymbol,
     PostImpactValidationResult,
     ProjectReferenceGraph,
 )
@@ -71,7 +71,7 @@ class ReorganizationImpactRequest:
     @classmethod
     def from_operation(
         cls, operation: ReorganizationOperation, transformation_id: str
-    ) -> "ReorganizationImpactRequest":
+    ) -> ReorganizationImpactRequest:
         if isinstance(operation, RenameModuleOperation | MoveModuleOperation):
             return cls(
                 transformation_id,

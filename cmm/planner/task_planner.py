@@ -112,7 +112,7 @@ class TaskPlanner:
             exact_matches = [
                 symbol
                 for symbol in matches
-                if getattr(symbol, "title").lower() == candidate.lower()
+                if symbol.title.lower() == candidate.lower()
             ]
             if exact_matches:
                 return self._unique_symbols(exact_matches)
@@ -128,14 +128,14 @@ class TaskPlanner:
         components = []
 
         for symbol in self.identify_entry_points(goal):
-            impact = self._reasoner.impact_analysis(getattr(symbol, "title"))
+            impact = self._reasoner.impact_analysis(symbol.title)
             if impact is None:
                 continue
 
             components.extend(impact["direct_dependents"])
             components.extend(impact["callers"])
             components.extend(impact["callees"])
-            dependencies = self._reasoner.explain_dependencies(getattr(symbol, "title"))
+            dependencies = self._reasoner.explain_dependencies(symbol.title)
             if dependencies is not None:
                 components.extend(dependencies["uses"])
                 components.extend(dependencies["imports"])
@@ -146,7 +146,7 @@ class TaskPlanner:
     def _impacts_for(self, goal: str) -> list[dict[str, object]]:
         impacts = []
         for symbol in self.identify_entry_points(goal):
-            impact = self._reasoner.impact_analysis(getattr(symbol, "title"))
+            impact = self._reasoner.impact_analysis(symbol.title)
             if impact is not None:
                 impacts.append(impact)
         return impacts
@@ -182,7 +182,7 @@ class TaskPlanner:
         unique_symbols = []
 
         for symbol in symbols:
-            identifier = getattr(symbol, "identifier")
+            identifier = symbol.identifier
             if identifier in seen_identifiers:
                 continue
 
