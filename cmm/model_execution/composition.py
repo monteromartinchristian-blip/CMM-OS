@@ -58,6 +58,7 @@ __all__ = [
     "LOCAL_RUNTIME_API_KEY_ENV",
     "LOCAL_RUNTIME_BASE_URL_ENV",
     "LOCAL_RUNTIME_DEFAULT_BASE_URL",
+    "LOCAL_RUNTIME_EGRESS_ENV",
     "LOCAL_RUNTIME_MODEL_IDS_ENV",
     "LOCAL_RUNTIME_PROVIDER_ID",
     "LocalModelExecution",
@@ -66,6 +67,7 @@ __all__ = [
     "configured_local_runtime_model_ids",
     "configured_model_ids",
     "discover_chat_only_router_models",
+    "lane_egress_class",
     "local_runtime_provider_spec",
     "register_chat_only_router",
     "register_local_runtime",
@@ -177,6 +179,21 @@ def router_disabled() -> bool:
         "true",
         "yes",
     }
+
+
+#: Honest egress class of the local-runtime lane: ``local`` only when the
+#: launcher declares the runtime processes data on this device (a tunneled or
+#: remote runtime must be declared ``remote``).
+LOCAL_RUNTIME_EGRESS_ENV = "CMM_LOCAL_RUNTIME_EGRESS"
+
+
+def lane_egress_class(provider_id: str) -> str:
+    """Return ``local`` or ``remote``: does context leave this device?"""
+
+    if provider_id == LOCAL_RUNTIME_PROVIDER_ID:
+        declared = os.getenv(LOCAL_RUNTIME_EGRESS_ENV, "local").strip().lower()
+        return "remote" if declared == "remote" else "local"
+    return "remote"
 
 
 def discover_chat_only_router_models(

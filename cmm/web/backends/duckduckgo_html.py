@@ -151,7 +151,7 @@ class DuckDuckGoHtmlBackend:
                 )
                 continue
             return self._parse(response.text, limit)
-        assert last_error is not None  # noqa: S101 - loop always assigns
+        assert last_error is not None
         raise last_error
 
     def _parse(self, html: str, limit: int) -> tuple[WebResultItem, ...]:
@@ -167,9 +167,7 @@ class DuckDuckGoHtmlBackend:
                 continue
             seen.add(url)
             snippet = (
-                parser.snippets[len(items)]
-                if len(items) < len(parser.snippets)
-                else ""
+                parser.snippets[len(items)] if len(items) < len(parser.snippets) else ""
             )
             items.append(
                 WebResultItem(

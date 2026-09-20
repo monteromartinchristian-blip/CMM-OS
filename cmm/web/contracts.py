@@ -8,8 +8,8 @@ from urllib.parse import urlsplit
 
 __all__ = [
     "Citation",
-    "FetchedSource",
     "FetchRequest",
+    "FetchedSource",
     "WebResultItem",
     "WebSearchRequest",
     "WebSearchResult",
@@ -120,4 +120,5 @@ class ResearchOutcome:
     sources: tuple[FetchedSource, ...] = field(default=())
     searches: int = 0
     reads: int = 0
+    computer_uses: int = 0
     warnings: tuple[str, ...] = ()

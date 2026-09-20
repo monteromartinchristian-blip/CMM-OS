@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
 
 from cmm.web.backends.duckduckgo_html import HttpTransport
 from cmm.web.contracts import WebResultItem, domain_of, utc_now
@@ -39,7 +38,9 @@ class WikipediaRestBackend:
             )
         except Exception as error:  # noqa: BLE001 - normalized below
             name = type(error).__name__
-            code = "SEARCH_TIMEOUT" if "Timeout" in name else "SEARCH_BACKEND_UNAVAILABLE"
+            code = (
+                "SEARCH_TIMEOUT" if "Timeout" in name else "SEARCH_BACKEND_UNAVAILABLE"
+            )
             raise WebCapabilityError(
                 "The web search backend could not be reached.", code=code
             ) from None

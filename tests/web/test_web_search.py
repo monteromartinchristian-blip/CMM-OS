@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 import pytest
 
-from cmm.web.contracts import WebSearchRequest
-from cmm.web.errors import WebCapabilityError
 from cmm.web.backends.duckduckgo_html import DuckDuckGoHtmlBackend
 from cmm.web.backends.wikipedia_rest import WikipediaRestBackend
+from cmm.web.contracts import WebSearchRequest
+from cmm.web.errors import WebCapabilityError
 from cmm.web.service import WebSearchService
 
 DDG_HTML = """
@@ -113,9 +113,7 @@ def test_domain_policy_filters_results():
     service = WebSearchService(
         backends=(DuckDuckGoHtmlBackend(transport=transport, sleep=lambda _: None),)
     )
-    result = service.search(
-        WebSearchRequest(query="boe", allowed_domains=("boe.es",))
-    )
+    result = service.search(WebSearchRequest(query="boe", allowed_domains=("boe.es",)))
     assert [item.domain for item in result.items] == ["boe.es"]
 
     transport2 = FakeTransport([FakeResponse(200, DDG_HTML)])

@@ -22,8 +22,8 @@ from cmm.web.service import WebSearchService
 __all__ = [
     "WEB_ERROR_CODES",
     "Citation",
-    "FetchedSource",
     "FetchRequest",
+    "FetchedSource",
     "WebCapabilityError",
     "WebResultItem",
     "WebSearchRequest",

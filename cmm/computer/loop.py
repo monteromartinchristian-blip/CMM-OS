@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from threading import Event
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from cmm.computer.contracts import (
     Action,
@@ -21,7 +22,7 @@ from cmm.computer.policy import classify_action
 
 __all__ = ["ApprovalGate", "ComputerUseService"]
 
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _PLANNER_SYSTEM = (
     "You control a macOS computer for the user through CMM OS. Reply with ONE "
     "strict JSON object and nothing else. Allowed actions:\n"
@@ -89,7 +90,9 @@ class ComputerUseService:
             "permissions": permissions,
         }
 
-    def run_task(self, task: str, *, cancel_event: Event | None = None) -> ComputerTaskOutcome:
+    def run_task(
+        self, task: str, *, cancel_event: Event | None = None
+    ) -> ComputerTaskOutcome:
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task must be a non-empty string")
         if not getattr(self._runtime, "available", lambda: False)():
@@ -108,13 +111,21 @@ class ComputerUseService:
         tool_run_id = f"computer-{abs(hash(task)) % 100_000}"
         self._emit(
             "tool.requested",
-            {"tool_run_id": tool_run_id, "capability": "computer.use",
-             "tool": "computer", "summary": task[:120]},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "computer.use",
+                "tool": "computer",
+                "summary": task[:120],
+            },
         )
         self._emit(
             "tool.started",
-            {"tool_run_id": tool_run_id, "capability": "computer.use",
-             "tool": "computer", "summary": task[:120]},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "computer.use",
+                "tool": "computer",
+                "summary": task[:120],
+            },
         )
 
         actions: list[str] = []
@@ -128,9 +139,13 @@ class ComputerUseService:
             if cancel_event is not None and cancel_event.is_set():
                 self._emit(
                     "tool.cancelled",
-                    {"tool_run_id": tool_run_id, "capability": "computer.use",
-                     "tool": "computer", "status": "cancelled",
-                     "summary": f"{len(actions)} actions before cancellation"},
+                    {
+                        "tool_run_id": tool_run_id,
+                        "capability": "computer.use",
+                        "tool": "computer",
+                        "status": "cancelled",
+                        "summary": f"{len(actions)} actions before cancellation",
+                    },
                 )
                 raise ComputerUseError(
                     "The computer task was cancelled.", code="CANCELLED"
@@ -139,10 +154,13 @@ class ComputerUseService:
             observation = self._runtime.observe()
             self._emit(
                 "computer.observation",
-                {"tool_run_id": tool_run_id, "capability": "computer.use",
-                 "app": observation.frontmost_app,
-                 "windows": len(observation.windows),
-                 "elements": len(observation.elements)},
+                {
+                    "tool_run_id": tool_run_id,
+                    "capability": "computer.use",
+                    "app": observation.frontmost_app,
+                    "windows": len(observation.windows),
+                    "elements": len(observation.elements),
+                },
             )
 
             forced = step == self._limits.max_steps - 1
@@ -155,9 +173,13 @@ class ComputerUseService:
             if cancel_event is not None and cancel_event.is_set():
                 self._emit(
                     "tool.cancelled",
-                    {"tool_run_id": tool_run_id, "capability": "computer.use",
-                     "tool": "computer", "status": "cancelled",
-                     "summary": "cancelled while planning the next action"},
+                    {
+                        "tool_run_id": tool_run_id,
+                        "capability": "computer.use",
+                        "tool": "computer",
+                        "status": "cancelled",
+                        "summary": "cancelled while planning the next action",
+                    },
                 )
                 raise ComputerUseError(
                     "The computer task was cancelled.", code="CANCELLED"
@@ -172,14 +194,21 @@ class ComputerUseService:
             params = {k: v for k, v in parsed.items() if k != "action"}
             if kind == "finish" or forced:
                 summary = str(params.get("summary", "")).strip() or (
-                    "Step budget exhausted; task stopped." if forced else "Task finished."
+                    "Step budget exhausted; task stopped."
+                    if forced
+                    else "Task finished."
                 )
                 if forced and kind != "finish":
                     warnings.append("step budget exhausted")
                 self._emit(
                     "tool.completed",
-                    {"tool_run_id": tool_run_id, "capability": "computer.use",
-                     "tool": "computer", "status": "completed", "summary": summary},
+                    {
+                        "tool_run_id": tool_run_id,
+                        "capability": "computer.use",
+                        "tool": "computer",
+                        "status": "completed",
+                        "summary": summary,
+                    },
                 )
                 return ComputerTaskOutcome(
                     summary=summary,
@@ -214,24 +243,10 @@ class ComputerUseService:
                     consequence=decision_policy.consequence,
                     egress=decision_policy.egress,
                 )
-                self._emit(
-                    "approval.requested",
-                    {"tool_run_id": proposal.tool_run_id, "capability": "computer.use",
-                     "approval": {
-                         "action": proposal.action_description,
-                         "app": proposal.app,
-                         "reason": proposal.reason,
-                         "consequence": proposal.consequence,
-                         "egress": proposal.egress,
-                     }},
-                )
+                # The gate owns the canonical approval lifecycle, including
+                # the normalized approval.requested/resolved events.
                 verdict = (
                     self._gate.request(proposal) if self._gate is not None else "reject"
-                )
-                self._emit(
-                    "approval.resolved",
-                    {"tool_run_id": proposal.tool_run_id, "capability": "computer.use",
-                     "decision": verdict},
                 )
                 if verdict != "allow_once":
                     rejections += 1
@@ -246,9 +261,13 @@ class ComputerUseService:
                 # Cancellation must prevent the next action even after approval.
                 self._emit(
                     "tool.cancelled",
-                    {"tool_run_id": tool_run_id, "capability": "computer.use",
-                     "tool": "computer", "status": "cancelled",
-                     "summary": "cancelled before executing the next action"},
+                    {
+                        "tool_run_id": tool_run_id,
+                        "capability": "computer.use",
+                        "tool": "computer",
+                        "status": "cancelled",
+                        "summary": "cancelled before executing the next action",
+                    },
                 )
                 raise ComputerUseError(
                     "The computer task was cancelled.", code="CANCELLED"
@@ -268,8 +287,12 @@ class ComputerUseService:
                 continue
             self._emit(
                 "tool.progress",
-                {"tool_run_id": tool_run_id, "capability": "computer.use",
-                 "tool": "computer", "summary": description},
+                {
+                    "tool_run_id": tool_run_id,
+                    "capability": "computer.use",
+                    "tool": "computer",
+                    "summary": description,
+                },
             )
             result = self._runtime.execute(action, observation)
             if result.ok:
@@ -280,10 +303,15 @@ class ComputerUseService:
 
         self._emit(
             "tool.failed",
-            {"tool_run_id": tool_run_id, "capability": "computer.use",
-             "tool": "computer",
-             "error": {"code": "CAPABILITY_UNSUPPORTED",
-                       "message": "The computer task did not converge."}},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "computer.use",
+                "tool": "computer",
+                "error": {
+                    "code": "CAPABILITY_UNSUPPORTED",
+                    "message": "The computer task did not converge.",
+                },
+            },
         )
         raise ComputerUseError(
             "The computer task did not converge within the step budget.",
@@ -295,7 +323,7 @@ class ComputerUseService:
             return _PLANNER_SYSTEM
         return (
             _PLANNER_SYSTEM
-            + '\nAdditionally allowed when the task needs current web information:\n'
+            + "\nAdditionally allowed when the task needs current web information:\n"
             '{"action":"web.search","query":"<web query>"}'
         )
 
@@ -311,36 +339,57 @@ class ComputerUseService:
             return "Web search is not available or the query was empty."
         self._emit(
             "tool.requested",
-            {"tool_run_id": search_run_id, "capability": "web.search",
-             "tool": "search", "summary": query},
+            {
+                "tool_run_id": search_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "summary": query,
+            },
         )
         self._emit(
             "tool.started",
-            {"tool_run_id": search_run_id, "capability": "web.search",
-             "tool": "search", "summary": query},
+            {
+                "tool_run_id": search_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "summary": query,
+            },
         )
         try:
             result = self._web_search.search(WebSearchRequest(query=query))
         except WebCapabilityError as error:
             self._emit(
                 "tool.failed",
-                {"tool_run_id": search_run_id, "capability": "web.search",
-                 "tool": "search",
-                 "error": {"code": error.code, "message": error.message}},
+                {
+                    "tool_run_id": search_run_id,
+                    "capability": "web.search",
+                    "tool": "search",
+                    "error": {"code": error.code, "message": error.message},
+                },
             )
             return f"The web search failed ({error.code}); adapt the plan."
         sources = [
-            {"title": item.title, "url": item.url, "domain": item.domain,
-             "snippet": item.snippet, "rank": item.rank,
-             "retrieved_at": item.searched_at.isoformat(), "inspected": False}
+            {
+                "title": item.title,
+                "url": item.url,
+                "domain": item.domain,
+                "snippet": item.snippet,
+                "rank": item.rank,
+                "retrieved_at": item.searched_at.isoformat(),
+                "inspected": False,
+            }
             for item in result.items[:6]
         ]
         self._emit(
             "tool.completed",
-            {"tool_run_id": search_run_id, "capability": "web.search",
-             "tool": "search", "status": "completed",
-             "summary": f"{len(sources)} sources for “{query}”",
-             "sources": sources},
+            {
+                "tool_run_id": search_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "status": "completed",
+                "summary": f"{len(sources)} sources for “{query}”",
+                "sources": sources,
+            },
         )
         listing = "\n".join(
             f"[{source['rank']}] {source['title']} — {source['url']} "

@@ -259,3 +259,107 @@ def test_fenced_json_is_tolerated():
         search_service=FakeSearch(), fetch=fake_fetch, complete=complete
     )
     assert service.research("x").answer == "ok"
+
+
+# ── intent routing inside the research loop ────────────────────────────────
+
+
+class FakeComputer:
+    def __init__(self, summary="tarea hecha", error=None):
+        self.tasks = []
+        self.summary = summary
+        self.error = error
+
+    def run_task(self, task, cancel_event=None):
+        self.tasks.append(task)
+        if self.error is not None:
+            raise self.error
+        from cmm.computer.contracts import ComputerTaskOutcome
+
+        return ComputerTaskOutcome(
+            summary=self.summary, steps=2, actions=("Abrir TextEdit",)
+        )
+
+
+def test_computer_action_delegates_and_feeds_the_planner():
+    computer = FakeComputer()
+    complete = ScriptedComplete(
+        [
+            json.dumps({"action": "computer", "task": "Abre TextEdit"}),
+            json.dumps({"action": "answer", "text": "Hecho.", "citations": []}),
+        ]
+    )
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=complete,
+        computer=computer,
+    )
+    outcome = service.research("Abre TextEdit")
+    assert computer.tasks == ["Abre TextEdit"]
+    assert outcome.computer_uses == 1
+    assert "Computer task completed: tarea hecha" in complete.prompts[1][0]
+
+
+def test_computer_failure_is_reported_not_raised():
+    from cmm.computer.errors import ComputerUseError
+
+    computer = FakeComputer(
+        error=ComputerUseError("denied", code="COMPUTER_PERMISSION_DENIED")
+    )
+    complete = ScriptedComplete(
+        [
+            json.dumps({"action": "computer", "task": "x"}),
+            json.dumps({"action": "answer", "text": "No pude.", "citations": []}),
+        ]
+    )
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=complete,
+        computer=computer,
+    )
+    outcome = service.research("x")
+    assert outcome.answer == "No pude."
+    assert any("computer task failed" in w for w in outcome.warnings)
+
+
+def test_allow_search_false_refuses_search_and_hides_it_from_the_protocol():
+    complete = ScriptedComplete(
+        [
+            json.dumps({"action": "search", "query": "q"}),
+            json.dumps(
+                {"action": "answer", "text": "respuesta directa", "citations": []}
+            ),
+        ]
+    )
+    search = FakeSearch()
+    service = WebResearchService(
+        search_service=search,
+        fetch=fake_fetch,
+        complete=complete,
+        allow_search=False,
+    )
+    outcome = service.research("pregunta")
+    assert outcome.searches == 0
+    assert search.queries == []
+    assert any("search refused" in w for w in outcome.warnings)
+    system = complete.prompts[0][1]
+    assert '"action":"search"' not in system
+    assert '"action":"computer"' not in system
+
+
+def test_planner_protocol_adapts_to_available_capabilities():
+    complete = ScriptedComplete(
+        [json.dumps({"action": "answer", "text": "ok", "citations": []})]
+    )
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=complete,
+        computer=FakeComputer(),
+    )
+    service.research("x")
+    system = complete.prompts[0][1]
+    assert '"action":"computer"' in system
+    assert '"action":"search"' in system

@@ -26,7 +26,9 @@ def make_observation(app="TextEdit", elements=()) -> Observation:
     return Observation(
         frontmost_app=app,
         frontmost_bundle=f"com.test.{app.lower()}",
-        windows=(WindowInfo(title=f"{app} window", app=app, x=0, y=0, width=800, height=600),),
+        windows=(
+            WindowInfo(title=f"{app} window", app=app, x=0, y=0, width=800, height=600),
+        ),
         elements=tuple(elements),
     )
 
@@ -64,8 +66,10 @@ class ScriptedPlan:
 
     def __call__(self, prompt, system, cancel_event=None):
         self.prompts.append(prompt)
-        return self.replies.pop(0) if self.replies else json.dumps(
-            {"action": "finish", "summary": "script exhausted"}
+        return (
+            self.replies.pop(0)
+            if self.replies
+            else json.dumps({"action": "finish", "summary": "script exhausted"})
         )
 
 
@@ -116,33 +120,35 @@ def test_sensitive_action_requires_approval_and_allow_once_executes_it():
             json.dumps({"action": "finish", "summary": "texto escrito"}),
         ]
     )
-    service = ComputerUseService(runtime=runtime, plan=plan, approval_gate=gate, emit=emit)
+    service = ComputerUseService(
+        runtime=runtime, plan=plan, approval_gate=gate, emit=emit
+    )
     outcome = service.run_task("Escribe un borrador")
     assert outcome.approvals == 1
     assert [action.kind for action in runtime.executed] == ["keyboard.type"]
     proposal = gate.proposals[0]
     assert proposal.app == "Mail" and proposal.reason and proposal.consequence
-    kinds = [kind for kind, _ in events]
-    assert "approval.requested" in kinds and "approval.resolved" in kinds
+    # approval.requested/resolved events belong to the canonical gate (see
+    # tests/capabilities), not to the loop.
+    assert not [kind for kind, _ in events if kind.startswith("approval.")]
 
 
 def test_rejected_action_is_never_executed_and_feeds_the_planner():
     runtime = FakeRuntime(observations=[make_observation(app="Mail")])
     gate = RecordingGate("reject")
-    events, emit = collect_emit()
     plan = ScriptedPlan(
         [
             json.dumps({"action": "keyboard.type", "text": "mensaje"}),
             json.dumps({"action": "finish", "summary": "cancelado por el usuario"}),
         ]
     )
-    service = ComputerUseService(runtime=runtime, plan=plan, approval_gate=gate, emit=emit)
+    service = ComputerUseService(
+        runtime=runtime, plan=plan, approval_gate=gate, emit=None
+    )
     outcome = service.run_task("Escribe y envía")
     assert runtime.executed == []
     assert outcome.rejections == 1
     assert "REJECTED" in plan.prompts[1]
-    resolved = [data for kind, data in events if kind == "approval.resolved"]
-    assert resolved[0]["decision"] == "reject"
 
 
 def test_missing_gate_denies_by_default():
@@ -176,7 +182,9 @@ def test_cancellation_prevents_the_next_action():
 
 
 def test_missing_permissions_fail_before_any_observation():
-    runtime = FakeRuntime(permissions=PermissionState(False, False, detail="Accesibilidad"))
+    runtime = FakeRuntime(
+        permissions=PermissionState(False, False, detail="Accesibilidad")
+    )
     service = ComputerUseService(runtime=runtime, plan=ScriptedPlan([]))
     with pytest.raises(ComputerUseError) as info:
         service.run_task("tarea")
@@ -217,7 +225,7 @@ def test_unknown_actions_are_fed_back_not_executed():
 def test_failed_action_feedback_lets_the_loop_adapt():
     runtime = FakeRuntime()
     runtime.fail_next = "ui.press"
-    events, emit = collect_emit()
+    _events, emit = collect_emit()
     plan = ScriptedPlan(
         [
             json.dumps({"action": "ui.press", "element_id": 1}),
@@ -233,9 +241,7 @@ def test_failed_action_feedback_lets_the_loop_adapt():
 
 def test_step_budget_forces_an_honest_finish():
     runtime = FakeRuntime()
-    plan = ScriptedPlan(
-        [json.dumps({"action": "wait", "seconds": 0.1})] * 5
-    )
+    plan = ScriptedPlan([json.dumps({"action": "wait", "seconds": 0.1})] * 5)
     service = ComputerUseService(
         runtime=runtime, plan=plan, limits=ComputerUseLimits(max_steps=3)
     )
@@ -285,13 +291,17 @@ def test_policy_classifies_sensitive_targets_and_apps():
     )
     observation = make_observation(
         app="TextEdit",
-        elements=(ElementInfo(1, "AXButton", "Enviar mensaje", "", 0, 0, 10, 10, True),),
+        elements=(
+            ElementInfo(1, "AXButton", "Enviar mensaje", "", 0, 0, 10, 10, True),
+        ),
     )
     assert classify_action(press_send, observation).decision == "approval"
 
     safe_press = Action(kind="ui.press", params={"element_id": 1})
     safe_observation = make_observation(
-        elements=(ElementInfo(1, "AXButton", "Nuevo documento", "", 0, 0, 10, 10, True),)
+        elements=(
+            ElementInfo(1, "AXButton", "Nuevo documento", "", 0, 0, 10, 10, True),
+        )
     )
     assert classify_action(safe_press, safe_observation).decision == "auto"
 
@@ -299,18 +309,24 @@ def test_policy_classifies_sensitive_targets_and_apps():
     mail_decision = classify_action(typing_in_mail, make_observation(app="Mail"))
     assert mail_decision.decision == "approval"
     assert mail_decision.egress == "screen_content"
-    assert classify_action(typing_in_mail, make_observation(app="TextEdit")).decision == "auto"
+    assert (
+        classify_action(typing_in_mail, make_observation(app="TextEdit")).decision
+        == "auto"
+    )
 
     force_quit = Action(kind="keyboard.shortcut", params={"keys": "cmd+option+esc"})
     assert classify_action(force_quit, None).decision == "approval"
     new_doc = Action(kind="keyboard.shortcut", params={"keys": "cmd+n"})
     assert classify_action(new_doc, None).decision == "auto"
-    assert classify_action(Action(kind="app.open", params={"app": "Safari"}), None).decision == "auto"
+    assert (
+        classify_action(
+            Action(kind="app.open", params={"app": "Safari"}), None
+        ).decision
+        == "auto"
+    )
 
 
-@pytest.mark.skipif(
-    sys.platform != "darwin", reason="real macOS runtime smoke test"
-)
+@pytest.mark.skipif(sys.platform != "darwin", reason="real macOS runtime smoke test")
 def test_real_macos_runtime_observes_without_acting():
     from cmm.computer.runtime_macos import MacComputerRuntime
 

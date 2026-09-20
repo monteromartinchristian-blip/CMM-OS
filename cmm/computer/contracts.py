@@ -139,7 +139,11 @@ class Action:
             element = _find_element(observation, self.params.get("element_id"))
             label = element.title or element.value if element else ""
             verb = "Pulsar" if self.kind == "ui.press" else "Rellenar"
-            text = f" con «{self.params.get('text', '')}»" if self.kind == "ui.set_value" else ""
+            text = (
+                f" con «{self.params.get('text', '')}»"
+                if self.kind == "ui.set_value"
+                else ""
+            )
             return f"{verb} “{label or self.params.get('element_id')}”{text}"
         if self.kind == "keyboard.type":
             preview = str(self.params.get("text", ""))

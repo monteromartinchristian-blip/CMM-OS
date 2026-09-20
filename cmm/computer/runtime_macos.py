@@ -45,15 +45,64 @@ _MAX_ELEMENTS = 60
 _MAX_DEPTH = 6
 
 _KEYCODES = {
-    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8,
-    "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
-    "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25,
-    "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33,
-    "i": 34, "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42,
-    ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
-    "return": 36, "enter": 36, "tab": 48, "space": 49, "delete": 51,
-    "backspace": 51, "escape": 53, "esc": 53, "left": 123, "right": 124,
-    "down": 125, "up": 126,
+    "a": 0,
+    "s": 1,
+    "d": 2,
+    "f": 3,
+    "h": 4,
+    "g": 5,
+    "z": 6,
+    "x": 7,
+    "c": 8,
+    "v": 9,
+    "b": 11,
+    "q": 12,
+    "w": 13,
+    "e": 14,
+    "r": 15,
+    "y": 16,
+    "t": 17,
+    "1": 18,
+    "2": 19,
+    "3": 20,
+    "4": 21,
+    "6": 22,
+    "5": 23,
+    "=": 24,
+    "9": 25,
+    "7": 26,
+    "-": 27,
+    "8": 28,
+    "0": 29,
+    "]": 30,
+    "o": 31,
+    "u": 32,
+    "[": 33,
+    "i": 34,
+    "p": 35,
+    "l": 37,
+    "j": 38,
+    "'": 39,
+    "k": 40,
+    ";": 41,
+    "\\": 42,
+    ",": 43,
+    "/": 44,
+    "n": 45,
+    "m": 46,
+    ".": 47,
+    "return": 36,
+    "enter": 36,
+    "tab": 48,
+    "space": 49,
+    "delete": 51,
+    "backspace": 51,
+    "escape": 53,
+    "esc": 53,
+    "left": 123,
+    "right": 124,
+    "down": 125,
+    "up": 126,
 }
 _MODIFIERS = {
     "cmd": "kCGEventFlagMaskCommand",
@@ -129,11 +178,14 @@ class MacComputerRuntime:
         pid = int(frontmost.processIdentifier()) if frontmost else 0
 
         windows: list[WindowInfo] = []
-        infos = Quartz.CGWindowListCopyWindowInfo(
-            Quartz.kCGWindowListOptionOnScreenOnly
-            | Quartz.kCGWindowListExcludeDesktopElements,
-            Quartz.kCGNullWindowID,
-        ) or []
+        infos = (
+            Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly
+                | Quartz.kCGWindowListExcludeDesktopElements,
+                Quartz.kCGNullWindowID,
+            )
+            or []
+        )
         for info in infos:
             # Normal application windows only: skip menu-bar/status layers and
             # zero-sized surfaces so the observation stays useful.
@@ -273,7 +325,9 @@ class MacComputerRuntime:
 
     # ── execution ─────────────────────────────────────────────────────────
 
-    def execute(self, action: Action, observation: Observation | None = None) -> ActionResult:
+    def execute(
+        self, action: Action, observation: Observation | None = None
+    ) -> ActionResult:
         AppKit, AXS, Quartz = _frameworks()
         kind = action.kind
         params = action.params
@@ -341,9 +395,7 @@ class MacComputerRuntime:
         import AppKit
 
         if not cls._await_frontmost(AppKit, app):
-            return ActionResult(
-                False, f"{app} opened but did not come to the front"
-            )
+            return ActionResult(False, f"{app} opened but did not come to the front")
         return ActionResult(True, f"opened {app}")
 
     @classmethod
@@ -392,9 +444,7 @@ class MacComputerRuntime:
         element_id = params.get("element_id")
         element = self._resolve_element(params)
         if self._element_roles.get(int(element_id)) == "AXSecureTextField":
-            return ActionResult(
-                False, "secure fields are never modified automatically"
-            )
+            return ActionResult(False, "secure fields are never modified automatically")
         error = AXS.AXUIElementSetAttributeValue(
             element, "AXValue", str(params.get("text", ""))
         )
@@ -444,7 +494,11 @@ class MacComputerRuntime:
 
     @staticmethod
     def _keyboard_shortcut(Quartz: Any, keys: str) -> ActionResult:
-        parts = [part.strip().lower() for part in keys.replace("+", " ").split() if part.strip()]
+        parts = [
+            part.strip().lower()
+            for part in keys.replace("+", " ").split()
+            if part.strip()
+        ]
         if not parts:
             return ActionResult(False, "empty shortcut")
         flags = 0
@@ -473,7 +527,9 @@ class MacComputerRuntime:
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
         time.sleep(0.05)
         for kind in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
-            event = Quartz.CGEventCreateMouseEvent(None, kind, point, Quartz.kCGMouseButtonLeft)
+            event = Quartz.CGEventCreateMouseEvent(
+                None, kind, point, Quartz.kCGMouseButtonLeft
+            )
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
             time.sleep(0.04)
         return ActionResult(True, f"clicked ({int(x)},{int(y)})")

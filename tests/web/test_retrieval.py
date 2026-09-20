@@ -96,7 +96,9 @@ def test_non_text_content_types_are_blocked():
         fetch_source(
             FetchRequest(url="https://example.com/file.bin"),
             transport=FakeTransport(
-                FakeResponse(content=b"MZ", headers={"content-type": "application/octet-stream"})
+                FakeResponse(
+                    content=b"MZ", headers={"content-type": "application/octet-stream"}
+                )
             ),
         )
     assert info.value.code == "SOURCE_BLOCKED"

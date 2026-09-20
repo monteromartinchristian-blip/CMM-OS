@@ -36,11 +36,32 @@ class CapabilityEvent:
 
 @dataclass(frozen=True, slots=True)
 class CapabilityRequest:
-    """What the product enabled for one run (never how it is implemented)."""
+    """What the product enabled for one run (never how it is implemented).
+
+    ``computer_use`` accepts the legacy boolean (True=force task, False=off)
+    and the intent-routing vocabulary ``auto``/``on``/``off``; it is always
+    normalized to the string form.
+    """
 
     web_search: str = "off"  # "auto" | "on" | "off"
-    computer_use: bool = False
+    computer_use: bool | str = False
 
     def __post_init__(self) -> None:
         if self.web_search not in ("auto", "on", "off"):
             raise ValueError("web_search must be auto, on or off")
+        normalized: str
+        if isinstance(self.computer_use, bool):
+            normalized = "on" if self.computer_use else "off"
+        elif isinstance(self.computer_use, str) and self.computer_use in (
+            "auto",
+            "on",
+            "off",
+        ):
+            normalized = self.computer_use
+        else:
+            raise ValueError("computer_use must be a bool or auto/on/off")
+        object.__setattr__(self, "computer_use", normalized)
+
+    @property
+    def computer_mode(self) -> str:
+        return str(self.computer_use)

@@ -56,7 +56,7 @@ def extract_text(html: str, *, window: int = 24_000) -> tuple[str, str]:
     try:
         parser.feed(html)
         parser.close()
-    except Exception:  # noqa: BLE001 - malformed HTML degrades, never crashes
+    except Exception:  # noqa: BLE001, S110 - malformed HTML degrades, never crashes
         pass
     title = _normalize("".join(parser.title_parts))
     text = _normalize("".join(parser.parts))

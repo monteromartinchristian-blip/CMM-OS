@@ -14,9 +14,7 @@ from cmm.web.html_text import extract_text
 
 __all__ = ["fetch_source"]
 
-_ALLOWED_CONTENT_TYPES = frozenset(
-    {"text/html", "application/xhtml+xml", "text/plain"}
-)
+_ALLOWED_CONTENT_TYPES = frozenset({"text/html", "application/xhtml+xml", "text/plain"})
 _MAX_REDIRECTS = 5
 
 
@@ -76,7 +74,9 @@ def fetch_source(
         )
 
     if cancel_event is not None and cancel_event.is_set():
-        raise WebCapabilityError("The source retrieval was cancelled.", code="CANCELLED")
+        raise WebCapabilityError(
+            "The source retrieval was cancelled.", code="CANCELLED"
+        )
 
     try:
         response = client.request("GET", request.url)
@@ -91,15 +91,15 @@ def fetch_source(
 
     status = int(response.status_code)
     if status in (401, 403, 451):
-        raise WebCapabilityError(
-            "The source refused access.", code="SOURCE_BLOCKED"
-        )
+        raise WebCapabilityError("The source refused access.", code="SOURCE_BLOCKED")
     if status >= 400:
         raise WebCapabilityError(
             f"The source returned HTTP {status}.", code="FETCH_FAILED"
         )
 
-    content_type = str(response.headers.get("content-type", "")).split(";")[0].strip().lower()
+    content_type = (
+        str(response.headers.get("content-type", "")).split(";")[0].strip().lower()
+    )
     if content_type and content_type not in _ALLOWED_CONTENT_TYPES:
         raise WebCapabilityError(
             "The source content type is not readable text.", code="SOURCE_BLOCKED"
@@ -112,7 +112,11 @@ def fetch_source(
     body = body[: request.max_bytes]
     text_encoding = "utf-8"
     html = body.decode(text_encoding, "replace")
-    title, text = extract_text(html) if content_type != "text/plain" else ("", html.strip()[:24_000])
+    title, text = (
+        extract_text(html)
+        if content_type != "text/plain"
+        else ("", html.strip()[:24_000])
+    )
     if not text.strip():
         raise WebCapabilityError(
             "The source contained no readable text.", code="FETCH_FAILED"

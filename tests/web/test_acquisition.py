@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from cmm.agent_runtime.enums import InformationAcquisitionStrategy, InformationAcquisitionSource
+from cmm.agent_runtime.enums import (
+    InformationAcquisitionSource,
+    InformationAcquisitionStrategy,
+)
 from cmm.web.acquisition import WebSearchAcquisitionHandler, register_web_search_handler
 from cmm.web.contracts import WebResultItem, WebSearchResult
 from cmm.web.errors import WebCapabilityError
@@ -71,7 +74,9 @@ def test_handler_reports_normalized_errors_without_raising():
 
 
 def test_handler_reports_a_missing_query():
-    handler = WebSearchAcquisitionHandler(search_service=FakeSearchService(result=RESULT))
+    handler = WebSearchAcquisitionHandler(
+        search_service=FakeSearchService(result=RESULT)
+    )
     outcome = handler.execute(FakeRequest(query=""), None)
     assert outcome.errors and outcome.confidence == 0.0
 

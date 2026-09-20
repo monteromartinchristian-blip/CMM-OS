@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event
-from typing import Any, Callable
+from typing import Any
 
 from cmm.web.contracts import (
     Citation,
@@ -29,17 +30,20 @@ from cmm.web.service import WebSearchService
 
 __all__ = ["EvidenceItem", "WebResearchService"]
 
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _DECISION_SYSTEM = (
-    "You are the web-research planner inside CMM OS. Reply with ONE strict "
+    "You are the capability planner inside CMM OS. Reply with ONE strict "
     "JSON object and nothing else. Allowed actions:\n"
     '{"action":"search","query":"<web query>"}\n'
     '{"action":"read","url":"<absolute http(s) url from the evidence>"}\n'
+    '{"action":"computer","task":"<one concrete task to perform on this Mac>"}\n'
     '{"action":"answer","text":"<final answer in the user language>",'
     '"citations":[<evidence indexes used>]}\n'
-    "Rules: prefer answering directly when no current information is needed; "
-    "search at most a few times; read only urls present in the evidence; cite "
-    "only evidence indexes you actually used; never invent urls or citations."
+    "Rules: prefer answering directly when no current information and no "
+    "computer action is needed; search at most a few times; read only urls "
+    "present in the evidence; delegate to the computer only when the user "
+    "intent requires operating this Mac; cite only evidence indexes you "
+    "actually used; never invent urls or citations."
 )
 
 
@@ -57,7 +61,9 @@ class EvidenceItem:
     def summary(self) -> str:
         body = self.text[:1200] if self.inspected else self.snippet[:300]
         state = "read" if self.inspected else "search result"
-        return f"[{self.index}] ({state}) {self.title} — {self.domain}\n{self.url}\n{body}"
+        return (
+            f"[{self.index}] ({state}) {self.title} — {self.domain}\n{self.url}\n{body}"
+        )
 
 
 class WebResearchService:
@@ -71,12 +77,16 @@ class WebResearchService:
         complete: Callable[..., str],
         emit: Callable[[str, dict[str, Any]], None] | None = None,
         limits: ResearchLimits | None = None,
+        computer: Any | None = None,
+        allow_search: bool = True,
     ) -> None:
         self._search = search_service or WebSearchService()
         self._fetch = fetch or fetch_source
         self._complete = complete
         self._emit = emit or (lambda kind, data: None)
         self._limits = limits or ResearchLimits()
+        self._computer = computer
+        self._allow_search = allow_search
 
     # ── public surface ────────────────────────────────────────────────────
 
@@ -94,7 +104,8 @@ class WebResearchService:
         evidence: list[EvidenceItem] = []
         sources: list[FetchedSource] = []
         warnings: list[str] = []
-        searches = reads = 0
+        feedback = ""
+        searches = reads = computer_uses = 0
 
         for turn in range(self._limits.max_turns):
             self._check_cancel(cancel_event)
@@ -103,10 +114,13 @@ class WebResearchService:
                 and reads >= self._limits.max_reads
             ) or turn == self._limits.max_turns - 1
             decision_text = self._complete(
-                self._decision_prompt(prompt, evidence, forced=forced),
-                _DECISION_SYSTEM if system is None else f"{system}\n\n{_DECISION_SYSTEM}",
+                self._decision_prompt(
+                    prompt, evidence, forced=forced, feedback=feedback
+                ),
+                self._planner_system(system),
                 cancel_event,
             )
+            feedback = ""
             decision = _parse_decision(decision_text)
             if decision is None:
                 # A plain-text reply is accepted as a direct answer.
@@ -118,6 +132,7 @@ class WebResearchService:
                         sources=tuple(sources),
                         searches=searches,
                         reads=reads,
+                        computer_uses=computer_uses,
                         warnings=tuple(warnings + ["decision protocol not followed"]),
                     )
                 warnings.append("empty model decision")
@@ -138,9 +153,17 @@ class WebResearchService:
                     sources=tuple(sources),
                     searches=searches,
                     reads=reads,
+                    computer_uses=computer_uses,
                     warnings=tuple(warnings),
                 )
             if action == "search":
+                if not self._allow_search:
+                    feedback = (
+                        "Web search is disabled for this request; answer with "
+                        "what you know or finish honestly."
+                    )
+                    warnings.append("search refused: web disabled for this request")
+                    continue
                 if searches >= self._limits.max_searches:
                     warnings.append("search budget exhausted")
                     continue
@@ -161,6 +184,21 @@ class WebResearchService:
                 reads += 1
                 self._run_read(url, evidence, sources, warnings, cancel_event)
                 continue
+            if action == "computer":
+                if self._computer is None:
+                    feedback = (
+                        "The computer capability is not available for this "
+                        "request; answer with what you have or explain honestly."
+                    )
+                    warnings.append("computer refused: capability not available")
+                    continue
+                task = str(decision.get("task", "")).strip()
+                if not task:
+                    warnings.append("computer action without task")
+                    continue
+                computer_uses += 1
+                feedback = self._run_computer(task, cancel_event, warnings)
+                continue
             warnings.append(f"unknown action: {action}")
 
         raise WebCapabilityError(
@@ -175,13 +213,21 @@ class WebResearchService:
         tool_run_id = f"web-search-{len(evidence) + 1}-{abs(hash(query)) % 10_000}"
         self._emit(
             "tool.requested",
-            {"tool_run_id": tool_run_id, "capability": "web.search", "tool": "search",
-             "summary": query},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "summary": query,
+            },
         )
         self._emit(
             "tool.started",
-            {"tool_run_id": tool_run_id, "capability": "web.search", "tool": "search",
-             "summary": query},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "summary": query,
+            },
         )
         try:
             result = self._search.search(
@@ -190,8 +236,12 @@ class WebResearchService:
         except WebCapabilityError as error:
             self._emit(
                 "tool.failed",
-                {"tool_run_id": tool_run_id, "capability": "web.search",
-                 "tool": "search", "error": {"code": error.code, "message": error.message}},
+                {
+                    "tool_run_id": tool_run_id,
+                    "capability": "web.search",
+                    "tool": "search",
+                    "error": {"code": error.code, "message": error.message},
+                },
             )
             raise
         added = 0
@@ -210,16 +260,26 @@ class WebResearchService:
             )
             added += 1
             payload_sources.append(
-                {"title": item.title, "url": item.url, "domain": item.domain,
-                 "snippet": item.snippet, "rank": item.rank,
-                 "retrieved_at": item.searched_at.isoformat(), "inspected": False}
+                {
+                    "title": item.title,
+                    "url": item.url,
+                    "domain": item.domain,
+                    "snippet": item.snippet,
+                    "rank": item.rank,
+                    "retrieved_at": item.searched_at.isoformat(),
+                    "inspected": False,
+                }
             )
         self._emit(
             "tool.completed",
-            {"tool_run_id": tool_run_id, "capability": "web.search", "tool": "search",
-             "status": "completed",
-             "summary": f"{added} sources for “{query}”",
-             "sources": payload_sources},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.search",
+                "tool": "search",
+                "status": "completed",
+                "summary": f"{added} sources for “{query}”",
+                "sources": payload_sources,
+            },
         )
         return added
 
@@ -234,22 +294,36 @@ class WebResearchService:
         tool_run_id = f"web-fetch-{abs(hash(url)) % 100_000}"
         self._emit(
             "tool.requested",
-            {"tool_run_id": tool_run_id, "capability": "web.fetch", "tool": "read",
-             "summary": url},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.fetch",
+                "tool": "read",
+                "summary": url,
+            },
         )
         self._emit(
             "tool.started",
-            {"tool_run_id": tool_run_id, "capability": "web.fetch", "tool": "read",
-             "summary": url},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.fetch",
+                "tool": "read",
+                "summary": url,
+            },
         )
         entry = next((item for item in evidence if item.url == url), None)
         if entry is None:
             warnings.append("read refused: url is not in the evidence")
             self._emit(
                 "tool.failed",
-                {"tool_run_id": tool_run_id, "capability": "web.fetch", "tool": "read",
-                 "error": {"code": "SOURCE_BLOCKED",
-                           "message": "Only evidence urls can be read."}},
+                {
+                    "tool_run_id": tool_run_id,
+                    "capability": "web.fetch",
+                    "tool": "read",
+                    "error": {
+                        "code": "SOURCE_BLOCKED",
+                        "message": "Only evidence urls can be read.",
+                    },
+                },
             )
             return
         try:
@@ -260,8 +334,12 @@ class WebResearchService:
             warnings.append(f"fetch failed for {url}: {error.code}")
             self._emit(
                 "tool.failed",
-                {"tool_run_id": tool_run_id, "capability": "web.fetch", "tool": "read",
-                 "error": {"code": error.code, "message": error.message}},
+                {
+                    "tool_run_id": tool_run_id,
+                    "capability": "web.fetch",
+                    "tool": "read",
+                    "error": {"code": error.code, "message": error.message},
+                },
             )
             return
         entry.inspected = True
@@ -271,25 +349,105 @@ class WebResearchService:
         sources.append(fetched)
         self._emit(
             "tool.completed",
-            {"tool_run_id": tool_run_id, "capability": "web.fetch", "tool": "read",
-             "status": "completed", "summary": f"Read {fetched.domain}",
-             "sources": [{"title": entry.title, "url": fetched.final_url,
-                          "domain": fetched.domain, "snippet": fetched.text[:300],
-                          "rank": entry.index,
-                          "retrieved_at": fetched.retrieved_at.isoformat(),
-                          "inspected": True}]},
+            {
+                "tool_run_id": tool_run_id,
+                "capability": "web.fetch",
+                "tool": "read",
+                "status": "completed",
+                "summary": f"Read {fetched.domain}",
+                "sources": [
+                    {
+                        "title": entry.title,
+                        "url": fetched.final_url,
+                        "domain": fetched.domain,
+                        "snippet": fetched.text[:300],
+                        "rank": entry.index,
+                        "retrieved_at": fetched.retrieved_at.isoformat(),
+                        "inspected": True,
+                    }
+                ],
+            },
+        )
+
+    def _run_computer(
+        self, task: str, cancel_event: Event | None, warnings: list[str]
+    ) -> str:
+        from cmm.computer.errors import ComputerUseError
+
+        try:
+            outcome = self._computer.run_task(task, cancel_event=cancel_event)
+        except ComputerUseError as error:
+            if error.code == "CANCELLED":
+                raise
+            warnings.append(f"computer task failed: {error.code}")
+            return (
+                f"The computer task failed ({error.code}). Adapt the plan or "
+                "finish honestly explaining what could not be done."
+            )
+        actions = ", ".join(outcome.actions[-6:]) or "none"
+        return (
+            f"Computer task completed: {outcome.summary} "
+            f"(actions: {actions}; approvals: {outcome.approvals}; "
+            f"rejections: {outcome.rejections})"
         )
 
     # ── helpers ───────────────────────────────────────────────────────────
 
+    def _planner_system(self, system: str | None) -> str:
+        """Compose the action protocol with only the available capabilities."""
+
+        lines = [
+            (
+                "You are the capability planner inside CMM OS. Reply with ONE "
+                "strict JSON object and nothing else. Allowed actions:"
+            )
+        ]
+        if self._allow_search:
+            lines.append('{"action":"search","query":"<web query>"}')
+            lines.append(
+                '{"action":"read","url":"<absolute http(s) url from the evidence>"}'
+            )
+        if self._computer is not None:
+            lines.append(
+                '{"action":"computer","task":"<one concrete task to perform on this Mac>"}'
+            )
+        lines.append(
+            '{"action":"answer","text":"<final answer in the user language>",'
+            '"citations":[<evidence indexes used>]}'
+        )
+        rules = [
+            (
+                "Rules: prefer answering directly when no current information "
+                "and no computer action is needed"
+            )
+        ]
+        if self._allow_search:
+            rules.append("search at most a few times")
+            rules.append("read only urls present in the evidence")
+        if self._computer is not None:
+            rules.append(
+                "delegate to the computer only when the user intent requires "
+                "operating this Mac"
+            )
+        rules.append("cite only evidence indexes you actually used")
+        rules.append("never invent urls or citations")
+        combined = "\n".join(lines) + "\n" + "; ".join(rules) + "."
+        return combined if system is None else f"{system}\n\n{combined}"
+
     @staticmethod
     def _check_cancel(cancel_event: Event | None) -> None:
         if cancel_event is not None and cancel_event.is_set():
-            raise WebCapabilityError("The web research was cancelled.", code="CANCELLED")
+            raise WebCapabilityError(
+                "The web research was cancelled.", code="CANCELLED"
+            )
 
     @staticmethod
     def _decision_prompt(
-        prompt: str, evidence: list[EvidenceItem], *, forced: bool
+        prompt: str,
+        evidence: list[EvidenceItem],
+        *,
+        forced: bool,
+        feedback: str = "",
     ) -> str:
         parts = [f"User question:\n{prompt}"]
         if evidence:
@@ -299,6 +457,8 @@ class WebResearchService:
             )
         else:
             parts.append("Evidence gathered so far: (none)")
+        if feedback:
+            parts.append(f"Feedback: {feedback}")
         if forced:
             parts.append(
                 "Budget exhausted: reply with the answer action now, using only "
