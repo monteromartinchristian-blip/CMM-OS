@@ -186,3 +186,44 @@ normal app; §52 visual evidence Black/Dark/Light + Claude side-by-side.
 5 CMM OS capabilities facade+gates · 6 Hub contracts+migration+persistence ·
 7 Hub run-manager capability bridge+approvals · 8 Apple decoding+store ·
 9 Apple UI+localization · 10 tests/canaries · 11 docs/evidence FIRST_USABLE.
+
+---
+
+## Addendum 2026-09-20 — overnight product-direction correction
+
+The original UX (permanent composer toggles per capability, one transcript row
+per internal tool event, no message editing) was superseded by human use. The
+corrected direction, now implemented:
+
+- **Capabilities are inferred, not modes.** Default AUTO for web and computer:
+  one canonical planner inside CMM OS decides chat / web.search / web.fetch /
+  computer per user intent (no phrase lists, no Swift logic). Manual controls
+  are per-request overrides behind the composer "+" menu only.
+- **Progressive disclosure.** Internal 17-event grammar stays; the UI renders
+  ONE aggregated surface per logical capability run (running: compact live
+  status; completed: collapsed "Web · N fuentes" / "Ordenador · N acciones",
+  expandable to queries/pages/actions/provenance). Citations remain primary.
+- **Canonical approval authority.** The Phase-11 `ApprovalService` owns the
+  approval lifecycle (`CanonicalApprovalGate` in `cmm/capabilities/approvals.py`);
+  `cmm/computer/policy.py` only classifies actions; the parallel facade gate
+  was removed. Allow-once is consumed canonically (`validate_and_consume`).
+- **Non-destructive editing** of sent user messages via the Wave C tree
+  (sibling branch + new run + own attachments; originals untouched).
+- **Real file content** (text-like, bounded) reaches model context; unsupported
+  types are annotated honestly, never faked.
+- **Cancellation terminalizes ToolRuns** (no orphan `running` rows); restart
+  recovery fails orphans at boot.
+- **Honest egress:** `run.summary.processing` (local|remote) from the lane's
+  declared egress class (`CMM_LOCAL_RUNTIME_EGRESS`; tunneled runtime = remote);
+  approvals carry `egress`/`processing`.
+- **Token streaming preserved** under intent routing: the first planner call
+  streams; a non-JSON start is the answer itself (streamed live), a JSON start
+  enters the capability loop.
+- **Composer simplified** (text / + / model / send-stop), summary banner
+  removed, unfinished Cowork surface hidden, composer+disclaimer share one
+  geometry container.
+
+Live verification at correction time (Hub :8766 → wave-f worktree → vLLM lane
+`qwen3.8-flash-next-q2`, egress=remote): NORMAL_CHAT PASS (mode=chat, 0 tools),
+WEB_AUTO_FROM_INTENT PASS (8 real citations), COMPUTER_AUTO_FROM_INTENT PASS
+(TextEdit opened by intent, no toggles).
