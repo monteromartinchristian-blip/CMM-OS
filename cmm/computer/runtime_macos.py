@@ -370,14 +370,14 @@ class MacComputerRuntime:
         )
 
     @staticmethod
-    def _await_frontmost(AppKit: Any, app: str, timeout: float = 3.0) -> bool:
+    def _await_frontmost(AppKit: Any, app: str, timeout: float = 10.0) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             frontmost = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
             name = str(frontmost.localizedName() or "") if frontmost else ""
             if name.lower() == app.lower():
                 return True
-            time.sleep(0.15)
+            time.sleep(0.2)
         return False
 
     @classmethod
@@ -407,10 +407,10 @@ class MacComputerRuntime:
         for candidate in AppKit.NSWorkspace.sharedWorkspace().runningApplications():
             if str(candidate.localizedName() or "").lower() == app.lower():
                 candidate.activateWithOptions_(options)
-                if cls._await_frontmost(AppKit, app, timeout=2.0):
+                if cls._await_frontmost(AppKit, app, timeout=4.0):
                     return ActionResult(True, f"activated {app}")
                 candidate.activateWithOptions_(options)
-                if cls._await_frontmost(AppKit, app, timeout=2.0):
+                if cls._await_frontmost(AppKit, app, timeout=6.0):
                     return ActionResult(True, f"activated {app}")
                 return ActionResult(
                     False, f"activation did not bring {app} to the front"
