@@ -147,7 +147,9 @@ class CapabilityExecution:
         ) -> str:
             # Decision calls are bounded: a runaway reasoning model must never
             # stall a supervised tool loop. The budget must also fit thinking
-            # models, which spend part of it on reasoning before the JSON.
+            # models, which spend part of it on reasoning before the JSON
+            # (qwen3-class local models measured ~1000 reasoning tokens on the
+            # full planner protocol).
             parts = list(
                 self._executor.stream(
                     resolved,
@@ -155,7 +157,7 @@ class CapabilityExecution:
                     system=system,
                     history=(),
                     cancel_event=cancel_event,
-                    max_tokens=2500,
+                    max_tokens=5000,
                 )
             )
             return "".join(parts)

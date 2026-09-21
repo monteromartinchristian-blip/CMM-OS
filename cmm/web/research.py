@@ -482,6 +482,10 @@ class WebResearchService:
             )
         rules.append("cite only evidence indexes you actually used")
         rules.append("never invent urls or citations")
+        rules.append(
+            "never emit tool-call syntax or special tokens; reply with the "
+            "JSON object or plain text only"
+        )
         combined = "\n".join(lines) + "\n" + "; ".join(rules) + "."
         return combined if system is None else f"{system}\n\n{combined}"
 
