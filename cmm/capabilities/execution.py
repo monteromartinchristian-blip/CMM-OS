@@ -157,7 +157,7 @@ class CapabilityExecution:
                     system=system,
                     history=(),
                     cancel_event=cancel_event,
-                    max_tokens=5000,
+                    max_tokens=8000,
                 )
             )
             return "".join(parts)
