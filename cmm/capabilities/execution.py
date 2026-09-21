@@ -145,8 +145,9 @@ class CapabilityExecution:
         def complete(
             prompt: str, system: str | None, cancel_event: threading.Event | None = None
         ) -> str:
-            # Decision calls are bounded: a runaway reasoning model must
-            # never stall a supervised tool loop.
+            # Decision calls are bounded: a runaway reasoning model must never
+            # stall a supervised tool loop. The budget must also fit thinking
+            # models, which spend part of it on reasoning before the JSON.
             parts = list(
                 self._executor.stream(
                     resolved,
@@ -154,7 +155,7 @@ class CapabilityExecution:
                     system=system,
                     history=(),
                     cancel_event=cancel_event,
-                    max_tokens=800,
+                    max_tokens=2500,
                 )
             )
             return "".join(parts)
@@ -171,7 +172,7 @@ class CapabilityExecution:
                 system=system,
                 history=(),
                 cancel_event=cancel_event,
-                max_tokens=4000,
+                max_tokens=6000,
             )
 
         return stream

@@ -407,3 +407,19 @@ def test_first_decision_json_start_enters_the_protocol_loop():
     assert outcome.answer == "ok"
     assert outcome.streamed is False
     assert events == []
+
+
+def test_empty_decision_replies_never_fake_an_answer():
+    from cmm.web.contracts import ResearchLimits as _Limits
+    from cmm.web.errors import WebCapabilityError as _Error
+
+    complete = ScriptedComplete(["", "", ""])
+    service = WebResearchService(
+        search_service=FakeSearch(),
+        fetch=fake_fetch,
+        complete=complete,
+        limits=_Limits(max_searches=1, max_reads=1, max_turns=3),
+    )
+    with pytest.raises(_Error) as info:
+        service.research("pregunta")
+    assert info.value.code == "CAPABILITY_UNSUPPORTED"
