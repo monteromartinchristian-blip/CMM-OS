@@ -394,9 +394,13 @@ class MacComputerRuntime:
             )
         import AppKit
 
-        if not cls._await_frontmost(AppKit, app):
-            return ActionResult(False, f"{app} opened but did not come to the front")
-        return ActionResult(True, f"opened {app}")
+        if cls._await_frontmost(AppKit, app):
+            return ActionResult(True, f"opened {app}")
+        # Heavy applications (Mail, Safari) can need an explicit activation
+        # and more time before they reach the front.
+        if cls._app_activate(AppKit, app).ok:
+            return ActionResult(True, f"opened {app}")
+        return ActionResult(False, f"{app} opened but did not come to the front")
 
     @classmethod
     def _app_activate(cls, AppKit: Any, app: str) -> ActionResult:
