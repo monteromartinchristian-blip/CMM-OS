@@ -412,6 +412,54 @@ green here, while no independent audit has examined it yet.
 | Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
 | Next step | independent Re-audit V3 of the Remediation V2 exact-HEAD bundle |
 
+### 4.15 `F11-021` — Reusable First-Party Backend Interface
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix, `F11-014` is owned
+by §4.1, `F11-015` by §4.3, `F11-016` by §4.5, `F11-017` by §4.7, `F11-018`
+by §4.9, `F11-019` by §4.11 and `F11-020` by §4.13 of this document. `F11-021`
+is the next non-colliding Phase 11 functional identifier, assigned to Phase
+11.50 — Reusable Backend Interfaces. Its pre-audit mapping status is
+`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`: the implementation exists in this
+repository and the connected acceptance is green here, while no independent
+audit has examined it yet.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`gateway`, `capability_resolver` read-only accessors) | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
+
+### 4.16 `F11-021` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-021 — Reusable First-Party Backend Interface` |
+| Design Point | `DP-150 — Canonical Reusable Client Backend Interface` |
+| Acceptance test | `AT-DP-150 — Canonical Reusable Client Backend Interface Acceptance` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
+| Production package | `cmm/client_backend/` (5 modules: `__init__.py`, `contracts.py`, `capabilities.py`, `interface.py`, `platform_module.py`) |
+| Additive seams in closed packages | `cmm/conversation/service.py` — two read-only identity accessors on the closed Phase 11.5 service: `gateway` (the exact `ApplicationGateway` instance, so the facade can prove owner coherence) and `capability_resolver` (the exact `ConversationCapabilityResolver`, so the facade reports canonical capability truth). Neither grants authority, mutates state, replaces an owner or creates a registry. `cmm/application/gateway.py` is unchanged. |
+| Frozen interface version | `CLIENT_BACKEND_INTERFACE_VERSION = "1"` — identifies the facade contract only; replaces no canonical version |
+| Closed operation set | `ClientOperation` — `CAPABILITIES`, `CREATE_SESSION`, `GET_SESSION`, `LOAD_CONVERSATION`, `SUBMIT_MESSAGE`, `EDIT_MESSAGE`, `REGENERATE_RESPONSE`, `CANCEL_REQUEST` |
+| Closed client error set | `ClientBackendErrorCode` — `UNSUPPORTED_INTERFACE_VERSION`, `INVALID_CLIENT_OPERATION`, `INVALID_CLIENT_CONTRACT`, `INTERNAL_CLIENT_ERROR`; no canonical application or conversational code is duplicated |
+| Capability vocabulary | `ClientBackendCapabilityStatus` — `available`, `degraded`, `unavailable`, `boundary_only` (four closed states, no ambiguous booleans) |
+| Capability field inventory | `interface_version`; `application_api_version`; `session_create`; `session_get`; `conversation_load`; `conversation_submit`; `conversation_edit`; `conversation_regenerate`; `response_event_stream`; `request_cancellation`; `attachments`; `document_upload`; `model_boundary_reasoning`; `model_boundary_multimodal`; `model_boundary_token_stream`; `end_to_end_reasoning`; `end_to_end_multimodal`; `end_to_end_token_stream` |
+| Focused suite | `tests/client_backend/` — `test_contracts.py`, `test_interface.py`, `test_capabilities.py`, `test_platform_module.py`, `test_architecture.py`, `test_phase11_50_dp150_acceptance.py`, plus the test-only helper `_canonical_graph.py` (157 passed at the implementation HEAD) |
+| Architecture/anti-fragmentation gate | `tests/client_backend/test_architecture.py` (parallel-authority, forbidden-import, per-module seam pin, reverse-dependency, dynamic-import, service-locator, filesystem/network, hidden-reasoning gates); Scenario H of `AT-DP-150`; additive closed-phase allowlist seams in `tests/application/test_architecture.py` and `tests/platform/test_architecture.py` |
+| Reference documentation | `docs/reference/phase-11-reusable-backend-interfaces.md` |
+| Design specification | `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` |
+| Reused canonical owners | Phase 11.3 `ApplicationGateway` (one public `handle` entrypoint) and its `SessionApplicationService` session boundary; Phase 11.5 `ConversationService` (`load`, `submit`, `edit`, `regenerate`, `cancel`) and `ConversationCapabilityResolver`; Phase 11.2 `Orchestrator` reached only *through* the gateway; Phase 11.1 `ServiceBinding` / `StaticCompositionModule` / `ContractMetadata` |
+| Platform service identity | `client.backend` (module `phase11.client-backend`, owner `cmm.client_backend`, mode `local`, authority `client-backend-public-facade`, runtime contract `cmm.client_backend.interface.ClientBackend`, dependency edges `application.gateway` and `conversation.service` only) |
+| Deliberately absent platform dependency | `model.gateway` and `provider.registry` — the client never acquires model execution authority through composition; model-boundary capability facts travel as read-only declarations instead |
+| Not exposed to clients | `kernel.llm.ModelGateway`, provider adapters, model selection/routing, raw `ModelCallCancellationToken`, `ModelGateway.stream()`, provider token streaming, image/document bytes, file upload, path resolution and URL download |
+| CMMChat relationship | CMMChat is a first-party client and consumes this seam later; `CMMCHAT_CODE_CHANGES=NONE` in Phase 11.50 |
+| Phase 11.51 boundary | `PHASE11_51=NOT_IMPLEMENTED` — no MCP, no OpenAI Actions, no external REST expansion, no Claude or ChatGPT adapter |
+| Inherited requirements reused | `F11-020` / `DP-121`, `F11-019` / `DP-105`, `F11-018` / `DP-104`, `F11-017` / `DP-103`, `F11-016` / `DP-102`, `F11-015` / `DP-101` and `F11-014` / `DP-134` — referenced, **not reopened and not modified** |
+| Inherited acceptance regressions | `AT-DP-134` — 68 passed; `AT-DP-121` — 38 passed; `AT-DP-101` — 31 passed; `AT-DP-102` — 33 passed; `AT-DP-103` — 47 passed; `AT-DP-104` — 69 passed; `AT-DP-105` — 1 passed; every file run as its own required gate command |
+| Suite gate results at the implementation HEAD | `tests/application` — 674 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/platform` + `tests/orchestration` + `tests/cli` — 2001 passed; `tests/api` + `tests/conversation` — 1054 passed; global `pytest -q` — 21940 passed, zero failures |
+| Repository-wide Ruff | 837 findings — identical to the inspected pre-phase baseline; `RUFF_NEW_FINDINGS=0`; every touched file is `ruff check`- and `ruff format --check`-clean |
+| Other gates | `compileall` PASS over `cmm/client_backend`, `cmm/application`, `cmm/conversation`, `cmm/platform`, `cmm/orchestration`, `kernel/llm`; `git diff --check` PASS |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
+| Next step | independent audit of the Phase 11.50 exact-HEAD bundle |
+
 ## 5. Current lifecycle status
 
 ```text
@@ -1059,3 +1107,66 @@ The implemented surface and final evidence are documented in
 [`docs/reference/phase-11-model-gateway.md`](phase-11-model-gateway.md).
 
 <!-- PHASE11_21_CLOSED_AFTER_INDEPENDENT_REAUDIT_V3_PASS -->
+
+## 14. Phase 11.50 — Reusable Backend Interfaces pre-audit status
+
+Phase 11.50 implements the frozen design
+`docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md`
+(`SHA256=d0296a5de7b0afcc3f3595ade1982d0ed140d9aa3a699afbfffab184a12150c6`)
+exactly as the implementation plan
+`docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md`
+prescribes. The implementation exists on branch
+`feature/phase-11-stable-integrated-platform` and the connected acceptance
+passes in this repository. **No independent audit has examined it yet.**
+
+```text
+PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_021=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_150=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_150=PASS_LOCAL
+INDEPENDENT_AUDIT=NOT_PERFORMED
+CLOSURE_ELIGIBLE=NOT_CLAIMED
+```
+
+What Phase 11.50 adds:
+
+- one new top-layer package, `cmm/client_backend`, containing a
+  **non-authoritative facade** over the exact canonical Phase 11.3
+  `ApplicationGateway` and Phase 11.5 `ConversationService`;
+- one frozen interface version, `CLIENT_BACKEND_INTERFACE_VERSION = "1"`;
+- one closed operation set, `ClientOperation`, and one narrow transport-neutral
+  envelope, `ClientBackendRequest` / `ClientBackendResult`;
+- one immutable capability projection, `ClientBackendCapabilities`, whose rows
+  derive only from canonical evidence and which distinguishes model-boundary
+  availability (`boundary_only`) from end-to-end availability;
+- one Phase 11.1 service binding, `client.backend`, whose dependency edges are
+  `application.gateway` and `conversation.service` only.
+
+What Phase 11.50 does not add, by explicit design ruling:
+
+```text
+NEW_EXECUTION_AUTHORITY=NO
+NEW_BACKEND_AUTHORITY=NO
+NEW_SESSION_AUTHORITY=NO
+NEW_ROUTING_AUTHORITY=NO
+NEW_MODEL_AUTHORITY=NO
+SECOND_APPLICATION_BACKEND=FORBIDDEN
+SECOND_CONVERSATION_SERVICE=FORBIDDEN
+DIRECT_MODEL_GATEWAY_CLIENT_ACCESS=FORBIDDEN
+NEW_HTTP_SERVER=FORBIDDEN
+NEW_SESSION_STORE=FORBIDDEN
+NEW_STREAM_RUNTIME=FORBIDDEN
+```
+
+The broad historical §11.50 roadmap wording is preserved unchanged in
+[`docs/roadmap/phase-11-stable-integrated-platform.md`](../roadmap/phase-11-stable-integrated-platform.md);
+the scoped implementation is recorded underneath it. `cmm.api` remains the
+existing Phase 11.3 HTTP/OpenAPI/SSE adapter and is regression-checked only; the
+Phase 11.4 CLI is untouched; MCP, OpenAI Actions and external adapters remain
+`PHASE11_51=NOT_IMPLEMENTED`; general event subscriptions remain deferred.
+
+The implemented surface, capability truth table, security invariants and known
+limits are documented in
+[`docs/reference/phase-11-reusable-backend-interfaces.md`](phase-11-reusable-backend-interfaces.md).
+
+<!-- PHASE11_50_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->

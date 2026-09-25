@@ -4757,6 +4757,57 @@ CMMChat is a first-party client, not an execution authority owner.
 
 ---
 
+## 11.50 implementation state (Phase 11.50 / DP-150)
+
+**Status:** implementation complete, pending independent audit.
+
+```text
+PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_021=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_150=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_150=PASS_LOCAL
+INDEPENDENT_AUDIT=NOT_PERFORMED
+CLOSURE_ELIGIBLE=NOT_CLAIMED
+```
+
+The broad interface list above is the historical roadmap wording and is preserved
+unchanged. Phase 11.50 implements a deliberately narrower, scoped slice of it —
+the reusable first-party client seam — and reuses what Phase 11.3 and Phase 11.4
+already closed:
+
+| Historical roadmap item | Phase 11.50 disposition |
+|---|---|
+| REST API | already provided by the closed Phase 11.3 `cmm.api` HTTP/OpenAPI adapter; **reused, not duplicated**; regression-checked only |
+| streaming API | already provided by the closed Phase 11.3 SSE response-event delivery; **reused**; `cmm.client_backend` reports its truth and never relabels it as token streaming |
+| CMMChat through versioned application and streaming contracts | **implemented here as the seam**: `cmm/client_backend` provides the versioned, transport-neutral first-party facade (`CLIENT_BACKEND_INTERFACE_VERSION="1"`); CMMChat source is not modified (`CMMCHAT_CODE_CHANGES=NONE`) |
+| MCP server | deferred — `PHASE11_51=NOT_IMPLEMENTED` |
+| OpenAI Actions-compatible endpoints | deferred — `PHASE11_51=NOT_IMPLEMENTED` |
+| CLI | already owned and closed by Phase 11.4; untouched by Phase 11.50 |
+| internal application services | already provided by the closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; **reused, not duplicated** |
+| event subscriptions | deferred; no new event bus and no subscription store is created |
+
+Phase 11.50 adds exactly one new top-layer package, `cmm/client_backend`, and one
+new Phase 11.1 service binding, `client.backend`. It introduces **no** new
+execution, backend, session, routing or model authority, and creates no second
+application gateway, conversation service, orchestrator, model gateway, provider
+registry, model catalog, session store, conversation store, router, runtime,
+engine, registry, repository, resolver, service locator, HTTP server or event
+bus. The Model Gateway remains an internal canonical boundary and is never
+exposed to a client as an escape hatch.
+
+Model-boundary capability truth (Phase 11.21 reasoning effort, real
+image/document input, provider token streaming and model-call cancellation) is
+reported honestly as `boundary_only`, while the matching `end_to_end_*` rows
+report the actual conversational truth. Establishing whether a narrow canonical
+end-to-end bridge is missing for each of them is a separate post-11.50
+inspection, per design §63.
+
+See [`docs/reference/phase-11-reusable-backend-interfaces.md`](../reference/phase-11-reusable-backend-interfaces.md).
+
+<!-- PHASE11_50_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
+
+---
+
 # 11.51 — MCP, REST, and Actions Adapters
 
 ## Objective
