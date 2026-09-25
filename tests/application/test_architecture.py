@@ -81,6 +81,17 @@ CLI_ADAPTER_MODULES = (
 #: adapter).
 CONVERSATION_PACKAGE = REPO_ROOT / "cmm" / "conversation"
 
+#: The first-party client consumer of the application boundary: Phase 11.50
+#: (DP-150) sanctions ``cmm.client_backend`` as a consumer of the application
+#: boundary through the one public ``ApplicationGateway`` entrypoint (design
+#: section 6: ``cmm.client_backend -> cmm.conversation -> cmm.application``).
+#: The package presents a reusable facade over the same backend and owns no
+#: application authority of its own; like the conversational exemption above,
+#: this one is a *subtree* exemption, so
+#: ``test_the_client_backend_package_exemption_is_live_and_honest`` below asserts
+#: both halves of the same bargain.
+CLIENT_BACKEND_PACKAGE = REPO_ROOT / "cmm" / "client_backend"
+
 #: Layers the design places below the application backend.
 LOWER_LAYERS = (
     "cmm/platform",
@@ -364,6 +375,8 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
                 continue
             if CONVERSATION_PACKAGE in path.parents:
                 continue
+            if CLIENT_BACKEND_PACKAGE in path.parents:
+                continue
             if path in CLI_ADAPTER_MODULES:
                 continue
             for module in _imported_modules(path):
@@ -372,8 +385,8 @@ def test_only_the_backend_packages_and_the_cli_adapter_import_the_backend() -> N
                         offenders.append(f"{path.relative_to(REPO_ROOT)} -> {module}")
 
     assert not offenders, (
-        "only cmm.api, cmm.application, cmm.conversation and the sanctioned "
-        f"CLI adapter may import the backend: {sorted(offenders)}"
+        "only cmm.api, cmm.application, cmm.conversation, cmm.client_backend "
+        f"and the sanctioned CLI adapter may import the backend: {sorted(offenders)}"
     )
 
 
@@ -413,6 +426,46 @@ def test_the_conversation_package_exemption_is_live_and_honest() -> None:
     assert not api_importers, (
         "cmm.conversation must consume the application boundary, never the "
         f"HTTP adapter (spec section 25): {api_importers}"
+    )
+
+
+def test_the_client_backend_package_exemption_is_live_and_honest() -> None:
+    """The Phase 11.50 consumer exists, imports the backend and stays bounded.
+
+    The exemption above may not go stale and may not exceed its sanction: the
+    package must exist, at least one of its modules must really import
+    ``cmm.application`` — the one public ``ApplicationGateway`` boundary the
+    facade delegates to — and, because the same skip also lifts the ``cmm.api``
+    half of the closing scan for the whole subtree, no client-backend module may
+    import the HTTP adapter (the facade is transport-neutral and must not become
+    a second REST surface).
+    """
+
+    assert CLIENT_BACKEND_PACKAGE.is_dir(), (
+        f"stale client-backend exemption: {CLIENT_BACKEND_PACKAGE}"
+    )
+
+    imported = {
+        module
+        for path in sorted(CLIENT_BACKEND_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+    }
+
+    assert any(
+        module == "cmm.application" or module.startswith("cmm.application.")
+        for module in imported
+    ), "no cmm.client_backend module imports the application backend"
+
+    api_importers = sorted(
+        f"{path.relative_to(REPO_ROOT)} -> {module}"
+        for path in sorted(CLIENT_BACKEND_PACKAGE.rglob("*.py"))
+        for module in _imported_modules(path)
+        if module == "cmm.api" or module.startswith("cmm.api.")
+    )
+
+    assert not api_importers, (
+        "cmm.client_backend must consume the application boundary, never the "
+        f"HTTP adapter: {api_importers}"
     )
 
 
