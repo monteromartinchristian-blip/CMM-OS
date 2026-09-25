@@ -23,15 +23,66 @@ available never implies permission to transmit.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
+
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
-from kernel.llm.model_gateway_contracts import ModelCapabilityProjection
+from kernel.llm.model_gateway_contracts import (
+    ModelCapabilityProjection,
+    ModelExecutionEvidenceSink,
+    ModelExecutionFacts,
+    ModelGatewayRequest,
+    ModelGatewayResponse,
+    ModelUsage,
+    PrivacyEgressDecision,
+    PrivacyEgressGate,
+)
 from kernel.llm.model_gateway_errors import ModelGatewayError, ModelGatewayErrorCode
+from kernel.llm.model_provider_adapter import (
+    ModelProviderAdapter,
+    ModelProviderAdapterRegistry,
+    ProviderModelRequest,
+    ProviderModelResponse,
+)
+from kernel.llm.model_streaming import ModelCallCancellation, ModelCallHandle
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 __all__ = ["ModelGateway"]
 
 _UNAVAILABLE_AVAILABILITY = frozenset({"unavailable", "disabled"})
+
+#: A canonical requirement name maps to the declared capability field that must
+#: be true.  ``document`` is validated against declared document media types.
+_CAPABILITY_FIELD_NAMES = {
+    "reasoning": "reasoning",
+    "tool_calling": "tool_calling",
+    "structured_output": "structured_output",
+    "json_mode": "json_mode",
+    "json_schema": "json_schema",
+    "vision": "vision",
+    "streaming": "streaming",
+    "audio_input": "audio_input",
+    "audio_output": "audio_output",
+    "embeddings": "embeddings",
+}
+
+_DEFAULT_MAX_TIMEOUT_SECONDS = 300.0
+_DEFAULT_MAX_ATTEMPTS = 1
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionPlan:
+    """The validated execution decision for one explicit model call."""
+
+    model: ModelSpec
+    provider: ProviderSpec
+    adapter: ModelProviderAdapter
+    capability_decision: str
+    privacy_decision: str
 
 
 class ModelGateway:
@@ -43,13 +94,29 @@ class ModelGateway:
     exact object identity.
     """
 
-    __slots__ = ("_model_catalog", "_provider_registry")
+    __slots__ = (
+        "_adapter_registry",
+        "_clock",
+        "_evidence_sink",
+        "_max_attempts",
+        "_max_timeout_seconds",
+        "_model_catalog",
+        "_privacy_gate",
+        "_provider_registry",
+    )
 
     def __init__(
         self,
         *,
         provider_registry: ProviderRegistry,
         model_catalog: ModelCatalog,
+        adapters: ModelProviderAdapterRegistry
+        | Iterable[ModelProviderAdapter]
+        | None = None,
+        privacy_gate: PrivacyEgressGate | None = None,
+        evidence_sink: ModelExecutionEvidenceSink | None = None,
+        max_timeout_seconds: float = _DEFAULT_MAX_TIMEOUT_SECONDS,
+        clock: object | None = None,
     ) -> None:
         if not isinstance(provider_registry, ProviderRegistry):
             raise TypeError("provider_registry must be a ProviderRegistry")
@@ -59,8 +126,23 @@ class ModelGateway:
             raise ValueError(
                 "model_catalog must be bound to the supplied provider_registry"
             )
+        if not isinstance(max_timeout_seconds, (int, float)) or isinstance(
+            max_timeout_seconds, bool
+        ):
+            raise TypeError("max_timeout_seconds must be a number")
+        if not float(max_timeout_seconds) > 0:
+            raise ValueError("max_timeout_seconds must be positive")
+
         self._provider_registry = provider_registry
         self._model_catalog = model_catalog
+        self._adapter_registry = self._normalize_adapters(adapters)
+        self._privacy_gate = self._normalize_privacy_gate(privacy_gate)
+        self._evidence_sink = self._normalize_evidence_sink(evidence_sink)
+        self._max_timeout_seconds = float(max_timeout_seconds)
+        self._max_attempts = _DEFAULT_MAX_ATTEMPTS
+        self._clock = clock if callable(clock) else time.perf_counter
+
+    # ── Read-only authority accessors ────────────────────────────────────────
 
     @property
     def provider_registry(self) -> ProviderRegistry:
@@ -73,6 +155,67 @@ class ModelGateway:
         """Return the exact canonical model catalog (read-only)."""
 
         return self._model_catalog
+
+    @property
+    def adapter_registry(self) -> ModelProviderAdapterRegistry:
+        """Return the execution-only adapter registry (read-only)."""
+
+        return self._adapter_registry
+
+    # ── Explicit model execution ─────────────────────────────────────────────
+
+    def open_call(self, request: ModelGatewayRequest) -> ModelCallHandle:
+        """Open a narrow, cancellable handle for one model call."""
+
+        if not isinstance(request, ModelGatewayRequest):
+            raise TypeError("request must be a ModelGatewayRequest")
+        return ModelCallHandle(request_id=request.request_id)
+
+    def execute(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        cancellation: ModelCallCancellation | None = None,
+    ) -> ModelGatewayResponse:
+        """Execute one validated model request and return a normalized response."""
+
+        if not isinstance(request, ModelGatewayRequest):
+            raise TypeError("request must be a ModelGatewayRequest")
+
+        started = self._clock()
+        plan = self._preflight(request)
+
+        attempt = 0
+        last_error: ModelGatewayError | None = None
+        while attempt < self._max_attempts:
+            attempt += 1
+            try:
+                provider_response = self._execute_adapter(
+                    plan,
+                    self._provider_request(request, plan),
+                    request,
+                    cancellation,
+                )
+            except ModelGatewayError as error:
+                last_error = error
+                if not error.retryable or attempt >= self._max_attempts:
+                    break
+                continue
+            return self._succeed(
+                request,
+                plan,
+                provider_response,
+                started=started,
+                attempt=attempt,
+            )
+
+        raise self._failed(
+            request,
+            plan,
+            last_error,
+            started=started,
+            attempt=attempt,
+        )
 
     # ── Read-only capability projection ──────────────────────────────────────
 
@@ -111,6 +254,116 @@ class ModelGateway:
             for model in self._model_catalog.list(provider_id=provider_id)
         )
 
+    # ── Construction helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalize_adapters(
+        adapters: ModelProviderAdapterRegistry | Iterable[ModelProviderAdapter] | None,
+    ) -> ModelProviderAdapterRegistry:
+        if adapters is None:
+            return ModelProviderAdapterRegistry()
+        if isinstance(adapters, ModelProviderAdapterRegistry):
+            return adapters
+        return ModelProviderAdapterRegistry(adapters)
+
+    @staticmethod
+    def _normalize_privacy_gate(
+        privacy_gate: PrivacyEgressGate | None,
+    ) -> PrivacyEgressGate | None:
+        if privacy_gate is None:
+            return None
+        if not callable(getattr(privacy_gate, "evaluate_egress", None)):
+            raise TypeError("privacy_gate must implement evaluate_egress()")
+        return privacy_gate
+
+    @staticmethod
+    def _normalize_evidence_sink(
+        evidence_sink: ModelExecutionEvidenceSink | None,
+    ) -> ModelExecutionEvidenceSink | None:
+        if evidence_sink is None:
+            return None
+        if not callable(getattr(evidence_sink, "record", None)):
+            raise TypeError("evidence_sink must implement record()")
+        return evidence_sink
+
+    # ── Preflight ────────────────────────────────────────────────────────────
+
+    def _preflight(self, request: ModelGatewayRequest) -> _ExecutionPlan:
+        if request.timeout_seconds > self._max_timeout_seconds:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_REQUEST_INVALID,
+                "requested timeout exceeds the gateway timeout ceiling",
+                details={
+                    "timeout_seconds": request.timeout_seconds,
+                    "max_timeout_seconds": self._max_timeout_seconds,
+                },
+                retryable=False,
+            )
+
+        model = self._resolve_model(request)
+        provider = self._resolve_provider(model)
+        if provider is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE,
+                "the model's provider is not registered",
+                details={"provider_id": model.provider_id},
+                retryable=False,
+            )
+        if not provider.enabled or provider.availability in _UNAVAILABLE_AVAILABILITY:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE,
+                "the provider is not available for execution",
+                details={"provider_id": provider.id},
+                retryable=False,
+            )
+        if model.availability in _UNAVAILABLE_AVAILABILITY:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.MODEL_UNAVAILABLE,
+                "the model is not available for execution",
+                details={"model_id": model.qualified_id},
+                retryable=False,
+            )
+
+        capability_decision = self._validate_capabilities(request, model)
+        privacy_decision = self._privacy_decision(request, provider)
+        adapter = self._adapter_registry.get(model.provider_id)
+
+        return _ExecutionPlan(
+            model=model,
+            provider=provider,
+            adapter=adapter,
+            capability_decision=capability_decision,
+            privacy_decision=privacy_decision,
+        )
+
+    def _resolve_model(self, request: ModelGatewayRequest) -> ModelSpec:
+        selection_mode = request.selection_mode
+        if request.model_id is not None:
+            try:
+                model = self._model_catalog.get(
+                    request.model_id,
+                    provider_id=request.provider_id,
+                )
+            except ProviderError as error:
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.MODEL_NOT_FOUND,
+                    "the requested model is not registered",
+                    details={"model_id": request.model_id},
+                ) from error
+            if not self._model_catalog.is_bound_to_current_provider(model):
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.MODEL_UNAVAILABLE,
+                    "the model is bound to a stale or missing provider authority",
+                    details={"model_id": model.qualified_id},
+                    retryable=False,
+                )
+            return model
+        raise ModelGatewayError(
+            ModelGatewayErrorCode.MODEL_NOT_FOUND,
+            f"{selection_mode.value} model selection is not resolvable",
+            retryable=False,
+        )
+
     def _resolve_provider(self, model: ModelSpec) -> ProviderSpec | None:
         """Resolve a model's canonical provider, or ``None`` when it is gone."""
 
@@ -118,6 +371,288 @@ class ModelGateway:
             return self._provider_registry.get(model.provider_id)
         except ProviderError:
             return None
+
+    @staticmethod
+    def _validate_capabilities(
+        request: ModelGatewayRequest,
+        model: ModelSpec,
+    ) -> str:
+        capabilities = model.capabilities
+        for name in request.required_capabilities:
+            if name == "document":
+                if not capabilities.document_media_types:
+                    raise ModelGatewayError(
+                        ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                        "the model does not declare document input support",
+                        details={"capability": name, "model_id": model.qualified_id},
+                        retryable=False,
+                    )
+                continue
+            if not getattr(capabilities, _CAPABILITY_FIELD_NAMES[name]):
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                    "the model does not support a required capability",
+                    details={"capability": name, "model_id": model.qualified_id},
+                    retryable=False,
+                )
+        return "verified"
+
+    # ── Privacy before egress ────────────────────────────────────────────────
+
+    def _privacy_decision(
+        self,
+        request: ModelGatewayRequest,
+        provider: ProviderSpec,
+    ) -> str:
+        is_remote = provider.provider_type == "remote"
+        if not is_remote:
+            if request.privacy is None or self._privacy_gate is None:
+                return "not_required"
+            decision = self._evaluate_egress(request, provider, is_remote=False)
+            if not decision.allowed:
+                raise self._privacy_denied(decision, provider)
+            return decision.reason_code
+
+        if request.privacy is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "remote transmission requires canonical privacy metadata",
+                details={"provider_id": provider.id},
+                retryable=False,
+            )
+        if self._privacy_gate is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "no canonical privacy authority is configured for remote egress",
+                details={"provider_id": provider.id},
+                retryable=False,
+            )
+        decision = self._evaluate_egress(request, provider, is_remote=True)
+        if not decision.allowed:
+            raise self._privacy_denied(decision, provider)
+        return decision.reason_code
+
+    def _evaluate_egress(
+        self,
+        request: ModelGatewayRequest,
+        provider: ProviderSpec,
+        *,
+        is_remote: bool,
+    ) -> PrivacyEgressDecision:
+        try:
+            decision = self._privacy_gate.evaluate_egress(  # type: ignore[union-attr]
+                privacy=request.privacy,
+                provider_id=provider.id,
+                is_remote=is_remote,
+            )
+        except ModelGatewayError:
+            raise
+        except Exception as error:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "canonical privacy evaluation failed",
+                details={"provider_id": provider.id},
+                retryable=False,
+            ) from error
+        if not isinstance(decision, PrivacyEgressDecision):
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "canonical privacy authority returned an unusable decision",
+                details={"provider_id": provider.id},
+                retryable=False,
+            )
+        return decision
+
+    @staticmethod
+    def _privacy_denied(
+        decision: PrivacyEgressDecision,
+        provider: ProviderSpec,
+    ) -> ModelGatewayError:
+        return ModelGatewayError(
+            ModelGatewayErrorCode.PRIVACY_DENIED,
+            "canonical privacy policy denied provider egress",
+            details={
+                "provider_id": provider.id,
+                "reason_code": decision.reason_code,
+            },
+            retryable=False,
+        )
+
+    # ── Adapter invocation ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _provider_request(
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+    ) -> ProviderModelRequest:
+        return ProviderModelRequest(
+            request_id=request.request_id,
+            provider_id=plan.provider.id,
+            model_id=plan.model.id,
+            input_parts=request.input_parts,
+            reasoning_effort=request.reasoning_effort,
+            tools=request.tools,
+            structured_output=request.structured_output,
+            timeout_seconds=request.timeout_seconds,
+        )
+
+    def _execute_adapter(
+        self,
+        plan: _ExecutionPlan,
+        provider_request: ProviderModelRequest,
+        request: ModelGatewayRequest,
+        cancellation: ModelCallCancellation | None,
+    ) -> ProviderModelResponse:
+        if cancellation is not None and cancellation.is_cancelled:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.MODEL_CALL_CANCELLED,
+                "model call was cancelled before provider execution",
+                retryable=False,
+            )
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            plan.adapter.execute,
+            provider_request,
+            cancellation=cancellation,
+        )
+        try:
+            return future.result(timeout=request.timeout_seconds)
+        except FuturesTimeoutError as error:
+            if cancellation is not None:
+                cancellation.cancel("model call timed out")
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_TIMEOUT,
+                "model call exceeded its timeout",
+                details={
+                    "provider_id": plan.provider.id,
+                    "timeout_seconds": request.timeout_seconds,
+                },
+                retryable=True,
+            ) from error
+        except ModelGatewayError:
+            raise
+        except Exception as error:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_FAILURE,
+                "provider execution failed",
+                details={"provider_id": plan.provider.id},
+                retryable=True,
+            ) from error
+        finally:
+            executor.shutdown(wait=False)
+
+    # ── Result normalization ─────────────────────────────────────────────────
+
+    def _succeed(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        provider_response: ProviderModelResponse,
+        *,
+        started: float,
+        attempt: int,
+    ) -> ModelGatewayResponse:
+        facts = self._facts(
+            request,
+            plan,
+            started=started,
+            attempt=attempt,
+            success=True,
+            error_code=None,
+            finish_reason=provider_response.finish_reason,
+            usage=provider_response.usage,
+            reasoning_used=provider_response.reasoning_used,
+        )
+        self._emit(facts)
+        return ModelGatewayResponse(
+            request_id=request.request_id,
+            provider_id=plan.provider.id,
+            model_id=plan.model.id,
+            selection_mode=request.selection_mode,
+            content=provider_response.content,
+            structured_output=provider_response.structured_output,
+            tool_calls=provider_response.tool_calls,
+            usage=provider_response.usage,
+            facts=facts,
+            finish_reason=provider_response.finish_reason,
+            cancelled=False,
+            error_code=None,
+            reasoning_used=provider_response.reasoning_used,
+            effective_reasoning_effort=provider_response.effective_reasoning_effort,
+        )
+
+    def _failed(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        error: ModelGatewayError | None,
+        *,
+        started: float,
+        attempt: int,
+    ) -> ModelGatewayError:
+        failure = error or ModelGatewayError(
+            ModelGatewayErrorCode.PROVIDER_FAILURE,
+            "model call failed",
+            retryable=False,
+        )
+        facts = self._facts(
+            request,
+            plan,
+            started=started,
+            attempt=attempt,
+            success=False,
+            error_code=failure.code.value,
+            finish_reason=None,
+            usage=None,
+            reasoning_used=False,
+        )
+        self._emit(facts)
+        return failure
+
+    def _facts(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        *,
+        started: float,
+        attempt: int,
+        success: bool,
+        error_code: str | None,
+        finish_reason: str | None,
+        usage: ModelUsage | None,
+        reasoning_used: bool,
+    ) -> ModelExecutionFacts:
+        latency_ms = max(int((self._clock() - started) * 1000), 0)
+        return ModelExecutionFacts(
+            request_id=request.request_id,
+            provider_id=plan.provider.id,
+            model_id=plan.model.id,
+            selection_mode=request.selection_mode,
+            success=success,
+            capability_decision=plan.capability_decision,
+            privacy_decision=plan.privacy_decision,
+            requested_reasoning_effort=request.reasoning_effort,
+            effective_reasoning_effort=request.reasoning_effort,
+            reasoning_used=reasoning_used,
+            input_modalities=request.input_modalities,
+            tool_use=bool(request.tools),
+            structured_output_use=request.structured_output is not None,
+            streamed=False,
+            cancelled=error_code == ModelGatewayErrorCode.MODEL_CALL_CANCELLED.value,
+            timed_out=error_code == ModelGatewayErrorCode.PROVIDER_TIMEOUT.value,
+            retry_count=max(attempt - 1, 0),
+            usage=usage if usage is not None else ModelUsage(),
+            latency_ms=latency_ms,
+            finish_reason=finish_reason,
+            error_code=error_code,
+        )
+
+    def _emit(self, facts: ModelExecutionFacts) -> None:
+        if self._evidence_sink is not None:
+            self._evidence_sink.record(facts)
+
+    # ── Capability projection helpers ────────────────────────────────────────
 
     def _project(
         self,
