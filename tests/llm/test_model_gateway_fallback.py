@@ -23,6 +23,7 @@ from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_gateway_contracts import (
     ModelGatewayRequest,
+    ModelGatewayRetryPolicy,
     ModelInputPart,
     ModelToolDefinition,
     ModelUsage,
@@ -30,6 +31,7 @@ from kernel.llm.model_gateway_contracts import (
 )
 from kernel.llm.model_gateway_errors import ModelGatewayError, ModelGatewayErrorCode
 from kernel.llm.model_provider_adapter import InMemoryModelProviderAdapter
+from kernel.llm.model_streaming import ModelCallCancellation
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from tests.llm.model_gateway_support import (
     MULTIMODAL,
@@ -486,3 +488,235 @@ def test_fallback_usage_is_reported_from_the_executing_provider() -> None:
 
     assert response.usage.input_tokens == 9
     assert response.usage.output_tokens == 4
+
+
+# ── Remediation V1 MAJOR-02 — one cancellation token belongs to the whole call.
+#
+# The exact caller token must stay authoritative across primary execution,
+# transport retry, retry backoff, fallback planning, fallback candidate
+# preflight and fallback execution.  Cancellation beats every recovery path, so
+# a cancelled call ends with MODEL_CALL_CANCELLED and performs no later provider
+# I/O.
+
+
+class _RecordingAdapter:
+    """Delegate to a real in-memory adapter while recording the token identity."""
+
+    def __init__(self, delegate: InMemoryModelProviderAdapter) -> None:
+        self._delegate = delegate
+        self.seen: list[object | None] = []
+
+    @property
+    def provider_id(self) -> str:
+        return self._delegate.provider_id
+
+    @property
+    def supports_streaming(self) -> bool:
+        return False
+
+    def execute(self, request, *, cancellation: object | None = None):
+        self.seen.append(cancellation)
+        return self._delegate.execute(request, cancellation=cancellation)
+
+    def stream(self, request, *, cancellation: object | None = None):
+        raise AssertionError("streaming is not used by these tests")
+
+
+def _composed_runtime(
+    *,
+    primary_adapter,
+    cancellation: ModelCallCancellation | None = None,
+    retry_policy: ModelGatewayRetryPolicy | None = None,
+    planner: object | None = None,
+) -> _FallbackRuntime:
+    """Compose the fallback runtime around an instrumented primary adapter."""
+
+    runtime = _FallbackRuntime(
+        primary_capabilities=MULTIMODAL,
+        fallback_capabilities=MULTIMODAL,
+    )
+    runtime.adapters["local"] = primary_adapter  # type: ignore[assignment]
+    runtime.runtime = build_runtime(
+        graph=runtime.runtime.graph,
+        register_model=False,
+        provider_id="local",
+        adapters=tuple(runtime.adapters.values()),
+        fallback_planner=planner if planner is not None else _planner(),
+        **(
+            {"retry_policy": retry_policy}
+            if retry_policy is not None
+            else {}
+        ),  # type: ignore[arg-type]
+    )
+    return runtime
+
+
+class _CancellingAdapter(_RecordingAdapter):
+    """Cancel the shared token, then fail retryably (or delegate a response)."""
+
+    def __init__(
+        self,
+        delegate: InMemoryModelProviderAdapter,
+        *,
+        cancel: ModelCallCancellation,
+        failure_code: ModelGatewayErrorCode | None,
+        retryable: bool,
+    ) -> None:
+        super().__init__(delegate)
+        self._cancel = cancel
+        self._failure_code = failure_code
+        self._retryable = retryable
+
+    def execute(self, request, *, cancellation: object | None = None):
+        self.seen.append(cancellation)
+        self._cancel.cancel("primary cancelled the call")
+        if self._failure_code is not None:
+            raise ModelGatewayError(
+                self._failure_code,
+                "primary failed after cancelling",
+                details={"provider_id": self.provider_id},
+                retryable=self._retryable,
+            )
+        return self._delegate.execute(request, cancellation=cancellation)
+
+
+def test_a_cancelled_primary_never_executes_an_authorized_fallback() -> None:
+    cancellation = ModelCallCancellation()
+    delegate = InMemoryModelProviderAdapter("local")
+    primary = _CancellingAdapter(
+        delegate,
+        cancel=cancellation,
+        failure_code=ModelGatewayErrorCode.PROVIDER_FAILURE,
+        retryable=True,
+    )
+    runtime = _composed_runtime(primary_adapter=primary)
+    runtime.adapter("fallback-a").add_response(content="must never run")
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    assert error.value.retryable is False
+    assert cancellation.is_cancelled is True
+    assert runtime.adapter("fallback-a").call_count == 0
+    assert delegate.call_count == 1
+    assert primary.seen == [cancellation]
+
+
+def test_cancellation_during_retry_backoff_stops_the_next_attempt() -> None:
+    cancellation = ModelCallCancellation()
+    delegate = InMemoryModelProviderAdapter("local")
+    primary = _CancellingAdapter(
+        delegate,
+        cancel=cancellation,
+        failure_code=ModelGatewayErrorCode.PROVIDER_FAILURE,
+        retryable=True,
+    )
+    runtime = _composed_runtime(
+        primary_adapter=primary,
+        retry_policy=ModelGatewayRetryPolicy(max_attempts=3, backoff_seconds=0.0),
+    )
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    # Exactly one primary attempt: cancellation observed after the retryable
+    # failure prevents both the retry and the fallback.
+    assert delegate.call_count == 1
+    assert primary.seen == [cancellation]
+    assert runtime.adapter("fallback-a").call_count == 0
+
+
+def test_cancellation_before_fallback_preflight_stops_fallback_io() -> None:
+    runtime = _FallbackRuntime(
+        primary_capabilities=MULTIMODAL,
+        fallback_capabilities=MULTIMODAL,
+    )
+    cancellation = ModelCallCancellation()
+    _transient(runtime.adapter("local"))
+    cancellation.cancel("user cancelled before fallback planning")
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    assert runtime.adapter("local").call_count == 0
+    assert runtime.adapter("fallback-a").call_count == 0
+
+
+def test_a_cancelled_request_never_reaches_primary_provider_io() -> None:
+    runtime = _FallbackRuntime(
+        primary_capabilities=MULTIMODAL,
+        fallback_capabilities=MULTIMODAL,
+    )
+    cancellation = ModelCallCancellation()
+    _transient(runtime.adapter("local"))
+    cancellation.cancel("stop before primary")
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    assert runtime.adapter("local").call_count == 0
+    assert runtime.adapter("fallback-a").call_count == 0
+
+
+def test_cancellation_during_fallback_planning_stops_before_invocation() -> None:
+    """Cancellation observed while planning still blocks fallback adapter I/O."""
+
+    cancellation = ModelCallCancellation()
+    delegate = InMemoryModelProviderAdapter("local")
+    _transient(delegate)
+
+    class _CancellingPlanner:
+        """Cancel the shared token while the canonical planner is deciding."""
+
+        def __init__(self, delegate: object) -> None:
+            self._delegate = delegate
+
+        def next_selection(self, **kwargs: object):
+            decision = self._delegate.next_selection(**kwargs)  # type: ignore[attr-defined]
+            cancellation.cancel("cancelled during fallback planning")
+            return decision
+
+    runtime = _composed_runtime(
+        primary_adapter=delegate,
+        planner=_CancellingPlanner(_planner()),
+    )
+    runtime.adapter("fallback-a").add_response(content="must never run")
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    assert runtime.adapter("fallback-a").call_count == 0
+
+
+def test_the_fallback_plumbing_receives_the_exact_cancellation_object() -> None:
+    """The same token object reaches every attempt, never ``None`` or a copy."""
+
+    runtime = _FallbackRuntime(
+        primary_capabilities=MULTIMODAL,
+        fallback_capabilities=MULTIMODAL,
+    )
+    cancellation = ModelCallCancellation()
+    _transient(runtime.adapter("local"))
+    primary = _RecordingAdapter(runtime.adapter("local"))
+    secondary = _RecordingAdapter(runtime.adapter("fallback-a"))
+    runtime.adapters["local"] = primary  # type: ignore[assignment]
+    runtime.adapters["fallback-a"] = secondary  # type: ignore[assignment]
+    secondary._delegate.add_response(content="fallback answer")
+    runtime.runtime = build_runtime(
+        graph=runtime.runtime.graph,
+        register_model=False,
+        provider_id="local",
+        adapters=tuple(runtime.adapters.values()),
+        fallback_planner=_planner(),
+    )
+
+    response = runtime.gateway.execute(_request(), cancellation=cancellation)
+
+    assert response.content == "fallback answer"
+    assert primary.seen == [cancellation]
+    assert secondary.seen == [cancellation]
