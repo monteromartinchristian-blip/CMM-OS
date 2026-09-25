@@ -33,6 +33,7 @@ from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_gateway_contracts import (
+    InputPartKind,
     ModelCapabilityProjection,
     ModelExecutionEvidenceSink,
     ModelExecutionFacts,
@@ -326,6 +327,7 @@ class ModelGateway:
             )
 
         capability_decision = self._validate_capabilities(request, model)
+        self._validate_modalities(request, model)
         privacy_decision = self._privacy_decision(request, provider)
         adapter = self._adapter_registry.get(model.provider_id)
 
@@ -407,6 +409,46 @@ class ModelGateway:
                     retryable=False,
                 )
         return "verified"
+
+    @staticmethod
+    def _validate_modalities(
+        request: ModelGatewayRequest,
+        model: ModelSpec,
+    ) -> None:
+        """Fail closed before provider I/O when a model cannot take an input part.
+
+        The declared canonical capabilities are the only authority: image input
+        requires declared vision, and a document part requires the model to
+        declare that exact media type.  Nothing is inferred and nothing is
+        silently degraded (a PDF is never converted to extracted text here).
+        """
+
+        capabilities = model.capabilities
+        for part in request.input_parts:
+            if part.kind is InputPartKind.IMAGE and not capabilities.vision:
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.INPUT_MODALITY_UNSUPPORTED,
+                    "the model does not declare image input support",
+                    details={
+                        "kind": part.kind.value,
+                        "media_type": part.media_type,
+                        "model_id": model.qualified_id,
+                    },
+                    retryable=False,
+                )
+            if part.kind is InputPartKind.DOCUMENT and not (
+                capabilities.supports_document_media_type(part.media_type or "")
+            ):
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.INPUT_MODALITY_UNSUPPORTED,
+                    "the model does not declare this document media type",
+                    details={
+                        "kind": part.kind.value,
+                        "media_type": part.media_type,
+                        "model_id": model.qualified_id,
+                    },
+                    retryable=False,
+                )
 
     # ── Privacy before egress ────────────────────────────────────────────────
 
