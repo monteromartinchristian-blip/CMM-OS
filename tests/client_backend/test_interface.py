@@ -187,8 +187,9 @@ def test_creating_a_session_twice_fails_closed_at_the_interface() -> None:
     ``ApplicationConflictError`` inside ``ApplicationGateway.handle``; the
     gateway's fail-closed boundary is the one public entrypoint, so a caller that
     is not the typed canonical pipeline (this facade) receives the safe canonical
-    outcome projected into the closed client failure code.  Nothing is retried
-    and nothing is replaced.
+    outcome — ``CONFLICT`` with the canonical safe message — and never a lossy
+    client re-code (Audit V1 MAJOR-03).  Nothing is retried and nothing is
+    replaced.
     """
 
     graph = build_client_backend_graph()
@@ -198,7 +199,10 @@ def test_creating_a_session_twice_fails_closed_at_the_interface() -> None:
     with pytest.raises(ClientBackendError) as failure:
         graph.client.create_session(SESSION_ID)
 
-    assert failure.value.code is ClientBackendErrorCode.INTERNAL_CLIENT_ERROR
+    assert failure.value.code is ApplicationErrorCode.CONFLICT
+    assert failure.value.message == (
+        "Application resource state conflicts with the request"
+    )
     after = graph.store.load(SESSION_ID)
     assert after is not None and before is not None
     assert after.revision == before.revision
@@ -213,7 +217,7 @@ def test_get_session_of_an_absent_session_fails_closed_safely() -> None:
     with pytest.raises(ClientBackendError) as failure:
         graph.client.get_session("does-not-exist")
 
-    assert failure.value.code is ClientBackendErrorCode.INTERNAL_CLIENT_ERROR
+    assert failure.value.code is ApplicationErrorCode.RESOURCE_NOT_FOUND
     assert "does-not-exist" not in failure.value.message
     assert "Traceback" not in failure.value.message
     assert "/Users/" not in failure.value.message

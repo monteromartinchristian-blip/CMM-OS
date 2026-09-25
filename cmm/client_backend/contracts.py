@@ -15,7 +15,10 @@ What the layer owns is exactly four things:
 * one closed set of *interface-shape* failures
   (:class:`ClientBackendErrorCode`) with module-owned constant messages.  A
   canonical application/conversation failure is projected through the canonical
-  safe error projection instead, so no canonical code is duplicated here;
+  safe error projection instead, so no canonical code is duplicated here:
+  ``ClientBackendError`` carries either a client-interface code or — for a known
+  canonical downstream failure preserved verbatim — a member of the canonical
+  closed error taxonomy itself (Audit V1 MAJOR-03 remediation);
 * one narrow, transport-neutral request/result envelope
   (:class:`ClientBackendRequest` / :class:`ClientBackendResult`) whose payload
   is primitive-safe public data or canonical public values.
@@ -38,7 +41,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
-from cmm.application.contracts import APPLICATION_API_VERSION
+from cmm.application.contracts import APPLICATION_API_VERSION, ApplicationErrorCode
+from cmm.conversation.errors import ConversationErrorCode
 
 __all__ = [
     "APPLICATION_API_VERSION",
@@ -141,6 +145,58 @@ def _code_member(value: object) -> ClientBackendErrorCode:
 
     if not isinstance(value, ClientBackendErrorCode):
         raise TypeError("code must be a ClientBackendErrorCode")
+    return value
+
+
+#: The closed set of codes a :class:`ClientBackendError` may carry: one of the
+#: four reserved client-interface codes, or — for a failure that preserves a
+#: canonical downstream failure — a member of the canonical application or
+#: conversational closed error taxonomy.  Nothing else is representable.
+_ClientFailureCode = (
+    ClientBackendErrorCode | ApplicationErrorCode | ConversationErrorCode
+)
+
+#: The canonical safe failure codes this layer may preserve verbatim.  The table
+#: is derived from the canonical enums themselves, so the client backend can never
+#: invent, rename or duplicate a canonical failure identity — and the two
+#: canonical value vocabularies are disjoint (application codes are upper-case,
+#: conversational codes are lower-case), so no entry is ambiguous.
+_CANONICAL_FAILURE_CODES: Mapping[str, ApplicationErrorCode | ConversationErrorCode] = (
+    MappingProxyType(
+        {
+            **{member.value: member for member in ApplicationErrorCode},
+            **{member.value: member for member in ConversationErrorCode},
+        }
+    )
+)
+
+
+def _canonical_failure_code(
+    value: object,
+) -> ApplicationErrorCode | ConversationErrorCode:
+    """Require one real canonical failure code; an invented code fails closed."""
+
+    if not isinstance(value, str):
+        raise TypeError("a canonical failure code must be a string")
+    member = _CANONICAL_FAILURE_CODES.get(value)
+    if member is None:
+        raise ValueError(
+            "a canonical failure code must be a member of the canonical "
+            "ApplicationErrorCode or ConversationErrorCode taxonomy"
+        )
+    return member
+
+
+def _canonical_failure_message(value: object) -> str:
+    """Require one canonical bounded safe message; raw text is never accepted."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("a canonical failure message must be a non-empty string")
+    if len(value) > CLIENT_BACKEND_MAX_STRING_LENGTH:
+        raise ValueError(
+            "a canonical failure message must not exceed "
+            f"{CLIENT_BACKEND_MAX_STRING_LENGTH} characters"
+        )
     return value
 
 
@@ -274,22 +330,67 @@ def _thaw(value: object) -> Any:
 
 
 class ClientBackendError(Exception):
-    """One safe client-interface failure carrying a closed code.
+    """One safe client-visible failure, of exactly one of two disjoint kinds.
 
-    The message is always the module-owned constant of the code: no caller text,
-    exception repr, traceback, path, credential or hidden reasoning is
-    representable, and the public projection of the failure can never fail.
+    * a **client-interface** failure, carrying one of the four reserved
+      :class:`ClientBackendErrorCode` values and its module-owned constant
+      message.  ``canonical_code`` is ``None`` and :attr:`code` is the closed
+      client-interface member;
+    * a **canonical downstream** failure, preserving the canonical owner's own
+      safe code and safe message verbatim.  Audit V1 MAJOR-03 remediation: a
+      known canonical ``RESOURCE_NOT_FOUND``, ``CONFLICT``, ``SESSION_CONFLICT``,
+      ``CAPABILITY_UNAVAILABLE``, ``POLICY_DENIED``, ``APPROVAL_REQUIRED``,
+      ``CANCELLED``, ``INVALID_REQUEST`` or ``UNSUPPORTED_VERSION`` must not be
+      lossily re-coded as ``INTERNAL_CLIENT_ERROR`` merely because it crossed the
+      client facade.
+
+    The canonical kind duplicates **no** taxonomy: :meth:`from_canonical` accepts
+    only a code that is a real member of the canonical closed
+    ``ApplicationErrorCode`` or ``ConversationErrorCode`` enum, and the message it
+    carries is the canonical owner's own bounded safe message.  A canonical
+    *internal* failure is deliberately not preserved: it is an internal defect and
+    is projected as the one generic client error instead.
     """
 
     def __init__(self, code: ClientBackendErrorCode) -> None:
-        self.code = _code_member(code)
+        self.code: _ClientFailureCode = _code_member(code)
         self.message = CLIENT_BACKEND_ERROR_MESSAGES[self.code]
+        #: The canonical safe code when this failure preserves a canonical
+        #: downstream failure, and ``None`` for a client-interface failure.
+        self.canonical_code: str | None = None
         super().__init__(self.message)
+
+    @classmethod
+    def from_canonical(cls, *, code: str, message: str) -> ClientBackendError:
+        """Return one canonical downstream failure preserved in its own identity.
+
+        The canonical code must be a member of the canonical closed application or
+        conversational error taxonomy, and the message must be the canonical
+        owner's bounded safe message.  An unknown code fails closed rather than
+        creating a third taxonomy.
+        """
+
+        canonical = _canonical_failure_code(code)
+        failure = cls.__new__(cls)
+        failure.code = canonical
+        failure.message = _canonical_failure_message(message)
+        failure.canonical_code = canonical.value
+        Exception.__init__(failure, failure.message)
+        return failure
+
+    @property
+    def is_canonical(self) -> bool:
+        """Return whether this failure preserves a canonical downstream failure."""
+
+        return self.canonical_code is not None
 
     def to_dict(self) -> dict[str, str]:
         """Return the deterministic public representation of this failure."""
 
-        return {"code": self.code.value, "message": self.message}
+        code = self.canonical_code
+        if code is None:
+            code = self.code.value
+        return {"code": code, "message": self.message}
 
 
 def require_supported_interface_version(value: object) -> str:

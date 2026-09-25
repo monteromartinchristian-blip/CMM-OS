@@ -74,7 +74,6 @@ See ``docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-
 from __future__ import annotations
 
 from collections.abc import Mapping
-from types import MappingProxyType
 from typing import Any
 
 from cmm.application.contracts import (
@@ -110,7 +109,11 @@ from cmm.conversation.contracts import (
     AssistantResponse,
     ConversationMessage,
 )
-from cmm.conversation.errors import ConversationBoundaryError
+from cmm.conversation.errors import (
+    CONVERSATION_ERROR_MESSAGES,
+    ConversationBoundaryError,
+    ConversationErrorCode,
+)
 from cmm.conversation.service import ConversationService
 from cmm.conversation.state import ConversationState
 
@@ -369,9 +372,12 @@ class ClientBackend:
         The interface version and the operation are validated before any
         canonical owner is reached, so an unsupported version or an unknown
         operation performs zero downstream calls.  A canonical failure keeps its
-        canonical safe state: an ``ApplicationServiceError`` is projected through
-        the canonical safe projection, and any other unexpected internal failure
-        becomes ``INTERNAL_CLIENT_ERROR`` with no raw internal message.
+        canonical safe state on the real execution path: a canonical
+        ``ApplicationError`` is projected through the canonical safe projection,
+        a canonical conversational boundary failure keeps its closed code, and
+        only a genuinely unknown internal failure becomes
+        ``INTERNAL_CLIENT_ERROR`` with no raw internal message (Audit V1
+        MAJOR-03).
         """
 
         if not isinstance(request, ClientBackendRequest):
@@ -391,6 +397,15 @@ class ClientBackend:
                 ok=False,
                 data=None,
                 error=error,
+            )
+        except (ApplicationServiceError, ConversationBoundaryError) as error:
+            return ClientBackendResult(
+                interface_version=CLIENT_BACKEND_INTERFACE_VERSION,
+                request_id=request.request_id,
+                operation=request.operation,
+                ok=False,
+                data=None,
+                error=_canonical_client_failure(error),
             )
         except Exception:  # noqa: BLE001 - the client boundary fails closed
             return ClientBackendResult(
@@ -525,21 +540,44 @@ class ClientBackend:
         importing either canonical error hierarchy itself.
         """
 
-        return _canonical_failure_projection(error)
+        return _canonical_client_failure(error).to_dict()
 
 
-def _canonical_failure_projection(error: BaseException) -> dict[str, str]:
-    """Return the safe public projection of one canonical failure."""
+def _canonical_client_failure(error: BaseException) -> ClientBackendError:
+    """Return the safe client failure of one canonical downstream failure.
+
+    A known canonical application or conversational failure keeps its own
+    canonical safe code and safe message verbatim, so a first-party client sees
+    the same ``RESOURCE_NOT_FOUND`` / ``CONFLICT`` / ``SESSION_CONFLICT`` /
+    ``POLICY_DENIED`` identity the canonical layers report instead of a lossy
+    re-code (Audit V1 MAJOR-03).
+
+    A canonical *internal* failure is deliberately not preserved: it is an
+    internal defect rather than a known caller-facing outcome, so it becomes the
+    one generic client error.  Anything that is not a canonical typed failure at
+    all is an unknown internal exception and becomes the same generic error.
+    """
 
     if isinstance(error, ApplicationServiceError):
-        public = error.to_public_error()
-        return {"code": public.code.value, "message": public.message}
+        return _application_error_client_failure(error.to_public_error())
     if isinstance(error, ConversationBoundaryError):
-        return {"code": error.code.value, "message": str(error)}
-    return {
-        "code": ClientBackendErrorCode.INTERNAL_CLIENT_ERROR.value,
-        "message": ("Client backend request failed closed"),
-    }
+        code = error.code
+        if code is ConversationErrorCode.INTERNAL_FAILURE:
+            return ClientBackendError(ClientBackendErrorCode.INTERNAL_CLIENT_ERROR)
+        return ClientBackendError.from_canonical(
+            code=code.value, message=CONVERSATION_ERROR_MESSAGES[code]
+        )
+    return ClientBackendError(ClientBackendErrorCode.INTERNAL_CLIENT_ERROR)
+
+
+def _application_error_client_failure(error: ApplicationError) -> ClientBackendError:
+    """Return the safe client failure of one canonical public application error."""
+
+    if error.code is ApplicationErrorCode.INTERNAL_FAILURE:
+        return ClientBackendError(ClientBackendErrorCode.INTERNAL_CLIENT_ERROR)
+    return ClientBackendError.from_canonical(
+        code=error.code.value, message=error.message
+    )
 
 
 def _application_session_from_response(
@@ -557,7 +595,11 @@ def _application_session_from_response(
         error = response.error
         if error is None:
             raise ClientBackendError(ClientBackendErrorCode.INTERNAL_CLIENT_ERROR)
-        raise ClientBackendError(_client_error_code_for(error))
+        # A real canonical failure keeps its canonical safe code and message: a
+        # missing session is ``RESOURCE_NOT_FOUND``, a duplicate create is
+        # ``CONFLICT``, and neither is recoded as a client-interface failure
+        # (Audit V1 MAJOR-03).
+        raise _application_error_client_failure(error)
 
     session = response.data.get("session_id")
     revision = response.data.get("revision")
@@ -580,37 +622,6 @@ def _application_session_from_response(
         status=status,
         created_at=created_at,
         updated_at=updated_at,
-    )
-
-
-#: Canonical application error codes to the client-interface failure code used
-#: only when a *generic* caller has no canonical typed contract to match.
-_CLIENT_ERROR_CODE_FOR_APPLICATION_CODE: Mapping[
-    ApplicationErrorCode, ClientBackendErrorCode
-] = MappingProxyType(
-    {
-        ApplicationErrorCode.INVALID_REQUEST: (
-            ClientBackendErrorCode.INVALID_CLIENT_CONTRACT
-        ),
-        ApplicationErrorCode.UNSUPPORTED_VERSION: (
-            ClientBackendErrorCode.UNSUPPORTED_INTERFACE_VERSION
-        ),
-    }
-)
-
-
-def _client_error_code_for(error: ApplicationError) -> ClientBackendErrorCode:
-    """Return the safe client failure code for one canonical application error.
-
-    Only the two canonical codes that describe the *shape of the client call*
-    become client-interface codes.  Every other canonical code — a conflict, a
-    missing resource, a capability that is unavailable, a policy or approval
-    decision, an internal failure — stays a canonical outcome, so it is reported
-    as the generic client error rather than being re-coded or copied raw.
-    """
-
-    return _CLIENT_ERROR_CODE_FOR_APPLICATION_CODE.get(
-        error.code, ClientBackendErrorCode.INTERNAL_CLIENT_ERROR
     )
 
 
