@@ -21,7 +21,11 @@ from pathlib import Path
 
 import pytest
 
-from kernel.llm.capabilities import ProviderCapabilities
+from kernel.llm.capabilities import (
+    ModelCapabilities,
+    ProviderCapabilities,
+    ReasoningEffort,
+)
 from kernel.llm.credential_store import InMemoryCredentialStore
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
@@ -986,3 +990,76 @@ def test_coherent_dependent_graph_still_captures() -> None:
         "deepseek:main:deepseek-chat",
     )
     assert state.revision == 7
+
+
+# ── Remediation V1 MAJOR-05 — the canonical Phase 11.34 state path must carry
+#    the Phase 11.21 model capability truth exactly.
+#
+# This exercises the real owner end to end: canonical registry/catalog capture →
+# ProviderState.to_dict() → repository save → repository load →
+# ProviderState.from_dict() → restore → canonical ModelCatalog.  Nothing is
+# reconstructed from fail-closed defaults.
+
+
+def _phase11_capability_model(provider_id: str) -> ModelSpec:
+    return ModelSpec(
+        id="phase11-capability-model",
+        provider_id=provider_id,
+        context_window=131072,
+        capabilities=ModelCapabilities(
+            reasoning=True,
+            reasoning_efforts=(ReasoningEffort.HIGH, ReasoningEffort.EXTRA_HIGH),
+            document_media_types=("application/pdf", "text/plain"),
+            streaming=True,
+        ),
+        availability="available",
+    )
+
+
+def _phase11_capability_runtime() -> tuple[
+    ProviderRegistry,
+    ProviderManifestRegistry,
+    ModelCatalog,
+    ProviderConnectionRegistry,
+    ModelRouteCatalog,
+]:
+    providers = ProviderRegistry()
+    providers.register(_spec("deepseek", _DEEPSEEK_URL))
+    manifests = ProviderManifestRegistry(providers)
+    manifests.register(
+        _manifest("deepseek", _DEEPSEEK_URL, billing=BillingClass.PAYG)
+    )
+    models = ModelCatalog(providers)
+    models.register(_phase11_capability_model("deepseek"))
+    connections = ProviderConnectionRegistry(providers)
+    routes = ModelRouteCatalog(connections)
+    return providers, manifests, models, connections, routes
+
+
+def test_phase11_capabilities_survive_the_canonical_state_path() -> None:
+    providers, manifests, models, connections, routes = _phase11_capability_runtime()
+    repository = InMemoryProviderRegistryStateRepository()
+
+    captured = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=5
+    )
+    repository.save(captured)
+    loaded = repository.load()
+
+    assert loaded is not None
+    restored = restore_provider_registry_state(ProviderRegistryState.from_dict(loaded.to_dict()))
+
+    original = models.get("deepseek:phase11-capability-model")
+    canonical = restored.models.get("deepseek:phase11-capability-model")
+
+    assert canonical.capabilities.reasoning_efforts == (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.EXTRA_HIGH,
+    )
+    assert canonical.capabilities.document_media_types == (
+        "application/pdf",
+        "text/plain",
+    )
+    assert canonical.capabilities.streaming is True
+    assert canonical.capabilities == original.capabilities
+    assert canonical == original

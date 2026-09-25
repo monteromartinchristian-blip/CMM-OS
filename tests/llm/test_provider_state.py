@@ -21,7 +21,11 @@ from decimal import Decimal
 
 import pytest
 
-from kernel.llm.capabilities import ModelCapabilities, ProviderCapabilities
+from kernel.llm.capabilities import (
+    ModelCapabilities,
+    ProviderCapabilities,
+    ReasoningEffort,
+)
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_routes import (
     CapabilityConfidence,
@@ -589,3 +593,165 @@ def test_blank_optional_text_round_trips() -> None:
     )
 
     assert ProviderRegistryState.from_dict(state.to_dict()) == state
+
+
+# ── Remediation V1 MAJOR-05 — the Phase 11.21 capability fields are persisted
+#    by the existing Phase 11.34 state owner.
+#
+# ``ModelCapabilities`` gained ``reasoning_efforts``, ``document_media_types`` and
+# ``streaming`` in Phase 11.21.  The closed Phase 11.34 persisted-state aggregate
+# claims to reconstruct accepted canonical model entries exactly, so the v3 shape
+# must carry those fields explicitly instead of silently rebuilding them from
+# their fail-closed defaults.
+
+
+def _phase11_capabilities() -> ModelCapabilities:
+    return ModelCapabilities(
+        reasoning=True,
+        reasoning_efforts=(ReasoningEffort.HIGH, ReasoningEffort.EXTRA_HIGH),
+        document_media_types=("application/pdf", "text/plain"),
+        streaming=True,
+    )
+
+
+def _phase11_model(provider_id: str) -> ModelSpec:
+    return ModelSpec(
+        id="phase11-model",
+        provider_id=provider_id,
+        context_window=131072,
+        capabilities=_phase11_capabilities(),
+        availability="available",
+    )
+
+
+def _phase11_state() -> ProviderRegistryState:
+    return ProviderRegistryState(
+        schema_version=SCHEMA_VERSION,
+        revision=3,
+        providers=(_provider("local", base_url="http://127.0.0.1:11434/v1"),),
+        models=(_phase11_model("local"),),
+    )
+
+
+def test_the_persisted_schema_is_version_three() -> None:
+    """The changed persisted capability shape identifies exactly one version."""
+    assert SCHEMA_VERSION == "3"
+
+
+def test_phase11_capabilities_survive_the_persistence_round_trip() -> None:
+    state = _phase11_state()
+
+    payload = state.to_dict()
+    restored = ProviderRegistryState.from_dict(json.loads(json.dumps(payload)))
+
+    capabilities = payload["models"][0]["capabilities"]  # type: ignore[index]
+    assert capabilities["reasoning_efforts"] == ["high", "extra_high"]
+    assert capabilities["document_media_types"] == ["application/pdf", "text/plain"]
+    assert capabilities["streaming"] is True
+
+    assert restored.models[0].capabilities.reasoning_efforts == (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.EXTRA_HIGH,
+    )
+    assert restored.models[0].capabilities.document_media_types == (
+        "application/pdf",
+        "text/plain",
+    )
+    assert restored.models[0].capabilities.streaming is True
+    assert restored == state
+
+
+def test_the_version_two_capability_shape_is_rejected() -> None:
+    """A pre-remediation document is rejected by version, never defaulted."""
+    payload = _phase11_state().to_dict()
+    payload["schema_version"] = "2"
+
+    with pytest.raises(ProviderStateSchemaError, match="unsupported schema_version"):
+        ProviderRegistryState.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["reasoning_efforts", "document_media_types", "streaming"],
+)
+def test_a_missing_phase11_capability_key_is_rejected(field: str) -> None:
+    payload = _phase11_state().to_dict()
+    del payload["models"][0]["capabilities"][field]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError, match=field):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_an_unknown_phase11_capability_key_is_rejected() -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["reasoning_effort"] = ["high"]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError, match="unknown field"):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_an_invalid_reasoning_effort_is_rejected() -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["reasoning_efforts"] = ["turbo"]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_a_duplicate_reasoning_effort_is_rejected() -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["reasoning_efforts"] = ["high", "high"]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_a_malformed_document_media_type_is_rejected() -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["document_media_types"] = ["not-a-media-type"]  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_a_malformed_media_type_list_is_rejected() -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["document_media_types"] = "application/pdf"  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError):
+        ProviderRegistryState.from_dict(payload)
+
+
+@pytest.mark.parametrize("value", [1, "true", 0, None])
+def test_a_non_bool_streaming_value_is_rejected(value: object) -> None:
+    payload = _phase11_state().to_dict()
+    payload["models"][0]["capabilities"]["streaming"] = value  # type: ignore[index]
+
+    with pytest.raises(ProviderStateSerializationError):
+        ProviderRegistryState.from_dict(payload)
+
+
+def test_canonical_document_media_type_order_is_preserved() -> None:
+    """Normalized document media types keep their canonical declared order."""
+    ordered = ModelCapabilities(
+        document_media_types=("text/plain", "application/pdf", "text/markdown"),
+    )
+    state = ProviderRegistryState(
+        schema_version=SCHEMA_VERSION,
+        revision=1,
+        providers=(_provider("local", base_url="http://127.0.0.1:11434/v1"),),
+        models=(
+            ModelSpec(id="ordered", provider_id="local", capabilities=ordered),
+        ),
+        manifests=(),
+        connections=(),
+        routes=(),
+    )
+
+    restored = ProviderRegistryState.from_dict(state.to_dict())
+
+    assert restored.models[0].capabilities.document_media_types == (
+        "text/plain",
+        "application/pdf",
+        "text/markdown",
+    )
