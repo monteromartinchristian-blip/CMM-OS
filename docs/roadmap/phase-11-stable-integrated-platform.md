@@ -6903,7 +6903,6 @@ backwards-compatible seams:
 kernel/llm/capabilities.py    ReasoningEffort enum; ModelCapabilities gains
                               reasoning_efforts, document_media_types and
                               streaming, all defaulted to unknown/unsupported
-kernel/llm/__init__.py        additive public exports
 cmm/platform/canonical.py     PROVIDER_REGISTRY_CONTRACT_VERSION,
                               _provider_registry_dependency and
                               model_gateway_binding
@@ -6911,7 +6910,9 @@ cmm/platform/__init__.py      additive export
 ```
 
 No closed-phase production semantics were changed, no persistence authority was
-changed and no closed phase was reopened.
+changed and no closed phase was reopened. `kernel/llm/__init__.py` is
+deliberately left unchanged: Phase 11.21 introduces no new `kernel.llm` package
+export, so the gateway surface is imported from its own modules.
 
 ## DP-121 / AT-DP-121
 
