@@ -149,6 +149,33 @@ class _ExecutionPlan:
     privacy_decision: str
 
 
+class _CandidateHardGateFailure(Exception):
+    """One candidate failed a candidate-local hard execution gate.
+
+    A candidate-local failure never aborts AUTO selection: the gateway records
+    the safe canonical failure code, skips that candidate and evaluates the next
+    one in the canonical order.  A malformed or request-level failure is raised
+    as its own :class:`ModelGatewayError` instead, which stays terminal and must
+    never be skipped.
+
+    For an explicit-model request the original gate error is carried so the
+    caller receives exactly the error the gate produced, with its own message
+    and details.  A gate modelled without an explicit error (provider/model
+    availability) carries a bare canonical code.
+    """
+
+    __slots__ = ("code", "error")
+
+    def __init__(
+        self,
+        code: ModelGatewayErrorCode,
+        error: ModelGatewayError | None = None,
+    ) -> None:
+        super().__init__(code.value)
+        self.code = code
+        self.error = error
+
+
 class ModelGateway:
     """The canonical model-call execution boundary.
 
@@ -1026,11 +1053,7 @@ class ModelGateway:
                 },
                 retryable=False,
             )
-        return self._plan(
-            request,
-            self._resolve_model(request),
-            require_streaming=require_streaming,
-        )
+        return self._plan(request, require_streaming=require_streaming)
 
     def _preflight_candidate(
         self,
@@ -1055,54 +1078,31 @@ class ModelGateway:
     def _plan(
         self,
         request: ModelGatewayRequest,
-        model: ModelSpec,
+        model: ModelSpec | None = None,
         *,
         require_streaming: bool = False,
     ) -> _ExecutionPlan:
-        """Validate one model against the canonical authorities before I/O."""
+        """Validate one model against the canonical authorities before I/O.
 
-        if not self._model_catalog.is_bound_to_current_provider(model):
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.MODEL_UNAVAILABLE,
-                "the model is bound to a stale or missing provider authority",
-                details={"model_id": model.qualified_id},
-                retryable=False,
-            )
-        provider = self._resolve_provider(model)
-        if provider is None:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE,
-                "the model's provider is not registered",
-                details={"provider_id": model.provider_id},
-                retryable=False,
-            )
-        if not provider.enabled or provider.availability in _UNAVAILABLE_AVAILABILITY:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE,
-                "the provider is not available for execution",
-                details={"provider_id": provider.id},
-                retryable=False,
-            )
-        if model.availability in _UNAVAILABLE_AVAILABILITY:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.MODEL_UNAVAILABLE,
-                "the model is not available for execution",
-                details={"model_id": model.qualified_id},
-                retryable=False,
-            )
+        An explicit model request resolves exactly one canonical model and must
+        satisfy every hard gate; an AUTO request resolves through
+        :meth:`_resolve_auto_model`, which has already evaluated every hard gate
+        for the candidate it selected.
+        """
 
-        capability_decision = self._validate_capabilities(request, model)
-        if require_streaming and not model.capabilities.streaming:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
-                "the model does not declare provider token streaming support",
-                details={"model_id": model.qualified_id},
-                retryable=False,
-            )
-        self._validate_modalities(request, model)
-        privacy_decision = self._privacy_decision(request, provider)
-        adapter = self._adapter_registry.get(model.provider_id)
+        if model is None:
+            return self._resolve_model(request, require_streaming=require_streaming)
 
+        try:
+            provider, capability_decision, privacy_decision, adapter = (
+                self._candidate_gate(
+                    model, request, require_streaming=require_streaming
+                )
+            )
+        except _CandidateHardGateFailure as failure:
+            if failure.error is not None:
+                raise failure.error
+            raise self._availability_gate_error(model, failure.code) from None
         return _ExecutionPlan(
             model=model,
             provider=provider,
@@ -1111,10 +1111,108 @@ class ModelGateway:
             privacy_decision=privacy_decision,
         )
 
-    def _resolve_model(self, request: ModelGatewayRequest) -> ModelSpec:
+    def _candidate_gate(
+        self,
+        model: ModelSpec,
+        request: ModelGatewayRequest,
+        *,
+        require_streaming: bool = False,
+    ) -> tuple[ProviderSpec, str, str, ModelProviderAdapter]:
+        """Evaluate every gateway-owned hard execution gate for one candidate.
+
+        The gates are evaluated in canonical order — provider authority,
+        provider/model execution availability, requested reasoning effort,
+        required capabilities, input modalities, the streaming requirement,
+        adapter availability and finally the canonical privacy decision for this
+        candidate's own provider — so a candidate is never selected without an
+        executable adapter and a real egress decision.
+
+        A candidate-local failure raises :class:`_CandidateHardGateFailure`.
+        Anything else (a malformed request-level failure, an internal invariant
+        violation or an unusable privacy authority) propagates unchanged and
+        stays terminal.
+        """
+
+        if not self._model_catalog.is_bound_to_current_provider(model):
+            raise _CandidateHardGateFailure(ModelGatewayErrorCode.MODEL_UNAVAILABLE)
+        provider = self._resolve_provider(model)
+        if provider is None:
+            raise _CandidateHardGateFailure(
+                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE
+            )
+        if not provider.enabled or provider.availability in _UNAVAILABLE_AVAILABILITY:
+            raise _CandidateHardGateFailure(
+                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE
+            )
+        if model.availability in _UNAVAILABLE_AVAILABILITY:
+            raise _CandidateHardGateFailure(ModelGatewayErrorCode.MODEL_UNAVAILABLE)
+
+        try:
+            capability_decision = self._validate_capabilities(request, model)
+            if require_streaming and not model.capabilities.streaming:
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                    "the model does not declare provider token streaming support",
+                    details={"model_id": model.qualified_id},
+                    retryable=False,
+                )
+            self._validate_modalities(request, model)
+        except ModelGatewayError as error:
+            raise _CandidateHardGateFailure(error.code, error) from None
+
+        if not self._adapter_registry.has(model.provider_id):
+            raise _CandidateHardGateFailure(
+                ModelGatewayErrorCode.PROVIDER_NOT_AVAILABLE
+            )
+        adapter = self._adapter_registry.get(model.provider_id)
+
+        try:
+            privacy_decision = self._privacy_decision(request, provider)
+        except ModelGatewayError as error:
+            if error.code is not ModelGatewayErrorCode.PRIVACY_DENIED:
+                raise
+            # The call-level egress prerequisites are enforced once for the whole
+            # candidate set (``_require_egress_authority``), so a denial here is
+            # this candidate's own canonical privacy policy refusing egress: it
+            # is candidate-local and never terminal, and AUTO may continue.
+            raise _CandidateHardGateFailure(error.code, error) from None
+        return provider, capability_decision, privacy_decision, adapter
+
+    @staticmethod
+    def _availability_gate_error(
+        model: ModelSpec,
+        code: ModelGatewayErrorCode,
+    ) -> ModelGatewayError:
+        """Build the safe terminal error for a provider/model availability gate.
+
+        These two gates are modelled without an explicit error object, so the
+        explicit-model wording they must keep is reconstructed here.  Every other
+        gate carries and re-raises its own original error unchanged.
+        """
+
+        if code is ModelGatewayErrorCode.MODEL_UNAVAILABLE:
+            return ModelGatewayError(
+                code,
+                "the model is not available for execution",
+                details={"model_id": model.qualified_id},
+                retryable=False,
+            )
+        return ModelGatewayError(
+            code,
+            "the provider is not available for execution",
+            details={"provider_id": model.provider_id},
+            retryable=False,
+        )
+
+    def _resolve_model(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        require_streaming: bool = False,
+    ) -> _ExecutionPlan:
         if request.model_id is not None:
             try:
-                return self._model_catalog.get(
+                model = self._model_catalog.get(
                     request.model_id,
                     provider_id=request.provider_id,
                 )
@@ -1124,17 +1222,26 @@ class ModelGateway:
                     "the requested model is not registered",
                     details={"model_id": request.model_id},
                 ) from error
-        return self._resolve_auto_model(request)
+            return self._plan(request, model, require_streaming=require_streaming)
+        return self._resolve_auto_model(request, require_streaming=require_streaming)
 
-    def _resolve_auto_model(self, request: ModelGatewayRequest) -> ModelSpec:
+    def _resolve_auto_model(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        require_streaming: bool = False,
+    ) -> _ExecutionPlan:
         """Resolve an AUTO request through the canonical selection path only.
 
         Candidate ordering is exactly the canonical model-selection ranking; the
         gateway adds no scoring, cost optimization, preference learning or
-        provider ranking of its own.  It only filters the canonical matches by
-        the two requirements the shared requirement contract cannot express —
-        the requested reasoning level and document media types — and fails
-        closed when nothing canonical satisfies the request.
+        provider ranking of its own.  It evaluates each canonical candidate in
+        order against its own hard execution gates — reasoning effort,
+        capabilities, modalities, streaming, provider/model availability,
+        adapter availability and canonical privacy for that candidate's provider
+        — returns the first executable candidate, and continues to the next
+        canonical candidate when one fails locally.  It fails closed, with the
+        most specific safe canonical error, when nothing is executable.
         """
 
         matches = find_matching_models(
@@ -1142,15 +1249,90 @@ class ModelGateway:
             self._provider_registry,
             self._requirements(request),
         )
+        self._require_egress_authority(matches, request)
+        failure_codes: list[ModelGatewayErrorCode] = []
         for model in matches:
             try:
-                self._validate_capabilities(request, model)
-                self._validate_modalities(request, model)
-            except ModelGatewayError:
+                provider, capability_decision, privacy_decision, adapter = (
+                    self._candidate_gate(
+                        model, request, require_streaming=require_streaming
+                    )
+                )
+            except _CandidateHardGateFailure as failure:
+                failure_codes.append(failure.code)
                 continue
-            return model
-        raise ModelGatewayError(
-            ModelGatewayErrorCode.MODEL_NOT_FOUND,
+            return _ExecutionPlan(
+                model=model,
+                provider=provider,
+                adapter=adapter,
+                capability_decision=capability_decision,
+                privacy_decision=privacy_decision,
+            )
+        raise self._auto_exhausted(request, matches, failure_codes)
+
+    def _require_egress_authority(
+        self,
+        matches: tuple[ModelSpec, ...],
+        request: ModelGatewayRequest,
+    ) -> None:
+        """Fail a request-level egress-prerequisite failure before AUTO iteration.
+
+        A candidate that a *policy* denies is candidate-local and is skipped, but
+        a call that has no canonical privacy authority at all is a malformed
+        request-level failure: it is terminal and must not be answered by
+        silently evaluating a later candidate.  Applying the same prerequisites
+        up front also preserves the explicit-model error semantics for an AUTO
+        request whose only candidates are remote.
+        """
+
+        references_remote = any(
+            (provider := self._resolve_provider(model)) is not None
+            and provider.provider_type == "remote"
+            for model in matches
+        )
+        if not references_remote:
+            return
+        if self._privacy_gate is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "no canonical privacy authority is configured for remote egress",
+                details={"selection_mode": request.selection_mode.value},
+                retryable=False,
+            )
+        if request.privacy is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PRIVACY_DENIED,
+                "remote transmission requires canonical privacy metadata",
+                details={"selection_mode": request.selection_mode.value},
+                retryable=False,
+            )
+
+    @staticmethod
+    def _auto_exhausted(
+        request: ModelGatewayRequest,
+        matches: tuple[ModelSpec, ...],
+        failure_codes: Iterable[ModelGatewayErrorCode],
+    ) -> ModelGatewayError:
+        """Return the deterministic, safe failure for an exhausted AUTO search.
+
+        Nothing sensitive is exposed: only canonical candidate count and the
+        most specific safe failure code the gateway produced while iterating.
+        """
+
+        codes = tuple(failure_codes)
+        for candidate_code in (
+            ModelGatewayErrorCode.UNSUPPORTED_REASONING_EFFORT,
+            ModelGatewayErrorCode.INPUT_MODALITY_UNSUPPORTED,
+            ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+            ModelGatewayErrorCode.PRIVACY_DENIED,
+        ):
+            if candidate_code in codes:
+                code = candidate_code
+                break
+        else:
+            code = ModelGatewayErrorCode.MODEL_NOT_FOUND
+        return ModelGatewayError(
+            code,
             "no canonical model satisfies the requested requirements",
             details={
                 "selection_mode": request.selection_mode.value,

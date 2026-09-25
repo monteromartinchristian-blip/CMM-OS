@@ -14,7 +14,11 @@ from decimal import Decimal
 import pytest
 
 from cmm.agent_runtime.model_egress_privacy_adapter import CanonicalPrivacyEgressGate
-from cmm.cognitive.privacy import PrivacyMetadata, PrivacyPolicy
+from cmm.cognitive.privacy import (
+    PrivacyMetadata,
+    PrivacyPolicy,
+    ProcessingLocation,
+)
 from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_gateway import ModelGateway
@@ -43,6 +47,14 @@ from tests.llm.model_gateway_support import (
 )
 
 LOCAL_ONLY = PrivacyMetadata(policy=PrivacyPolicy.LOCAL_ONLY)
+REMOTE_ALLOWED = PrivacyMetadata(
+    policy=PrivacyPolicy.REMOTE_ALLOWED,
+    allow_remote=True,
+    allowed_processing_locations=(
+        ProcessingLocation.LOCAL,
+        ProcessingLocation.REMOTE,
+    ),
+)
 
 
 def _runtime(**overrides: object) -> GatewayRuntime:
@@ -467,10 +479,21 @@ def test_auto_selection_fails_closed_when_no_canonical_model_matches() -> None:
                 model_id=None,
                 selection_mode=ModelSelectionMode.AUTO,
                 required_capabilities=("vision",),
+                # AUTO now evaluates every canonical candidate's own privacy
+                # gate, so the fixture's remote candidate is reached before the
+                # capability gate and needs real canonical privacy metadata.
+                privacy=REMOTE_ALLOWED,
             )
         )
 
-    assert error.value.code is ModelGatewayErrorCode.MODEL_NOT_FOUND
+    # AUTO now evaluates each canonical candidate through the gateway's own hard
+    # gates, so exhaustion reports the most specific safe canonical failure the
+    # candidates produced (the canonical selector already drops the text-only
+    # remote model, and the remaining local candidate lacks vision).  The
+    # behaviour under test is unchanged: AUTO fails closed before provider I/O.
+    assert error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert error.value.retryable is False
+    assert error.value.details["candidates_considered"] == 1
     assert runtime.adapter("local").call_count == 0
 
 
@@ -640,9 +663,15 @@ def _auto_runtime(
         input_cost=local_cost,
         capabilities=local_capabilities or AUTO_EFFORT_CAPABILITIES,
     )
-    remote = InMemoryModelProviderAdapter("remote-a")
+    remote = InMemoryModelProviderAdapter(
+        "remote-a",
+        reasoning_effort_map={ReasoningEffort.HIGH: "thinking_budget_high"},
+    )
     remote.add_response(content="remote answer")
-    local = InMemoryModelProviderAdapter("local")
+    local = InMemoryModelProviderAdapter(
+        "local",
+        reasoning_effort_map={ReasoningEffort.HIGH: "thinking_budget_high"},
+    )
     local.add_response(content="local answer")
     adapters = [local]
     if register_remote_adapter:
@@ -717,6 +746,7 @@ def test_auto_selection_continues_past_a_candidate_without_an_adapter() -> None:
     request = _request(
         model_id=None,
         selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
         reasoning_effort=ReasoningEffort.HIGH,
     )
     assert _canonical_auto_order(graph, request) == (
@@ -739,6 +769,7 @@ def test_auto_selection_continues_past_a_candidate_lacking_the_effort() -> None:
     request = _request(
         model_id=None,
         selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
         reasoning_effort=ReasoningEffort.HIGH,
     )
     assert _canonical_auto_order(graph, request)[0] == "remote-a:cheap-remote"
@@ -761,6 +792,7 @@ def test_auto_selection_exhaustion_is_a_deterministic_safe_failure() -> None:
     request = _request(
         model_id=None,
         selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
         reasoning_effort=ReasoningEffort.HIGH,
     )
 
@@ -775,35 +807,57 @@ def test_auto_selection_exhaustion_is_a_deterministic_safe_failure() -> None:
 
 
 def test_auto_selection_respects_canonical_order_exactly() -> None:
-    """AUTO returns the first executable candidate in canonical order."""
+    """AUTO returns the first executable candidate in canonical order.
 
-    graph, gateway, local, remote = _auto_runtime(
-        remote_capabilities=ModelCapabilities(vision=True),
-    )
-    graph.models.register(
-        ModelSpec(
-            id="cheap-another-remote",
-            provider_id="remote-a",
-            context_window=32768,
-            capabilities=ModelCapabilities(),
+    The canonical ``lowest_cost`` order is remote ``cheap-remote`` (no adapter),
+    then remote ``second-remote:cheap-another-remote`` (adapter present), then
+    local ``pricey-local``.  AUTO must skip only the inexecutable head of that
+    order and pick the very next canonical candidate -- never a re-ranked one.
+    """
+
+    graph, _gateway, local, remote = _auto_runtime()
+    graph.providers.register(
+        ProviderSpec(
+            id="remote-b",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://remote-b.example/v1",
             availability="available",
-            input_cost_per_million=Decimal("0.50"),
-            output_cost_per_million=Decimal("0.50"),
         )
     )
-    local.add_response(content="local answer")
+    _register_auto_model(
+        graph,
+        "cheap-another-remote",
+        provider_id="remote-b",
+        input_cost="0.50",
+        capabilities=ModelCapabilities(),
+    )
+    another_remote = InMemoryModelProviderAdapter("remote-b")
+    another_remote.add_response(content="second remote answer")
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry((local, another_remote)),
+        privacy_gate=CanonicalPrivacyEgressGate(),
+    )
 
     request = _request(
         model_id=None,
         selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
     )
     order = _canonical_auto_order(graph, request)
+    assert order == (
+        "remote-a:cheap-remote",
+        "remote-b:cheap-another-remote",
+        "local:pricey-local",
+    )
 
     response = gateway.execute(request)
 
-    # The remote model has no adapter, so the first executable canonical
-    # candidate wins -- never a re-ranked one.
-    assert order[0] == "remote-a:cheap-another-remote"
-    assert response.model_id == "pricey-local"
-    assert response.model_id == order[1].split(":", 1)[1]
+    # Never re-ranked: the second canonical candidate is the first executable one.
+    assert response.model_id == "cheap-another-remote"
+    assert response.provider_id == "remote-b"
+    assert another_remote.call_count == 1
+    assert local.call_count == 0
     assert remote.call_count == 0
