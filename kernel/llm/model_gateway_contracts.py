@@ -55,6 +55,8 @@ __all__ = [
     "StructuredOutputRequirement",
     "ensure_json_safe_mapping",
     "ensure_safe_metadata",
+    "require_identifier",
+    "require_optional_identifier",
     "screen_provider_request_metadata",
     "to_plain_json",
 ]
@@ -247,16 +249,16 @@ def to_plain_json(value: Any) -> Any:
     return value
 
 
-def _require_identifier(value: Any, *, label: str) -> str:
+def require_identifier(value: Any, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value.strip()
 
 
-def _require_optional_identifier(value: Any, *, label: str) -> str | None:
+def require_optional_identifier(value: Any, *, label: str) -> str | None:
     if value is None:
         return None
-    return _require_identifier(value, label=label)
+    return require_identifier(value, label=label)
 
 
 class ModelSelectionMode(str, Enum):
@@ -333,7 +335,7 @@ class ModelInputPart:
 
         media_type = self.media_type
         if media_type is not None:
-            media_type = _require_identifier(media_type, label="media_type")
+            media_type = require_identifier(media_type, label="media_type")
         if kind is InputPartKind.TEXT:
             if media_type is None:
                 media_type = "text/plain"
@@ -357,7 +359,7 @@ class ModelInputPart:
 
         display_name = self.display_name
         if display_name is not None:
-            display_name = _require_identifier(display_name, label="display_name")
+            display_name = require_identifier(display_name, label="display_name")
             if _looks_like_path_or_url(display_name):
                 raise ValueError(
                     "display_name must be a safe display name, not a path or URL"
@@ -492,7 +494,7 @@ class ModelToolDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "tool_id", _require_identifier(self.tool_id, label="tool_id")
+            self, "tool_id", require_identifier(self.tool_id, label="tool_id")
         )
         if not isinstance(self.description, str):
             raise TypeError("description must be a string")
@@ -526,10 +528,10 @@ class ModelToolCall:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "call_id", _require_identifier(self.call_id, label="call_id")
+            self, "call_id", require_identifier(self.call_id, label="call_id")
         )
         object.__setattr__(
-            self, "tool_id", _require_identifier(self.tool_id, label="tool_id")
+            self, "tool_id", require_identifier(self.tool_id, label="tool_id")
         )
         object.__setattr__(
             self,
@@ -576,12 +578,12 @@ class StructuredOutputRequirement:
         object.__setattr__(
             self,
             "schema_id",
-            _require_optional_identifier(self.schema_id, label="schema_id"),
+            require_optional_identifier(self.schema_id, label="schema_id"),
         )
         object.__setattr__(
             self,
             "schema_version",
-            _require_optional_identifier(self.schema_version, label="schema_version"),
+            require_optional_identifier(self.schema_version, label="schema_version"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -652,7 +654,7 @@ class ModelUsage:
             )
 
         object.__setattr__(
-            self, "currency", _require_identifier(self.currency, label="currency")
+            self, "currency", require_identifier(self.currency, label="currency")
         )
 
     @property
@@ -713,15 +715,15 @@ class ModelExecutionFacts:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "request_id", _require_identifier(self.request_id, label="request_id")
+            self, "request_id", require_identifier(self.request_id, label="request_id")
         )
         object.__setattr__(
             self,
             "provider_id",
-            _require_identifier(self.provider_id, label="provider_id"),
+            require_identifier(self.provider_id, label="provider_id"),
         )
         object.__setattr__(
-            self, "model_id", _require_identifier(self.model_id, label="model_id")
+            self, "model_id", require_identifier(self.model_id, label="model_id")
         )
         object.__setattr__(
             self,
@@ -731,12 +733,12 @@ class ModelExecutionFacts:
         object.__setattr__(
             self,
             "capability_decision",
-            _require_identifier(self.capability_decision, label="capability_decision"),
+            require_identifier(self.capability_decision, label="capability_decision"),
         )
         object.__setattr__(
             self,
             "privacy_decision",
-            _require_identifier(self.privacy_decision, label="privacy_decision"),
+            require_identifier(self.privacy_decision, label="privacy_decision"),
         )
         object.__setattr__(
             self,
@@ -776,13 +778,13 @@ class ModelExecutionFacts:
             object.__setattr__(
                 self,
                 "finish_reason",
-                _require_identifier(self.finish_reason, label="finish_reason"),
+                require_identifier(self.finish_reason, label="finish_reason"),
             )
         if self.error_code is not None:
             object.__setattr__(
                 self,
                 "error_code",
-                _require_identifier(self.error_code, label="error_code"),
+                require_identifier(self.error_code, label="error_code"),
             )
         object.__setattr__(
             self,
@@ -882,7 +884,7 @@ class PrivacyEgressDecision:
         object.__setattr__(
             self,
             "reason_code",
-            _require_identifier(self.reason_code, label="reason_code"),
+            require_identifier(self.reason_code, label="reason_code"),
         )
         object.__setattr__(
             self,
@@ -945,17 +947,17 @@ class ModelGatewayRequest:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "request_id", _require_identifier(self.request_id, label="request_id")
+            self, "request_id", require_identifier(self.request_id, label="request_id")
         )
         object.__setattr__(
             self,
             "model_id",
-            _require_optional_identifier(self.model_id, label="model_id"),
+            require_optional_identifier(self.model_id, label="model_id"),
         )
         object.__setattr__(
             self,
             "provider_id",
-            _require_optional_identifier(self.provider_id, label="provider_id"),
+            require_optional_identifier(self.provider_id, label="provider_id"),
         )
 
         selection_mode = ModelSelectionMode(self.selection_mode)
@@ -1012,7 +1014,7 @@ class ModelGatewayRequest:
 
         fallbacks = tuple(self.fallback_model_ids)
         for candidate in fallbacks:
-            _require_identifier(candidate, label="fallback_model_id")
+            require_identifier(candidate, label="fallback_model_id")
         if len(fallbacks) != len(set(fallbacks)):
             raise ValueError("fallback_model_ids must be unique")
         object.__setattr__(self, "fallback_model_ids", fallbacks)
@@ -1088,15 +1090,15 @@ class ModelGatewayResponse:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "request_id", _require_identifier(self.request_id, label="request_id")
+            self, "request_id", require_identifier(self.request_id, label="request_id")
         )
         object.__setattr__(
             self,
             "provider_id",
-            _require_identifier(self.provider_id, label="provider_id"),
+            require_identifier(self.provider_id, label="provider_id"),
         )
         object.__setattr__(
-            self, "model_id", _require_identifier(self.model_id, label="model_id")
+            self, "model_id", require_identifier(self.model_id, label="model_id")
         )
         object.__setattr__(
             self, "selection_mode", ModelSelectionMode(self.selection_mode)
@@ -1134,13 +1136,13 @@ class ModelGatewayResponse:
             object.__setattr__(
                 self,
                 "finish_reason",
-                _require_identifier(self.finish_reason, label="finish_reason"),
+                require_identifier(self.finish_reason, label="finish_reason"),
             )
         if self.error_code is not None:
             object.__setattr__(
                 self,
                 "error_code",
-                _require_identifier(self.error_code, label="error_code"),
+                require_identifier(self.error_code, label="error_code"),
             )
         object.__setattr__(
             self,
@@ -1204,7 +1206,7 @@ class ModelStreamEvent:
         event_type = ModelStreamEventType(self.event_type)
         object.__setattr__(self, "event_type", event_type)
         object.__setattr__(
-            self, "request_id", _require_identifier(self.request_id, label="request_id")
+            self, "request_id", require_identifier(self.request_id, label="request_id")
         )
         if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
             raise TypeError("sequence must be an integer")
@@ -1239,17 +1241,17 @@ class ModelStreamEvent:
             object.__setattr__(
                 self,
                 "error_code",
-                _require_identifier(self.error_code, label="error_code"),
+                require_identifier(self.error_code, label="error_code"),
             )
         object.__setattr__(
             self,
             "provider_id",
-            _require_optional_identifier(self.provider_id, label="provider_id"),
+            require_optional_identifier(self.provider_id, label="provider_id"),
         )
         object.__setattr__(
             self,
             "model_id",
-            _require_optional_identifier(self.model_id, label="model_id"),
+            require_optional_identifier(self.model_id, label="model_id"),
         )
         object.__setattr__(
             self,
