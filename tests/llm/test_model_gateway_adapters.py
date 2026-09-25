@@ -554,3 +554,86 @@ def test_provider_contracts_are_immutable() -> None:
         request.model_id = "other"  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
         ProviderModelResponse(content="x").content = "y"  # type: ignore[misc]
+
+
+# ── Remediation V1 MAJOR-04 — a requested canonical feature is never silently
+#    discarded by the legacy wrapper.
+#
+# The wrapped text-only providers have no transport for tool definitions or a
+# structured-output requirement, so the wrapper must fail closed with a safe
+# canonical error *before* the wrapped provider's generate() is called.  A plain
+# text request keeps its previous behaviour, and the existing multimodal,
+# reasoning-effort and streaming refusals are unchanged.
+
+_LEGACY_TOOL = ModelToolDefinition(tool_id="t1", description="look something up")
+_LEGACY_STRUCTURED_OUTPUT = StructuredOutputRequirement(
+    schema={"type": "object", "properties": {"answer": {"type": "string"}}}
+)
+
+
+def _legacy_adapter(provider: _RecordingProvider) -> LLMProviderModelAdapter:
+    return LLMProviderModelAdapter(provider, provider_id="legacy", model_id="legacy-1")
+
+
+def test_legacy_provider_wrapper_refuses_tools_before_provider_io() -> None:
+    provider = _RecordingProvider("must never run")
+    adapter = _legacy_adapter(provider)
+
+    with pytest.raises(ModelGatewayError) as error:
+        adapter.execute(
+            _request(model_id="legacy-1", provider_id="legacy", tools=(_LEGACY_TOOL,))
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert error.value.retryable is False
+    assert provider.requests == []
+
+
+def test_legacy_provider_wrapper_refuses_structured_output_before_provider_io() -> None:
+    provider = _RecordingProvider("must never run")
+    adapter = _legacy_adapter(provider)
+
+    with pytest.raises(ModelGatewayError) as error:
+        adapter.execute(
+            _request(
+                model_id="legacy-1",
+                provider_id="legacy",
+                structured_output=_LEGACY_STRUCTURED_OUTPUT,
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert error.value.retryable is False
+    assert provider.requests == []
+
+
+def test_legacy_provider_wrapper_refuses_tools_and_structured_output_deterministically() -> (
+    None
+):
+    provider = _RecordingProvider("must never run")
+    adapter = _legacy_adapter(provider)
+
+    with pytest.raises(ModelGatewayError) as error:
+        adapter.execute(
+            _request(
+                model_id="legacy-1",
+                provider_id="legacy",
+                tools=(_LEGACY_TOOL,),
+                structured_output=_LEGACY_STRUCTURED_OUTPUT,
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert provider.requests == []
+
+
+def test_legacy_provider_wrapper_plain_text_path_is_unchanged() -> None:
+    provider = _RecordingProvider("plain answer")
+    adapter = _legacy_adapter(provider)
+
+    response = adapter.execute(_request(model_id="legacy-1", provider_id="legacy"))
+
+    assert response.content == "plain answer"
+    assert provider.requests[0].prompt == "hola"
+    assert response.tool_calls == ()
+    assert response.structured_output is None
