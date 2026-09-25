@@ -1173,3 +1173,42 @@ def test_scenario_r_legacy_adapter_never_silently_discards_a_required_feature() 
 
     assert structured_error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
     assert provider.requests == []
+
+
+# ── Remediation V2 Scenario S — AUTO mixed remote/local without privacy
+#    metadata.  Egress authority is evaluated per candidate, so the canonical
+#    remote candidate is skipped and the valid local candidate executes even
+#    though the request carries no canonical privacy metadata at all.  This adds
+#    a connected checkpoint inside the existing AT-DP-121; no new Design Point.
+
+
+def test_scenario_s_auto_reaches_the_local_candidate_without_privacy_metadata() -> None:
+    """AUTO + ``privacy=None`` + canonical remote first + valid local second."""
+
+    providers, models, (remote, local) = _remediation_graph()
+    gateway, _sink = _remediation_gateway(providers, models, (remote, local))
+
+    request = _request(
+        request_id="remediation-s",
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=None,
+    )
+    order = find_matching_models(
+        models,
+        providers,
+        ModelRequirements(reasoning=True),
+    )
+    assert tuple(model.qualified_id for model in order)[:2] == (
+        _REMEDIATION_REMOTE_MODEL,
+        _REMEDIATION_LOCAL_MODEL,
+    )
+
+    response = gateway.execute(request)
+
+    assert response.provider_id == "local"
+    assert response.model_id == "multimodal-1"
+    assert remote.call_count == 0
+    assert local.call_count == 1
+    assert response.facts is not None
+    assert response.facts.selection_mode is ModelSelectionMode.AUTO
