@@ -60,6 +60,11 @@ PLATFORM_SCHEMA_VERSION = "1"
 
 PROVIDER_REGISTRY_AUTHORITY = "provider-registry"
 
+#: The canonical provider-registry boundary version.  It is the only canonical
+#: binding whose versions differ from the platform defaults, so it is declared
+#: once and reused by every dependency edge onto that authority.
+PROVIDER_REGISTRY_CONTRACT_VERSION = "2.0.0"
+
 
 def _boundary_contract(
     contract_name: str,
@@ -135,6 +140,24 @@ def _cognitive_registry_dependency(service_id: str) -> ServiceDependency:
     return ServiceDependency(
         service_id=service_id,
         contract=_boundary_contract(service_id, "cmm.cognitive"),
+    )
+
+
+def _provider_registry_dependency() -> ServiceDependency:
+    """Describe the exact canonical Phase 11.34 provider-registry boundary.
+
+    Platform compatibility is exact, so a dependency edge onto the provider
+    registry must mirror its real versions instead of the platform defaults.
+    """
+
+    return ServiceDependency(
+        service_id="provider.registry",
+        contract=ContractMetadata(
+            contract_name="provider.registry",
+            contract_version=PROVIDER_REGISTRY_CONTRACT_VERSION,
+            schema_version=PROVIDER_STATE_SCHEMA_VERSION,
+            owner="kernel.llm",
+        ),
     )
 
 
@@ -273,7 +296,27 @@ def provider_registry_binding(registry: Any) -> ServiceBinding:
         runtime_contract=ProviderRegistry,
         authority=PROVIDER_REGISTRY_AUTHORITY,
         schema_version=PROVIDER_STATE_SCHEMA_VERSION,
-        contract_version="2.0.0",
+        contract_version=PROVIDER_REGISTRY_CONTRACT_VERSION,
+    )
+
+
+def model_gateway_binding(gateway: Any) -> ServiceBinding:
+    """Bind the canonical Phase 11.21 Model Gateway.
+
+    The bound object is the one canonical gateway instance.  Phase 11.1 creates
+    no second gateway and stores no parallel provider or model state; the
+    gateway's only composition dependency is the exact canonical Phase 11.34
+    provider registry it was constructed with.
+    """
+
+    from kernel.llm.model_gateway import ModelGateway
+
+    return _binding(
+        gateway,
+        service_id="model.gateway",
+        owner="kernel.llm",
+        runtime_contract=ModelGateway,
+        dependencies=(_provider_registry_dependency(),),
     )
 
 
@@ -281,12 +324,14 @@ __all__ = [
     "PLATFORM_CONTRACT_VERSION",
     "PLATFORM_SCHEMA_VERSION",
     "PROVIDER_REGISTRY_AUTHORITY",
+    "PROVIDER_REGISTRY_CONTRACT_VERSION",
     "agent_runtime_integration_binding",
     "cognitive_adapter_registry_binding",
     "cognitive_extractor_registry_binding",
     "cognitive_service_binding",
     "domain_registry_binding",
     "execution_registry_binding",
+    "model_gateway_binding",
     "provider_registry_binding",
     "validation_application_binding",
     "workflow_registry_binding",
