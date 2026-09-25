@@ -9,9 +9,12 @@ substitution and safe execution evidence.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 
+from cmm.agent_runtime.model_egress_privacy_adapter import CanonicalPrivacyEgressGate
+from cmm.cognitive.privacy import PrivacyMetadata, PrivacyPolicy
 from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_gateway import ModelGateway
@@ -28,6 +31,7 @@ from kernel.llm.model_provider_adapter import (
     InMemoryModelProviderAdapter,
     ModelProviderAdapterRegistry,
 )
+from kernel.llm.model_selection import ModelRequirements, find_matching_models
 from kernel.llm.model_streaming import ModelCallCancellation
 from kernel.llm.provider_registry import ProviderSpec
 from tests.llm.model_gateway_support import (
@@ -37,6 +41,8 @@ from tests.llm.model_gateway_support import (
     build_canonical_graph,
     build_runtime,
 )
+
+LOCAL_ONLY = PrivacyMetadata(policy=PrivacyPolicy.LOCAL_ONLY)
 
 
 def _runtime(**overrides: object) -> GatewayRuntime:
@@ -568,3 +574,236 @@ def test_auto_selection_introduces_no_routing_policy_surface() -> None:
         _request(model_id=None, selection_mode=ModelSelectionMode.AUTO)
     )
     assert response.model_id == "model-1"
+
+
+# ── Remediation V1 MAJOR-01 — AUTO iterates canonical candidates through the
+#    gateway's own hard execution gates and never stops on a candidate-local
+#    failure (for example a canonical privacy denial for one provider).
+
+#: Capabilities shared by the AUTO remediation fixtures: text-only, but with a
+#: declared reasoning effort so the effort gate is exercised explicitly.
+AUTO_EFFORT_CAPABILITIES = ModelCapabilities(
+    reasoning=True,
+    reasoning_efforts=(ReasoningEffort.HIGH,),
+)
+
+
+def _register_auto_model(
+    graph,
+    model_id: str,
+    *,
+    provider_id: str,
+    input_cost: str,
+    capabilities: ModelCapabilities,
+) -> None:
+    """Register one priced AUTO candidate so canonical cost ranking is stable."""
+
+    graph.models.register(
+        ModelSpec(
+            id=model_id,
+            provider_id=provider_id,
+            context_window=32768,
+            capabilities=capabilities,
+            availability="available",
+            input_cost_per_million=Decimal(input_cost),
+            output_cost_per_million=Decimal(input_cost),
+        )
+    )
+
+
+def _auto_runtime(
+    *,
+    remote_cost: str = "0.10",
+    local_cost: str = "9.00",
+    remote_capabilities: ModelCapabilities | None = None,
+    local_capabilities: ModelCapabilities | None = None,
+    register_remote_adapter: bool = True,
+):
+    """Compose the canonical remote-first/local-second AUTO fixture.
+
+    The remote model is cheaper, so the canonical ``lowest_cost`` ranking puts it
+    first; the local model is valid but ranked second.
+    """
+
+    graph = build_canonical_graph()
+    _register_auto_model(
+        graph,
+        "cheap-remote",
+        provider_id="remote-a",
+        input_cost=remote_cost,
+        capabilities=remote_capabilities or AUTO_EFFORT_CAPABILITIES,
+    )
+    _register_auto_model(
+        graph,
+        "pricey-local",
+        provider_id="local",
+        input_cost=local_cost,
+        capabilities=local_capabilities or AUTO_EFFORT_CAPABILITIES,
+    )
+    remote = InMemoryModelProviderAdapter("remote-a")
+    remote.add_response(content="remote answer")
+    local = InMemoryModelProviderAdapter("local")
+    local.add_response(content="local answer")
+    adapters = [local]
+    if register_remote_adapter:
+        adapters.append(remote)
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry(adapters),
+        privacy_gate=CanonicalPrivacyEgressGate(),
+    )
+    return graph, gateway, local, remote
+
+
+def _auto_gateway(
+    graph,
+    adapters: list[InMemoryModelProviderAdapter] | None = None,
+) -> ModelGateway:
+    """Compose an AUTO gateway over the fixture graph with the given adapters."""
+
+    return ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry(adapters or ()),
+        privacy_gate=CanonicalPrivacyEgressGate(),
+    )
+
+
+def _canonical_auto_order(graph, request: ModelGatewayRequest) -> tuple[str, ...]:
+    """Return the exact canonical selection order for one AUTO request."""
+
+    matches = find_matching_models(
+        graph.models,
+        graph.providers,
+        ModelRequirements(
+            tool_calling=bool(request.tools),
+            structured_output=request.structured_output is not None,
+            vision=request.has_image_input,
+            reasoning=request.reasoning_effort
+            not in (ReasoningEffort.DEFAULT, ReasoningEffort.NONE),
+        ),
+    )
+    return tuple(model.qualified_id for model in matches)
+
+
+def test_auto_selection_continues_past_a_privacy_denied_candidate() -> None:
+    graph, gateway, local, remote = _auto_runtime()
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=LOCAL_ONLY,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    # The canonical selector genuinely ranks the remote candidate first.
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "local:pricey-local",
+    )
+
+    response = gateway.execute(request)
+
+    assert response.model_id == "pricey-local"
+    assert response.provider_id == "local"
+    assert response.content == "local answer"
+    assert remote.call_count == 0
+    assert local.call_count == 1
+
+
+def test_auto_selection_continues_past_a_candidate_without_an_adapter() -> None:
+    graph, gateway, local, remote = _auto_runtime(register_remote_adapter=False)
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "local:pricey-local",
+    )
+
+    response = gateway.execute(request)
+
+    assert response.model_id == "pricey-local"
+    assert local.call_count == 1
+    assert remote.call_count == 0
+
+
+def test_auto_selection_continues_past_a_candidate_lacking_the_effort() -> None:
+    graph, gateway, local, remote = _auto_runtime(
+        remote_capabilities=ModelCapabilities(reasoning=True),
+    )
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    assert _canonical_auto_order(graph, request)[0] == "remote-a:cheap-remote"
+
+    response = gateway.execute(request)
+
+    assert response.model_id == "pricey-local"
+    assert response.effective_reasoning_effort is ReasoningEffort.HIGH
+    assert remote.call_count == 0
+    assert local.call_count == 1
+
+
+def test_auto_selection_exhaustion_is_a_deterministic_safe_failure() -> None:
+    # Both canonical candidates are text-only models without an adapter, so
+    # neither is executable: AUTO must fail closed safely and deterministically
+    # without touching any provider.
+    _graph, gateway, local, remote = _auto_runtime(register_remote_adapter=False)
+    gateway = _auto_gateway(_graph)
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(request)
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_NOT_FOUND
+    assert error.value.retryable is False
+    assert error.value.details["candidates_considered"] == 2
+    assert remote.call_count == 0
+    assert local.call_count == 0
+
+
+def test_auto_selection_respects_canonical_order_exactly() -> None:
+    """AUTO returns the first executable candidate in canonical order."""
+
+    graph, gateway, local, remote = _auto_runtime(
+        remote_capabilities=ModelCapabilities(vision=True),
+    )
+    graph.models.register(
+        ModelSpec(
+            id="cheap-another-remote",
+            provider_id="remote-a",
+            context_window=32768,
+            capabilities=ModelCapabilities(),
+            availability="available",
+            input_cost_per_million=Decimal("0.50"),
+            output_cost_per_million=Decimal("0.50"),
+        )
+    )
+    local.add_response(content="local answer")
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+    )
+    order = _canonical_auto_order(graph, request)
+
+    response = gateway.execute(request)
+
+    # The remote model has no adapter, so the first executable canonical
+    # candidate wins -- never a re-ranked one.
+    assert order[0] == "remote-a:cheap-another-remote"
+    assert response.model_id == "pricey-local"
+    assert response.model_id == order[1].split(":", 1)[1]
+    assert remote.call_count == 0
