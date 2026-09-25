@@ -1026,9 +1026,7 @@ def _phase11_capability_runtime() -> tuple[
     providers = ProviderRegistry()
     providers.register(_spec("deepseek", _DEEPSEEK_URL))
     manifests = ProviderManifestRegistry(providers)
-    manifests.register(
-        _manifest("deepseek", _DEEPSEEK_URL, billing=BillingClass.PAYG)
-    )
+    manifests.register(_manifest("deepseek", _DEEPSEEK_URL, billing=BillingClass.PAYG))
     models = ModelCatalog(providers)
     models.register(_phase11_capability_model("deepseek"))
     connections = ProviderConnectionRegistry(providers)
@@ -1047,7 +1045,9 @@ def test_phase11_capabilities_survive_the_canonical_state_path() -> None:
     loaded = repository.load()
 
     assert loaded is not None
-    restored = restore_provider_registry_state(ProviderRegistryState.from_dict(loaded.to_dict()))
+    restored = restore_provider_registry_state(
+        ProviderRegistryState.from_dict(loaded.to_dict())
+    )
 
     original = models.get("deepseek:phase11-capability-model")
     canonical = restored.models.get("deepseek:phase11-capability-model")

@@ -33,6 +33,17 @@ entry that is missing the field — or carries an unknown one — is rejected by
 same fail-closed key checks every other persisted field uses. No migration path
 and no legacy reader are introduced: an aggregate that this build cannot
 reconstruct exactly is never partially accepted.
+
+Model capability shape Ruling (Phase 11.21 Remediation V1 MAJOR-05): canonical
+``ModelCapabilities`` gained the Phase 11.21 fields ``reasoning_efforts``,
+``document_media_types`` and ``streaming``. Persisting the older boolean-only
+capability shape silently rebuilt those fields from their fail-closed defaults,
+so the exact accepted capability truth of a canonical model entry was lost after
+a restart. This is a strictly additive revision inside the existing Phase 11.34
+persistence owner: ownership is unchanged, no second store is introduced, and the
+persisted capability shape changed, so :data:`SCHEMA_VERSION` moves from ``"2"``
+to ``"3"`` and a ``"2"`` document is rejected by version instead of being loaded
+with assumed defaults. There is no migration path and no v2-to-v3 transformer.
 """
 
 from __future__ import annotations
@@ -43,7 +54,11 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Final
 
-from kernel.llm.capabilities import ModelCapabilities, ProviderCapabilities
+from kernel.llm.capabilities import (
+    ModelCapabilities,
+    ProviderCapabilities,
+    ReasoningEffort,
+)
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_routes import (
     CapabilityConfidence,
@@ -58,13 +73,15 @@ from kernel.llm.provider_connections import (
 from kernel.llm.provider_manifests import FIRST_WAVE_AUTH_SCHEME, ProviderManifest
 from kernel.llm.provider_registry import ProviderSpec
 
-SCHEMA_VERSION: Final[str] = "2"
+SCHEMA_VERSION: Final[str] = "3"
 """The only persisted envelope version this build can read or write.
 
-``"2"`` adds the required ``requires_isolation`` manifest policy field to the
-``"1"`` shape; ``"1"`` documents are rejected by
-:class:`ProviderStateSchemaError` instead of being read with an assumed policy
-(module docstring, Manifest shape Ruling)."""
+``"3"`` adds the Phase 11.21 model capability fields ``reasoning_efforts``,
+``document_media_types`` and ``streaming`` to the ``"2"`` shape. ``"2"`` (and
+``"1"``) documents are rejected by :class:`ProviderStateSchemaError` instead of
+being read with assumed capability defaults, because the older shape cannot
+represent the accepted canonical capability truth (module docstring, Model
+capability shape Ruling)."""
 
 # Substrings marking a persisted value as carrying plaintext secret material.
 # Checked case-insensitively against the whole value, mirroring the guard in
@@ -545,6 +562,13 @@ def _model_to_dict(spec: ModelSpec) -> dict[str, object]:
             "audio_input": spec.capabilities.audio_input,
             "audio_output": spec.capabilities.audio_output,
             "embeddings": spec.capabilities.embeddings,
+            # Phase 11.21 capability truth, persisted explicitly so it is never
+            # rebuilt from fail-closed defaults on load.
+            "reasoning_efforts": [
+                effort.value for effort in spec.capabilities.reasoning_efforts
+            ],
+            "document_media_types": list(spec.capabilities.document_media_types),
+            "streaming": spec.capabilities.streaming,
         },
     }
 
@@ -559,7 +583,13 @@ _MODEL_CAPABILITY_NAMES: Final[tuple[str, ...]] = (
     "audio_input",
     "audio_output",
     "embeddings",
+    "reasoning_efforts",
+    "document_media_types",
+    "streaming",
 )
+
+#: The boolean subset of the persisted capability shape.
+_MODEL_CAPABILITY_BOOL_NAMES: Final[tuple[str, ...]] = _MODEL_CAPABILITY_NAMES[:9]
 
 
 def _model_from_dict(payload: Mapping[str, object]) -> ModelSpec:
@@ -597,8 +627,15 @@ def _model_from_dict(payload: Mapping[str, object]) -> ModelSpec:
             capabilities=ModelCapabilities(
                 **{
                     name: _require_bool(capabilities[name], label=name)
-                    for name in _MODEL_CAPABILITY_NAMES
-                }
+                    for name in _MODEL_CAPABILITY_BOOL_NAMES
+                },
+                reasoning_efforts=_reasoning_efforts_value(
+                    capabilities["reasoning_efforts"]
+                ),
+                document_media_types=_document_media_types_value(
+                    capabilities["document_media_types"]
+                ),
+                streaming=_require_bool(capabilities["streaming"], label="streaming"),
             ),
             aliases=tuple(
                 _require_text(item, label="alias")
@@ -621,6 +658,38 @@ def _model_from_dict(payload: Mapping[str, object]) -> ModelSpec:
         )
     except ValueError as error:
         raise ProviderStateSerializationError(f"invalid model: {error}") from error
+
+
+def _reasoning_efforts_value(value: object) -> tuple[ReasoningEffort, ...]:
+    """Parse the persisted reasoning-effort list into canonical enum members.
+
+    The persisted values are canonical ``ReasoningEffort.value`` strings.  An
+    unknown value, a non-string entry or a malformed (non-list) payload fails
+    closed rather than being normalized away, so a hand-edited document cannot
+    widen a model's declared effort set.  Duplicate rejection and canonical
+    normalization stay owned by :class:`ModelCapabilities`.
+    """
+
+    entries = _require_sequence(value, label="reasoning_efforts")
+    efforts: list[ReasoningEffort] = []
+    for entry in entries:
+        text = _require_text(entry, label="reasoning_effort")
+        if text not in {effort.value for effort in ReasoningEffort}:
+            raise ProviderStateSerializationError(f"invalid reasoning effort: {text!r}")
+        efforts.append(ReasoningEffort(text))
+    return tuple(efforts)
+
+
+def _document_media_types_value(value: object) -> tuple[str, ...]:
+    """Parse the persisted document media-type list, preserving its order.
+
+    Each entry must be a non-blank string; semantic normalization and rejection
+    of a value that is not a ``type/subtype`` pair stay owned by
+    :class:`ModelCapabilities`, so this parser never duplicates that validation.
+    """
+
+    entries = _require_sequence(value, label="document_media_types")
+    return tuple(_require_text(entry, label="document_media_type") for entry in entries)
 
 
 def _connection_to_dict(connection: ProviderConnection) -> dict[str, object]:

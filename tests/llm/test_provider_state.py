@@ -629,7 +629,10 @@ def _phase11_state() -> ProviderRegistryState:
         schema_version=SCHEMA_VERSION,
         revision=3,
         providers=(_provider("local", base_url="http://127.0.0.1:11434/v1"),),
+        manifests=(),
         models=(_phase11_model("local"),),
+        connections=(),
+        routes=(),
     )
 
 
@@ -740,9 +743,7 @@ def test_canonical_document_media_type_order_is_preserved() -> None:
         schema_version=SCHEMA_VERSION,
         revision=1,
         providers=(_provider("local", base_url="http://127.0.0.1:11434/v1"),),
-        models=(
-            ModelSpec(id="ordered", provider_id="local", capabilities=ordered),
-        ),
+        models=(ModelSpec(id="ordered", provider_id="local", capabilities=ordered),),
         manifests=(),
         connections=(),
         routes=(),
