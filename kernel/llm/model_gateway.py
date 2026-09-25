@@ -24,7 +24,7 @@ available never implies permission to transmit.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
@@ -39,6 +39,8 @@ from kernel.llm.model_gateway_contracts import (
     ModelExecutionFacts,
     ModelGatewayRequest,
     ModelGatewayResponse,
+    ModelStreamEvent,
+    ModelStreamEventType,
     ModelUsage,
     PrivacyEgressDecision,
     PrivacyEgressGate,
@@ -50,7 +52,11 @@ from kernel.llm.model_provider_adapter import (
     ProviderModelRequest,
     ProviderModelResponse,
 )
-from kernel.llm.model_streaming import ModelCallCancellation, ModelCallHandle
+from kernel.llm.model_streaming import (
+    ModelCallCancellation,
+    ModelCallHandle,
+    ModelStreamNormalizer,
+)
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 __all__ = ["ModelGateway"]
@@ -183,6 +189,12 @@ class ModelGateway:
 
         if not isinstance(request, ModelGatewayRequest):
             raise TypeError("request must be a ModelGatewayRequest")
+        if request.stream:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_REQUEST_INVALID,
+                "a streaming request must be executed through stream()",
+                retryable=False,
+            )
 
         started = self._clock()
         plan = self._preflight(request)
@@ -218,6 +230,419 @@ class ModelGateway:
             started=started,
             attempt=attempt,
         )
+
+    # ── Canonical provider-token streaming ───────────────────────────────────
+
+    def stream(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        cancellation: ModelCallCancellation | None = None,
+    ) -> Iterator[ModelStreamEvent]:
+        """Stream one validated model call as canonical, ordered events.
+
+        The returned stream always begins with exactly one ``STARTED`` event and
+        ends with exactly one terminal event.  Nothing is emitted after a
+        terminal event, and no raw provider object or hidden reasoning ever
+        appears.  Streaming is intentionally not retried: once any content was
+        emitted, re-attempting would duplicate it.
+        """
+
+        if not isinstance(request, ModelGatewayRequest):
+            raise TypeError("request must be a ModelGatewayRequest")
+
+        started = self._clock()
+        plan = self._preflight(request, require_streaming=True)
+        normalizer = ModelStreamNormalizer(
+            request_id=request.request_id,
+            provider_id=plan.provider.id,
+            model_id=plan.model.id,
+        )
+        started_event = normalizer.started_event(
+            effective_reasoning_effort=request.reasoning_effort,
+            reasoning_used=False,
+        )
+        if started_event is not None:
+            yield started_event
+
+        provider_request = self._provider_request(request, plan)
+        try:
+            adapter_events: Iterator[object] = iter(
+                plan.adapter.stream(provider_request, cancellation=cancellation)
+            )
+        except ModelGatewayError as error:
+            yield self._stream_failure(
+                request, plan, normalizer, error, started=started
+            )
+            return
+        except Exception:  # noqa: BLE001 - normalize any provider failure
+            yield self._stream_failure(
+                request,
+                plan,
+                normalizer,
+                ModelGatewayError(
+                    ModelGatewayErrorCode.PROVIDER_FAILURE,
+                    "provider stream could not be opened",
+                    details={"provider_id": plan.provider.id},
+                    retryable=False,
+                ),
+                started=started,
+            )
+            return
+
+        deadline = started + request.timeout_seconds
+        accumulated: list[str] = []
+        latest_usage = None
+        saw_tool_call = False
+
+        while True:
+            if cancellation is not None and cancellation.is_cancelled:
+                yield self._stream_cancelled(request, plan, normalizer, started=started)
+                return
+            if self._clock() > deadline:
+                if cancellation is not None:
+                    cancellation.cancel("model stream timed out")
+                yield self._stream_failure(
+                    request,
+                    plan,
+                    normalizer,
+                    ModelGatewayError(
+                        ModelGatewayErrorCode.PROVIDER_TIMEOUT,
+                        "model stream exceeded its timeout",
+                        details={
+                            "provider_id": plan.provider.id,
+                            "timeout_seconds": request.timeout_seconds,
+                        },
+                        retryable=True,
+                    ),
+                    started=started,
+                )
+                return
+            try:
+                adapter_event = next(adapter_events)
+            except StopIteration:
+                break
+            except ModelGatewayError as error:
+                yield self._stream_failure(
+                    request, plan, normalizer, error, started=started
+                )
+                return
+            except Exception:  # noqa: BLE001 - normalize any provider failure
+                yield self._stream_failure(
+                    request,
+                    plan,
+                    normalizer,
+                    ModelGatewayError(
+                        ModelGatewayErrorCode.PROVIDER_FAILURE,
+                        "provider stream failed",
+                        details={"provider_id": plan.provider.id},
+                        retryable=False,
+                    ),
+                    started=started,
+                )
+                return
+
+            event_type = getattr(adapter_event, "event_type", None)
+            if event_type is ModelStreamEventType.STARTED:
+                continue
+            if event_type is ModelStreamEventType.CONTENT_DELTA:
+                delta = getattr(adapter_event, "content_delta", None)
+                if not delta:
+                    yield self._stream_failure(
+                        request,
+                        plan,
+                        normalizer,
+                        ModelGatewayError(
+                            ModelGatewayErrorCode.STREAM_FAILURE,
+                            "provider stream emitted an empty content delta",
+                            details={"provider_id": plan.provider.id},
+                            retryable=False,
+                        ),
+                        started=started,
+                    )
+                    return
+                accumulated.append(delta)
+                normalized = normalizer.content_event(delta)
+                if normalized is not None:
+                    yield normalized
+                continue
+            if event_type is ModelStreamEventType.TOOL_CALL_DELTA:
+                tool_call = getattr(adapter_event, "tool_call", None)
+                if tool_call is None:
+                    yield self._stream_failure(
+                        request,
+                        plan,
+                        normalizer,
+                        ModelGatewayError(
+                            ModelGatewayErrorCode.STREAM_FAILURE,
+                            "provider stream emitted an unnormalized tool call",
+                            details={"provider_id": plan.provider.id},
+                            retryable=False,
+                        ),
+                        started=started,
+                    )
+                    return
+                saw_tool_call = True
+                normalized = normalizer.tool_call_event(tool_call)
+                if normalized is not None:
+                    yield normalized
+                continue
+            if event_type is ModelStreamEventType.USAGE:
+                usage = getattr(adapter_event, "usage", None)
+                if usage is None:
+                    yield self._stream_failure(
+                        request,
+                        plan,
+                        normalizer,
+                        ModelGatewayError(
+                            ModelGatewayErrorCode.STREAM_FAILURE,
+                            "provider stream emitted an empty usage event",
+                            details={"provider_id": plan.provider.id},
+                            retryable=False,
+                        ),
+                        started=started,
+                    )
+                    return
+                latest_usage = usage
+                normalized = normalizer.usage_event(usage)
+                if normalized is not None:
+                    yield normalized
+                continue
+            if event_type is ModelStreamEventType.CANCELLED:
+                yield self._stream_cancelled(request, plan, normalizer, started=started)
+                return
+            if event_type is ModelStreamEventType.ERROR:
+                error_code = getattr(adapter_event, "error_code", None) or (
+                    ModelGatewayErrorCode.STREAM_FAILURE.value
+                )
+                failure_text = getattr(adapter_event, "failure", None) or (
+                    "provider stream failed"
+                )
+                try:
+                    code = ModelGatewayErrorCode(error_code)
+                except ValueError:
+                    code = ModelGatewayErrorCode.STREAM_FAILURE
+                yield self._stream_failure(
+                    request,
+                    plan,
+                    normalizer,
+                    ModelGatewayError(
+                        code,
+                        str(failure_text),
+                        details={"provider_id": plan.provider.id},
+                        retryable=False,
+                    ),
+                    started=started,
+                )
+                return
+            if event_type is ModelStreamEventType.COMPLETED:
+                provider_response = getattr(adapter_event, "response", None)
+                if provider_response is None:
+                    yield self._stream_failure(
+                        request,
+                        plan,
+                        normalizer,
+                        ModelGatewayError(
+                            ModelGatewayErrorCode.STREAM_FAILURE,
+                            "provider stream completed without a response",
+                            details={"provider_id": plan.provider.id},
+                            retryable=False,
+                        ),
+                        started=started,
+                    )
+                    return
+                try:
+                    self._validate_stream_result(
+                        request, plan, provider_response, saw_tool_call=saw_tool_call
+                    )
+                except ModelGatewayError as error:
+                    yield self._stream_failure(
+                        request, plan, normalizer, error, started=started
+                    )
+                    return
+                response = self._stream_response(
+                    request,
+                    plan,
+                    provider_response,
+                    accumulated=accumulated,
+                    usage=latest_usage,
+                    started=started,
+                )
+                self._emit(response.facts)  # type: ignore[arg-type]
+                terminal = normalizer.completed_event(response)
+                if terminal is not None:
+                    yield terminal
+                return
+            # An unknown adapter event type is a boundary failure, never ignored.
+            yield self._stream_failure(
+                request,
+                plan,
+                normalizer,
+                ModelGatewayError(
+                    ModelGatewayErrorCode.STREAM_FAILURE,
+                    "provider stream emitted an unknown event type",
+                    details={"provider_id": plan.provider.id},
+                    retryable=False,
+                ),
+                started=started,
+            )
+            return
+
+        yield self._stream_failure(
+            request,
+            plan,
+            normalizer,
+            ModelGatewayError(
+                ModelGatewayErrorCode.STREAM_FAILURE,
+                "provider stream ended without a terminal event",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            ),
+            started=started,
+        )
+
+    def _validate_stream_result(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        provider_response: ProviderModelResponse,
+        *,
+        saw_tool_call: bool,
+    ) -> None:
+        if provider_response.effective_reasoning_effort is not request.reasoning_effort:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_FAILURE,
+                "provider adapter changed the requested reasoning effort",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            )
+        if (
+            request.structured_output is not None
+            and request.structured_output.required
+            and provider_response.structured_output is None
+        ):
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.STRUCTURED_OUTPUT_INVALID,
+                "provider returned no structured output for a required requirement",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            )
+        if (provider_response.tool_calls or saw_tool_call) and not request.tools:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.TOOL_CALL_INVALID,
+                "provider returned a tool call that the request never declared",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            )
+
+    def _stream_response(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        provider_response: ProviderModelResponse,
+        *,
+        accumulated: list[str],
+        usage: object | None,
+        started: float,
+    ) -> ModelGatewayResponse:
+        content = provider_response.content
+        if not content and accumulated:
+            content = "".join(accumulated)
+        resolved_usage = usage if usage is not None else provider_response.usage
+        facts = self._facts(
+            request,
+            plan,
+            started=started,
+            attempt=1,
+            success=True,
+            error_code=None,
+            finish_reason=provider_response.finish_reason,
+            usage=resolved_usage,  # type: ignore[arg-type]
+            reasoning_used=provider_response.reasoning_used,
+            effective_reasoning_effort=provider_response.effective_reasoning_effort,
+            streamed=True,
+        )
+        return ModelGatewayResponse(
+            request_id=request.request_id,
+            provider_id=plan.provider.id,
+            model_id=plan.model.id,
+            selection_mode=request.selection_mode,
+            content=content,
+            structured_output=provider_response.structured_output,
+            tool_calls=provider_response.tool_calls,
+            usage=resolved_usage,  # type: ignore[arg-type]
+            facts=facts,
+            finish_reason=provider_response.finish_reason,
+            cancelled=False,
+            error_code=None,
+            reasoning_used=provider_response.reasoning_used,
+            effective_reasoning_effort=provider_response.effective_reasoning_effort,
+        )
+
+    def _stream_failure(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        normalizer: ModelStreamNormalizer,
+        error: ModelGatewayError,
+        *,
+        started: float,
+    ) -> ModelStreamEvent:
+        facts = self._facts(
+            request,
+            plan,
+            started=started,
+            attempt=1,
+            success=False,
+            error_code=error.code.value,
+            finish_reason=None,
+            usage=None,
+            reasoning_used=False,
+            effective_reasoning_effort=request.reasoning_effort,
+            streamed=True,
+            cancelled=error.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED,
+        )
+        self._emit(facts)
+        event = normalizer.error_event(error)
+        if event is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.STREAM_FAILURE,
+                "stream already reported a terminal event",
+                retryable=False,
+            )
+        return event
+
+    def _stream_cancelled(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        normalizer: ModelStreamNormalizer,
+        *,
+        started: float,
+    ) -> ModelStreamEvent:
+        facts = self._facts(
+            request,
+            plan,
+            started=started,
+            attempt=1,
+            success=False,
+            error_code=None,
+            finish_reason=None,
+            usage=None,
+            reasoning_used=False,
+            effective_reasoning_effort=request.reasoning_effort,
+            streamed=True,
+            cancelled=True,
+        )
+        self._emit(facts)
+        event = normalizer.cancelled_event()
+        if event is None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.STREAM_FAILURE,
+                "stream already reported a terminal event",
+                retryable=False,
+            )
+        return event
 
     # ── Read-only capability projection ──────────────────────────────────────
 
@@ -290,7 +715,12 @@ class ModelGateway:
 
     # ── Preflight ────────────────────────────────────────────────────────────
 
-    def _preflight(self, request: ModelGatewayRequest) -> _ExecutionPlan:
+    def _preflight(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        require_streaming: bool = False,
+    ) -> _ExecutionPlan:
         if request.timeout_seconds > self._max_timeout_seconds:
             raise ModelGatewayError(
                 ModelGatewayErrorCode.PROVIDER_REQUEST_INVALID,
@@ -327,6 +757,13 @@ class ModelGateway:
             )
 
         capability_decision = self._validate_capabilities(request, model)
+        if require_streaming and not model.capabilities.streaming:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                "the model does not declare provider token streaming support",
+                details={"model_id": model.qualified_id},
+                retryable=False,
+            )
         self._validate_modalities(request, model)
         privacy_decision = self._privacy_decision(request, provider)
         adapter = self._adapter_registry.get(model.provider_id)
@@ -734,6 +1171,8 @@ class ModelGateway:
         usage: ModelUsage | None,
         reasoning_used: bool,
         effective_reasoning_effort: ReasoningEffort,
+        streamed: bool = False,
+        cancelled: bool | None = None,
     ) -> ModelExecutionFacts:
         latency_ms = max(int((self._clock() - started) * 1000), 0)
         return ModelExecutionFacts(
@@ -750,8 +1189,12 @@ class ModelGateway:
             input_modalities=request.input_modalities,
             tool_use=bool(request.tools),
             structured_output_use=request.structured_output is not None,
-            streamed=False,
-            cancelled=error_code == ModelGatewayErrorCode.MODEL_CALL_CANCELLED.value,
+            streamed=streamed,
+            cancelled=(
+                error_code == ModelGatewayErrorCode.MODEL_CALL_CANCELLED.value
+                if cancelled is None
+                else cancelled
+            ),
             timed_out=error_code == ModelGatewayErrorCode.PROVIDER_TIMEOUT.value,
             retry_count=max(attempt - 1, 0),
             usage=usage if usage is not None else ModelUsage(),
