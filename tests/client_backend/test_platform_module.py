@@ -460,7 +460,12 @@ def test_ready_snapshot_projects_the_client_backend_identity() -> None:
 
 
 def test_the_resolved_facade_retains_the_exact_canonical_owners() -> None:
-    """The composed facade delegates to the very owners of the runtime."""
+    """The composed facade delegates to the very owners of the runtime.
+
+    The wiring is read white-box because the public facade deliberately returns
+    no live canonical owner (Audit V1 MAJOR-01): the observable public contract
+    is the composition binding and the coherence evidence, not the owner objects.
+    """
 
     composed = _composed()
     module, service = composed.module, composed.client
@@ -479,11 +484,14 @@ def test_the_resolved_facade_retains_the_exact_canonical_owners() -> None:
     )
 
     resolved = container.get_service(CLIENT_BACKEND_SERVICE_ID)
+    gateway = container.get_service(APPLICATION_SERVICE_ID)
+    conversation = container.get_service(CONVERSATION_SERVICE_ID)
 
     assert resolved is service
-    assert resolved.gateway is container.get_service(APPLICATION_SERVICE_ID)
-    assert resolved.conversation is container.get_service(CONVERSATION_SERVICE_ID)
-    assert resolved.conversation.gateway is resolved.gateway
+    assert type(resolved) is ClientBackend
+    assert resolved._gateway is gateway
+    assert resolved._conversation is conversation
+    assert conversation.uses_application_gateway(gateway) is True
 
 
 def test_composing_without_the_conversation_contribution_fails_closed() -> None:

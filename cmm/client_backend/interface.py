@@ -23,15 +23,23 @@ ApplicationGateway
 Orchestrator / existing canonical owners
 ```
 
-Four properties are frozen here:
+Five properties are frozen here:
 
-* **exact owner identity** — construction requires the concrete canonical
-  ``ApplicationGateway`` and ``ConversationService`` (a duck-typed replacement
-  fails closed), and the facade additionally verifies that the supplied
-  conversational service is wired to the *same* gateway instance.  A facade
-  holding one gateway while the conversational service writes through another
-  would be a silently split application boundary, so it is rejected rather than
-  tolerated;
+* **exact owner identity** — construction requires the *exact* canonical
+  ``ApplicationGateway`` and ``ConversationService`` types (a duck-typed
+  replacement and, since Remediation V1, a subclass of either owner both fail
+  closed), and the facade additionally verifies through the narrowed,
+  non-authoritative ``ConversationService.uses_application_gateway`` evidence
+  that the supplied conversational service is wired to the *same* gateway
+  instance.  A facade holding one gateway while the conversational service
+  writes through another would be a silently split application boundary, so it
+  is rejected rather than tolerated;
+* **no live-owner access** — the public surface never returns a live
+  authority-bearing canonical owner.  Remediation V1 removed the additive
+  ``gateway``/``conversation`` accessors after Independent Audit V1 reproduced
+  that ``client.gateway.handle(...)`` reached ``health.get``, a canonical
+  application operation outside the frozen :class:`ClientOperation` set; there
+  is no renamed equivalent and no generic service locator either;
 * **delegation only** — every operation maps to one existing canonical call.
   ``create_session``/``get_session`` enter the one public
   ``ApplicationGateway.handle`` entrypoint with a canonical
@@ -121,15 +129,15 @@ class ClientBackend:
         model_boundary_capabilities: tuple[ApplicationCapability, ...] = (),
         application_api_version: str = APPLICATION_API_VERSION,
     ) -> None:
-        if not isinstance(gateway, ApplicationGateway):
+        if type(gateway) is not ApplicationGateway:
             raise TypeError(
-                "gateway must be the canonical Phase 11.3 ApplicationGateway, "
-                f"not {type(gateway).__name__}"
+                "gateway must be the exact canonical Phase 11.3 "
+                f"ApplicationGateway, not {type(gateway).__name__}"
             )
-        if not isinstance(conversation, ConversationService):
+        if type(conversation) is not ConversationService:
             raise TypeError(
-                "conversation must be the canonical Phase 11.5 ConversationService, "
-                f"not {type(conversation).__name__}"
+                "conversation must be the exact canonical Phase 11.5 "
+                f"ConversationService, not {type(conversation).__name__}"
             )
         if not isinstance(application_capabilities, tuple):
             raise TypeError(
@@ -144,8 +152,10 @@ class ClientBackend:
 
         # Owner coherence: the conversational service must write through the very
         # gateway this facade was handed.  Two different gateways would be a
-        # silently split application boundary, which the design forbids.
-        if conversation.gateway is not gateway:
+        # silently split application boundary, which the design forbids.  The
+        # question is asked through the narrowed, non-authoritative identity seam
+        # so no live owner is ever returned to this layer.
+        if not conversation.uses_application_gateway(gateway):
             raise ValueError(
                 "the composed ConversationService must use the exact "
                 "ApplicationGateway supplied to the client backend"
@@ -515,29 +525,21 @@ class ClientBackend:
         importing either canonical error hierarchy itself.
         """
 
-        if isinstance(error, ApplicationServiceError):
-            public = error.to_public_error()
-            return {"code": public.code.value, "message": public.message}
-        if isinstance(error, ConversationBoundaryError):
-            return {"code": error.code.value, "message": str(error)}
-        return {
-            "code": ClientBackendErrorCode.INTERNAL_CLIENT_ERROR.value,
-            "message": ("Client backend request failed closed"),
-        }
+        return _canonical_failure_projection(error)
 
-    # ── Read-only owner identity (no authority) ──────────────────────────────
 
-    @property
-    def gateway(self) -> ApplicationGateway:
-        """Return the exact canonical ``ApplicationGateway`` this facade delegates to."""
+def _canonical_failure_projection(error: BaseException) -> dict[str, str]:
+    """Return the safe public projection of one canonical failure."""
 
-        return self._gateway
-
-    @property
-    def conversation(self) -> ConversationService:
-        """Return the exact canonical ``ConversationService`` this facade delegates to."""
-
-        return self._conversation
+    if isinstance(error, ApplicationServiceError):
+        public = error.to_public_error()
+        return {"code": public.code.value, "message": public.message}
+    if isinstance(error, ConversationBoundaryError):
+        return {"code": error.code.value, "message": str(error)}
+    return {
+        "code": ClientBackendErrorCode.INTERNAL_CLIENT_ERROR.value,
+        "message": ("Client backend request failed closed"),
+    }
 
 
 def _application_session_from_response(

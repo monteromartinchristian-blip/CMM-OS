@@ -353,29 +353,36 @@ class ConversationService:
 
     # ── Read-only inspection ─────────────────────────────────────────────────
 
-    @property
-    def gateway(self) -> ApplicationGateway:
-        """Return the exact canonical ``ApplicationGateway`` this service used.
+    def uses_application_gateway(self, gateway: object) -> bool:
+        """Return whether this service delegates through the exact *gateway*.
 
-        This is a read-only identity accessor, not an authority surface: it
-        hands back the very gateway instance the service was constructed with and
-        nothing else.  Phase 11.50's reusable client backend uses it to verify
-        that the facade and the conversational service really are wired to one
-        canonical application boundary rather than to two; no caller can mutate,
-        replace or re-enter the service through it, and no second owner is
-        created to make the identity observable.
+        This is the *narrowed* form of the additive Phase 11.50 inspection seam.
+        Remediation V1 (Audit V1 MAJOR-01) established that handing back the live
+        canonical ``ApplicationGateway`` — and therefore its ``handle(...)``
+        entrypoint — is an authority escape hatch for a first-party client, so the
+        accessor was replaced by this immutable, non-authoritative answer: a
+        boolean identity check that returns no owner, no entrypoint and no
+        callable.
+
+        Phase 11.50's reusable client backend uses it to verify that the facade
+        and the conversational service really are wired to one canonical
+        application boundary rather than to two.  The caller must already hold the
+        gateway to ask the question, so no new authority is conveyed.
         """
 
-        return self._gateway
+        return self._gateway is gateway
 
     @property
     def capability_resolver(self) -> ConversationCapabilityResolver:
         """Return the exact canonical conversational capability resolver.
 
-        A read-only identity accessor: the resolver is the one the service was
-        constructed with, so a consumer (the Phase 11.50 client backend) can
-        report the same capability truth the service itself resolves rather than
-        guessing it.  Requesting a capability through the resolver grants
+        Audit V1 MAJOR-01 remediation reviewed this accessor: the resolver is an
+        independently closed canonical Phase 11.5 public contract, it exposes no
+        downstream authority and its only public operation returns immutable
+        declarative ``ConversationCapabilityState`` values — the very truth the
+        client backend is required to report.  It is therefore narrowed rather
+        than removed: it grants no session, conversation, routing, model or
+        execution authority, and requesting a capability through it changes
         nothing.
         """
 

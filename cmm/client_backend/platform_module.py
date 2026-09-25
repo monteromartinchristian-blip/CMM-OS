@@ -8,9 +8,9 @@ semantics, and ``cmm.platform`` never imports ``cmm.client_backend``.
 
 The module constructs nothing.  The facade is an already-built object supplied by
 the composition root, and the binding declares an enforceable runtime contract —
-the concrete :class:`~cmm.client_backend.interface.ClientBackend` — so an
-unrelated object can never claim the public client-backend identity, not even
-through a hand-built binding.
+the exact concrete :class:`~cmm.client_backend.interface.ClientBackend` type — so
+an unrelated object, and equally a *subclass* of the facade, can never claim the
+public client-backend identity, not even through a hand-built binding.
 
 ``client-backend-public-facade`` is the only authority claimed here, and it is
 deliberately a *facade* authority: the layer owns no session, conversation,
@@ -124,13 +124,15 @@ def build_client_backend_composition_module(
     """Return the Phase 11.1 contribution for the reusable client backend.
 
     The builder constructs no subsystem: the facade is an already-constructed
-    object supplied by the composition root, and anything that is not the
-    concrete Phase 11.50 facade fails closed.
+    object supplied by the composition root, and anything that is not the exact
+    concrete Phase 11.50 facade type fails closed — a facade subclass may
+    override authority-bearing behaviour, so ``isinstance(...)`` is deliberately
+    not the gate here (Audit V1 MAJOR-02).
     """
 
-    if not isinstance(service, ClientBackend):
+    if type(service) is not ClientBackend:
         raise TypeError(
-            "service must be the concrete Phase 11.50 ClientBackend, "
+            "service must be the exact concrete Phase 11.50 ClientBackend, "
             f"not {type(service).__name__}"
         )
 

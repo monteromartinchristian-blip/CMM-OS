@@ -123,16 +123,21 @@ def test_an_incoherent_gateway_pair_is_rejected() -> None:
 
 
 def test_the_facade_retains_the_exact_owner_instances() -> None:
-    """The facade delegates to the very instances it was constructed with."""
+    """The facade delegates to the very instances it was constructed with.
+
+    The wiring is read white-box on purpose: the public surface returns no live
+    canonical owner, because handing back an ``ApplicationGateway`` would hand
+    back its ``handle(...)`` entrypoint and reopen the Audit V1 escape hatch.
+    """
 
     graph = build_client_backend_graph()
 
-    assert graph.client.gateway is graph.gateway
-    assert graph.client.conversation is graph.conversation
-    assert isinstance(graph.client.gateway, ApplicationGateway)
-    assert isinstance(graph.client.conversation, ConversationService)
+    assert graph.client._gateway is graph.gateway
+    assert graph.client._conversation is graph.conversation
+    assert type(graph.client._gateway) is ApplicationGateway
+    assert type(graph.client._conversation) is ConversationService
     # Owner coherence: the conversational service really uses this gateway.
-    assert graph.conversation.gateway is graph.gateway
+    assert graph.conversation.uses_application_gateway(graph.gateway) is True
 
 
 # ── Session operations ───────────────────────────────────────────────────────

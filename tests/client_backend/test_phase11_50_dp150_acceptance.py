@@ -28,8 +28,9 @@ downstream calls" are proven rather than asserted.
 
 Scenario map (all connected, in one acceptance):
 
-* **A** — exact authority identity: the facade holds the very gateway and
-  conversational service of the runtime, and an incoherent pair is refused;
+* **A** — exact authority identity, proven behaviorally over two distinct
+  canonical graphs (remediated by Audit V1 MAJOR-01: no public live-owner
+  accessor exists);
 * **B** — session round trip through the facade over the canonical session store;
 * **C** — submit-message traversal through ``ConversationService`` →
   ``ApplicationGateway`` with canonical identities and safe ``AssistantResponse``;
@@ -62,6 +63,7 @@ from cmm.application.contracts import (
     ApplicationErrorCode,
     ApplicationSession,
 )
+from cmm.application.gateway import ApplicationGateway
 from cmm.client_backend import (
     CLIENT_BACKEND_INTERFACE_VERSION,
     CLIENT_BACKEND_MODULE_ID,
@@ -223,20 +225,73 @@ def _walked_response_payloads() -> list[dict[str, object]]:
 
 
 def test_at_dp150_scenario_a_exact_authority_identity() -> None:
-    """The facade holds the exact canonical owners, and no alternate pair."""
+    """Exact canonical graph identity, proven behaviorally and without an escape hatch.
+
+    Audit V1 MAJOR-01 remediated this scenario.  The audited version proved
+    identity by having the public facade return its live canonical owners —
+    ``client.gateway`` and ``client.conversation`` — which was itself the escape
+    hatch: the returned ``ApplicationGateway`` exposes ``handle(...)`` and can
+    reach an application operation that is not in the frozen ``ClientOperation``
+    set.
+
+    The remediation proves the same property from observable canonical state:
+    the graph the facade was wired to receives the mutation, a second distinct
+    canonical graph does not, and the canonical identities, revision and lineage
+    the client receives belong to the wired graph.  No public owner access is
+    used or required.
+    """
 
     graph = build_client_backend_graph()
-
-    # The facade and the conversational service really share one application
-    # boundary, and that boundary is the composed runtime's own gateway.
-    assert graph.client.gateway is graph.gateway
-    assert graph.client.conversation is graph.conversation
-    assert graph.conversation.gateway is graph.gateway
-    assert graph.gateway is graph.runtime.gateway
-
-    # An alternate gateway is never silently accepted.
     other = build_client_backend_graph()
+
     assert other.gateway is not graph.gateway
+    assert other.conversation is not graph.conversation
+
+    # No public live-owner access exists on the facade at all.
+    assert not hasattr(graph.client, "gateway")
+    assert not hasattr(graph.client, "conversation")
+    assert not any(
+        isinstance(getattr(graph.client, name, None), ApplicationGateway)
+        for name in dir(graph.client)
+        if not name.startswith("_")
+    )
+
+    # Operating only through the public facade mutates graph A ...
+    session = graph.client.create_session(SESSION_ID)
+    assert session.session_id == SESSION_ID
+    assert session.revision == 1
+    assert graph.store.load(SESSION_ID) is not None
+
+    # ... and leaves the distinct graph B completely untouched.
+    assert other.store.load(SESSION_ID) is None
+    assert other.canonical_gateway_calls() == 0
+
+    turn = graph.client.submit_message(
+        _user("user-1"),
+        request_id="request-1",
+        expected_session_revision=1,
+        assistant_message_id="assistant-1",
+        assistant_created_at=TURN_RESPONSE_AT,
+    )
+
+    # The returned canonical identities, revision and lineage are graph A's.
+    assert turn.message.session_id == SESSION_ID
+    canonical_a = graph.store.load(SESSION_ID)
+    assert canonical_a is not None
+    assert canonical_a.revision == 2
+    state = graph.client.load_conversation(SESSION_ID)
+    assert state is not None
+    assert [message.id for message in state.messages] == ["user-1", "assistant-1"]
+    assert [message.session_id for message in state.messages] == [
+        SESSION_ID,
+        SESSION_ID,
+    ]
+    assert graph.canonical_gateway_calls() == 2
+    assert other.canonical_gateway_calls() == 0
+    assert other.store.load(SESSION_ID) is None
+
+    # An alternate gateway is never silently accepted — and the refusal is made
+    # through the narrowed coherence evidence, not by handing back an owner.
     with pytest.raises(ValueError):
         ClientBackend(gateway=other.gateway, conversation=graph.conversation)
 
