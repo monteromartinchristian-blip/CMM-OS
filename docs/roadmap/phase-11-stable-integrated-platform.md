@@ -6825,3 +6825,132 @@ NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 Phase 11.5 is closed by the dedicated docs-only closure commit after the
 Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
 evidence remains immutable.
+
+<!-- PHASE11_21_IMPLEMENTATION_STATE -->
+# 11.21 — Model Gateway implementation state (2026-09-25)
+
+**Status:** implemented; independent audit pending. This section records the
+implementation actually present in this repository; it is not a closure and not
+a verification claim. The Phase 11.21 scope is frozen by
+`docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md` and
+`docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`.
+
+## Implementation boundary
+
+Phase 11.21 introduces exactly one new authority — provider-independent
+model-call normalization and execution — and reuses every canonical owner it
+needs. It implements no routing-policy intelligence (11.35+), no cost
+management layer (11.38), no model usage audit persistence (11.44) and no
+CMMChat-facing client surface (11.50).
+
+## Exact canonical owners reused
+
+```text
+kernel/llm/provider_registry.py      ProviderRegistry (exact instance identity)
+kernel/llm/model_catalog.py          ModelCatalog (bound to that same registry)
+kernel/llm/model_selection.py        ModelRequirements (fallback planning only)
+kernel/llm/model_router.py           RoutingCandidate (fallback planning only)
+cmm/agent_runtime/model_fallback_decision_engine.py   attempt/fallback decisions
+cmm/agent_runtime/model_fallback_contracts.py         attempt and policy contracts
+cmm/agent_runtime/model_execution_contracts.py        agent-run execution record
+cmm/cognitive/privacy.py             evaluate_privacy_operation (only privacy authority)
+cmm/platform/                        Phase 11.1 composition root
+cmm/application/, cmm/conversation/  Phase 11.3 / 11.5 boundaries (untouched)
+```
+
+## Files introduced
+
+```text
+kernel/llm/model_gateway.py
+kernel/llm/model_gateway_contracts.py
+kernel/llm/model_gateway_errors.py
+kernel/llm/model_provider_adapter.py
+kernel/llm/model_streaming.py
+cmm/agent_runtime/model_egress_privacy_adapter.py
+cmm/agent_runtime/model_fallback_gateway_adapter.py
+cmm/agent_runtime/model_execution_evidence_projection.py
+tests/llm/model_gateway_support.py
+tests/llm/test_model_gateway_architecture.py
+tests/llm/test_model_gateway_contracts.py
+tests/llm/test_model_gateway_capabilities.py
+tests/llm/test_model_gateway_adapters.py
+tests/llm/test_model_gateway_execution.py
+tests/llm/test_model_gateway_reasoning.py
+tests/llm/test_model_gateway_multimodal.py
+tests/llm/test_model_gateway_structured_output.py
+tests/llm/test_model_gateway_tools.py
+tests/llm/test_model_gateway_streaming.py
+tests/llm/test_model_gateway_cancellation.py
+tests/llm/test_model_gateway_privacy.py
+tests/llm/test_model_gateway_timeout_retry.py
+tests/llm/test_model_gateway_fallback.py
+tests/llm/test_model_gateway_accounting.py
+tests/llm/test_model_gateway_evidence.py
+tests/llm/test_phase11_21_dp121_acceptance.py
+tests/platform/test_model_gateway_binding.py
+tests/agent_runtime/test_model_egress_privacy_adapter.py
+tests/agent_runtime/test_model_fallback_gateway_adapter.py
+tests/agent_runtime/test_model_execution_evidence_projection.py
+```
+
+## Inherited closed phases
+
+Phase 11.34, 11.1, 11.2, 11.3, 11.4 and 11.5 remain closed and are not
+redesigned. The only changes inside closed packages are documented additive,
+backwards-compatible seams:
+
+```text
+kernel/llm/capabilities.py    ReasoningEffort enum; ModelCapabilities gains
+                              reasoning_efforts, document_media_types and
+                              streaming, all defaulted to unknown/unsupported
+kernel/llm/__init__.py        additive public exports
+cmm/platform/canonical.py     PROVIDER_REGISTRY_CONTRACT_VERSION,
+                              _provider_registry_dependency and
+                              model_gateway_binding
+cmm/platform/__init__.py      additive export
+```
+
+No closed-phase production semantics were changed, no persistence authority was
+changed and no closed phase was reopened.
+
+## DP-121 / AT-DP-121
+
+`DP-121` — Canonical Provider-Independent Model Gateway — is implemented and
+`AT-DP-121` passes locally (`tests/llm/test_phase11_21_dp121_acceptance.py`,
+31 passed; focused Phase 11.21 gateway suite 366 passed). `AT_DP_121=PASS` here
+is local implementation evidence, not independent verification.
+
+Inherited acceptances remain green:
+
+```text
+AT_DP_134=PASS   tests/llm/test_provider_registry_dp134_acceptance.py
+AT_DP_101=PASS   tests/platform/test_phase11_1_dp101_acceptance.py
+AT_DP_102=PASS   tests/orchestration/test_phase11_2_dp102_acceptance.py
+AT_DP_103=PASS   tests/application/test_phase11_3_dp103_acceptance.py
+AT_DP_104=PASS   tests/cli/test_phase11_4_dp104_acceptance.py
+AT_DP_105=PASS   tests/conversation/test_phase11_5_dp105_acceptance.py
+```
+
+## Known Ruff baseline debt
+
+Repository-wide `ruff check .` reports 837 findings both before and after
+Phase 11.21: the pre-existing repository debt is unchanged and Phase 11.21
+introduces zero new findings. Every new or touched Python file passes
+`ruff check` and `ruff format --check`.
+
+## Audit pending
+
+```text
+PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_020=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_121=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_121=PASS
+NEXT=INDEPENDENT_AUDIT
+```
+
+Phase 11.21 may close only after an independent audit of the exact-HEAD bundle
+reports `BLOCKERS=0`, `MAJORS=0`, `DP-121=VERIFIED_EXISTING`,
+`AT-DP-121=PASS` and `CLOSURE_ELIGIBLE=YES`; a separate docs-only closure commit
+follows. The implemented surface, enforced invariants, known limits and local
+evidence are documented in
+[`docs/reference/phase-11-model-gateway.md`](../reference/phase-11-model-gateway.md).

@@ -367,6 +367,43 @@ implemented surface, the capability truth table and the recorded residual limits
 are documented in
 [`docs/reference/phase-11-conversational-interface.md`](phase-11-conversational-interface.md).
 
+### 4.13 `F11-020` — Canonical Provider-Independent Model Gateway
+
+`F11-001` … `F11-013` remain owned by the Phase 10 matrix, `F11-014` is owned
+by §4.1, `F11-015` by §4.3, `F11-016` by §4.5, `F11-017` by §4.7, `F11-018`
+by §4.9 and `F11-019` by §4.11 of this document. `F11-020` is the next
+non-colliding Phase 11 functional identifier, assigned to Phase 11.21 — Model
+Gateway. Its pre-audit mapping status is `IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT`:
+the implementation exists in this repository and the connected acceptance is
+green here, while no independent audit has examined it yet.
+
+| `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
+|---|---|---|---|---|---|---|
+| `F11-020` | Canonical Provider-Independent Model Gateway. CMM OS shall expose exactly one canonical provider-independent model-call execution boundary that consumes the exact Phase 11.34 `ProviderRegistry` and the canonical `ModelCatalog`; validates explicit model, capability, reasoning-effort and input-modality requirements before provider I/O; preserves explicit user model selection without silent substitution; preserves explicit reasoning effort without silent downgrade or upgrade; transports real authorized image and PDF/document content rather than filenames or attachment metadata; normalizes tool declarations and tool calls without executing tools; normalizes provider token streaming with exactly one terminal event and no hidden reasoning; supports bounded timeout, cooperative model-call cancellation and bounded transport retry; executes only an explicitly authorized, requirement-preserving fallback sequence; enforces canonical privacy before remote egress so that `LOCAL_ONLY` plus a remote provider is denied before any provider call and approval cannot widen a refusal; returns factual usage, cost and latency facts with unknown metrics left unknown; emits safe model-call evidence through an injected seam; is composed through the Phase 11.1 root; and introduces no parallel provider registry, model catalog, routing policy engine, privacy engine, validation engine, tool executor, conversation or session store, application backend, event bus or persistent model store. | `SRC-R11` (detailed Phase 11 roadmap §11.21); `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md` §3–§24; `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md` | Phase 11.21 | `kernel/llm/model_gateway.py`; `model_gateway_contracts.py`; `model_gateway_errors.py`; `model_provider_adapter.py`; `model_streaming.py`; `cmm/agent_runtime/model_egress_privacy_adapter.py`; `cmm/agent_runtime/model_fallback_gateway_adapter.py`; `cmm/agent_runtime/model_execution_evidence_projection.py`; `cmm/platform/canonical.py` (`model_gateway_binding`) | `IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` | `AT-DP-121` — `tests/llm/test_phase11_21_dp121_acceptance.py` |
+
+### 4.14 `F11-020` traceability
+
+| Item | Value |
+|---|---|
+| Requirement | `F11-020 — Canonical Provider-Independent Model Gateway` |
+| Design Point | `DP-121 — Canonical Provider-Independent Model Gateway` |
+| Acceptance test | `AT-DP-121 — Canonical Provider-Independent Model Gateway Acceptance` — `tests/llm/test_phase11_21_dp121_acceptance.py` |
+| Production package | `kernel/llm/` (5 modules: `model_gateway.py`, `model_gateway_contracts.py`, `model_gateway_errors.py`, `model_provider_adapter.py`, `model_streaming.py`) plus `cmm/agent_runtime/` (3 modules: `model_egress_privacy_adapter.py`, `model_fallback_gateway_adapter.py`, `model_execution_evidence_projection.py`) |
+| Additive seams in closed packages | `kernel/llm/capabilities.py` (`ReasoningEffort`; `ModelCapabilities.reasoning_efforts`, `document_media_types`, `streaming`, all defaulted to unknown/unsupported); `kernel/llm/__init__.py` (public exports); `cmm/platform/canonical.py` (`PROVIDER_REGISTRY_CONTRACT_VERSION`, `_provider_registry_dependency`, `model_gateway_binding`); `cmm/platform/__init__.py` (export) |
+| Focused suite | 17 `tests/llm/test_model_gateway_*.py` modules plus `tests/llm/test_phase11_21_dp121_acceptance.py` (366 passed) |
+| Adapter and projection suites | `tests/platform/test_model_gateway_binding.py`; `tests/agent_runtime/test_model_egress_privacy_adapter.py`; `tests/agent_runtime/test_model_fallback_gateway_adapter.py`; `tests/agent_runtime/test_model_execution_evidence_projection.py` |
+| Architecture/anti-fragmentation gate | `tests/llm/test_model_gateway_architecture.py`; Scenario M of `AT-DP-121`; inherited `tests/platform/test_architecture.py`, `tests/application/test_architecture.py`, `tests/api/test_architecture.py`, `tests/domains/test_domain_core_conformance_architecture.py` |
+| Reference documentation | `docs/reference/phase-11-model-gateway.md` |
+| Design specification | `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md` |
+| Reused canonical owners | Phase 11.34 `ProviderRegistry` and canonical `ModelCatalog` (exact instances); `kernel.llm.model_selection` / `model_router` (`ModelRequirements`, `RoutingCandidate`); `cmm.agent_runtime.model_fallback_contracts` / `model_fallback_decision_engine`; `cmm.agent_runtime.model_execution_contracts`; `cmm.cognitive.privacy.evaluate_privacy_operation`; Phase 11.1 `ApplicationContainer` / `ServiceBinding` / `StaticCompositionModule` |
+| Platform service identity | `model.gateway` (owner `kernel.llm`, mode `local`, no authority claim, single dependency edge `provider.registry`) |
+| Inherited requirements reused | `F11-019` / `DP-105`, `F11-018` / `DP-104`, `F11-017` / `DP-103`, `F11-016` / `DP-102`, `F11-015` / `DP-101` and `F11-014` / `DP-134` — referenced, **not reopened and not modified** |
+| Inherited acceptance regressions | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` (67 passed); `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` (31 passed); `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` (33 passed); `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` (47 passed); `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` (69 passed); `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` (1 passed) |
+| Repository-wide Ruff | 837 findings — identical to the inspected pre-phase baseline; Phase 11.21 introduces zero new findings and every touched file is Ruff- and format-clean |
+| Mapping status | `IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` |
+| Next step | independent ChatGPT audit of the exact-HEAD implementation bundle |
+
 ## 5. Current lifecycle status
 
 ```text
@@ -956,3 +993,47 @@ NEXT=PHASE11_NEXT_SUBPHASE_REQUIRES_FRESH_INSPECTION
 Phase 11.5 is closed by the dedicated docs-only closure commit after the
 Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
 evidence remains immutable.
+
+## 13. Phase 11.21 — Model Gateway current status
+
+Sections 5 to 12 record the closed Phase 11.34 and Phase 11.1–11.5 subphases and
+are not modified by Phase 11.21. The Phase 11.21 Model Gateway is a separate
+subphase reported here. Phase 11.5's historical deferred-scope list records the
+Model Gateway as deferred at that time; Phase 11.21 is the subphase that now
+implements it, and the 11.5 record is deliberately left as written.
+
+```text
+PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_020=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP_121=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+AT_DP_121=PASS
+AT_DP_134=PASS
+AT_DP_101=PASS
+AT_DP_102=PASS
+AT_DP_103=PASS
+AT_DP_104=PASS
+AT_DP_105=PASS
+BLOCKERS_KNOWN_BY_IMPLEMENTER=0
+MAJORS_KNOWN_BY_IMPLEMENTER=0
+NEXT=INDEPENDENT_AUDIT
+```
+
+`IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` is this matrix's §2 pre-audit
+vocabulary term applied to Phase 11.21: the implementation exists on
+`feature/phase-11-stable-integrated-platform`, the connected acceptance
+`AT-DP-121` is green in this repository, and no independent audit has examined
+the implementation yet. It is **not** a closure and **not** a verification
+claim: `DP_121` is deliberately not `VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE`
+is deliberately not claimed until the independent audit passes.
+
+Phase 11.21 does not reopen Phase 11.34 or Phase 11.1–11.5: `PHASE11_34=CLOSED`,
+`PHASE11_1=CLOSED`, `PHASE11_2=CLOSED`, `PHASE11_3=CLOSED`, `PHASE11_4=CLOSED`
+and `PHASE11_5=CLOSED` all remain exactly as recorded above. The only changes to
+closed packages are the documented additive seams listed in §4.14, each with
+regression coverage in the inherited suites.
+
+The implemented surface, the enforced invariants, the documented known limits
+and the local test evidence are recorded in
+[`docs/reference/phase-11-model-gateway.md`](phase-11-model-gateway.md).
+
+<!-- PHASE11_21_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
