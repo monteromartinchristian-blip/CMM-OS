@@ -7,7 +7,7 @@
 **Acceptance test:** `AT-DP-121` — `tests/llm/test_phase11_21_dp121_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`
-**State:** Remediation V1 implemented, pending independent Re-audit V2 (Audit V1 `FAIL` preserved; see §16–§17)
+**State:** Remediation V2 implemented, pending independent Re-audit V3 (Audit V1 `FAIL` and Re-audit V2 `FAIL` preserved; see §16–§18)
 
 This document describes the behaviour that exists in this repository. It does
 not describe planned Phase 11.35+ routing-policy intelligence, Phase 11.44 usage
@@ -413,7 +413,7 @@ or creating a second authority:
 
 | Finding | Correction in this repository |
 |---|---|
-| `MAJOR_01` | `AUTO` iterates the canonical `find_matching_models` order and skips only candidates that fail a gateway-owned hard execution gate; request-level egress prerequisites stay terminal. |
+| `MAJOR_01` | `AUTO` iterates the canonical `find_matching_models` order and skips only candidates that fail a gateway-owned hard execution gate. Egress/privacy authority is evaluated **per candidate** (Remediation V2): a remote candidate is skipped when canonical privacy metadata or a privacy authority is absent, and the next canonical candidate — including a local candidate that requires no remote egress — is still considered. Explicit remote selection stays strictly fail-closed. |
 | `MAJOR_02` | One `ModelCallCancellation` object stays authoritative across primary execution, retry, retry backoff, fallback planning, fallback preflight and fallback execution. |
 | `MAJOR_03` | One private per-call daemon pump worker bounds provider-event acquisition, so the public deadline is authoritative and late content is never emitted. |
 | `MAJOR_04` | `LLMProviderModelAdapter` fails closed with `CAPABILITY_UNSUPPORTED` for requested tools and structured output instead of silently dropping them. |
@@ -426,17 +426,18 @@ untouched.
 
 ## 17. Test evidence
 
-Local evidence only, recorded at the Remediation V1 exact HEAD
+Local evidence only, recorded at the Remediation V2 exact HEAD
 (`AT_DP_121=PASS` here is local test evidence, not independent verification):
 
 | Gate | Command | Result |
 |---|---|---|
-| Focused gateway suite | 16 `tests/llm/test_model_gateway_*.py` modules + `test_phase11_21_dp121_acceptance.py` | 397 passed |
-| `AT-DP-121` | `tests/llm/test_phase11_21_dp121_acceptance.py` | 37 passed |
-| LLM suite | `tests/llm` | green |
-| Agent Runtime model suites | `tests/agent_runtime` model tests | green |
+| Focused gateway suite | 16 `tests/llm/test_model_gateway_*.py` modules + `test_phase11_21_dp121_acceptance.py` | 404 passed |
+| `AT-DP-121` | `tests/llm/test_phase11_21_dp121_acceptance.py` | 38 passed |
+| LLM suite | `tests/llm` | 1153 passed |
+| Agent Runtime model suites | `tests/agent_runtime` model requirements/fallback/execution tests | 302 passed |
 | Platform binding | `tests/platform/test_model_gateway_binding.py` | 11 passed |
-| Inherited acceptances | `AT-DP-134`, `AT-DP-101`, `AT-DP-102`, `AT-DP-103`, `AT-DP-104`, `AT-DP-105` | all pass |
+| Inherited acceptances | `AT-DP-134`, `AT-DP-101`, `AT-DP-102`, `AT-DP-103`, `AT-DP-104`, `AT-DP-105` | all pass (68/31/33/47/69/1) |
+| Global suite | `pytest -q` | 21782 passed, 1 warning |
 | Repository-wide Ruff | `ruff check .` | 837 findings, identical to the inspected baseline (zero new) |
 
 Test modules:
@@ -467,7 +468,72 @@ tests/agent_runtime/test_model_execution_evidence_projection.py
 ```
 
 Independent Audit V1 `FAIL` is preserved unchanged in
-`docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`. Remediation V1
-implements the six Audit V1 findings locally; independent Re-audit V2 is pending.
-This phase is not closed, `DP-121` is not independently verified and no closure
-claim is made here.
+`docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`, and Independent
+Re-audit V2 `FAIL` is preserved unchanged in
+`docs/audits/phase-11.21-model-gateway-independent-reaudit-v2.md`. Remediation V1
+implemented the six Audit V1 findings locally.
+
+## 18. Remediation V2 — candidate-local AUTO egress authority
+
+Independent Re-audit V2 returned `INDEPENDENT_REAUDIT_V2=FAIL` (`BLOCKERS=0`,
+`MAJORS=1`, `MINORS=0`, `PROCESS_DEVIATIONS=1`) and recorded exactly one residual
+finding:
+
+```text
+MAJOR_01=AUTO_REMOTE_EGRESS_PRECHECK_STILL_ABORTS_BEFORE_VALID_LOCAL_CANDIDATE_WHEN_PRIVACY_METADATA_IS_ABSENT
+```
+
+The Remediation V1 helper `_require_egress_authority(...)` inspected the whole
+`AUTO` candidate set and failed the entire request when any candidate was remote
+and the request had `privacy=None` (or the gateway had no privacy authority),
+even when a later canonical **local** candidate was valid and local execution
+does not require privacy metadata. The observed result was `PRIVACY_DENIED` with
+zero remote and zero local adapter calls.
+
+Remediation V2 removes that candidate-set-wide precheck. Egress/privacy authority
+is now evaluated only inside the per-candidate hard gate, where the provider being
+considered is already known:
+
+```text
+ordered_candidates = find_matching_models(...)
+
+for candidate in ordered_candidates:
+    provider/model availability
+    reasoning effort, capabilities, modalities, streaming
+    adapter resolution
+    privacy for this candidate's provider
+    if candidate-local hard gate fails: continue
+    return first executable candidate
+
+fail closed after exhaustion
+```
+
+Consequences:
+
+- The canonical ordering returned by `find_matching_models(...)` is untouched; no
+  candidate is re-ranked, and the first executable candidate in that order wins.
+- A remote candidate whose egress lacks canonical privacy authority (absent
+  metadata or absent privacy gate) is skipped; a following local candidate still
+  executes with `privacy_decision="not_required"`.
+- `AUTO` with only remote candidates still fails closed with `PRIVACY_DENIED`
+  before any provider call.
+- Explicit remote selection is unchanged and stricter: `privacy=None` or an
+  absent privacy gate is `PRIVACY_DENIED` before provider I/O, with no silent
+  substitution.
+
+```text
+PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+F11_020=UNCHANGED
+DP_121=UNCHANGED
+AT_DP_121=UNCHANGED
+MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT_V3
+```
+
+`AT-DP-121` gained one connected checkpoint (Scenario S — `AUTO` mixed
+remote/local without privacy metadata) inside the existing acceptance; no new
+requirement, Design Point or routing policy was introduced. No finding is
+labelled `VERIFIED_REMEDIATED`, `DP_121` is not `VERIFIED_EXISTING`,
+`CLOSURE_ELIGIBLE` is not claimed and Phase 11.21 is not closed. Only Independent
+Re-audit V3 of the exact-HEAD Remediation V2 bundle may declare closure.

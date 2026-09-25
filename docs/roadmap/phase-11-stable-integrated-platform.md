@@ -6829,11 +6829,15 @@ evidence remains immutable.
 <!-- PHASE11_21_IMPLEMENTATION_STATE -->
 # 11.21 — Model Gateway implementation state (2026-09-25)
 
-**Status:** implemented; independent audit pending. This section records the
+**Status:** implemented under Remediation V2; independent Re-audit V3 pending.
+This section records the
 implementation actually present in this repository; it is not a closure and not
 a verification claim. The Phase 11.21 scope is frozen by
 `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md` and
-`docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`.
+`docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`,
+and the residual correction by
+`docs/superpowers/specs/2026-09-25-phase-11.21-remediation-v2-design.md` and
+`docs/superpowers/plans/2026-09-25-phase-11.21-remediation-v2-implementation-plan.md`.
 
 ## Implementation boundary
 
@@ -6926,20 +6930,35 @@ export, so the gateway surface is imported from its own modules.
 Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=5`, `MINORS=1`) and
 that report is preserved unchanged in
 `docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`. Remediation V1
-now implements the six Audit V1 findings locally: `AUTO` iterates canonical
+implemented the six Audit V1 findings locally: `AUTO` iterates canonical
 candidates through the gateway's hard execution gates, one cancellation token
 stays authoritative across the whole call including fallback, the public stream
 deadline is bounded by a private per-call pump, the legacy adapter fails closed
 on unrepresentable tools and structured output, and the Phase 11.34 state owner
 persists the Phase 11.21 capability fields under schema version `"3"`.
 
+Independent Re-audit V2 then returned `FAIL` (`BLOCKERS=0`, `MAJORS=1`,
+`MINORS=0`, `PROCESS_DEVIATIONS=1`) and recorded exactly one residual finding —
+the candidate-set-wide `AUTO` egress precheck still aborted the whole request
+before a valid local candidate when privacy metadata was absent. That report is
+preserved unchanged in
+`docs/audits/phase-11.21-model-gateway-independent-reaudit-v2.md` and is not
+rewritten. Remediation V2 removes the precheck and evaluates egress/privacy
+authority only inside the per-candidate hard gate: a remote candidate whose
+egress lacks canonical privacy authority is skipped, a following valid local
+candidate executes, `AUTO` with only remote candidates still fails closed before
+provider I/O, and explicit remote selection stays strictly fail-closed. The
+canonical `find_matching_models` ordering is untouched.
+
 `AT-DP-121` passes locally
-(`tests/llm/test_phase11_21_dp121_acceptance.py`, 37 passed; focused Phase 11.21
-gateway suite 397 passed). `AT_DP_121=PASS_LOCAL` here is local implementation
-evidence, not independent verification: `PHASE11_21` and `REMEDIATION_V1` remain
+(`tests/llm/test_phase11_21_dp121_acceptance.py`, 38 passed, including
+Remediation V2 Scenario S; focused Phase 11.21 gateway suite 404 passed).
+`AT_DP_121=PASS_LOCAL` here is local implementation
+evidence, not independent verification: `PHASE11_21`, `REMEDIATION_V1` and
+`REMEDIATION_V2` remain
 `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`, no finding is labelled
 `VERIFIED_REMEDIATED`, `DP_121` is not `VERIFIED_EXISTING` and
-`CLOSURE_ELIGIBLE` is not claimed until Independent Re-audit V2 passes.
+`CLOSURE_ELIGIBLE` is not claimed until Independent Re-audit V3 passes.
 
 Inherited acceptances remain green:
 
@@ -6959,16 +6978,19 @@ Phase 11.21: the pre-existing repository debt is unchanged and Phase 11.21
 introduces zero new findings. Every new or touched Python file passes
 `ruff check` and `ruff format --check`.
 
-## Remediation V1 implemented, independent re-audit pending
+## Remediation V2 implemented, independent Re-audit V3 pending
 
 Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`,
-`MAJORS=5`, `MINORS=1`) against the original implementation; that report is
-preserved unchanged and is not rewritten. Remediation V1 implements exactly
-those six findings locally.
+`MAJORS=5`, `MINORS=1`) against the original implementation, and Independent
+Re-audit V2 recorded `INDEPENDENT_REAUDIT_V2=FAIL` (`BLOCKERS=0`, `MAJORS=1`,
+`MINORS=0`, `PROCESS_DEVIATIONS=1`). Both reports are preserved unchanged and are
+not rewritten. Remediation V1 implemented the six Audit V1 findings locally;
+Remediation V2 implements the one residual Re-audit V2 finding locally.
 
 ```text
 PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 F11_020=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 DP_121=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 AT_DP_121=PASS_LOCAL
@@ -6978,13 +7000,13 @@ MAJOR_03=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 MAJOR_04=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 MAJOR_05=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
 MINOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT_V2
+NEXT=INDEPENDENT_REAUDIT_V3
 ```
 
 No finding is labelled `VERIFIED_REMEDIATED`, `DP_121` is not
 `VERIFIED_EXISTING`, `CLOSURE_ELIGIBLE` is not claimed and Phase 11.21 is not
-closed. Phase 11.21 may close only after Independent Re-audit V2 of the exact-HEAD
-Remediation V1 bundle reports `BLOCKERS=0`, `MAJORS=0`,
+closed. Phase 11.21 may close only after Independent Re-audit V3 of the exact-HEAD
+Remediation V2 bundle reports `BLOCKERS=0`, `MAJORS=0`,
 `DP-121=VERIFIED_EXISTING`, `AT-DP-121=PASS` and `CLOSURE_ELIGIBLE=YES`; a
 separate docs-only closure commit follows. The implemented surface, enforced invariants, known limits and local
 evidence are documented in
