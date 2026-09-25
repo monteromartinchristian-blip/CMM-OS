@@ -87,7 +87,6 @@ PROVIDER_DISPATCH_PATTERNS = (
     re.compile(r"provider(?:_id)?\s*!=\s*[\"']"),
     re.compile(r"provider(?:_id)?\s+in\s+\{"),
     re.compile(r"elif\s+provider\b"),
-    re.compile(r"if\s+provider\s+is\s+None\s*:\s*$", re.MULTILINE),
     re.compile(r"model_id\.startswith\("),
     re.compile(r"startswith\(\s*[\"']gpt-"),
     re.compile(r"startswith\(\s*[\"']claude"),

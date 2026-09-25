@@ -38,6 +38,7 @@ __all__ = [
     "InMemoryModelExecutionEvidenceSink",
     "InputModality",
     "InputPartKind",
+    "ModelCapabilityProjection",
     "ModelExecutionEvidenceSink",
     "ModelExecutionFacts",
     "ModelGatewayRequest",
@@ -1284,4 +1285,142 @@ class ModelStreamEvent:
             "effective_reasoning_effort": self.effective_reasoning_effort.value,
             "reasoning_used": self.reasoning_used,
             "is_terminal": self.is_terminal,
+        }
+
+
+# ── Read-only capability projection ──────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCapabilityProjection:
+    """Read-only capability view of one canonical model.
+
+    It answers the client-facing questions of the frozen design (availability,
+    modalities, tools, structured output, reasoning levels, context window,
+    local/remote, streaming) purely from canonical Provider Registry and Model
+    Catalog state.  Unknown capability stays ``False``/empty — this contract can
+    never guess a capability from a model name.
+    """
+
+    model_id: str
+    provider_id: str
+    qualified_id: str
+    provider_type: str
+    is_local: bool
+    provider_available: bool
+    model_available: bool
+    authority_current: bool
+    context_window: int | None = None
+    reasoning: bool = False
+    reasoning_efforts: tuple[ReasoningEffort, ...] = ()
+    tool_calling: bool = False
+    structured_output: bool = False
+    json_mode: bool = False
+    json_schema: bool = False
+    vision: bool = False
+    document_media_types: tuple[str, ...] = ()
+    streaming: bool = False
+    audio_input: bool = False
+    audio_output: bool = False
+    embeddings: bool = False
+    aliases: tuple[str, ...] = ()
+    version: str | None = None
+    input_cost_per_million: Decimal | None = None
+    output_cost_per_million: Decimal | None = None
+    cached_input_cost_per_million: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("model_id", "provider_id", "qualified_id"):
+            object.__setattr__(
+                self, name, require_identifier(getattr(self, name), label=name)
+            )
+        provider_type = require_identifier(self.provider_type, label="provider_type")
+        if provider_type not in {"local", "remote", "unknown"}:
+            raise ValueError("provider_type must be 'local', 'remote' or 'unknown'")
+        object.__setattr__(self, "provider_type", provider_type)
+
+        object.__setattr__(
+            self,
+            "reasoning_efforts",
+            tuple(ReasoningEffort(effort) for effort in self.reasoning_efforts),
+        )
+        media_types = tuple(
+            require_identifier(media_type, label="document media type").lower()
+            for media_type in self.document_media_types
+        )
+        object.__setattr__(
+            self, "document_media_types", tuple(dict.fromkeys(media_types))
+        )
+        object.__setattr__(self, "aliases", tuple(str(alias) for alias in self.aliases))
+        if self.context_window is not None and self.context_window <= 0:
+            raise ValueError("context_window must be greater than zero when provided")
+        for name in (
+            "input_cost_per_million",
+            "output_cost_per_million",
+            "cached_input_cost_per_million",
+        ):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, Decimal):
+                raise TypeError(f"{name} must be a Decimal or None")
+        object.__setattr__(
+            self,
+            "version",
+            require_optional_identifier(self.version, label="version"),
+        )
+
+    def supports_reasoning_effort(self, effort: ReasoningEffort | str) -> bool:
+        """Return whether this model explicitly supports ``effort``."""
+
+        normalized = ReasoningEffort(effort)
+        if normalized is ReasoningEffort.DEFAULT:
+            return True
+        return normalized in self.reasoning_efforts
+
+    def supports_document_media_type(self, media_type: str) -> bool:
+        """Return whether this model explicitly accepts ``media_type`` documents."""
+
+        return media_type.strip().lower() in self.document_media_types
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the safe public capability view."""
+
+        return {
+            "model_id": self.model_id,
+            "provider_id": self.provider_id,
+            "qualified_id": self.qualified_id,
+            "provider_type": self.provider_type,
+            "is_local": self.is_local,
+            "provider_available": self.provider_available,
+            "model_available": self.model_available,
+            "authority_current": self.authority_current,
+            "context_window": self.context_window,
+            "reasoning": self.reasoning,
+            "reasoning_efforts": [effort.value for effort in self.reasoning_efforts],
+            "tool_calling": self.tool_calling,
+            "structured_output": self.structured_output,
+            "json_mode": self.json_mode,
+            "json_schema": self.json_schema,
+            "vision": self.vision,
+            "document_media_types": list(self.document_media_types),
+            "streaming": self.streaming,
+            "audio_input": self.audio_input,
+            "audio_output": self.audio_output,
+            "embeddings": self.embeddings,
+            "aliases": list(self.aliases),
+            "version": self.version,
+            "input_cost_per_million": (
+                None
+                if self.input_cost_per_million is None
+                else str(self.input_cost_per_million)
+            ),
+            "output_cost_per_million": (
+                None
+                if self.output_cost_per_million is None
+                else str(self.output_cost_per_million)
+            ),
+            "cached_input_cost_per_million": (
+                None
+                if self.cached_input_cost_per_million is None
+                else str(self.cached_input_cost_per_million)
+            ),
         }
