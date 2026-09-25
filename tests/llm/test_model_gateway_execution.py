@@ -634,6 +634,11 @@ def _register_auto_model(
     )
 
 
+#: Sentinel distinguishing "use the canonical privacy gate" from an explicit
+#: ``privacy_gate=None`` (a gateway composed with no privacy authority at all).
+_DEFAULT_PRIVACY_GATE = object()
+
+
 def _auto_runtime(
     *,
     remote_cost: str = "0.10",
@@ -641,6 +646,7 @@ def _auto_runtime(
     remote_capabilities: ModelCapabilities | None = None,
     local_capabilities: ModelCapabilities | None = None,
     register_remote_adapter: bool = True,
+    privacy_gate: object = _DEFAULT_PRIVACY_GATE,
 ):
     """Compose the canonical remote-first/local-second AUTO fixture.
 
@@ -648,6 +654,11 @@ def _auto_runtime(
     first; the local model is valid but ranked second.
     """
 
+    resolved_gate = (
+        CanonicalPrivacyEgressGate()
+        if privacy_gate is _DEFAULT_PRIVACY_GATE
+        else privacy_gate
+    )
     graph = build_canonical_graph()
     _register_auto_model(
         graph,
@@ -680,7 +691,7 @@ def _auto_runtime(
         provider_registry=graph.providers,
         model_catalog=graph.models,
         adapters=ModelProviderAdapterRegistry(adapters),
-        privacy_gate=CanonicalPrivacyEgressGate(),
+        privacy_gate=resolved_gate,  # type: ignore[arg-type]
     )
     return graph, gateway, local, remote
 
@@ -861,3 +872,196 @@ def test_auto_selection_respects_canonical_order_exactly() -> None:
     assert another_remote.call_count == 1
     assert local.call_count == 0
     assert remote.call_count == 0
+
+
+# ── Remediation V2 MAJOR-01 — AUTO evaluates egress authority per candidate, so
+#    a valid local candidate still executes when remote privacy metadata or a
+#    privacy authority is absent.  Explicit remote selection stays stricter.
+
+
+def _only_remote_runtime(
+    *,
+    privacy_gate: object = _DEFAULT_PRIVACY_GATE,
+):
+    """Compose two canonical remote candidates with no local candidate."""
+
+    resolved_gate = (
+        CanonicalPrivacyEgressGate()
+        if privacy_gate is _DEFAULT_PRIVACY_GATE
+        else privacy_gate
+    )
+    graph = build_canonical_graph()
+    graph.providers.register(
+        ProviderSpec(
+            id="remote-b",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://remote-b.example/v1",
+            availability="available",
+        )
+    )
+    _register_auto_model(
+        graph,
+        "cheap-remote",
+        provider_id="remote-a",
+        input_cost="0.10",
+        capabilities=AUTO_EFFORT_CAPABILITIES,
+    )
+    _register_auto_model(
+        graph,
+        "pricey-remote",
+        provider_id="remote-b",
+        input_cost="9.00",
+        capabilities=AUTO_EFFORT_CAPABILITIES,
+    )
+    remote_a = InMemoryModelProviderAdapter(
+        "remote-a", reasoning_effort_map={ReasoningEffort.HIGH: "thinking_budget_high"}
+    )
+    remote_a.add_response(content="remote a answer")
+    remote_b = InMemoryModelProviderAdapter(
+        "remote-b", reasoning_effort_map={ReasoningEffort.HIGH: "thinking_budget_high"}
+    )
+    remote_b.add_response(content="remote b answer")
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry((remote_a, remote_b)),
+        privacy_gate=resolved_gate,  # type: ignore[arg-type]
+    )
+    return graph, gateway, remote_a, remote_b
+
+
+def test_auto_selection_reaches_a_local_candidate_without_privacy_metadata() -> None:
+    """RED V2-A: AUTO remote-first/local-second with ``privacy=None``."""
+
+    graph, gateway, local, remote = _auto_runtime()
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=None,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    # Canonical ordering is untouched: the remote candidate genuinely ranks first.
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "local:pricey-local",
+    )
+
+    response = gateway.execute(request)
+
+    assert response.model_id == "pricey-local"
+    assert response.provider_id == "local"
+    assert response.content == "local answer"
+    assert remote.call_count == 0
+    assert local.call_count == 1
+
+
+def test_auto_selection_reaches_a_local_candidate_without_a_privacy_authority() -> None:
+    """RED V2-B: AUTO remote-first/local-second with no privacy gate at all."""
+
+    graph, gateway, local, remote = _auto_runtime(privacy_gate=None)
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "local:pricey-local",
+    )
+
+    response = gateway.execute(request)
+
+    assert response.model_id == "pricey-local"
+    assert response.provider_id == "local"
+    assert remote.call_count == 0
+    assert local.call_count == 1
+
+
+def test_explicit_remote_still_requires_privacy_metadata() -> None:
+    """Regression V2-C: explicit remote + ``privacy=None`` stays fail-closed."""
+
+    _graph, gateway, local, remote = _auto_runtime()
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(
+            _request(
+                model_id="remote-a:cheap-remote",
+                privacy=None,
+                reasoning_effort=ReasoningEffort.HIGH,
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.PRIVACY_DENIED
+    assert remote.call_count == 0
+    assert local.call_count == 0
+
+
+def test_explicit_remote_still_requires_a_privacy_authority() -> None:
+    """Regression V2-D: explicit remote with no privacy gate stays fail-closed."""
+
+    _graph, gateway, local, remote = _auto_runtime(privacy_gate=None)
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(
+            _request(
+                model_id="remote-a:cheap-remote",
+                privacy=REMOTE_ALLOWED,
+                reasoning_effort=ReasoningEffort.HIGH,
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.PRIVACY_DENIED
+    assert remote.call_count == 0
+    assert local.call_count == 0
+
+
+def test_auto_only_remote_still_fails_closed_without_privacy_metadata() -> None:
+    """Regression V2-E: AUTO only-remote + ``privacy=None`` never egresses."""
+
+    graph, gateway, remote_a, remote_b = _only_remote_runtime()
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=None,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "remote-b:pricey-remote",
+    )
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(request)
+
+    assert error.value.code is ModelGatewayErrorCode.PRIVACY_DENIED
+    assert remote_a.call_count == 0
+    assert remote_b.call_count == 0
+
+
+def test_auto_only_remote_still_fails_closed_without_a_privacy_gate() -> None:
+    """Regression V2-F: AUTO only-remote with no privacy gate never egresses."""
+
+    graph, gateway, remote_a, remote_b = _only_remote_runtime(privacy_gate=None)
+
+    request = _request(
+        model_id=None,
+        selection_mode=ModelSelectionMode.AUTO,
+        privacy=REMOTE_ALLOWED,
+        reasoning_effort=ReasoningEffort.HIGH,
+    )
+    assert _canonical_auto_order(graph, request) == (
+        "remote-a:cheap-remote",
+        "remote-b:pricey-remote",
+    )
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(request)
+
+    assert error.value.code is ModelGatewayErrorCode.PRIVACY_DENIED
+    assert remote_a.call_count == 0
+    assert remote_b.call_count == 0
