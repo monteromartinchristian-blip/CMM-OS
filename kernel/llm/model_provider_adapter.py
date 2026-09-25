@@ -757,6 +757,30 @@ class LLMProviderModelAdapter:
                 details={"provider_id": self.provider_id},
                 retryable=False,
             )
+        # The legacy LLMRequest contract has no transport for tool definitions or a
+        # structured-output requirement, so a requested canonical feature must fail
+        # closed here rather than be silently dropped by the translation below.
+        # No fake translation is attempted and provider.generate() is never reached.
+        if request.tools:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                "the wrapped provider cannot transport requested tools",
+                details={
+                    "provider_id": self.provider_id,
+                    "unsupported_capability": "tools",
+                },
+                retryable=False,
+            )
+        if request.structured_output is not None:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                "the wrapped provider cannot transport a structured-output requirement",
+                details={
+                    "provider_id": self.provider_id,
+                    "unsupported_capability": "structured_output",
+                },
+                retryable=False,
+            )
 
         prompt = "\n".join(part.text or "" for part in request.input_parts)
         response: LLMResponse = self._provider.generate(
