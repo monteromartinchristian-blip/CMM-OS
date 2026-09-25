@@ -6904,6 +6904,11 @@ backwards-compatible seams:
 kernel/llm/capabilities.py    ReasoningEffort enum; ModelCapabilities gains
                               reasoning_efforts, document_media_types and
                               streaming, all defaulted to unknown/unsupported
+kernel/llm/provider_state.py  Phase 11.21 Remediation V1 additive state-schema
+                              revision: SCHEMA_VERSION "2" -> "3" now persists
+                              the Phase 11.21 capability fields; Phase 11.34
+                              persistence ownership is unchanged and no second
+                              store is introduced
 cmm/platform/canonical.py     PROVIDER_REGISTRY_CONTRACT_VERSION,
                               _provider_registry_dependency and
                               model_gateway_binding
@@ -6917,10 +6922,24 @@ export, so the gateway surface is imported from its own modules.
 
 ## DP-121 / AT-DP-121
 
-`DP-121` — Canonical Provider-Independent Model Gateway — is implemented and
-`AT-DP-121` passes locally (`tests/llm/test_phase11_21_dp121_acceptance.py`,
-31 passed; focused Phase 11.21 gateway suite 366 passed). `AT_DP_121=PASS` here
-is local implementation evidence, not independent verification.
+`DP-121` — Canonical Provider-Independent Model Gateway — is implemented.
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=5`, `MINORS=1`) and
+that report is preserved unchanged in
+`docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`. Remediation V1
+now implements the six Audit V1 findings locally: `AUTO` iterates canonical
+candidates through the gateway's hard execution gates, one cancellation token
+stays authoritative across the whole call including fallback, the public stream
+deadline is bounded by a private per-call pump, the legacy adapter fails closed
+on unrepresentable tools and structured output, and the Phase 11.34 state owner
+persists the Phase 11.21 capability fields under schema version `"3"`.
+
+`AT-DP-121` passes locally
+(`tests/llm/test_phase11_21_dp121_acceptance.py`, 37 passed; focused Phase 11.21
+gateway suite 397 passed). `AT_DP_121=PASS_LOCAL` here is local implementation
+evidence, not independent verification: `PHASE11_21` and `REMEDIATION_V1` remain
+`IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`, no finding is labelled
+`VERIFIED_REMEDIATED`, `DP_121` is not `VERIFIED_EXISTING` and
+`CLOSURE_ELIGIBLE` is not claimed until Independent Re-audit V2 passes.
 
 Inherited acceptances remain green:
 
@@ -6940,19 +6959,33 @@ Phase 11.21: the pre-existing repository debt is unchanged and Phase 11.21
 introduces zero new findings. Every new or touched Python file passes
 `ruff check` and `ruff format --check`.
 
-## Audit pending
+## Remediation V1 implemented, independent re-audit pending
+
+Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`,
+`MAJORS=5`, `MINORS=1`) against the original implementation; that report is
+preserved unchanged and is not rewritten. Remediation V1 implements exactly
+those six findings locally.
 
 ```text
-PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_020=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_121=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-AT_DP_121=PASS
-NEXT=INDEPENDENT_AUDIT
+PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+F11_020=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+DP_121=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+AT_DP_121=PASS_LOCAL
+MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_02=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_03=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_04=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_05=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MINOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT_V2
 ```
 
-Phase 11.21 may close only after an independent audit of the exact-HEAD bundle
-reports `BLOCKERS=0`, `MAJORS=0`, `DP-121=VERIFIED_EXISTING`,
-`AT-DP-121=PASS` and `CLOSURE_ELIGIBLE=YES`; a separate docs-only closure commit
-follows. The implemented surface, enforced invariants, known limits and local
+No finding is labelled `VERIFIED_REMEDIATED`, `DP_121` is not
+`VERIFIED_EXISTING`, `CLOSURE_ELIGIBLE` is not claimed and Phase 11.21 is not
+closed. Phase 11.21 may close only after Independent Re-audit V2 of the exact-HEAD
+Remediation V1 bundle reports `BLOCKERS=0`, `MAJORS=0`,
+`DP-121=VERIFIED_EXISTING`, `AT-DP-121=PASS` and `CLOSURE_ELIGIBLE=YES`; a
+separate docs-only closure commit follows. The implemented surface, enforced invariants, known limits and local
 evidence are documented in
 [`docs/reference/phase-11-model-gateway.md`](../reference/phase-11-model-gateway.md).

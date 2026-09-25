@@ -390,7 +390,7 @@ green here, while no independent audit has examined it yet.
 | Acceptance test | `AT-DP-121 — Canonical Provider-Independent Model Gateway Acceptance` — `tests/llm/test_phase11_21_dp121_acceptance.py` |
 | Production package | `kernel/llm/` (5 modules: `model_gateway.py`, `model_gateway_contracts.py`, `model_gateway_errors.py`, `model_provider_adapter.py`, `model_streaming.py`) plus `cmm/agent_runtime/` (3 modules: `model_egress_privacy_adapter.py`, `model_fallback_gateway_adapter.py`, `model_execution_evidence_projection.py`) |
 | Additive seams in closed packages | `kernel/llm/capabilities.py` (`ReasoningEffort`; `ModelCapabilities.reasoning_efforts`, `document_media_types`, `streaming`, all defaulted to unknown/unsupported); `cmm/platform/canonical.py` (`PROVIDER_REGISTRY_CONTRACT_VERSION`, `_provider_registry_dependency`, `model_gateway_binding`); `cmm/platform/__init__.py` (export of that builder). `kernel/llm/__init__.py` is deliberately unchanged: Phase 11.21 adds no new `kernel.llm` package export. |
-| Focused suite | 17 `tests/llm/test_model_gateway_*.py` modules plus `tests/llm/test_phase11_21_dp121_acceptance.py` (366 passed) |
+| Focused suite | 16 `tests/llm/test_model_gateway_*.py` modules plus `tests/llm/test_phase11_21_dp121_acceptance.py` (397 passed at the Remediation V1 exact HEAD) |
 | Adapter and projection suites | `tests/platform/test_model_gateway_binding.py`; `tests/agent_runtime/test_model_egress_privacy_adapter.py`; `tests/agent_runtime/test_model_fallback_gateway_adapter.py`; `tests/agent_runtime/test_model_execution_evidence_projection.py` |
 | Architecture/anti-fragmentation gate | `tests/llm/test_model_gateway_architecture.py`; Scenario M of `AT-DP-121`; inherited `tests/platform/test_architecture.py`, `tests/application/test_architecture.py`, `tests/api/test_architecture.py`, `tests/domains/test_domain_core_conformance_architecture.py` |
 | Reference documentation | `docs/reference/phase-11-model-gateway.md` |
@@ -399,10 +399,10 @@ green here, while no independent audit has examined it yet.
 | Reused canonical owners | Phase 11.34 `ProviderRegistry` and canonical `ModelCatalog` (exact instances); `kernel.llm.model_selection` / `model_router` (`ModelRequirements`, `RoutingCandidate`); `cmm.agent_runtime.model_fallback_contracts` / `model_fallback_decision_engine`; `cmm.agent_runtime.model_execution_contracts`; `cmm.cognitive.privacy.evaluate_privacy_operation`; Phase 11.1 `ApplicationContainer` / `ServiceBinding` / `StaticCompositionModule` |
 | Platform service identity | `model.gateway` (owner `kernel.llm`, mode `local`, no authority claim, single dependency edge `provider.registry`) |
 | Inherited requirements reused | `F11-019` / `DP-105`, `F11-018` / `DP-104`, `F11-017` / `DP-103`, `F11-016` / `DP-102`, `F11-015` / `DP-101` and `F11-014` / `DP-134` — referenced, **not reopened and not modified** |
-| Inherited acceptance regressions | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` (67 passed); `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` (31 passed); `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` (33 passed); `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` (47 passed); `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` (69 passed); `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` (1 passed) |
+| Inherited acceptance regressions | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` (68 passed); `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` (31 passed); `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` (33 passed); `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` (47 passed); `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` (69 passed); `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` (1 passed) |
 | Repository-wide Ruff | 837 findings — identical to the inspected pre-phase baseline; Phase 11.21 introduces zero new findings and every touched file is Ruff- and format-clean |
-| Mapping status | `IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` |
-| Next step | independent ChatGPT audit of the exact-HEAD implementation bundle |
+| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
+| Next step | independent Re-audit V2 of the Remediation V1 exact-HEAD bundle |
 
 ## 5. Current lifecycle status
 
@@ -1003,28 +1003,41 @@ Model Gateway as deferred at that time; Phase 11.21 is the subphase that now
 implements it, and the 11.5 record is deliberately left as written.
 
 ```text
-PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_020=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_121=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-AT_DP_121=PASS
+PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+F11_020=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+DP_121=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+AT_DP_121=PASS_LOCAL
 AT_DP_134=PASS
 AT_DP_101=PASS
 AT_DP_102=PASS
 AT_DP_103=PASS
 AT_DP_104=PASS
 AT_DP_105=PASS
-BLOCKERS_KNOWN_BY_IMPLEMENTER=0
-MAJORS_KNOWN_BY_IMPLEMENTER=0
-NEXT=INDEPENDENT_AUDIT
+MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_02=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_03=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_04=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MAJOR_05=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+MINOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+NEXT=INDEPENDENT_REAUDIT_V2
 ```
 
-`IMPLEMENTED_AWAITING_INDEPENDENT_AUDIT` is this matrix's §2 pre-audit
-vocabulary term applied to Phase 11.21: the implementation exists on
-`feature/phase-11-stable-integrated-platform`, the connected acceptance
-`AT-DP-121` is green in this repository, and no independent audit has examined
-the implementation yet. It is **not** a closure and **not** a verification
-claim: `DP_121` is deliberately not `VERIFIED_EXISTING` and `CLOSURE_ELIGIBLE`
-is deliberately not claimed until the independent audit passes.
+Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` against the original
+implementation (`BLOCKERS=0`, `MAJORS=5`, `MINORS=1`); that report is preserved
+unchanged in `docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`.
+Remediation V1 implements those six findings locally without redesigning the
+subphase, creating a new requirement or Design Point, or introducing a second
+authority.
+
+`IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` is this matrix's pre-verification
+vocabulary term applied to Phase 11.21 after Remediation V1: the remediation
+exists on `feature/phase-11-stable-integrated-platform`, the connected
+acceptance `AT-DP-121` is green in this repository, and no independent re-audit
+has examined it yet. It is **not** a closure and **not** a verification claim:
+`DP_121` is deliberately not `VERIFIED_EXISTING`, no finding is labelled
+`VERIFIED_REMEDIATED` and `CLOSURE_ELIGIBLE` is deliberately not claimed until
+Independent Re-audit V2 passes.
 
 Phase 11.21 does not reopen Phase 11.34 or Phase 11.1–11.5: `PHASE11_34=CLOSED`,
 `PHASE11_1=CLOSED`, `PHASE11_2=CLOSED`, `PHASE11_3=CLOSED`, `PHASE11_4=CLOSED`
@@ -1036,4 +1049,4 @@ The implemented surface, the enforced invariants, the documented known limits
 and the local test evidence are recorded in
 [`docs/reference/phase-11-model-gateway.md`](phase-11-model-gateway.md).
 
-<!-- PHASE11_21_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
+<!-- PHASE11_21_REMEDIATION_V1_IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT -->

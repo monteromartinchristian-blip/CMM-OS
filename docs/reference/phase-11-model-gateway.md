@@ -4,10 +4,10 @@
 **Subphase:** 11.21 — Model Gateway
 **Requirement:** `F11-020`
 **Design Point:** `DP-121` — Canonical Provider-Independent Model Gateway
-**Acceptance test:** `AT-DP-121` — `tests/llm/test_phase_11_21_dp121_acceptance.py`
+**Acceptance test:** `AT-DP-121` — `tests/llm/test_phase11_21_dp121_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`
-**Pre-audit state:** implemented and pending independent audit (see §16)
+**State:** Remediation V1 implemented, pending independent Re-audit V2 (Audit V1 `FAIL` preserved; see §16–§17)
 
 This document describes the behaviour that exists in this repository. It does
 not describe planned Phase 11.35+ routing-policy intelligence, Phase 11.44 usage
@@ -115,9 +115,11 @@ Safety invariants enforced at construction time:
   rejected rather than ignored.
 
 `ModelSelectionMode.EXPLICIT` requires a `model_id` and is authoritative:
-the requested model is never silently substituted. `ModelSelectionMode.AUTO`
-resolves through canonical model selection only (see §15 for its exact
-boundary).
+the requested model is never silently substituted, and a candidate that fails
+a hard execution gate fails the call closed rather than being replaced.
+`ModelSelectionMode.AUTO` resolves through canonical model selection only and
+iterates the canonical candidates through the gateway's own hard execution
+gates (see §15 for its exact boundary).
 
 `kernel/llm/model_gateway_errors.py` publishes the closed error taxonomy:
 `MODEL_NOT_FOUND`, `PROVIDER_NOT_AVAILABLE`, `MODEL_UNAVAILABLE`,
@@ -250,8 +252,12 @@ after emitted content would duplicate it.
 model call, reachable through `ModelCallHandle` (`ModelGateway.open_call`).
 Cancelling before or during a call or stream produces exactly one deterministic
 `CANCELLED` terminal, stops every later event, and never touches another call,
-workflow or session. There is no global cancellation runtime and no application
-`/runs/{id}/cancel` surface.
+workflow or session. The same token object stays authoritative for the entire
+model call — primary execution, transport retry, retry backoff, fallback
+planning, fallback candidate preflight and fallback execution — so cancellation
+always wins over recovery, an authorized fallback is never executed after a
+cancellation, and a cancelled call never reports success. There is no global
+cancellation runtime and no application `/runs/{id}/cancel` surface.
 
 ## 11. Privacy
 
@@ -280,7 +286,13 @@ Enforced invariants:
 (`max_timeout_seconds`, default 300s) and normalized to `PROVIDER_TIMEOUT`. The
 call is abandoned through its cancellation token and recorded as `timed_out`
 with an elapsed latency, so no call is left reported as running. A streaming
-call enforces the same deadline between events.
+call enforces the same deadline as an authoritative public boundary: provider
+events are acquired through one private per-call pump worker, so no
+`CONTENT_DELTA`, `TOOL_CALL_DELTA`, `USAGE` or `COMPLETED` may be emitted after
+the deadline and a permanently blocked provider iterator cannot make the public
+stream wait without bound. After the deadline exactly one normalized
+`PROVIDER_TIMEOUT` terminal is produced; external cancellation and deadline
+expiration stay distinguishable (`CANCELLED` versus `ERROR(PROVIDER_TIMEOUT)`).
 
 **Retry.** `ModelGatewayRetryPolicy` is explicit and capped at
 `MAX_RETRY_ATTEMPTS = 5`; the default is one attempt (no retry). Only the
@@ -349,27 +361,38 @@ names the service without exposing any sensitive key.
 ## 15. Known limits
 
 - **Capability metadata persistence.** The additive `ModelCapabilities` fields
-  (`reasoning_efforts`, `document_media_types`, `streaming`) are not persisted
-  by the Phase 11.34 provider-state repository, whose persistence authority and
-  state schema version Phase 11.21 must not change. A model restored from
-  persisted state therefore fails closed — an undeclared effort or document
-  media type is unavailable — instead of guessing. Persisting the new seam
-  belongs to a later provider-registry state revision.
+  (`reasoning_efforts`, `document_media_types`, `streaming`) are persisted by the
+  existing Phase 11.34 provider-state owner as a Phase 11.21 Remediation V1
+  additive seam: ownership is unchanged, there is no second store, and
+  `kernel.llm.provider_state.SCHEMA_VERSION` is `"3"`. A `"2"` document is
+  rejected by version instead of being loaded with fail-closed defaults, and no
+  v2-to-v3 migrator exists. The exact capability truth therefore survives
+  capture → `to_dict` → repository save/load → `from_dict` → restore →
+  canonical `ModelCatalog`.
 - **Streaming retry.** A stream is never retried, even if it failed before the
   first content event.
-- **Stream interruptibility.** Timeout and cancellation are enforced between
-  events; a provider that blocks inside a single chunk is not interruptible
-  except by adapter cooperation with the cancellation token.
+- **Stream interruptibility.** The public stream deadline is authoritative and
+  publicly bounded: event acquisition happens on one private per-call daemon pump
+  worker, so a provider that blocks inside a single chunk cannot delay the public
+  timeout return, and no late content is ever emitted. Complete provider-resource
+  cleanup still requires adapter cooperation with the cancellation token, which a
+  timeout signals; the gateway never waits indefinitely for the pump to finish.
 - **`AUTO` selection.** `AUTO` reuses only the existing canonical
   requirement/selection path (`kernel.llm.model_selection.find_matching_models`
   with the canonical default ranking policy). The gateway adds no quality
   scoring, cost optimization, preference learning, adaptive ranking or
-  benchmark routing; it only filters the canonical matches by the two
-  requirements the shared requirement contract cannot express (the requested
-  reasoning level and document media types). A model with unknown context
-  window is excluded by canonical selection, and an `AUTO` request that nothing
-  canonical satisfies fails closed with `MODEL_NOT_FOUND` before any adapter
-  call.
+  benchmark routing. It evaluates every canonical candidate **in canonical
+  order** against the gateway's own hard execution gates — provider authority,
+  provider/model execution availability, requested reasoning effort, required
+  capabilities, input modalities, streaming requirement, adapter availability and
+  the canonical privacy decision for that candidate's own provider — returns the
+  first executable candidate, and continues to the next canonical candidate when
+  one fails locally. A model with unknown context window is excluded by canonical
+  selection, and an `AUTO` request whose candidates are all inexecutable fails
+  closed before any adapter call with the most specific safe canonical error. A
+  malformed request-level egress failure (no configured canonical privacy
+  authority, or remote candidates with no privacy metadata) stays terminal and is
+  never answered by skipping candidates.
 - **Agent-run evidence projection.** `ModelExecutionRecord` is agent-run scoped
   and its token/cost fields are non-optional integers. The projection therefore
   writes an unknown metric as the record's own default **and** marks it in
@@ -381,15 +404,35 @@ names the service without exposing any sensitive key.
   MCP/Actions, no audio ingestion, no new event bus, no new permission or
   approval engine.
 
-## 16. Test evidence
+## 16. Audit V1 remediation
 
-Local, pre-audit evidence only (`AT_DP_121=PASS` here is local test evidence,
-not independent verification):
+Independent Audit V1 recorded five MAJOR and one MINOR finding against the
+original implementation. Remediation V1 corrects exactly those six findings
+without redesigning Phase 11.21, introducing a new requirement or Design Point,
+or creating a second authority:
+
+| Finding | Correction in this repository |
+|---|---|
+| `MAJOR_01` | `AUTO` iterates the canonical `find_matching_models` order and skips only candidates that fail a gateway-owned hard execution gate; request-level egress prerequisites stay terminal. |
+| `MAJOR_02` | One `ModelCallCancellation` object stays authoritative across primary execution, retry, retry backoff, fallback planning, fallback preflight and fallback execution. |
+| `MAJOR_03` | One private per-call daemon pump worker bounds provider-event acquisition, so the public deadline is authoritative and late content is never emitted. |
+| `MAJOR_04` | `LLMProviderModelAdapter` fails closed with `CAPABILITY_UNSUPPORTED` for requested tools and structured output instead of silently dropping them. |
+| `MAJOR_05` | The existing Phase 11.34 state owner persists the Phase 11.21 capability fields under `SCHEMA_VERSION="3"`; `"2"` documents are rejected. |
+| `MINOR_01` | This document's acceptance path and the focused gate evidence are refreshed from the Remediation V1 exact HEAD. |
+
+The remediation is additive: Phase 11.34 remains the persistence owner, Phase
+11.35 and Phase 11.50 remain not implemented, and CMMChat and CMM Bots remain
+untouched.
+
+## 17. Test evidence
+
+Local evidence only, recorded at the Remediation V1 exact HEAD
+(`AT_DP_121=PASS` here is local test evidence, not independent verification):
 
 | Gate | Command | Result |
 |---|---|---|
-| Focused gateway suite | 17 `tests/llm/test_model_gateway_*.py` + `test_phase11_21_dp121_acceptance.py` | 366 passed |
-| `AT-DP-121` | `tests/llm/test_phase11_21_dp121_acceptance.py` | 31 passed |
+| Focused gateway suite | 16 `tests/llm/test_model_gateway_*.py` modules + `test_phase11_21_dp121_acceptance.py` | 397 passed |
+| `AT-DP-121` | `tests/llm/test_phase11_21_dp121_acceptance.py` | 37 passed |
 | LLM suite | `tests/llm` | green |
 | Agent Runtime model suites | `tests/agent_runtime` model tests | green |
 | Platform binding | `tests/platform/test_model_gateway_binding.py` | 11 passed |
@@ -423,5 +466,8 @@ tests/agent_runtime/test_model_fallback_gateway_adapter.py
 tests/agent_runtime/test_model_execution_evidence_projection.py
 ```
 
-Independent audit is pending; this phase is not closed and no closure claim is
-made here.
+Independent Audit V1 `FAIL` is preserved unchanged in
+`docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`. Remediation V1
+implements the six Audit V1 findings locally; independent Re-audit V2 is pending.
+This phase is not closed, `DP-121` is not independently verified and no closure
+claim is made here.
