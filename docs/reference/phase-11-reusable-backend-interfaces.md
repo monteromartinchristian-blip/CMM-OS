@@ -6,7 +6,10 @@
 **Acceptance:** `AT-DP-150 — Canonical Reusable Client Backend Interface Acceptance`
 **Design specification:** [`docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md`](../superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md)
 **Implementation plan:** [`docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md`](../superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md)
-**Status:** `PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Remediation V1 design:** [`docs/superpowers/specs/2026-09-25-phase-11.50-remediation-v1-design.md`](../superpowers/specs/2026-09-25-phase-11.50-remediation-v1-design.md)
+**Remediation V1 plan:** [`docs/superpowers/plans/2026-09-25-phase-11.50-remediation-v1-implementation-plan.md`](../superpowers/plans/2026-09-25-phase-11.50-remediation-v1-implementation-plan.md)
+**Independent Audit V1:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md)
+**Status:** `PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT`
 
 ---
 
@@ -37,6 +40,26 @@ those stay in Phase 11.51 (`PHASE11_51=NOT_IMPLEMENTED`).
 The facade is a **facade and capability projection only**. It adds no execution
 authority, no backend authority, no session authority, no routing authority and
 no model authority.
+
+### Audit V1 remediation V1
+
+Independent Audit V1 (`docs/audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md`)
+returned `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`
+and `DP_150=NOT_VERIFIED`. Remediation V1 corrects exactly those findings,
+preserves `F11-021`, `DP-150` and `AT-DP-150` unchanged, and claims no
+verification:
+
+```text
+MAJOR_01  public owner escape hatch          -> closed (no live-owner accessor)
+MAJOR_02  exact canonical owner types        -> exact-type gates
+MAJOR_03  canonical failures re-coded        -> canonical safe identity preserved
+MAJOR_04  capability truth contradiction     -> frozen attachment/stream truth
+MAJOR_05  non-JSON-native serialization      -> JSON-native wrappers
+MINOR_01  report evidence discipline         -> exact start HEAD and commit count
+```
+
+The remediation is implemented on `feature/phase-11-stable-integrated-platform`
+and awaits independent Re-audit V2.
 
 ## 2. Canonical ownership
 
@@ -80,7 +103,7 @@ The complete frozen `__all__` is:
 | `ClientBackend` | class | the facade |
 | `ClientBackendCapabilities` | class | the immutable capability projection |
 | `ClientBackendCapabilityStatus` | enum | the closed four-state capability vocabulary |
-| `ClientBackendError` | exception | one safe client-interface failure |
+| `ClientBackendError` | exception | one safe client failure: a closed client-interface code, or a canonical downstream failure preserved verbatim |
 | `ClientBackendErrorCode` | enum | the closed interface-shape error vocabulary |
 | `ClientBackendRequest`, `ClientBackendResult` | class | the narrow transport-neutral envelope and its safe result |
 | `ClientOperation` | enum | the closed operation identity set |
@@ -112,19 +135,33 @@ framework or CMMChat. The per-module seam allowlist is pinned in
 too: `cmm.application`, `cmm.conversation`, `cmm.platform`, `cmm.orchestration`
 and `kernel` never import `cmm.client_backend`.
 
-Two additive, read-only identity accessors were added to the closed Phase 11.5
-service so the facade can prove owner coherence and report canonical capability
-truth without inventing a second authority:
+Two additive, read-only seams were added to the closed Phase 11.5 service so the
+facade can prove owner coherence and report canonical capability truth without
+inventing a second authority. Remediation V1 (Audit V1 MAJOR-01) narrowed the
+first of them and reviewed the second:
 
 ```text
-ConversationService.gateway              -> the exact ApplicationGateway instance
-ConversationService.capability_resolver  -> the exact ConversationCapabilityResolver
+ConversationService.uses_application_gateway(gateway) -> bool   (narrowed)
+ConversationService.capability_resolver -> the exact ConversationCapabilityResolver  (kept)
 ```
 
-Neither accessor grants authority, mutates state, replaces an owner or creates a
-registry. The Phase 11.3 `ApplicationGateway` public surface is unchanged: its
-one public entrypoint remains `handle`, which the facade uses for session
-operations.
+* `ConversationService.gateway`, which returned the live canonical
+  `ApplicationGateway`, was **removed**. Returning that object hands back its
+  `handle(...)` entrypoint, so a public-only client could reach an application
+  operation outside the frozen `ClientOperation` set. It is replaced by
+  `uses_application_gateway(gateway) -> bool`: immutable, non-authoritative
+  identity evidence that returns no owner, no entrypoint and no callable, and
+  that the caller can only ask about a gateway it already holds.
+* `ConversationService.capability_resolver` was **kept** after review: it is an
+  independently closed canonical Phase 11.5 public contract, its only public
+  operation returns immutable declarative `ConversationCapabilityState` values —
+  the very truth the client backend must report — and it grants no session,
+  conversation, routing, model or execution authority.
+
+No replacement public owner accessor exists, and the `ClientBackend` facade
+itself returns no live canonical owner at all. The Phase 11.3 `ApplicationGateway`
+public surface is unchanged: its one public entrypoint remains `handle`, which the
+facade uses privately for session operations.
 
 ## 5. Operation map
 
@@ -156,6 +193,18 @@ Two entry styles exist and both are supported:
 There is no handler registry, no reflection, no import-by-string, no service
 name and no callable anywhere in the surface.
 
+Construction requires the **exact** canonical owner types —
+`type(gateway) is ApplicationGateway` and `type(conversation) is
+ConversationService` — and the facade refuses an incoherent pair whose
+conversational service writes through a *different* gateway, using only the
+narrowed non-authoritative `uses_application_gateway(...)` evidence. A duck-typed
+stand-in and, since Remediation V1 (Audit V1 MAJOR-02), a *subclass* of either
+owner both fail closed before any downstream operation; a facade subclass may
+override authority-bearing behaviour, so the composition builder applies the same
+exact-type gate to its service argument (`type(service) is ClientBackend`).
+Official in-memory canonical construction remains fully supported — only
+subclassing is rejected.
+
 ## 6. Capability truth
 
 `ClientBackendCapabilities` is one immutable projection with the exact frozen
@@ -170,11 +219,18 @@ conversation_load         conversation_submit
 conversation_edit         conversation_regenerate
 
 response_event_stream     request_cancellation
-attachments               document_upload
+attachments               attachment_effective_mode
+document_upload
 
 model_boundary_reasoning  model_boundary_multimodal  model_boundary_token_stream
 end_to_end_reasoning      end_to_end_multimodal      end_to_end_token_stream
 ```
+
+`attachment_effective_mode` is the narrow immutable qualifier added by
+Remediation V1 (Audit V1 MAJOR-04): it carries the canonical effective mode of
+the attachment row — `reference_only` at this baseline, `None` when no canonical
+attachment state exists — so a first-party client can tell "conversational
+reference metadata only" apart from real attachment reachability.
 
 Every row is a member of the closed four-state vocabulary
 `ClientBackendCapabilityStatus`:
@@ -190,7 +246,11 @@ Sources of truth, all canonical:
 
 * **application-level rows** — `ApplicationCapability` declarations supplied by
   the composition root through `ClientBackend.from_capability_declarations` (the
-  same declarations the composed `CapabilityApplicationService` holds);
+  same declarations the composed `CapabilityApplicationService` holds). The
+  dedicated `response_event_stream` row is projected from the canonical
+  application `streaming` declaration — the existing public response-event
+  delivery — and **never** from the conversational `response_streaming` row
+  (Audit V1 MAJOR-04);
 * **conversational and end-to-end rows** — the exact
   `ConversationCapabilityResolver` of the composed `ConversationService`;
 * **model-boundary rows** — explicitly injected `ApplicationCapability`
@@ -211,9 +271,9 @@ list. When no declaration is supplied, the row is `unavailable` with
 | `conversation_load`, `conversation_submit` | `available` | canonical `continuous_conversation` |
 | `conversation_edit` | `available` | canonical `message_editing` (`append_only_lineage`) |
 | `conversation_regenerate` | `available` | canonical `controlled_regeneration` (`canonical_reexecution`) |
-| `response_event_stream` | `degraded` | canonical `response_streaming` = `response_event_stream`, `PROVIDER_TOKEN_STREAMING_UNAVAILABLE` |
+| `response_event_stream` | `available` | canonical application `streaming` declaration (public response-event delivery) |
 | `request_cancellation` | `unavailable` | canonical `request_cancellation`, `NO_CANCELLABLE_OWNER` |
-| `attachments` | `available` | canonical `attachments`, effective mode `reference_only` |
+| `attachments` | `degraded`, mode `reference_only` | canonical `attachments`, effective mode `reference_only` |
 | `document_upload` | `unavailable` | canonical `document_upload`, `NO_CANONICAL_STORAGE_OWNER` |
 | `model_boundary_*` | `unavailable` (or `boundary_only` when declared) | Phase 11.21 boundary evidence only |
 | `end_to_end_reasoning` | `unavailable` | Phase 11.50 adds no reasoning effort to the payload |
@@ -223,12 +283,19 @@ list. When no declaration is supplied, the row is `unavailable` with
 Two distinctions are load-bearing and are pinned by tests:
 
 * **a response-event stream is not a token stream.** `response_event_stream`
-  describes the existing public response-event delivery. It is never relabelled
-  as conversational token streaming, and the matching `end_to_end_token_stream`
-  row is never upgraded from the model boundary.
+  describes the existing public response-event delivery and is `available`;
+  `end_to_end_token_stream` describes provider token streaming and stays
+  `degraded`. They are separate fields fed by separate canonical evidence, and
+  neither is ever derived from the other or upgraded from the model boundary
+  (Audit V1 MAJOR-04);
 * **boundary availability is not end-to-end availability.** Phase 11.21 proof at
   the model boundary produces `boundary_only`, and the matching `end_to_end_*`
   row stays `unavailable`.
+
+Attachments are reported `degraded` with `reference_only` because the canonical
+conversational row keeps attachment *references* only — they never enter the
+application message payload — and Phase 11.50 adds no upload, file store, URL
+fetch or filesystem access. `available` would have overstated reachability.
 
 ## 7. Fail-closed interface validation
 
@@ -241,31 +308,79 @@ interface_version absent/blank     -> INVALID_CLIENT_CONTRACT
 operation not a ClientOperation    -> INVALID_CLIENT_OPERATION, zero downstream calls
 ```
 
-A malformed envelope payload (a missing required field, a non-int-typed revision)
-fails closed as `INVALID_CLIENT_CONTRACT` with zero downstream calls. A raw
-string is never coerced into an operation, and no operation is ever dispatched by
-name.
+A malformed envelope payload (a missing required field, a non-int-typed revision,
+an opaque or unsupported value, binary data, a non-string mapping key) fails
+closed as `INVALID_CLIENT_CONTRACT` with zero downstream calls. A raw string is
+never coerced into an operation, and no operation is ever dispatched by name.
+
+### JSON-native serialization
+
+Every public wrapper's `to_dict()` — `ClientBackendRequest`, `ClientBackendResult`,
+`ClientBackendCapabilities` and `ClientBackendError` — returns only `None`, `bool`,
+`int`, `float`, `str`, `list` and `dict[str, ...]`, so
+`json.dumps(wrapper.to_dict())` succeeds for every supported value (Remediation
+V1, Audit V1 MAJOR-05). A whitelisted canonical public value
+(`ConversationMessage`, `AssistantResponse`, `ApplicationSession`,
+`ApplicationResponse`, `ConversationCapabilityState`, `ApplicationCapability`,
+`ApplicationStreamEvent`, and the rest of the frozen inventory) is serialized
+through its **own** canonical safe `to_dict()` and then normalized recursively:
+`Enum` → semantic value, `tuple` → `list`, `Mapping` → `dict` with string keys,
+nested canonical value → the same treatment. There is no generic dataclass walk,
+no `repr(...)`, no `str(...)` coercion and no identity generation: canonical IDs,
+request IDs, session IDs, message IDs, revisions, timestamps and enum semantic
+values are preserved verbatim. Any unsupported value fails closed as
+`INVALID_CLIENT_CONTRACT` rather than surviving or being stringified.
 
 ## 8. Safe error projection
 
-Three layers of failure handling, each with a fixed shape:
+Remediation V1 (Audit V1 MAJOR-03) made the *real* client paths preserve
+canonical failure identity. `ClientBackendError` is the one client-visible
+failure type and carries exactly one of two disjoint kinds:
+
+* a **client-interface** failure — one of the four reserved closed
+  `ClientBackendErrorCode` values (`UNSUPPORTED_INTERFACE_VERSION`,
+  `INVALID_CLIENT_OPERATION`, `INVALID_CLIENT_CONTRACT`, `INTERNAL_CLIENT_ERROR`)
+  with its module-owned constant message. `canonical_code` is `None`;
+* a **canonical downstream** failure — the canonical owner's own safe code and
+  safe message preserved verbatim, built through
+  `ClientBackendError.from_canonical(code, message)`. The code must be a real
+  member of the canonical closed `ApplicationErrorCode` or
+  `ConversationErrorCode` taxonomy, so no third taxonomy and no duplicate is
+  created; `canonical_code` names it and `to_dict()` keeps the stable
+  `{code, message}` shape.
 
 | Situation | Reported as |
 | --- | --- |
 | the client-interface *shape* is wrong (version, operation, envelope) | `ClientBackendError` with a closed `ClientBackendErrorCode` and its module-owned constant message |
-| a canonical owner fails and the caller holds a canonical typed contract (explicit methods) | the canonical failure propagates unchanged — `ApplicationServiceError` subclass or `ConversationBoundaryError` subclass |
-| a generic `dispatch` caller has no canonical typed contract | one safe client result; an unexpected internal failure becomes `INTERNAL_CLIENT_ERROR` |
-| a caller needs to render a canonical failure it caught | `ClientBackend.project_canonical_failure(error)` returns `{code, message}` from the canonical safe projection, or the generic client error |
+| a canonical application failure on a typed session method (`create_session`, `get_session`) | `ClientBackendError` preserving the canonical code and canonical safe message — e.g. `RESOURCE_NOT_FOUND` / `CONFLICT` |
+| a canonical conversational failure on a typed method (`submit_message`, `edit_message`, `regenerate_response`) | the canonical `ConversationBoundaryError` subclass propagates unchanged |
+| a canonical failure through generic `dispatch` | one safe client result whose `error` preserves the canonical code and message — never `INTERNAL_CLIENT_ERROR` |
+| a canonical *internal* failure, or an unknown exception | `INTERNAL_CLIENT_ERROR` with the one generic safe message and no raw text |
+
+Known canonical identities preserved verbatim include `RESOURCE_NOT_FOUND` /
+`NOT_FOUND`, `CONFLICT` / `SESSION_CONFLICT`, `CAPABILITY_UNAVAILABLE`,
+`POLICY_DENIED`, `APPROVAL_REQUIRED`, `CANCELLED`, `INVALID_REQUEST` and
+`UNSUPPORTED_VERSION`. The client-interface `UNSUPPORTED_INTERFACE_VERSION`
+remains reserved for the *Phase 11.50 interface* version and is never conflated
+with a canonical application `UNSUPPORTED_VERSION`.
 
 Never exposed: a raw exception repr, a stack trace, a credential, a provider
 secret, a filesystem path, hidden reasoning or internal object repr. This is
-pinned by `AT-DP-150` scenario G, which walks every serialized payload of a real
-connected run.
+pinned by `AT-DP-150` scenario G, which drives real canonical failures through
+the facade and the generic entrypoint and walks every serialized payload of a
+real connected run.
 
 ## 9. Security
 
 * **one closed version** — `CLIENT_BACKEND_INTERFACE_VERSION = "1"` identifies the
   facade contract only; it replaces no canonical version.
+* **no public live-owner access** — `ClientBackend` returns no live
+  `ApplicationGateway` or `ConversationService`, defines no renamed equivalent
+  (`application_gateway`, `conversation_service`, `owner`, `delegate`,
+  `raw_gateway`, `raw_conversation`) and has no `handle` entrypoint, so a
+  public-only client cannot reach a canonical operation outside the frozen
+  `ClientOperation` set. The audited `client.gateway.handle(...) -> health.get`
+  bypass has no public route (Remediation V1, Audit V1 MAJOR-01).
 * **no arbitrary service invocation** — no `get_service`, `resolve_service`,
   `resolve_any` or `invoke` surface exists, and `tests/client_backend/test_architecture.py`
   fails if one appears.
@@ -280,13 +395,14 @@ connected run.
   a bounded constant.
 * **no secret or path in a public value** — the envelope accepts primitive-safe
   data plus frozen canonical public contract values; binary data, callables,
-  modules and opaque runtime objects fail closed.
+  modules and opaque runtime objects fail closed as `INVALID_CLIENT_CONTRACT`,
+  and no `repr(...)` or `str(...)` fallback exists.
 * **no CMMChat dependency** — no dependency from CMM OS core packages toward
   CMMChat exists, and CMMChat source is not modified.
 
 ## 10. Anti-fragmentation
 
-Phase 11.50 creates no second authority. The package defines exactly eight
+Phase 11.50 creates no second authority. The package defines exactly nine
 classes, none of which is an owner shape, and the architecture gate rejects any
 class whose version-stripped normalized name ends in `Store`, `Repository`,
 `Registry`, `Router`, `Runtime`, `Engine`, `Resolver`, `Manager`, `Executor`,
@@ -326,8 +442,12 @@ Both dependency edges point **downward** at the closed canonical owners. The
 Phase 11.21 `model.gateway` is deliberately **not** a declared dependency, so the
 client can never acquire model execution authority through composition; the same
 gate asserts `provider.registry` is absent too. The builder constructs nothing,
-accepts only the concrete facade (an impostor fails closed), and the resolved
-`client.backend` service is provably the exact configured facade instance.
+accepts only the **exact** concrete facade type — an impostor and, since
+Remediation V1, a facade *subclass* both fail closed (Audit V1 MAJOR-02) — and the
+resolved `client.backend` service is provably the exact configured facade
+instance. The exact-type gate lives in the builder because Phase 11.1's shared
+`runtime_contract` mechanism is `isinstance`-based for every phase and is not
+changed by this remediation.
 
 The module composes beside the closed Phase 11.2/11.3/11.5 contributions and
 reaches `READY`; omitting the conversation contribution fails the build closed.
@@ -354,16 +474,16 @@ canonical E2E bridge is missing for each of these.
 
 ## 13. Testing
 
-Focused suite (`tests/client_backend`, 157 tests):
+Focused suite (`tests/client_backend`, 182 tests):
 
 | File | Covers |
 | --- | --- |
-| `test_contracts.py` | interface version, closed operation set, closed error codes, public export surface |
-| `test_interface.py` | owner identity, incoherent-pair rejection, session and conversation delegation, canonical lineage, fail-closed version/operation, safe error projection |
-| `test_capabilities.py` | frozen field inventory, canonical evidence, no optimistic upgrade, boundary-only vs end-to-end, determinism and immutability |
-| `test_platform_module.py` | frozen composition identities, downward dependencies, absent model-gateway edge, impostor refusal, real container composition, module hygiene |
+| `test_contracts.py` | interface version, closed operation set, closed error codes, public export surface, JSON-native canonical-payload serialization and the opaque-payload fail-closed rule |
+| `test_interface.py` | exact owner identity and subclass rejection, incoherent-pair rejection, absence of any public live-owner access or service locator, session and conversation delegation, canonical lineage, fail-closed version/operation, canonical failure preservation on the real typed and dispatch paths |
+| `test_capabilities.py` | frozen field inventory, canonical evidence, no optimistic upgrade, boundary-only vs end-to-end, the frozen attachment/`reference_only` and response-event-stream truth, determinism and immutability |
+| `test_platform_module.py` | frozen composition identities, downward dependencies, absent model-gateway edge, impostor and facade-subclass refusal, real container composition, module hygiene |
 | `test_architecture.py` | parallel-authority, forbidden-import, dynamic-dispatch, service-locator, filesystem/network, hidden-reasoning and reverse-dependency gates |
-| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–J |
+| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–K (18 tests) |
 | `_canonical_graph.py` | the shared real canonical graph helper (test-only) |
 
 Every graph is the repository's own official composition root
@@ -380,6 +500,17 @@ Gate commands:
 .venv/bin/python -m pytest -q tests/client_backend
 .venv/bin/python -m pytest -q tests/client_backend/test_phase11_50_dp150_acceptance.py
 ```
+
+Remediation V1 gate results on the remediation HEAD: the focused
+finding-specific selection passed 31 tests, `tests/client_backend` passed 182,
+`AT-DP-150` run separately passed 18, the seven inherited acceptance files passed
+287, the `tests/application` / `tests/conversation` / `tests/llm` /
+`tests/platform` / `tests/orchestration` / `tests/cli` suites passed
+675 / 860 / 1153 / 369 / 498 / 459, and the global suite passed 21965 with zero
+failures (the +25 over the audited implementation HEAD is exactly the
+`tests/client_backend` growth from 157 to 182). `RUFF_TOUCHED`, `FORMAT`,
+`COMPILEALL` and `GIT_DIFF_CHECK` all passed, and the repository-wide Ruff count
+stayed at the 837 baseline with `RUFF_NEW_FINDINGS=0`.
 
 Inherited acceptances are run as separate required gate commands, not from inside
 another test module: `AT-DP-134`, `AT-DP-121`, `AT-DP-101`, `AT-DP-102`,
@@ -402,10 +533,10 @@ another test module: `AT-DP-134`, `AT-DP-121`, `AT-DP-101`, `AT-DP-102`,
 * **Reasoning effort, real image/document input, provider token streaming and
   model-call cancellation are not end-to-end reachable from a first-party client
   at this baseline**, and the capability manifest says so.
-* **`dispatch` flattens canonical failures.** The generic envelope path responds
-  with its own safe result codes rather than a canonical typed error, because a
-  generic transport-neutral caller has no canonical contract to match. A typed
-  caller uses the explicit methods and keeps the canonical error objects.
+* **A malformed payload is a client-contract failure.** An unsupported value — an
+  opaque object, binary data, a callable, a non-string mapping key or a
+  too-deeply nested structure — is never stringified and never silently passed
+  through: it fails closed as `INVALID_CLIENT_CONTRACT`.
 
 ## 15. Requirements and acceptance mapping
 
@@ -414,26 +545,41 @@ F11-021 -> DP-150 -> AT-DP-150
 ```
 
 ```text
-F11_021=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_150=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
 ## 16. Audit state
 
-Phase 11.50 implementation is complete on branch
-`feature/phase-11-stable-integrated-platform` with a clean worktree and an empty
-stash. No independent audit has examined it yet.
+Independent Audit V1 examined the Phase 11.50 implementation at
+`AUDITED_HEAD=ed7bdc6f9c48ff94375613bb80c23ad10599710c` and returned:
 
 ```text
-PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-INDEPENDENT_AUDIT=NOT_PERFORMED
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=5
+MINORS=1
+DP_150=NOT_VERIFIED
+AT_DP_150=FAIL_INDEPENDENT
+CLOSURE_ELIGIBLE=NO
+```
+
+That report is immutable historical evidence. Remediation V1 corrects exactly
+those five MAJOR findings plus the MINOR-01 evidence discipline, on branch
+`feature/phase-11-stable-integrated-platform`, and claims no verification:
+
+```text
+PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=NOT_PERFORMED
+AT_DP_150=PASS_LOCAL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
-Closure requires an independent audit with `BLOCKERS=0`, `MAJORS=0`,
+Closure requires an independent Re-audit V2 with `BLOCKERS=0`, `MAJORS=0`,
 `DP_150=VERIFIED_EXISTING`, `AT_DP_150=PASS` and `CLOSURE_ELIGIBLE=YES`, followed
 by a separate docs-only closure commit. This document makes no closure claim.
 
-<!-- PHASE11_50_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT -->

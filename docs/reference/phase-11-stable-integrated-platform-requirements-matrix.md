@@ -418,14 +418,16 @@ green here, while no independent audit has examined it yet.
 by §4.1, `F11-015` by §4.3, `F11-016` by §4.5, `F11-017` by §4.7, `F11-018`
 by §4.9, `F11-019` by §4.11 and `F11-020` by §4.13 of this document. `F11-021`
 is the next non-colliding Phase 11 functional identifier, assigned to Phase
-11.50 — Reusable Backend Interfaces. Its pre-audit mapping status is
-`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`: the implementation exists in this
-repository and the connected acceptance is green here, while no independent
-audit has examined it yet.
+11.50 — Reusable Backend Interfaces. Its mapping status is
+`IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT`: Independent Audit V1
+examined the implementation, returned `INDEPENDENT_AUDIT_V1=FAIL` with
+`BLOCKERS=0`, `MAJORS=5`, `MINORS=1` and `DP_150=NOT_VERIFIED`, and Remediation
+V1 corrected exactly those findings in this repository. The connected acceptance
+is green here, while no independent Re-audit V2 has examined the remediation yet.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`gateway`, `capability_resolver` read-only accessors) | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
+| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`uses_application_gateway` narrowed non-authoritative coherence evidence; `capability_resolver` reviewed and kept) | `IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
 
 ### 4.16 `F11-021` traceability
 
@@ -435,13 +437,13 @@ audit has examined it yet.
 | Design Point | `DP-150 — Canonical Reusable Client Backend Interface` |
 | Acceptance test | `AT-DP-150 — Canonical Reusable Client Backend Interface Acceptance` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
 | Production package | `cmm/client_backend/` (5 modules: `__init__.py`, `contracts.py`, `capabilities.py`, `interface.py`, `platform_module.py`) |
-| Additive seams in closed packages | `cmm/conversation/service.py` — two read-only identity accessors on the closed Phase 11.5 service: `gateway` (the exact `ApplicationGateway` instance, so the facade can prove owner coherence) and `capability_resolver` (the exact `ConversationCapabilityResolver`, so the facade reports canonical capability truth). Neither grants authority, mutates state, replaces an owner or creates a registry. `cmm/application/gateway.py` is unchanged. |
+| Seams in closed packages after Remediation V1 | `cmm/conversation/service.py` — `uses_application_gateway(gateway) -> bool`, the **narrowed** form of the additive Phase 11.50 owner accessor: immutable, non-authoritative coherence evidence that returns no owner, no entrypoint and no callable (Audit V1 MAJOR-01 removed `ConversationService.gateway`, which handed back the live `ApplicationGateway` and therefore its `handle(...)` entrypoint). `capability_resolver` was reviewed and **kept**: it is an independently closed canonical Phase 11.5 public contract whose only public operation returns immutable declarative `ConversationCapabilityState` values, and it grants no authority. No replacement public owner accessor exists; `ClientBackend` exposes no live owner and no generic service locator. `cmm/application/gateway.py` is unchanged. |
 | Frozen interface version | `CLIENT_BACKEND_INTERFACE_VERSION = "1"` — identifies the facade contract only; replaces no canonical version |
 | Closed operation set | `ClientOperation` — `CAPABILITIES`, `CREATE_SESSION`, `GET_SESSION`, `LOAD_CONVERSATION`, `SUBMIT_MESSAGE`, `EDIT_MESSAGE`, `REGENERATE_RESPONSE`, `CANCEL_REQUEST` |
-| Closed client error set | `ClientBackendErrorCode` — `UNSUPPORTED_INTERFACE_VERSION`, `INVALID_CLIENT_OPERATION`, `INVALID_CLIENT_CONTRACT`, `INTERNAL_CLIENT_ERROR`; no canonical application or conversational code is duplicated |
+| Closed client error set | `ClientBackendErrorCode` — `UNSUPPORTED_INTERFACE_VERSION`, `INVALID_CLIENT_OPERATION`, `INVALID_CLIENT_CONTRACT`, `INTERNAL_CLIENT_ERROR`; no canonical application or conversational code is duplicated. Since Remediation V1 (Audit V1 MAJOR-03) `ClientBackendError` also preserves a **known canonical downstream failure verbatim** through `from_canonical(code, message)`: the canonical `RESOURCE_NOT_FOUND`/`CONFLICT`/`SESSION_CONFLICT`/`CAPABILITY_UNAVAILABLE`/`POLICY_DENIED`/`APPROVAL_REQUIRED`/`CANCELLED`/`INVALID_REQUEST`/`UNSUPPORTED_VERSION` identity is kept on the real typed and `dispatch` paths, while a canonical internal failure or an unknown exception still becomes `INTERNAL_CLIENT_ERROR` with no raw text. The preserved code must be a real member of the canonical closed taxonomy, so no third taxonomy is created |
 | Capability vocabulary | `ClientBackendCapabilityStatus` — `available`, `degraded`, `unavailable`, `boundary_only` (four closed states, no ambiguous booleans) |
-| Capability field inventory | `interface_version`; `application_api_version`; `session_create`; `session_get`; `conversation_load`; `conversation_submit`; `conversation_edit`; `conversation_regenerate`; `response_event_stream`; `request_cancellation`; `attachments`; `document_upload`; `model_boundary_reasoning`; `model_boundary_multimodal`; `model_boundary_token_stream`; `end_to_end_reasoning`; `end_to_end_multimodal`; `end_to_end_token_stream` |
-| Focused suite | `tests/client_backend/` — `test_contracts.py`, `test_interface.py`, `test_capabilities.py`, `test_platform_module.py`, `test_architecture.py`, `test_phase11_50_dp150_acceptance.py`, plus the test-only helper `_canonical_graph.py` (157 passed at the implementation HEAD) |
+| Capability field inventory | `interface_version`; `application_api_version`; `session_create`; `session_get`; `conversation_load`; `conversation_submit`; `conversation_edit`; `conversation_regenerate`; `response_event_stream`; `request_cancellation`; `attachments`; `attachment_effective_mode`; `document_upload`; `model_boundary_reasoning`; `model_boundary_multimodal`; `model_boundary_token_stream`; `end_to_end_reasoning`; `end_to_end_multimodal`; `end_to_end_token_stream` |
+| Focused suite | `tests/client_backend/` — `test_contracts.py`, `test_interface.py`, `test_capabilities.py`, `test_platform_module.py`, `test_architecture.py`, `test_phase11_50_dp150_acceptance.py`, plus the test-only helper `_canonical_graph.py` (182 passed at the Remediation V1 HEAD) |
 | Architecture/anti-fragmentation gate | `tests/client_backend/test_architecture.py` (parallel-authority, forbidden-import, per-module seam pin, reverse-dependency, dynamic-import, service-locator, filesystem/network, hidden-reasoning gates); Scenario H of `AT-DP-150`; additive closed-phase allowlist seams in `tests/application/test_architecture.py` and `tests/platform/test_architecture.py` |
 | Reference documentation | `docs/reference/phase-11-reusable-backend-interfaces.md` |
 | Design specification | `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` |
@@ -456,9 +458,12 @@ audit has examined it yet.
 | Inherited acceptance regressions | `AT-DP-134` — 68 passed; `AT-DP-121` — 38 passed; `AT-DP-101` — 31 passed; `AT-DP-102` — 33 passed; `AT-DP-103` — 47 passed; `AT-DP-104` — 69 passed; `AT-DP-105` — 1 passed; every file run as its own required gate command |
 | Suite gate results at the implementation HEAD | `tests/application` — 674 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/platform` + `tests/orchestration` + `tests/cli` — 2001 passed; `tests/api` + `tests/conversation` — 1054 passed; global `pytest -q` — 21940 passed, zero failures |
 | Repository-wide Ruff | 837 findings — identical to the inspected pre-phase baseline; `RUFF_NEW_FINDINGS=0`; every touched file is `ruff check`- and `ruff format --check`-clean |
+| Remediation V1 gate results | focused finding-specific selection — 31 passed; `tests/client_backend` — 182 passed; `AT-DP-150` run separately — 18 passed; inherited acceptances `AT-DP-134`/`AT-DP-121`/`AT-DP-101`/`AT-DP-102`/`AT-DP-103`/`AT-DP-104`/`AT-DP-105` — 287 passed; `tests/application` — 675 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/platform` — 369 passed; `tests/orchestration` — 498 passed; `tests/cli` — 459 passed; global `pytest -q` — 21965 passed, 0 failed, 1 warning (the +25 over the audited implementation HEAD is exactly the `tests/client_backend` growth from 157 to 182); `RUFF_TOUCHED=PASS`; `FORMAT=PASS`; `COMPILEALL=PASS`; `GIT_DIFF_CHECK=PASS` |
 | Other gates | `compileall` PASS over `cmm/client_backend`, `cmm/application`, `cmm/conversation`, `cmm/platform`, `cmm/orchestration`, `kernel/llm`; `git diff --check` PASS |
-| Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` |
-| Next step | independent audit of the Phase 11.50 exact-HEAD bundle |
+| Remediation V1 evidence | `AUDITED_HEAD=ed7bdc6f9c48ff94375613bb80c23ad10599710c`, `AUDITED_TREE=c065eb3d78ff19120a64b9e9eb1fff8311a59224`, `AUDITED_BUNDLE_SHA256=fa2ed501bdd5ba6ba87dfdbe713d12e3f37644bd200d73d598487be4862f3654`; `INDEPENDENT_AUDIT_V1=FAIL`, `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`, `DP_150=NOT_VERIFIED`, `AT_DP_150=FAIL_INDEPENDENT`, `CLOSURE_ELIGIBLE=NO` |
+| Remediation V1 result | `AUDIT_V1_MAJOR_01..05=IMPLEMENTED_PENDING_REAUDIT`; `PUBLIC_OWNER_ESCAPE_HATCH=ABSENT`; `HEALTH_GET_CLIENT_BYPASS=IMPOSSIBLE`; `APPLICATION_GATEWAY_SUBCLASS=REJECTED`; `CONVERSATION_SERVICE_SUBCLASS=REJECTED`; `CLIENT_BACKEND_SUBCLASS_BINDING=REJECTED`; `CANONICAL_NOT_FOUND=PRESERVED`; `CANONICAL_CONFLICT=PRESERVED`; `UNKNOWN_INTERNAL=INTERNAL_CLIENT_ERROR`; `ATTACHMENTS_STATUS=DEGRADED`; `ATTACHMENTS_MODE=reference_only`; `DOCUMENT_UPLOAD=UNAVAILABLE`; `RESPONSE_EVENT_STREAM=AVAILABLE`; `TOKEN_STREAM_FACTS_SEPARATE=YES`; `REQUEST_CANONICAL_PAYLOAD_JSON_SERIALIZABLE=PASS`; `RESULT_CANONICAL_PAYLOAD_JSON_SERIALIZABLE=PASS`; `OPAQUE_PAYLOAD=FAIL_CLOSED` |
+| Mapping status | `IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT` |
+| Next step | independent Re-audit V2 of the Phase 11.50 Remediation V1 exact-HEAD bundle |
 
 ## 5. Current lifecycle status
 
@@ -1108,24 +1113,45 @@ The implemented surface and final evidence are documented in
 
 <!-- PHASE11_21_CLOSED_AFTER_INDEPENDENT_REAUDIT_V3_PASS -->
 
-## 14. Phase 11.50 — Reusable Backend Interfaces pre-audit status
+## 14. Phase 11.50 — Reusable Backend Interfaces remediation V1 status
 
 Phase 11.50 implements the frozen design
 `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md`
 (`SHA256=d0296a5de7b0afcc3f3595ade1982d0ed140d9aa3a699afbfffab184a12150c6`)
 exactly as the implementation plan
 `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md`
-prescribes. The implementation exists on branch
-`feature/phase-11-stable-integrated-platform` and the connected acceptance
-passes in this repository. **No independent audit has examined it yet.**
+prescribes. Independent Audit V1
+(`docs/audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md`,
+`SHA256=d1a0e7a07b6871850a4c79dbb6a42652fe8e14d9d26d34f8e71c1fdeab087a49`)
+returned `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`,
+`DP_150=NOT_VERIFIED` and `CLOSURE_ELIGIBLE=NO`. Remediation V1, designed by
+`docs/superpowers/specs/2026-09-25-phase-11.50-remediation-v1-design.md` and
+planned by
+`docs/superpowers/plans/2026-09-25-phase-11.50-remediation-v1-implementation-plan.md`,
+corrects exactly those findings on branch `feature/phase-11-stable-integrated-platform`.
+**No independent Re-audit V2 has examined the remediation yet, and no closure is
+claimed.**
 
 ```text
-PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_021=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_150=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
-INDEPENDENT_AUDIT=NOT_PERFORMED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=NOT_PERFORMED
 CLOSURE_ELIGIBLE=NOT_CLAIMED
+```
+
+What Remediation V1 corrects (Audit V1 findings only; `F11-021`, `DP-150` and
+`AT-DP-150` are unchanged):
+
+```text
+MAJOR_01  public owner escape hatch        -> closed; no public live-owner accessor
+MAJOR_02  exact canonical owner types      -> type(...) is gates, subclasses rejected
+MAJOR_03  canonical failures re-coded      -> canonical safe identity preserved
+MAJOR_04  capability truth contradiction   -> degraded/reference_only + available event stream
+MAJOR_05  non-JSON-native serialization    -> JSON-native public wrappers
+MINOR_01  report evidence discipline       -> exact start HEAD and commit count
 ```
 
 What Phase 11.50 adds:
@@ -1169,4 +1195,4 @@ The implemented surface, capability truth table, security invariants and known
 limits are documented in
 [`docs/reference/phase-11-reusable-backend-interfaces.md`](phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT -->

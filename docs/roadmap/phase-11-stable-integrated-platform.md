@@ -4759,14 +4759,24 @@ CMMChat is a first-party client, not an execution authority owner.
 
 ## 11.50 implementation state (Phase 11.50 / DP-150)
 
-**Status:** implementation complete, pending independent audit.
+**Status:** Audit V1 remediation V1 implemented, pending independent Re-audit V2.
+
+Independent Audit V1 examined the Phase 11.50 implementation and returned
+`INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`,
+`DP_150=NOT_VERIFIED` and `CLOSURE_ELIGIBLE=NO`. Remediation V1 corrects exactly
+those findings — the public owner escape hatch (MAJOR-01), exact canonical owner
+types (MAJOR-02), canonical error preservation on the real client paths
+(MAJOR-03), the attachment/response-event-stream capability truth (MAJOR-04) and
+JSON-native public serialization (MAJOR-05) — plus the MINOR-01 evidence
+discipline. `F11-021`, `DP-150` and `AT-DP-150` are unchanged.
 
 ```text
-PHASE11_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-F11_021=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP_150=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
-INDEPENDENT_AUDIT=NOT_PERFORMED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=NOT_PERFORMED
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
@@ -4778,7 +4788,7 @@ already closed:
 | Historical roadmap item | Phase 11.50 disposition |
 |---|---|
 | REST API | already provided by the closed Phase 11.3 `cmm.api` HTTP/OpenAPI adapter; **reused, not duplicated**; regression-checked only |
-| streaming API | already provided by the closed Phase 11.3 SSE response-event delivery; **reused**; `cmm.client_backend` reports its truth and never relabels it as token streaming |
+| streaming API | already provided by the closed Phase 11.3 SSE response-event delivery; **reused**; `cmm.client_backend` reports its truth — `response_event_stream=available` — and never relabels it as token streaming, whose separate row stays `degraded` (Audit V1 MAJOR-04) |
 | CMMChat through versioned application and streaming contracts | **implemented here as the seam**: `cmm/client_backend` provides the versioned, transport-neutral first-party facade (`CLIENT_BACKEND_INTERFACE_VERSION="1"`); CMMChat source is not modified (`CMMCHAT_CODE_CHANGES=NONE`) |
 | MCP server | deferred — `PHASE11_51=NOT_IMPLEMENTED` |
 | OpenAI Actions-compatible endpoints | deferred — `PHASE11_51=NOT_IMPLEMENTED` |
@@ -4793,7 +4803,9 @@ application gateway, conversation service, orchestrator, model gateway, provider
 registry, model catalog, session store, conversation store, router, runtime,
 engine, registry, repository, resolver, service locator, HTTP server or event
 bus. The Model Gateway remains an internal canonical boundary and is never
-exposed to a client as an escape hatch.
+exposed to a client as an escape hatch: after Audit V1 MAJOR-01 the facade
+returns no live canonical owner at all, so the audited
+`client.gateway.handle(...) -> health.get` bypass has no public route.
 
 Model-boundary capability truth (Phase 11.21 reasoning effort, real
 image/document input, provider token streaming and model-call cancellation) is
@@ -4804,7 +4816,7 @@ inspection, per design §63.
 
 See [`docs/reference/phase-11-reusable-backend-interfaces.md`](../reference/phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_PENDING_INDEPENDENT_AUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT -->
 
 ---
 
