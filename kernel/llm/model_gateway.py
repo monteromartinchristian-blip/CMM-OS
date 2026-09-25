@@ -23,6 +23,8 @@ available never implies permission to transmit.
 
 from __future__ import annotations
 
+import queue
+import threading
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -147,6 +149,78 @@ class _ExecutionPlan:
     adapter: ModelProviderAdapter
     capability_decision: str
     privacy_decision: str
+
+
+#: Private per-stream sentinel: the provider iterator finished cleanly.
+_STREAM_PUMP_COMPLETE = object()
+
+#: Poll interval while waiting on the private pump queue: short enough that user
+#: cancellation is observed promptly, long enough not to spin.  The public wait is
+#: additionally capped by the remaining deadline, so a short timeout is honoured
+#: exactly and a long stream is not busy-polled.
+_STREAM_PUMP_POLL_SECONDS = 0.05
+
+
+@dataclass(frozen=True, slots=True)
+class _PumpFailure:
+    """A provider exception captured by the private stream pump worker."""
+
+    error: BaseException
+
+
+class _ProviderEventPump:
+    """One private, per-call transport worker for a single model stream.
+
+    The public gateway iterator must never call a potentially blocking provider
+    iterator ``next()`` itself.  This worker iterates the provider adapter on a
+    daemon thread and hands each event back through a private queue, so the
+    public iterator can wait for at most the remaining deadline and then stop.
+
+    The pump owns no global state: it exists only for one stream call, carries a
+    private queue and a private sentinel, and is never a thread pool, worker
+    registry, event bus or persistent runtime.  It is a daemon so a provider that
+    never returns cannot keep the Python process alive; the public side never
+    joins it and never waits indefinitely for it to finish.
+    """
+
+    __slots__ = ("_events", "_queue", "_thread")
+
+    def __init__(self, events: Iterator[object]) -> None:
+        self._events = events
+        self._queue: queue.Queue[object] = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="model-gateway-stream-pump",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            for event in self._events:
+                self._queue.put(event)
+        except BaseException as error:  # noqa: BLE001 - normalize any provider stop
+            self._queue.put(_PumpFailure(error))
+            return
+        self._queue.put(_STREAM_PUMP_COMPLETE)
+
+    def poll(self, timeout: float) -> tuple[str, object | None]:
+        """Wait up to ``timeout`` for the next provider event.
+
+        Returns ``("event", event)``, ``("complete", None)``,
+        ``("failure", exception)`` or ``("idle", None)`` when the deadline
+        elapsed first.  Nothing here can block for longer than ``timeout``.
+        """
+
+        try:
+            item = self._queue.get(timeout=max(timeout, 0.0))
+        except queue.Empty:
+            return "idle", None
+        if item is _STREAM_PUMP_COMPLETE:
+            return "complete", None
+        if isinstance(item, _PumpFailure):
+            return "failure", item.error
+        return "event", item
 
 
 class _CandidateHardGateFailure(Exception):
@@ -420,6 +494,7 @@ class ModelGateway:
             return
 
         deadline = started + request.timeout_seconds
+        pump = _ProviderEventPump(adapter_events)
         accumulated: list[str] = []
         latest_usage = None
         saw_tool_call = False
@@ -428,7 +503,8 @@ class ModelGateway:
             if cancellation is not None and cancellation.is_cancelled:
                 yield self._stream_cancelled(request, plan, normalizer, started=started)
                 return
-            if self._clock() > deadline:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
                 if cancellation is not None:
                     cancellation.cancel("model stream timed out")
                 yield self._stream_failure(
@@ -447,16 +523,21 @@ class ModelGateway:
                     started=started,
                 )
                 return
-            try:
-                adapter_event = next(adapter_events)
-            except StopIteration:
+            status, payload = pump.poll(min(remaining, _STREAM_PUMP_POLL_SECONDS))
+            if status == "idle":
+                # The deadline is re-evaluated at the top of the loop; no queued or
+                # provider event can cross the deadline because acquisition is
+                # bounded by the remaining deadline.
+                continue
+            if status == "complete":
                 break
-            except ModelGatewayError as error:
-                yield self._stream_failure(
-                    request, plan, normalizer, error, started=started
-                )
-                return
-            except Exception:  # noqa: BLE001 - normalize any provider failure
+            if status == "failure":
+                error = payload
+                if isinstance(error, ModelGatewayError):
+                    yield self._stream_failure(
+                        request, plan, normalizer, error, started=started
+                    )
+                    return
                 yield self._stream_failure(
                     request,
                     plan,
@@ -466,6 +547,29 @@ class ModelGateway:
                         "provider stream failed",
                         details={"provider_id": plan.provider.id},
                         retryable=False,
+                    ),
+                    started=started,
+                )
+                return
+            adapter_event = payload
+
+            # The deadline is authoritative: an event acquired exactly at the
+            # boundary is never emitted as provider progress.
+            if self._clock() > deadline:
+                if cancellation is not None:
+                    cancellation.cancel("model stream timed out")
+                yield self._stream_failure(
+                    request,
+                    plan,
+                    normalizer,
+                    ModelGatewayError(
+                        ModelGatewayErrorCode.PROVIDER_TIMEOUT,
+                        "model stream exceeded its timeout",
+                        details={
+                            "provider_id": plan.provider.id,
+                            "timeout_seconds": request.timeout_seconds,
+                        },
+                        retryable=True,
                     ),
                     started=started,
                 )

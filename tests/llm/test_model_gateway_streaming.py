@@ -552,7 +552,9 @@ def test_the_stream_deadline_is_distinct_from_user_cancellation() -> None:
     cancellation = ModelCallCancellation()
 
     events = list(
-        runtime.gateway.stream(_request(timeout_seconds=0.02), cancellation=cancellation)
+        runtime.gateway.stream(
+            _request(timeout_seconds=0.02), cancellation=cancellation
+        )
     )
 
     # A deadline expiration is a timeout, never a cancellation.
