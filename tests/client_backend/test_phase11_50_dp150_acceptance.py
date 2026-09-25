@@ -46,7 +46,10 @@ Scenario map (all connected, in one acceptance):
 * **I** — inherited acceptance bundle recorded as separate required gate
   commands (see the module docstring of that test);
 * **J** — a portable first-party client that imports only
-  ``from cmm.client_backend import ...``.
+  ``from cmm.client_backend import ...``;
+* **K** — JSON-native client contract serialization: a canonical
+  ``ConversationMessage`` payload and a canonical result value both survive
+  ``to_dict()`` → ``json.dumps(...)`` (added by Audit V1 MAJOR-05 remediation).
 
 The one style rule is determinism: every identity and timestamp is
 caller-supplied and no assertion depends on wall-clock time.
@@ -55,6 +58,7 @@ caller-supplied and no assertion depends on wall-clock time.
 from __future__ import annotations
 
 import ast
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -83,7 +87,10 @@ from cmm.conversation.contracts import (
     ConversationMessage,
     ConversationRole,
 )
-from cmm.conversation.errors import ConversationSessionConflictError
+from cmm.conversation.errors import (
+    ConversationErrorCode,
+    ConversationSessionConflictError,
+)
 from tests.client_backend._canonical_graph import build_client_backend_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -633,32 +640,74 @@ def test_at_dp150_scenario_f_version_fail_closed() -> None:
 
 
 def test_at_dp150_scenario_g_safe_error_projection() -> None:
-    """A canonical failure maps safely; no raw internal text crosses."""
+    """Real canonical failures keep their identity on the real client paths.
+
+    Remediated for Audit V1 MAJOR-03.  The audited scenario satisfied this
+    scenario by calling ``ClientBackend.project_canonical_failure(...)`` directly
+    with a synthetic exception, so the client's own execution paths — the typed
+    session methods and the generic ``dispatch`` entrypoint — were never
+    exercised.  This scenario drives real canonical failures through the facade
+    and asserts the canonical-versus-internal classification on the result the
+    client actually receives.
+    """
 
     graph = build_client_backend_graph()
     graph.client.create_session(SESSION_ID)
 
-    # A canonical application failure.
-    from cmm.application.errors import ApplicationResourceNotFoundError
+    # 1. A real canonical application failure (missing resource), typed path.
+    with pytest.raises(ClientBackendError) as missing:
+        graph.client.get_session("at-dp150-absent-session")
+    assert missing.value.code is ApplicationErrorCode.RESOURCE_NOT_FOUND
+    assert missing.value.canonical_code == "RESOURCE_NOT_FOUND"
+    assert missing.value.message == "Application resource was not found"
 
-    application_failure = graph.client.project_canonical_failure(
-        ApplicationResourceNotFoundError(details={"reason_code": "SESSION_NOT_FOUND"})
+    # 2. A real canonical application conflict, typed path.
+    with pytest.raises(ClientBackendError) as conflict:
+        graph.client.create_session(SESSION_ID)
+    assert conflict.value.code is ApplicationErrorCode.CONFLICT
+    assert conflict.value.message == (
+        "Application resource state conflicts with the request"
     )
-    assert application_failure["code"] == ApplicationErrorCode.RESOURCE_NOT_FOUND.value
-    assert application_failure["message"] == ("Application resource was not found")
 
-    # A canonical conversational failure raised through the facade.
-    with pytest.raises(ConversationSessionConflictError) as conversation_failure:
-        graph.client.submit_message(
-            _user("user-1"),
-            request_id="request-1",
-            expected_session_revision=5,
-            assistant_message_id="assistant-1",
-            assistant_created_at=TURN_RESPONSE_AT,
+    # 3. The same canonical application failure through the generic entrypoint.
+    absent = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version=CLIENT_BACKEND_INTERFACE_VERSION,
+            request_id="request-absent",
+            operation=ClientOperation.GET_SESSION,
+            payload={"session_id": "at-dp150-absent-session"},
         )
-    assert conversation_failure.value.code.value == "session_conflict"
+    )
+    assert absent.ok is False
+    assert absent.to_dict()["error"] == {
+        "code": "RESOURCE_NOT_FOUND",
+        "message": "Application resource was not found",
+    }
 
-    # An unexpected internal defect through the generic entrypoint.
+    # 4. A real canonical conversational conflict through the generic entrypoint.
+    conversation_conflict = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version=CLIENT_BACKEND_INTERFACE_VERSION,
+            request_id="request-conflict",
+            operation=ClientOperation.SUBMIT_MESSAGE,
+            payload={
+                "message": _user("user-1"),
+                "message_request_id": "request-1",
+                "expected_session_revision": 9,
+                "assistant_message_id": "assistant-1",
+                "assistant_created_at": TURN_RESPONSE_AT,
+            },
+        )
+    )
+    assert conversation_conflict.ok is False
+    assert conversation_conflict.error is not None
+    assert conversation_conflict.error.code is ConversationErrorCode.SESSION_CONFLICT
+    assert conversation_conflict.to_dict()["error"]["code"] == "session_conflict"
+    assert conversation_conflict.to_dict()["error"]["message"] == (
+        "Conversation session revision conflicts with the request"
+    )
+
+    # 5. A genuinely unknown internal defect through the generic entrypoint.
     def _explode(*args, **kwargs):
         raise RuntimeError("raw /Users/secret token=sk-live-12345")
 
@@ -674,12 +723,19 @@ def test_at_dp150_scenario_g_safe_error_projection() -> None:
     assert result.ok is False
     assert result.error is not None
     assert result.error.code is ClientBackendErrorCode.INTERNAL_CLIENT_ERROR
+    assert result.error.canonical_code is None
 
     serialized = str(result.to_dict())
     for fragment in FORBIDDEN_RESPONSE_FRAGMENTS:
         assert fragment not in serialized, fragment
     assert "sk-live" not in serialized
     assert "secret" not in serialized
+
+    # The earlier real canonical failures are already recorded safely too.
+    for document in (absent.to_dict(), conversation_conflict.to_dict()):
+        for value in _strings(document):
+            for fragment in FORBIDDEN_RESPONSE_FRAGMENTS:
+                assert fragment not in value, (fragment, value)
 
 
 def test_at_dp150_scenario_g_every_serialized_payload_is_safe() -> None:
@@ -947,3 +1003,78 @@ def test_at_dp150_scenario_j_an_unsupported_version_never_reaches_the_client() -
 
     assert failure.value.code is ClientBackendErrorCode.UNSUPPORTED_INTERFACE_VERSION
     assert graph.canonical_gateway_calls() == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Scenario K — JSON-native client contract serialization (Audit V1 MAJOR-05)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_at_dp150_scenario_k_json_native_client_contract_serialization() -> None:
+    """A canonical payload and a canonical result both serialize to JSON.
+
+    Scenario K was added by Remediation V1 inside the existing ``AT-DP-150``: a
+    canonical ``ConversationMessage`` inside a ``ClientBackendRequest`` payload
+    and a canonical result value both survive ``to_dict()`` as JSON-native
+    documents, with every canonical identity preserved verbatim.
+    """
+
+    graph = build_client_backend_graph()
+    graph.client.create_session(SESSION_ID)
+
+    message = _user("user-1")
+    request = ClientBackendRequest(
+        interface_version=CLIENT_BACKEND_INTERFACE_VERSION,
+        request_id="request-k",
+        operation=ClientOperation.SUBMIT_MESSAGE,
+        payload={
+            "message": message,
+            "message_request_id": "request-1",
+            "expected_session_revision": 1,
+            "assistant_message_id": "assistant-1",
+            "assistant_created_at": TURN_RESPONSE_AT,
+        },
+    )
+
+    document = request.to_dict()
+    encoded = json.dumps(document)
+
+    # The canonical message is a plain JSON document with its identity intact.
+    assert document["payload"]["message"]["id"] == "user-1"
+    assert document["payload"]["message"]["session_id"] == SESSION_ID
+    assert document["payload"]["message"]["content"] == PLAIN_TEXT
+    assert document["payload"]["message"]["created_at"] == TURN_AT
+    assert document["payload"]["message"]["role"] == "user"
+    assert message.id in encoded
+    assert message.session_id in encoded
+    assert document["operation"] == "submit_message"
+    # Serialization is deterministic and generates no fresh identity.
+    assert request.to_dict() == document
+
+    # The same public envelope executes through the real facade ...
+    result = graph.client.dispatch(request)
+    assert result.ok is True
+    result_document = result.to_dict()
+    json.dumps(result_document)
+    assert result_document["data"]["response"]["message"]["id"] == "assistant-1"
+
+    # ... and a canonical session value inside a result is JSON-native too.
+    session_result = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version=CLIENT_BACKEND_INTERFACE_VERSION,
+            request_id="request-k-session",
+            operation=ClientOperation.GET_SESSION,
+            payload={"session_id": SESSION_ID},
+        )
+    )
+    assert session_result.ok is True
+    session_document = session_result.to_dict()
+    json.dumps(session_document)
+    assert session_document["data"]["session"]["session_id"] == SESSION_ID
+    assert session_document["data"]["session"]["revision"] == 2
+
+    # No forbidden fragment survives anywhere in the serialized documents.
+    for payload in (document, result_document, session_document):
+        for value in _strings(payload):
+            for fragment in FORBIDDEN_RESPONSE_FRAGMENTS:
+                assert fragment not in value, (fragment, value)
