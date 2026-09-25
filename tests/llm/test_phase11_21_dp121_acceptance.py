@@ -18,6 +18,7 @@ import ast
 import hashlib
 import json
 import re
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -47,6 +48,7 @@ from kernel.llm.model_gateway_contracts import (
     InputPartKind,
     ModelGatewayRequest,
     ModelInputPart,
+    ModelSelectionMode,
     ModelStreamEventType,
     ModelToolCall,
     ModelToolDefinition,
@@ -57,9 +59,24 @@ from kernel.llm.model_gateway_errors import ModelGatewayError, ModelGatewayError
 from kernel.llm.model_provider_adapter import (
     InMemoryModelProviderAdapter,
     ModelProviderAdapterRegistry,
+    ProviderModelResponse,
+    ProviderStreamEvent,
 )
+from kernel.llm.model_routes import ModelRouteCatalog
+from kernel.llm.model_selection import ModelRequirements, find_matching_models
 from kernel.llm.model_streaming import ModelCallCancellation
+from kernel.llm.provider_connections import ProviderConnectionRegistry
+from kernel.llm.provider_manifests import ProviderManifestRegistry
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
+from kernel.llm.provider_state import (
+    SCHEMA_VERSION,
+    ProviderRegistryState,
+)
+from kernel.llm.provider_state_repository import (
+    InMemoryProviderRegistryStateRepository,
+    capture_provider_registry_state,
+    restore_provider_registry_state,
+)
 from tests.llm.model_gateway_support import (
     PDF_BYTES,
     PNG_BYTES,
@@ -772,3 +789,387 @@ def test_scenario_m_no_model_usage_audit_or_event_bus_is_created() -> None:
         "cmm/model_gateway_event_bus.py",
     ):
         assert not (REPO_ROOT / forbidden).exists(), forbidden
+
+
+# ── Remediation V1 scenarios N–R ────────────────────────────────────────────
+#
+# These are additional connected checkpoints inside the existing AT-DP-121.  No
+# new Design Point is created: they exercise the same canonical owners — the real
+# ProviderRegistry/ModelCatalog, the real ModelGateway, the canonical privacy
+# gate, the canonical fallback planner and the canonical Phase 11.34 state owner —
+# against the six Audit V1 findings that Remediation V1 closes.
+
+_REMEDIATION_REMOTE_MODEL = "remote-a:audit-remote-1"
+_REMEDIATION_LOCAL_MODEL = "local:multimodal-1"
+_REMEDIATION_FALLBACK_PROVIDER = "fallback-a"
+_REMEDIATION_FALLBACK_MODEL = "fallback-a:audit-fallback-1"
+
+
+def _remediation_graph() -> tuple[
+    ProviderRegistry, ModelCatalog, InMemoryModelProviderAdapter
+]:
+    """Register one cheaper remote model and one pricier local model.
+
+    The canonical default ranking is ``lowest_cost``, so the remote candidate is
+    genuinely ranked first and the local candidate second.
+    """
+
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="remote-a",
+            provider_type="remote",
+            api_style="chat_completions",
+            base_url="https://remote-a.example/v1",
+            availability="available",
+        )
+    )
+    providers.register(
+        ProviderSpec(
+            id="local",
+            provider_type="local",
+            api_style="chat_completions",
+            availability="available",
+        )
+    )
+    providers.register(
+        ProviderSpec(
+            id=_REMEDIATION_FALLBACK_PROVIDER,
+            provider_type="local",
+            api_style="chat_completions",
+            availability="available",
+        )
+    )
+    models = ModelCatalog(providers)
+    models.register(
+        ModelSpec(
+            id="audit-remote-1",
+            provider_id="remote-a",
+            context_window=32768,
+            capabilities=FULL_CAPABILITIES,
+            availability="available",
+            input_cost_per_million=Decimal("0.10"),
+            output_cost_per_million=Decimal("0.10"),
+        )
+    )
+    models.register(
+        ModelSpec(
+            id="multimodal-1",
+            provider_id="local",
+            context_window=200000,
+            capabilities=FULL_CAPABILITIES,
+            availability="available",
+            input_cost_per_million=Decimal("9.00"),
+            output_cost_per_million=Decimal("9.00"),
+        )
+    )
+    models.register(
+        ModelSpec(
+            id="audit-fallback-1",
+            provider_id=_REMEDIATION_FALLBACK_PROVIDER,
+            context_window=32768,
+            capabilities=FULL_CAPABILITIES,
+            availability="available",
+        )
+    )
+    remote = InMemoryModelProviderAdapter(
+        "remote-a", reasoning_effort_map=REASONING_MAP
+    )
+    remote.add_response(content="remote answer")
+    local = InMemoryModelProviderAdapter(
+        "local", reasoning_effort_map=REASONING_MAP, derive_content_from_input=True
+    )
+    local.add_response(content="local answer")
+    return providers, models, (remote, local)
+
+
+def _remediation_gateway(
+    providers: ProviderRegistry,
+    models: ModelCatalog,
+    adapters: tuple[object, ...],
+    *,
+    fallback_planner: object | None = None,
+) -> tuple[ModelGateway, InMemoryModelExecutionEvidenceSink]:
+    sink = InMemoryModelExecutionEvidenceSink()
+    gateway = ModelGateway(
+        provider_registry=providers,
+        model_catalog=models,
+        adapters=ModelProviderAdapterRegistry(adapters),  # type: ignore[arg-type]
+        privacy_gate=CanonicalPrivacyEgressGate(),
+        evidence_sink=sink,
+        fallback_planner=(
+            fallback_planner
+            if fallback_planner is not None
+            else ModelGatewayFallbackPlanner()
+        ),
+    )
+    return gateway, sink
+
+
+def test_scenario_n_auto_privacy_continuation_selects_the_local_candidate() -> None:
+    """AUTO + LOCAL_ONLY + canonical remote first + valid local second."""
+
+    providers, models, (remote, local) = _remediation_graph()
+    gateway, _sink = _remediation_gateway(providers, models, (remote, local))
+
+    order = find_matching_models(
+        models,
+        providers,
+        ModelRequirements(reasoning=True),
+    )
+    assert tuple(model.qualified_id for model in order)[:2] == (
+        _REMEDIATION_REMOTE_MODEL,
+        _REMEDIATION_LOCAL_MODEL,
+    )
+
+    response = gateway.execute(
+        _request(
+            request_id="remediation-n",
+            model_id=None,
+            selection_mode=ModelSelectionMode.AUTO,
+            privacy=LOCAL_ONLY,
+        )
+    )
+
+    assert response.model_id == "multimodal-1"
+    assert response.provider_id == "local"
+    assert remote.call_count == 0
+    assert local.call_count == 1
+    assert response.facts is not None
+    assert response.facts.selection_mode is ModelSelectionMode.AUTO
+
+
+def test_scenario_n_auto_continues_past_a_candidate_without_an_adapter() -> None:
+    """AUTO + canonical first candidate with no adapter + valid second."""
+
+    providers, models, (_remote, local) = _remediation_graph()
+    gateway, _sink = _remediation_gateway(providers, models, (local,))
+
+    response = gateway.execute(
+        _request(
+            request_id="remediation-n-adapter",
+            model_id=None,
+            selection_mode=ModelSelectionMode.AUTO,
+            privacy=REMOTE_ALLOWED,
+        )
+    )
+
+    assert response.model_id == "multimodal-1"
+    assert local.call_count == 1
+
+
+class _CancellingPrimaryAdapter:
+    """Adapt the local adapter but cancel the shared call token first."""
+
+    def __init__(self, delegate: InMemoryModelProviderAdapter, cancellation) -> None:
+        self._delegate = delegate
+        self._cancellation = cancellation
+
+    @property
+    def provider_id(self) -> str:
+        return self._delegate.provider_id
+
+    @property
+    def supports_streaming(self) -> bool:
+        return False
+
+    def execute(self, request, *, cancellation: object | None = None):
+        self._cancellation.cancel("user cancelled the call")
+        raise ModelGatewayError(
+            ModelGatewayErrorCode.PROVIDER_FAILURE,
+            "primary failed after cancelling",
+            details={"provider_id": self.provider_id},
+            retryable=True,
+        )
+
+    def stream(self, request, *, cancellation: object | None = None):
+        raise AssertionError("streaming is not used by this scenario")
+
+
+def test_scenario_o_cancellation_beats_an_authorized_fallback() -> None:
+    """A cancelled primary never executes the authorized fallback."""
+
+    providers, models, (remote, local) = _remediation_graph()
+    cancellation = ModelCallCancellation()
+    primary = _CancellingPrimaryAdapter(local, cancellation)
+    fallback = InMemoryModelProviderAdapter(_REMEDIATION_FALLBACK_PROVIDER)
+    fallback.add_response(content="must never run")
+    gateway, _sink = _remediation_gateway(
+        providers, models, (remote, primary, fallback)
+    )
+
+    with pytest.raises(ModelGatewayError) as error:
+        gateway.execute(
+            _request(
+                request_id="remediation-o",
+                model_id=_REMEDIATION_LOCAL_MODEL,
+                fallback_model_ids=(_REMEDIATION_FALLBACK_MODEL,),
+            ),
+            cancellation=cancellation,
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_CALL_CANCELLED
+    assert cancellation.is_cancelled is True
+    assert fallback.call_count == 0
+
+
+class _LateContentStreamAdapter(InMemoryModelProviderAdapter):
+    """Emit STARTED, block past the deadline, then try to emit late content."""
+
+    def __init__(self, provider_id: str, *, sleep_seconds: float) -> None:
+        super().__init__(provider_id)
+        self._sleep_seconds = sleep_seconds
+
+    def stream(self, request, *, cancellation: object | None = None):
+        self._record(request)
+        yield ProviderStreamEvent(event_type=ModelStreamEventType.STARTED)
+        time.sleep(self._sleep_seconds)
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.CONTENT_DELTA,
+            content_delta="LATE",
+        )
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.COMPLETED,
+            response=ProviderModelResponse(content="LATE"),
+        )
+
+
+def test_scenario_p_stream_deadline_blocks_late_content() -> None:
+    """The public stream deadline is authoritative for provider progress."""
+
+    providers, models, (remote, _local) = _remediation_graph()
+    adapter = _LateContentStreamAdapter("local", sleep_seconds=0.05)
+    gateway, _sink = _remediation_gateway(providers, models, (remote, adapter))
+
+    started = time.monotonic()
+    events = list(
+        gateway.stream(
+            _request(
+                request_id="remediation-p",
+                model_id=_REMEDIATION_LOCAL_MODEL,
+                stream=True,
+                timeout_seconds=0.02,
+            )
+        )
+    )
+    elapsed = time.monotonic() - started
+
+    assert [event.event_type for event in events] == [
+        ModelStreamEventType.STARTED,
+        ModelStreamEventType.ERROR,
+    ]
+    assert events[-1].error_code == "PROVIDER_TIMEOUT"
+    assert sum(event.is_terminal for event in events) == 1
+    assert all(event.content_delta != "LATE" for event in events)
+    assert elapsed < 0.04
+
+
+def test_scenario_q_persisted_capability_truth_survives_the_state_path() -> None:
+    """The canonical Phase 11.34 path preserves Phase 11.21 capability truth."""
+
+    providers = ProviderRegistry()
+    providers.register(
+        ProviderSpec(
+            id="local",
+            provider_type="local",
+            api_style="chat_completions",
+            availability="available",
+        )
+    )
+    models = ModelCatalog(providers)
+    models.register(
+        ModelSpec(
+            id="capability-truth",
+            provider_id="local",
+            context_window=131072,
+            capabilities=ModelCapabilities(
+                reasoning=True,
+                reasoning_efforts=(ReasoningEffort.HIGH, ReasoningEffort.EXTRA_HIGH),
+                document_media_types=("application/pdf", "text/plain"),
+                streaming=True,
+            ),
+            availability="available",
+        )
+    )
+    manifests = ProviderManifestRegistry(providers)
+    connections = ProviderConnectionRegistry(providers)
+    routes = ModelRouteCatalog(connections)
+    repository = InMemoryProviderRegistryStateRepository()
+
+    captured = capture_provider_registry_state(
+        providers, manifests, models, connections, routes, revision=1
+    )
+    repository.save(captured)
+    loaded = repository.load()
+    assert loaded is not None
+    restored = restore_provider_registry_state(
+        ProviderRegistryState.from_dict(loaded.to_dict())
+    )
+
+    canonical = restored.models.get("local:capability-truth")
+    assert canonical.capabilities.reasoning_efforts == (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.EXTRA_HIGH,
+    )
+    assert canonical.capabilities.document_media_types == (
+        "application/pdf",
+        "text/plain",
+    )
+    assert canonical.capabilities.streaming is True
+    assert SCHEMA_VERSION == "3"
+
+
+def test_scenario_r_legacy_adapter_never_silently_discards_a_required_feature() -> None:
+    """A canonical required feature the legacy transport cannot carry fails closed."""
+
+    from kernel.llm.mock_provider import MockProvider
+    from kernel.llm.model_gateway_contracts import ModelToolDefinition
+    from kernel.llm.model_provider_adapter import (
+        LLMProviderModelAdapter,
+        ProviderModelRequest,
+    )
+
+    class _RecordingLegacyProvider(MockProvider):
+        def __init__(self) -> None:
+            super().__init__("must never run")
+            self.requests: list[object] = []
+
+        def generate(self, request):  # type: ignore[no-untyped-def]
+            self.requests.append(request)
+            return super().generate(request)
+
+    provider = _RecordingLegacyProvider()
+    adapter = LLMProviderModelAdapter(
+        provider, provider_id="local", model_id="multimodal-1"
+    )
+    tool = ModelToolDefinition(tool_id="t1", description="look something up")
+
+    with pytest.raises(ModelGatewayError) as error:
+        adapter.execute(
+            ProviderModelRequest(
+                request_id="remediation-r",
+                provider_id="local",
+                model_id="multimodal-1",
+                input_parts=(ModelInputPart.text_part("use the tool"),),
+                tools=(tool,),
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert provider.requests == []
+
+    with pytest.raises(ModelGatewayError) as structured_error:
+        adapter.execute(
+            ProviderModelRequest(
+                request_id="remediation-r-structured",
+                provider_id="local",
+                model_id="multimodal-1",
+                input_parts=(ModelInputPart.text_part("structured please"),),
+                structured_output=StructuredOutputRequirement(
+                    schema={"type": "object"}
+                ),
+            )
+        )
+
+    assert structured_error.value.code is ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED
+    assert provider.requests == []

@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 
+from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.credential_store import InMemoryCredentialStore, credential_ref
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.first_wave_providers import (
@@ -76,6 +77,7 @@ from kernel.llm.provider_onboarding import (
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 from kernel.llm.provider_state import (
+    SCHEMA_VERSION,
     ProviderRegistryState,
     ProviderStateCoherenceError,
     ProviderStateSchemaError,
@@ -2820,3 +2822,75 @@ def test_v6_c_restore_all_keeps_the_historical_binding_under_a_stale_parent(
             )
         )
     assert runtime.routes.list() == snapshot
+
+
+# --- Phase 11.21 Remediation V1: additive schema-v3 capability seam ---------
+
+
+def test_phase11_21_schema_v3_capabilities_survive_a_real_restart(
+    tmp_path: Path,
+) -> None:
+    """Schema v3 carries the Phase 11.21 capability truth through a restart.
+
+    Phase 11.21 Remediation V1 (MAJOR-05) is a strictly additive seam inside this
+    existing Phase 11.34 persistence owner: ownership is unchanged, no second
+    store exists, and the persisted capability shape gained exactly
+    ``reasoning_efforts``, ``document_media_types`` and ``streaming``. This
+    acceptance proves the v3 document round-trips and that the previous shape is
+    still rejected fail-closed — no earlier assertion is weakened.
+    """
+    state_path = tmp_path / "phase11-21-state.json"
+    repository = FileProviderRegistryStateRepository(state_path)
+    runtime = _runtime(tmp_path, repository=repository)
+
+    runtime.models.register(
+        ModelSpec(
+            id="phase11-capability-model",
+            provider_id="deepseek",
+            context_window=131072,
+            capabilities=ModelCapabilities(
+                reasoning=True,
+                reasoning_efforts=(ReasoningEffort.HIGH, ReasoningEffort.EXTRA_HIGH),
+                document_media_types=("application/pdf", "text/plain"),
+                streaming=True,
+            ),
+            availability="available",
+        )
+    )
+    captured = capture_provider_registry_state(
+        runtime.providers,
+        runtime.manifests,
+        runtime.models,
+        runtime.connections,
+        runtime.routes,
+        revision=1,
+    )
+    repository.save(captured)
+
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["schema_version"] == SCHEMA_VERSION == "3"
+    capabilities = persisted["models"][0]["capabilities"]
+    assert capabilities["reasoning_efforts"] == ["high", "extra_high"]
+    assert capabilities["document_media_types"] == ["application/pdf", "text/plain"]
+    assert capabilities["streaming"] is True
+
+    loaded = repository.load()
+    assert loaded is not None
+    restored = restore_provider_registry_state(loaded)
+    canonical = restored.models.get("deepseek:phase11-capability-model")
+    assert canonical.capabilities.reasoning_efforts == (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.EXTRA_HIGH,
+    )
+    assert canonical.capabilities.document_media_types == (
+        "application/pdf",
+        "text/plain",
+    )
+    assert canonical.capabilities.streaming is True
+
+    # The previous persisted capability shape is still rejected by version.
+    previous = json.loads(state_path.read_text(encoding="utf-8"))
+    previous["schema_version"] = "2"
+    _write_payload(state_path, previous)
+    with pytest.raises(ProviderStateSchemaError):
+        repository.load()
