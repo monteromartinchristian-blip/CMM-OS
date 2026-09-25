@@ -24,11 +24,18 @@ preserved exactly:
   reachable end to end.  The matching ``end_to_end_*`` row reports the actual
   conversational truth until a later phase proves a connected path;
 * **a response-event stream is not a token stream.**  ``response_event_stream``
-  describes the existing public response-event delivery.  It is never relabelled
-  as conversational token streaming.
+  describes the existing public response-event delivery of the Phase 11.3
+  application boundary and is projected from the canonical *application*
+  ``streaming`` declaration.  It is never derived from the conversational
+  ``response_streaming`` row — whose degraded status describes provider token
+  streaming — and it is never relabelled as token streaming (Audit V1 MAJOR-04).
 
-Attachments stay ``reference_only`` and document upload stays ``UNAVAILABLE``:
-Phase 11.50 creates no file store, no upload and no path or URL resolver.
+Attachment references stay ``reference_only`` and document upload stays
+``UNAVAILABLE``: Phase 11.50 creates no file store, no upload and no path or URL
+resolver.  Because the canonical conversational row is ``AVAILABLE`` only in the
+``reference_only`` effective mode, the client-visible attachment status is
+``DEGRADED`` and the canonical effective mode is preserved verbatim in
+``attachment_effective_mode`` (Audit V1 MAJOR-04).
 
 See ``docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md``
 (sections 18 to 23) and ``docs/reference/phase-11-reusable-backend-interfaces.md``.
@@ -47,7 +54,10 @@ from cmm.application.contracts import (
     ApplicationCapability,
     CapabilityStatus,
 )
-from cmm.client_backend.contracts import CLIENT_BACKEND_INTERFACE_VERSION
+from cmm.client_backend.contracts import (
+    CLIENT_BACKEND_INTERFACE_VERSION,
+    CLIENT_BACKEND_MAX_IDENTIFIER_LENGTH,
+)
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.contracts import (
     ConversationCapabilityState,
@@ -61,7 +71,9 @@ __all__ = [
     "MODEL_BOUNDARY_TOKEN_STREAM_CAPABILITY_ID",
     "REASON_MODEL_BOUNDARY_CAPABILITY_NOT_DECLARED",
     "REASON_MODEL_BOUNDARY_ONLY_NOT_END_TO_END",
+    "REASON_NO_APPLICATION_DECLARATION",
     "REASON_NO_CONVERSATION_OWNER",
+    "REFERENCE_ONLY_ATTACHMENT_MODE",
     "ClientBackendCapabilities",
     "ClientBackendCapabilityEvidence",
     "ClientBackendCapabilityStatus",
@@ -90,13 +102,33 @@ REASON_MODEL_BOUNDARY_CAPABILITY_NOT_DECLARED = "MODEL_BOUNDARY_CAPABILITY_NOT_D
 #: end-to-end path is deliberately not proven in Phase 11.50.
 REASON_MODEL_BOUNDARY_ONLY_NOT_END_TO_END = "MODEL_BOUNDARY_ONLY_NOT_END_TO_END"
 
+#: The reason of an application-level row whose canonical Phase 11.3 declaration
+#: was not supplied to this projection.
+REASON_NO_APPLICATION_DECLARATION = "NO_CANONICAL_APPLICATION_DECLARATION"
+
 #: The reason reported for every conversational row while no canonical
 #: conversational owner is composed.
 REASON_NO_CONVERSATION_OWNER = "NO_CONVERSATION_OWNER"
 
-#: The effective mode the canonical resolver reports for the degraded
-#: response-event stream.
-_RESPONSE_EVENT_STREAM_MODE = "response_event_stream"
+#: The canonical effective mode of the Phase 11.5 attachment capability: the
+#: conversational boundary keeps attachment *references* only.  Phase 11.50 adds
+#: no upload, no file store and no path or URL resolver, so the client-visible
+#: status of that row is ``DEGRADED`` and this qualifier must stay visible
+#: (Audit V1 MAJOR-04).  The value is the canonical one, never invented here.
+REFERENCE_ONLY_ATTACHMENT_MODE = "reference_only"
+
+#: The canonical Phase 11.3 application capability ID of the public
+#: response-event delivery (the SSE surface).  It is a *different* fact from
+#: provider token streaming, which is why the dedicated ``response_event_stream``
+#: row is projected from it and never from the conversational
+#: ``response_streaming`` row (Audit V1 MAJOR-04).
+_APPLICATION_RESPONSE_EVENT_STREAM_CAPABILITY_ID = "streaming"
+
+#: The canonical Phase 11.5 conversational capability IDs read by this
+#: projection: the token-stream (and response-event) row, the attachment
+#: references and the document upload.
+_CONVERSATION_RESPONSE_STREAMING_CAPABILITY_ID = "response_streaming"
+_CONVERSATION_ATTACHMENTS_CAPABILITY_ID = "attachments"
 
 
 class ClientBackendCapabilityStatus(str, Enum):
@@ -206,6 +238,12 @@ class ClientBackendCapabilities:
     response_event_stream: ClientBackendCapabilityStatus
     request_cancellation: ClientBackendCapabilityStatus
     attachments: ClientBackendCapabilityStatus
+    #: The canonical effective mode of the attachment row: ``reference_only`` at
+    #: this baseline, or ``None`` when no canonical attachment state exists.  It
+    #: is immutable client-visible evidence so a first-party client can tell
+    #: "conversational reference metadata only" apart from real attachment
+    #: reachability (Audit V1 MAJOR-04).
+    attachment_effective_mode: str | None
     document_upload: ClientBackendCapabilityStatus
 
     model_boundary_reasoning: ClientBackendCapabilityStatus
@@ -222,6 +260,16 @@ class ClientBackendCapabilities:
         for name in self._status_fields():
             if not isinstance(getattr(self, name), ClientBackendCapabilityStatus):
                 raise TypeError(f"{name} must be a ClientBackendCapabilityStatus")
+        mode = self.attachment_effective_mode
+        if mode is not None and (
+            not isinstance(mode, str)
+            or not mode.strip()
+            or len(mode) > CLIENT_BACKEND_MAX_IDENTIFIER_LENGTH
+        ):
+            raise ValueError(
+                "attachment_effective_mode must be None or a non-empty bounded "
+                "canonical effective-mode string"
+            )
         if not isinstance(self.reasons, MappingProxyType):
             object.__setattr__(self, "reasons", MappingProxyType(dict(self.reasons)))
         for key in self.reasons:
@@ -267,6 +315,7 @@ class ClientBackendCapabilities:
         }
         for name in self._status_fields():
             payload[name] = getattr(self, name).value
+        payload["attachment_effective_mode"] = self.attachment_effective_mode
         payload["reasons"] = {key: self.reasons[key] for key in sorted(self.reasons)}
         return payload
 
@@ -332,12 +381,20 @@ def _boundary_status(
     return ClientBackendCapabilityStatus.BOUNDARY_ONLY
 
 
+def _conversation_state(
+    states: Sequence[ConversationCapabilityState], capability_id: str
+) -> ConversationCapabilityState | None:
+    """Return the canonical conversational state of *capability_id*, or ``None``."""
+
+    return next((item for item in states if item.capability == capability_id), None)
+
+
 def _conversation_row(
     states: Sequence[ConversationCapabilityState], capability_id: str
 ) -> tuple[ClientBackendCapabilityStatus, str | None]:
     """Project one conversational capability row into client truth."""
 
-    state = next((item for item in states if item.capability == capability_id), None)
+    state = _conversation_state(states, capability_id)
     if state is None:
         return ClientBackendCapabilityStatus.UNAVAILABLE, REASON_NO_CONVERSATION_OWNER
     status = _CAPABILITY_STATUS_MAP[state.status]
@@ -395,18 +452,21 @@ def build_client_backend_capabilities(
     conversation_edit = _row("message_editing")
     conversation_regenerate = _row("controlled_regeneration")
 
-    # The response-event stream is the existing public response delivery; it is
-    # never relabelled as token streaming.
-    response_event_stream_status, response_event_stream_reason = _conversation_row(
-        states, "response_streaming"
+    # The dedicated response-event stream is the existing public response
+    # delivery of the Phase 11.3 application boundary, projected from the
+    # canonical application ``streaming`` declaration.  It is deliberately NOT
+    # derived from the conversational ``response_streaming`` row: that row is
+    # degraded because *provider token streaming* is unavailable, and collapsing
+    # the two truths is exactly the Audit V1 MAJOR-04 defect.
+    response_event_stream_status = _canonical_capability_status(
+        application, _APPLICATION_RESPONSE_EVENT_STREAM_CAPABILITY_ID
     )
-    if not conversation_available:
-        response_event_stream_status = _canonical_capability_status(
-            application, "streaming"
+    if response_event_stream_status is not ClientBackendCapabilityStatus.AVAILABLE:
+        reasons["response_event_stream"] = _declared_reason(
+            application,
+            _APPLICATION_RESPONSE_EVENT_STREAM_CAPABILITY_ID,
+            default=REASON_NO_APPLICATION_DECLARATION,
         )
-        response_event_stream_reason = None
-    if response_event_stream_reason is not None:
-        reasons["response_event_stream"] = response_event_stream_reason
 
     request_cancellation, cancellation_reason = _conversation_row(
         states, "request_cancellation"
@@ -419,9 +479,30 @@ def build_client_backend_capabilities(
     if cancellation_reason is not None:
         reasons["request_cancellation"] = cancellation_reason
 
-    attachments, attachments_reason = _conversation_row(states, "attachments")
+    # Attachments: the canonical conversational row is AVAILABLE with the
+    # effective mode ``reference_only`` — attachment *references* stay in
+    # conversation state and never enter the application message payload, and
+    # Phase 11.50 adds no upload, no file store and no path or URL resolver.  The
+    # client-visible status is therefore DEGRADED and the canonical effective mode
+    # is preserved verbatim, so a first-party client can tell reference metadata
+    # apart from real attachment reachability (Audit V1 MAJOR-04).
+    attachments, attachments_reason = _conversation_row(
+        states, _CONVERSATION_ATTACHMENTS_CAPABILITY_ID
+    )
+    attachment_state = _conversation_state(
+        states, _CONVERSATION_ATTACHMENTS_CAPABILITY_ID
+    )
+    attachment_effective_mode = (
+        None if attachment_state is None else attachment_state.effective
+    )
     if not conversation_available:
         attachments = ClientBackendCapabilityStatus.UNAVAILABLE
+        attachment_effective_mode = None
+    elif (
+        attachments is ClientBackendCapabilityStatus.AVAILABLE
+        and attachment_effective_mode == REFERENCE_ONLY_ATTACHMENT_MODE
+    ):
+        attachments = ClientBackendCapabilityStatus.DEGRADED
     if attachments_reason is not None:
         reasons["attachments"] = attachments_reason
 
@@ -460,12 +541,13 @@ def build_client_backend_capabilities(
         else REASON_MODEL_BOUNDARY_CAPABILITY_NOT_DECLARED
     )
 
-    # The conversational token stream is the degraded row reported by the
-    # canonical resolver; it is never upgraded from the model boundary.  A
+    # The end-to-end token stream is the degraded conversational row reported by
+    # the canonical resolver; it is never upgraded from the model boundary.  A
     # response-event stream is not a token stream, so an ``AVAILABLE``
-    # conversational streaming row is still only ``DEGRADED`` here.
+    # conversational streaming row is still only ``DEGRADED`` here, and this row
+    # is a separate fact from ``response_event_stream``.
     end_to_end_token_stream, token_stream_reason = _conversation_row(
-        states, "response_streaming"
+        states, _CONVERSATION_RESPONSE_STREAMING_CAPABILITY_ID
     )
     if not conversation_available:
         end_to_end_token_stream = ClientBackendCapabilityStatus.UNAVAILABLE
@@ -497,6 +579,7 @@ def build_client_backend_capabilities(
         response_event_stream=response_event_stream_status,
         request_cancellation=request_cancellation,
         attachments=attachments,
+        attachment_effective_mode=attachment_effective_mode,
         document_upload=document_upload,
         model_boundary_reasoning=model_boundary_reasoning,
         model_boundary_multimodal=model_boundary_multimodal,

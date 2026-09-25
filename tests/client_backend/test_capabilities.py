@@ -39,6 +39,9 @@ from cmm.client_backend.capabilities import (
     ClientBackendCapabilityEvidence,
     build_client_backend_capabilities,
 )
+from cmm.conversation.capabilities import (
+    REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE,
+)
 from tests.client_backend._canonical_graph import build_client_backend_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -138,23 +141,17 @@ def test_the_conversational_rows_follow_the_canonical_resolver() -> None:
     assert manifest.conversation_regenerate is ClientBackendCapabilityStatus.AVAILABLE
 
 
-def test_the_response_event_stream_is_degraded_and_reports_its_canonical_reason() -> (
+def test_the_response_event_stream_follows_the_canonical_application_declaration() -> (
     None
 ):
-    """Streaming is the canonical degraded response-event stream."""
-
-    from cmm.conversation.capabilities import (
-        REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE,
-    )
+    """The dedicated row is the canonical public response-event delivery."""
 
     graph = build_client_backend_graph()
     manifest = graph.client.capabilities()
 
-    assert manifest.response_event_stream is ClientBackendCapabilityStatus.DEGRADED
-    assert (
-        manifest.reasons["response_event_stream"]
-        == REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE
-    )
+    assert manifest.response_event_stream is ClientBackendCapabilityStatus.AVAILABLE
+    # The canonical Phase 11.3 declaration is available, so no reason is needed.
+    assert "response_event_stream" not in manifest.reasons
 
 
 def test_the_response_event_stream_is_not_relabelled_as_token_streaming() -> None:
@@ -164,15 +161,15 @@ def test_the_response_event_stream_is_not_relabelled_as_token_streaming() -> Non
     manifest = graph.client.capabilities()
 
     # The two rows are distinct fields with distinct meaning: the response-event
-    # stream describes the existing public response delivery, and the end-to-end
-    # token stream describes provider token streaming.  Neither is ever claimed
-    # available from the other.
+    # stream describes the existing public response delivery (available), and the
+    # end-to-end token stream describes provider token streaming (still degraded).
+    # Neither is ever claimed from the other.
     assert manifest.end_to_end_token_stream is ClientBackendCapabilityStatus.DEGRADED
     assert manifest.end_to_end_token_stream.value != "available"
-    assert manifest.response_event_stream.value != "available"
+    assert manifest.response_event_stream is ClientBackendCapabilityStatus.AVAILABLE
     assert (
         manifest.reasons["end_to_end_token_stream"]
-        == (manifest.reasons["response_event_stream"])
+        == REASON_PROVIDER_TOKEN_STREAMING_UNAVAILABLE
     )
     assert "response_event_stream" in manifest._status_fields()
     assert "end_to_end_token_stream" in manifest._status_fields()
@@ -197,7 +194,8 @@ def test_attachments_are_reference_only_and_upload_is_unavailable() -> None:
     graph = build_client_backend_graph()
     manifest = graph.client.capabilities()
 
-    assert manifest.attachments is ClientBackendCapabilityStatus.AVAILABLE
+    assert manifest.attachments is ClientBackendCapabilityStatus.DEGRADED
+    assert manifest.attachment_effective_mode == "reference_only"
     assert manifest.document_upload is ClientBackendCapabilityStatus.UNAVAILABLE
     assert manifest.reasons["document_upload"] == "NO_CANONICAL_STORAGE_OWNER"
 
@@ -456,6 +454,7 @@ def test_the_manifest_serializes_deterministically() -> None:
     assert set(first) == {
         "interface_version",
         "application_api_version",
+        "attachment_effective_mode",
         *EXPECTED_STATUS_FIELDS,
         "reasons",
     }

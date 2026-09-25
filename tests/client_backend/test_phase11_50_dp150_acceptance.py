@@ -35,9 +35,10 @@ Scenario map (all connected, in one acceptance):
 * **C** — submit-message traversal through ``ConversationService`` →
   ``ApplicationGateway`` with canonical identities and safe ``AssistantResponse``;
 * **D** — edit and regenerate lineage owned by the canonical service;
-* **E** — capability truth: response-event stream, cancellation, attachments,
-  document upload, model boundary and end-to-end rows, with no false
-  ``available``;
+* **E** — capability truth against the frozen design: response-event stream
+  ``available``, attachments ``degraded``/``reference_only``, document upload
+  ``unavailable``, requests cancellation honest, and boundary-only rows that are
+  never end-to-end availability (remediated by Audit V1 MAJOR-04);
 * **F** — version fail-closed with zero downstream calls;
 * **G** — safe error projection with no raw internals;
 * **H** — anti-fragmentation: no store, repository, registry, router, runtime,
@@ -478,7 +479,21 @@ def test_at_dp150_scenario_d_stale_revision_is_a_canonical_conflict() -> None:
 
 
 def test_at_dp150_scenario_e_capability_truth() -> None:
-    """Every required row is present and no row is falsely available."""
+    """Every required row is present and no row overstates the frozen truth.
+
+    Remediated for Audit V1 MAJOR-04.  The audited scenario asserted
+    ``attachments=available`` (dropping the canonical ``reference_only``
+    qualifier) and ``response_event_stream=degraded`` (collapsing the public
+    response-event delivery with provider token streaming).  The frozen Phase
+    11.50 truth asserted here is:
+
+    ```text
+    attachments=DEGRADED with effective mode reference_only
+    document_upload=UNAVAILABLE
+    response_event_stream=AVAILABLE
+    end_to_end_token_stream=DEGRADED (a separate fact)
+    ```
+    """
 
     graph = build_client_backend_graph()
     manifest = graph.client.capabilities()
@@ -500,14 +515,18 @@ def test_at_dp150_scenario_e_capability_truth() -> None:
             field_name
         )
 
-    # Streaming is the canonical degraded response-event stream, never an
-    # "available" token stream.
-    assert manifest.response_event_stream is ClientBackendCapabilityStatus.DEGRADED
+    # The public response-event delivery exists in its own right and is reported
+    # available; it is never relabelled as a token stream.
+    assert manifest.response_event_stream is ClientBackendCapabilityStatus.AVAILABLE
 
-    # Cancellation, upload, model boundary and end-to-end truth are honest.
-    assert manifest.request_cancellation is ClientBackendCapabilityStatus.UNAVAILABLE
+    # Attachment references are degraded conversational metadata and the canonical
+    # reference_only qualifier stays client-visible.
+    assert manifest.attachments is ClientBackendCapabilityStatus.DEGRADED
+    assert manifest.attachment_effective_mode == "reference_only"
     assert manifest.document_upload is ClientBackendCapabilityStatus.UNAVAILABLE
-    assert manifest.attachments is ClientBackendCapabilityStatus.AVAILABLE
+
+    # Cancellation, model boundary and end-to-end truth stay honest.
+    assert manifest.request_cancellation is ClientBackendCapabilityStatus.UNAVAILABLE
     assert (
         manifest.model_boundary_reasoning is ClientBackendCapabilityStatus.UNAVAILABLE
     )
