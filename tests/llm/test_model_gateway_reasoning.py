@@ -67,9 +67,7 @@ def _runtime(
         tool_calling=TEXT_CAPABLE.tool_calling,
         json_schema=TEXT_CAPABLE.json_schema,
     )
-    adapter = InMemoryModelProviderAdapter(
-        "local", reasoning_effort_map=NATIVE_NAMES
-    )
+    adapter = InMemoryModelProviderAdapter("local", reasoning_effort_map=NATIVE_NAMES)
     runtime = build_runtime(
         capabilities=capabilities,
         adapters=(adapter,),
