@@ -29,7 +29,16 @@ CANONICAL_MODULE = PLATFORM_PACKAGE / "canonical.py"
 #: Phase 11.5 (DP-105) sanctions ``cmm.conversation`` as the third sanctioned
 #: consumer: it binds ``conversation.service`` through the same Phase 11.1
 #: composition contracts and owns no platform authority of its own.
-PLATFORM_CONSUMER_PACKAGES = ("orchestration", "application", "conversation")
+#: Phase 11.50 (DP-150) sanctions ``cmm.client_backend`` as the fourth: it binds
+#: ``client.backend`` through the same Phase 11.1 composition contracts, owns no
+#: platform authority of its own, and declares no canonical subsystem service as
+#: a dependency at all.
+PLATFORM_CONSUMER_PACKAGES = (
+    "orchestration",
+    "application",
+    "conversation",
+    "client_backend",
+)
 
 # ── Canonical imports used only to build real subsystem objects ---------------
 
