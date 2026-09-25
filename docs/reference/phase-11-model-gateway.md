@@ -114,6 +114,11 @@ Safety invariants enforced at construction time:
 - immutability is structural (`frozen=True, slots=True`), and unknown fields are
   rejected rather than ignored.
 
+`ModelSelectionMode.EXPLICIT` requires a `model_id` and is authoritative:
+the requested model is never silently substituted. `ModelSelectionMode.AUTO`
+resolves through canonical model selection only (see §15 for its exact
+boundary).
+
 `kernel/llm/model_gateway_errors.py` publishes the closed error taxonomy:
 `MODEL_NOT_FOUND`, `PROVIDER_NOT_AVAILABLE`, `MODEL_UNAVAILABLE`,
 `CAPABILITY_UNSUPPORTED`, `UNSUPPORTED_REASONING_EFFORT`,
@@ -355,11 +360,16 @@ names the service without exposing any sensitive key.
 - **Stream interruptibility.** Timeout and cancellation are enforced between
   events; a provider that blocks inside a single chunk is not interruptible
   except by adapter cooperation with the cancellation token.
-- **`AUTO` selection.** `AUTO` may reuse only the existing canonical
-  requirement/selection path. Phase 11.21 adds no quality scoring, cost
-  optimization, preference learning, adaptive ranking or benchmark routing. An
-  `AUTO` request that cannot be resolved through canonical selection fails with
-  `MODEL_NOT_FOUND`; Phase 11.21 does not implement a candidate loop for it.
+- **`AUTO` selection.** `AUTO` reuses only the existing canonical
+  requirement/selection path (`kernel.llm.model_selection.find_matching_models`
+  with the canonical default ranking policy). The gateway adds no quality
+  scoring, cost optimization, preference learning, adaptive ranking or
+  benchmark routing; it only filters the canonical matches by the two
+  requirements the shared requirement contract cannot express (the requested
+  reasoning level and document media types). A model with unknown context
+  window is excluded by canonical selection, and an `AUTO` request that nothing
+  canonical satisfies fails closed with `MODEL_NOT_FOUND` before any adapter
+  call.
 - **Agent-run evidence projection.** `ModelExecutionRecord` is agent-run scoped
   and its token/cost fields are non-optional integers. The projection therefore
   writes an unknown metric as the record's own default **and** marks it in

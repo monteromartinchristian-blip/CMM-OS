@@ -6848,7 +6848,8 @@ CMMChat-facing client surface (11.50).
 ```text
 kernel/llm/provider_registry.py      ProviderRegistry (exact instance identity)
 kernel/llm/model_catalog.py          ModelCatalog (bound to that same registry)
-kernel/llm/model_selection.py        ModelRequirements (fallback planning only)
+kernel/llm/model_selection.py        ModelRequirements and find_matching_models
+                                     (fallback planning and AUTO selection only)
 kernel/llm/model_router.py           RoutingCandidate (fallback planning only)
 cmm/agent_runtime/model_fallback_decision_engine.py   attempt/fallback decisions
 cmm/agent_runtime/model_fallback_contracts.py         attempt and policy contracts

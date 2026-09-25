@@ -12,13 +12,14 @@ import json
 
 import pytest
 
-from kernel.llm.capabilities import ModelCapabilities
+from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_gateway import ModelGateway
 from kernel.llm.model_gateway_contracts import (
     ModelGatewayRequest,
     ModelGatewayResponse,
     ModelInputPart,
+    ModelSelectionMode,
     ModelToolCall,
     ModelToolDefinition,
 )
@@ -30,6 +31,7 @@ from kernel.llm.model_provider_adapter import (
 from kernel.llm.model_streaming import ModelCallCancellation
 from kernel.llm.provider_registry import ProviderSpec
 from tests.llm.model_gateway_support import (
+    PDF_BYTES,
     TEXT_CAPABLE,
     GatewayRuntime,
     build_canonical_graph,
@@ -402,3 +404,167 @@ def test_tool_declarations_reach_the_adapter_unexecuted() -> None:
     assert response.tool_calls[0].call_id == "call-1"
     assert response.facts is not None
     assert response.facts.tool_use is True
+
+
+# ── AUTO selection reuses the canonical selection path ─────────────────────
+
+
+def test_auto_selection_reuses_canonical_selection() -> None:
+    graph = build_canonical_graph()
+    graph.models.register(
+        ModelSpec(
+            id="plain",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(),
+            availability="available",
+        )
+    )
+    graph.models.register(
+        ModelSpec(
+            id="sees",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(vision=True),
+            availability="available",
+        )
+    )
+    adapter = InMemoryModelProviderAdapter("local")
+    adapter.add_response(content="auto answer")
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry((adapter,)),
+    )
+
+    response = gateway.execute(
+        _request(
+            model_id=None,
+            selection_mode=ModelSelectionMode.AUTO,
+            required_capabilities=("vision",),
+        )
+    )
+
+    assert response.model_id == "sees"
+    assert adapter.requests[0].model_id == "sees"
+    assert response.facts is not None
+    assert response.facts.selection_mode is ModelSelectionMode.AUTO
+
+
+def test_auto_selection_fails_closed_when_no_canonical_model_matches() -> None:
+    runtime = _runtime(capabilities=ModelCapabilities())
+    runtime.adapter("local").add_response(content="never")
+
+    with pytest.raises(ModelGatewayError) as error:
+        runtime.gateway.execute(
+            _request(
+                model_id=None,
+                selection_mode=ModelSelectionMode.AUTO,
+                required_capabilities=("vision",),
+            )
+        )
+
+    assert error.value.code is ModelGatewayErrorCode.MODEL_NOT_FOUND
+    assert runtime.adapter("local").call_count == 0
+
+
+def test_auto_selection_requires_a_declared_reasoning_effort() -> None:
+    graph = build_canonical_graph()
+    graph.models.register(
+        ModelSpec(
+            id="no-effort",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(reasoning=True),
+            availability="available",
+        )
+    )
+    graph.models.register(
+        ModelSpec(
+            id="declares-high",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(
+                reasoning=True, reasoning_efforts=(ReasoningEffort.HIGH,)
+            ),
+            availability="available",
+        )
+    )
+    adapter = InMemoryModelProviderAdapter(
+        "local", reasoning_effort_map={ReasoningEffort.HIGH: "thinking_budget_high"}
+    )
+    adapter.add_response(content="deep")
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry((adapter,)),
+    )
+
+    response = gateway.execute(
+        _request(
+            model_id=None,
+            selection_mode=ModelSelectionMode.AUTO,
+            reasoning_effort=ReasoningEffort.HIGH,
+        )
+    )
+
+    assert response.model_id == "declares-high"
+    assert adapter.native_efforts == ("thinking_budget_high",)
+
+
+def test_auto_selection_respects_document_modality() -> None:
+    graph = build_canonical_graph()
+    graph.models.register(
+        ModelSpec(
+            id="text-only",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(),
+            availability="available",
+        )
+    )
+    graph.models.register(
+        ModelSpec(
+            id="documents",
+            provider_id="local",
+            context_window=32768,
+            capabilities=ModelCapabilities(document_media_types=("application/pdf",)),
+            availability="available",
+        )
+    )
+    adapter = InMemoryModelProviderAdapter("local")
+    adapter.add_response(content="document understood")
+    gateway = ModelGateway(
+        provider_registry=graph.providers,
+        model_catalog=graph.models,
+        adapters=ModelProviderAdapterRegistry((adapter,)),
+    )
+
+    response = gateway.execute(
+        _request(
+            model_id=None,
+            selection_mode=ModelSelectionMode.AUTO,
+            input_parts=(ModelInputPart.document_part(PDF_BYTES, "application/pdf"),),
+        )
+    )
+
+    assert response.model_id == "documents"
+
+
+def test_auto_selection_introduces_no_routing_policy_surface() -> None:
+    runtime = _runtime()
+    runtime.adapter("local").add_response(content="ok")
+
+    for forbidden in (
+        "rank_models",
+        "score_models",
+        "cheapest_model",
+        "preferred_provider",
+        "routing_policy",
+    ):
+        assert not hasattr(runtime.gateway, forbidden)
+
+    response = runtime.gateway.execute(
+        _request(model_id=None, selection_mode=ModelSelectionMode.AUTO)
+    )
+    assert response.model_id == "model-1"

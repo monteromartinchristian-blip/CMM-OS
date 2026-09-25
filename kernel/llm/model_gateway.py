@@ -57,7 +57,7 @@ from kernel.llm.model_provider_adapter import (
     ProviderModelResponse,
 )
 from kernel.llm.model_router import RoutingCandidate
-from kernel.llm.model_selection import ModelRequirements
+from kernel.llm.model_selection import ModelRequirements, find_matching_models
 from kernel.llm.model_streaming import (
     ModelCallCancellation,
     ModelCallHandle,
@@ -1112,7 +1112,6 @@ class ModelGateway:
         )
 
     def _resolve_model(self, request: ModelGatewayRequest) -> ModelSpec:
-        selection_mode = request.selection_mode
         if request.model_id is not None:
             try:
                 return self._model_catalog.get(
@@ -1125,9 +1124,38 @@ class ModelGateway:
                     "the requested model is not registered",
                     details={"model_id": request.model_id},
                 ) from error
+        return self._resolve_auto_model(request)
+
+    def _resolve_auto_model(self, request: ModelGatewayRequest) -> ModelSpec:
+        """Resolve an AUTO request through the canonical selection path only.
+
+        Candidate ordering is exactly the canonical model-selection ranking; the
+        gateway adds no scoring, cost optimization, preference learning or
+        provider ranking of its own.  It only filters the canonical matches by
+        the two requirements the shared requirement contract cannot express —
+        the requested reasoning level and document media types — and fails
+        closed when nothing canonical satisfies the request.
+        """
+
+        matches = find_matching_models(
+            self._model_catalog,
+            self._provider_registry,
+            self._requirements(request),
+        )
+        for model in matches:
+            try:
+                self._validate_capabilities(request, model)
+                self._validate_modalities(request, model)
+            except ModelGatewayError:
+                continue
+            return model
         raise ModelGatewayError(
             ModelGatewayErrorCode.MODEL_NOT_FOUND,
-            f"{selection_mode.value} model selection is not resolvable",
+            "no canonical model satisfies the requested requirements",
+            details={
+                "selection_mode": request.selection_mode.value,
+                "candidates_considered": len(matches),
+            },
             retryable=False,
         )
 
