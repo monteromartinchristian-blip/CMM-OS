@@ -28,6 +28,7 @@ from __future__ import annotations
 import ast
 import importlib
 import json
+from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -384,13 +385,46 @@ def test_the_serialized_request_contains_only_json_native_values() -> None:
     )
 
     def _assert_native(value: object) -> None:
-        assert value is None or isinstance(value, bool | int | float | str)
+        assert not isinstance(value, Enum), "an Enum member survived to_dict()"
+        assert not isinstance(value, tuple), "a tuple survived to_dict()"
+        assert not isinstance(value, bytes | bytearray | memoryview)
+        assert not hasattr(value, "__dataclass_fields__"), (
+            "a dataclass instance survived to_dict()"
+        )
+        if value is None or isinstance(value, bool | int | float | str):
+            return
         if isinstance(value, list):
             for item in value:
                 _assert_native(item)
+            return
         if isinstance(value, dict):
             for key, item in value.items():
                 assert isinstance(key, str)
                 _assert_native(item)
+            return
+        raise AssertionError(f"non JSON-native value: {type(value).__name__}")
 
-    _assert_native(request.to_dict())
+    document = request.to_dict()
+    _assert_native(document)
+    # The declared closed operation and the nested enum are their semantic values.
+    assert document["operation"] == "submit_message"
+    assert document["payload"]["nested"]["enum"] == "capabilities"
+    assert document["payload"]["nested"]["list"] == [1, 2]
+
+
+def test_every_whitelisted_canonical_value_has_a_public_safe_serializer() -> None:
+    """The whitelist is only sound because each canonical type serializes itself.
+
+    ``_thaw`` never walks a dataclass generically: it calls the canonical owner's
+    own public ``to_dict()``.  This control test keeps that precondition true, so
+    a canonical type added to the frozen inventory without a safe public
+    serializer fails here rather than at a client's ``json.dumps`` call.
+    """
+
+    canonical = importlib.import_module("cmm.client_backend.contracts")
+
+    for qualified in sorted(canonical.CANONICAL_PAYLOAD_TYPE_NAMES):
+        module_name, _, class_name = qualified.rpartition(".")
+        value_type = getattr(importlib.import_module(module_name), class_name)
+        serializer = getattr(value_type, "to_dict", None)
+        assert callable(serializer), f"{qualified} has no public to_dict()"

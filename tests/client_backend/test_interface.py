@@ -721,7 +721,9 @@ def _public_live_owners(client: ClientBackend) -> list[str]:
     for name in dir(client):
         if name.startswith("_"):
             continue
-        if isinstance(getattr(client, name, None), ApplicationGateway | ConversationService):
+        if isinstance(
+            getattr(client, name, None), ApplicationGateway | ConversationService
+        ):
             exposed.append(name)
     return exposed
 

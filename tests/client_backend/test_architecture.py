@@ -157,9 +157,7 @@ CLIENT_BACKEND_INTERNAL_IMPORTS_PIN: dict[str, frozenset[str]] = {
             "cmm.conversation.contracts",
         }
     ),
-    "contracts.py": frozenset(
-        {"cmm.application.contracts", "cmm.conversation.errors"}
-    ),
+    "contracts.py": frozenset({"cmm.application.contracts", "cmm.conversation.errors"}),
     "interface.py": frozenset(
         {
             "cmm.application.contracts",

@@ -27,6 +27,14 @@ The envelope exists so a first-party client can speak the facade contract
 without importing an internal module; it is deliberately *not* a second message
 schema, a second session schema or a second error hierarchy.
 
+Every public wrapper's ``to_dict()`` is deterministic and returns **only**
+JSON-native values: a canonical public value carried inside a payload is
+serialized through its own canonical safe ``to_dict()`` and normalized
+recursively, so ``json.dumps(wrapper.to_dict())`` succeeds for every supported
+canonical value.  Nothing is stringified, no arbitrary dataclass is walked and
+an unsupported value fails closed as ``INVALID_CLIENT_CONTRACT`` (Audit V1
+MAJOR-05 remediation).
+
 See ``docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md``
 (sections 10 to 13 and 24 to 26) and
 ``docs/reference/phase-11-reusable-backend-interfaces.md``.
@@ -318,15 +326,55 @@ def _primitive_safe(value: object, *, label: str, depth: int = 1) -> Any:
 
 
 def _thaw(value: object) -> Any:
-    """Return a fresh, plain, JSON-native representation of a frozen value."""
+    """Return a fresh, JSON-native representation of a frozen client value.
 
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw(item) for item in value]
+    Every public wrapper's ``to_dict()`` goes through here, so the result contains
+    only ``None``, ``bool``, ``int``, ``float``, ``str``, ``list`` and
+    ``dict[str, ...]`` (Audit V1 MAJOR-05).  A whitelisted canonical public value
+    is serialized through its **own** canonical safe ``to_dict()`` and then
+    normalized recursively; there is no generic dataclass walk, no ``repr(...)``,
+    no ``str(...)`` coercion and no identity generation.  Anything else fails
+    closed as an invalid client contract rather than surviving or being
+    stringified.
+    """
+
+    if _is_canonical_payload_value(value):
+        return _thaw(value.to_dict())
     if isinstance(value, Enum):
-        return value.value
-    return value
+        # The closed vocabularies of this layer and of the canonical contracts are
+        # ``str``-mixin enums, so the ``Enum`` test must precede the primitive
+        # test: the semantic ``.value`` is what survives, never the member object.
+        return _thaw(value.value)
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, Mapping):
+        native: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ClientBackendError(ClientBackendErrorCode.INVALID_CLIENT_CONTRACT)
+            native[key] = _thaw(item)
+        return native
+    if isinstance(value, tuple | list):
+        return [_thaw(item) for item in value]
+    raise ClientBackendError(ClientBackendErrorCode.INVALID_CLIENT_CONTRACT)
+
+
+def _safe_client_value(value: object, *, label: str) -> Any:
+    """Return the primitive-safe form of one public client value, or fail closed.
+
+    The precise internal diagnostic of :func:`_primitive_safe` is kept as the
+    exception cause for developers, while the client-visible failure is the
+    layer's own closed ``INVALID_CLIENT_CONTRACT`` carrying only its module-owned
+    constant message — an opaque value, binary data, a callable or a malformed
+    container is never stringified and never silently passed through.
+    """
+
+    try:
+        return _primitive_safe(value, label=label)
+    except (TypeError, ValueError) as exc:
+        raise ClientBackendError(
+            ClientBackendErrorCode.INVALID_CLIENT_CONTRACT
+        ) from exc
 
 
 class ClientBackendError(Exception):
@@ -451,7 +499,7 @@ class ClientBackendRequest:
         object.__setattr__(
             self,
             "payload",
-            _primitive_safe(self.payload, label="payload"),
+            _safe_client_value(self.payload, label="payload"),
         )
         if not isinstance(self._skip_version_gate, bool):
             raise TypeError("_skip_version_gate must be a bool")
@@ -531,7 +579,9 @@ class ClientBackendResult:
                 "must not"
             )
         if self.data is not None:
-            object.__setattr__(self, "data", _primitive_safe(self.data, label="data"))
+            object.__setattr__(
+                self, "data", _safe_client_value(self.data, label="data")
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Return the deterministic public representation of this result."""
