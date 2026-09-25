@@ -27,13 +27,17 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:  # pragma: no cover - annotation-only import
+    from kernel.llm.model_gateway_errors import ModelGatewayError
 
 from kernel.llm.capabilities import ReasoningEffort
 
 __all__ = [
     "CANONICAL_DOCUMENT_MEDIA_TYPES",
     "CANONICAL_MODEL_CAPABILITIES",
+    "MAX_RETRY_ATTEMPTS",
     "TERMINAL_STREAM_EVENT_TYPES",
     "InMemoryModelExecutionEvidenceSink",
     "InputModality",
@@ -41,8 +45,10 @@ __all__ = [
     "ModelCapabilityProjection",
     "ModelExecutionEvidenceSink",
     "ModelExecutionFacts",
+    "ModelFallbackAttempt",
     "ModelGatewayRequest",
     "ModelGatewayResponse",
+    "ModelGatewayRetryPolicy",
     "ModelInputPart",
     "ModelSelectionMode",
     "ModelStreamEvent",
@@ -1424,3 +1430,132 @@ class ModelCapabilityProjection:
                 else str(self.cached_input_cost_per_million)
             ),
         }
+
+
+# ── Bounded transport retry policy ───────────────────────────────────────────
+
+#: Hard ceiling on transport retries.  Phase 11.21 performs bounded transport
+#: retry only; it never builds an unbounded recovery loop.
+MAX_RETRY_ATTEMPTS = 5
+
+
+@dataclass(frozen=True, slots=True)
+class ModelGatewayRetryPolicy:
+    """Explicit, bounded transport-retry policy for one gateway.
+
+    ``max_attempts`` counts the first attempt, so ``1`` means "never retry".
+    Only explicit transient transport/provider failures are retried; the
+    canonical retryable error-code set decides which those are.
+    """
+
+    max_attempts: int = 1
+    backoff_seconds: float = 0.0
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_attempts, int)
+            or isinstance(self.max_attempts, bool)
+            or not 1 <= self.max_attempts <= MAX_RETRY_ATTEMPTS
+        ):
+            raise ValueError(f"max_attempts must be between 1 and {MAX_RETRY_ATTEMPTS}")
+        backoff = self.backoff_seconds
+        if isinstance(backoff, bool) or not isinstance(backoff, (int, float)):
+            raise TypeError("backoff_seconds must be a number")
+        if not math.isfinite(float(backoff)) or float(backoff) < 0:
+            raise ValueError("backoff_seconds must be a finite non-negative number")
+        object.__setattr__(self, "backoff_seconds", float(backoff))
+
+    @property
+    def retries_allowed(self) -> bool:
+        """Return whether this policy permits more than one attempt."""
+
+        return self.max_attempts > 1
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the safe public representation of this policy."""
+
+        return {
+            "max_attempts": self.max_attempts,
+            "backoff_seconds": self.backoff_seconds,
+            "retries_allowed": self.retries_allowed,
+        }
+
+
+# ── Fallback mechanics boundary ──────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ModelFallbackAttempt:
+    """One failed gateway attempt, as seen by a fallback planner.
+
+    This is the gateway-side, provider-independent attempt record.  The
+    canonical fallback authority converts it into its own attempt contract; the
+    gateway never builds that authority's types itself, and the planner never
+    receives policy authority over candidate order.
+    """
+
+    attempt_index: int
+    model_id: str
+    provider_id: str
+    success: bool
+    error_code: str | None = None
+    retryable: bool = False
+    latency_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.attempt_index, int)
+            or isinstance(self.attempt_index, bool)
+            or self.attempt_index < 1
+        ):
+            raise ValueError("attempt_index must be an integer >= 1")
+        object.__setattr__(
+            self, "model_id", require_identifier(self.model_id, label="model_id")
+        )
+        object.__setattr__(
+            self,
+            "provider_id",
+            require_identifier(self.provider_id, label="provider_id"),
+        )
+        if not isinstance(self.success, bool):
+            raise TypeError("success must be a bool")
+        object.__setattr__(
+            self,
+            "error_code",
+            require_optional_identifier(self.error_code, label="error_code"),
+        )
+        if self.latency_ms is not None and self.latency_ms < 0:
+            raise ValueError("latency_ms cannot be negative")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the safe public representation of this attempt."""
+
+        return {
+            "attempt_index": self.attempt_index,
+            "model_id": self.model_id,
+            "provider_id": self.provider_id,
+            "success": self.success,
+            "error_code": self.error_code,
+            "retryable": self.retryable,
+            "latency_ms": self.latency_ms,
+        }
+
+
+@runtime_checkable
+class ModelFallbackPlanner(Protocol):
+    """Injected canonical authority that plans an authorized fallback candidate.
+
+    Implementations delegate to the existing Agent Runtime fallback decision
+    engine.  The gateway only reads the returned decision's action and selected
+    model/provider; it never re-ranks candidates and never relaxes a requirement.
+    """
+
+    def next_selection(
+        self,
+        *,
+        candidates: object,
+        attempts: object,
+        error: ModelGatewayError,
+        requirements: object,
+    ) -> object:
+        """Return the canonical fallback decision for the next candidate."""

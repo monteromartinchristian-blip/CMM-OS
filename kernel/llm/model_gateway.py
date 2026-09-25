@@ -37,8 +37,11 @@ from kernel.llm.model_gateway_contracts import (
     ModelCapabilityProjection,
     ModelExecutionEvidenceSink,
     ModelExecutionFacts,
+    ModelFallbackAttempt,
+    ModelFallbackPlanner,
     ModelGatewayRequest,
     ModelGatewayResponse,
+    ModelGatewayRetryPolicy,
     ModelStreamEvent,
     ModelStreamEventType,
     ModelUsage,
@@ -52,6 +55,8 @@ from kernel.llm.model_provider_adapter import (
     ProviderModelRequest,
     ProviderModelResponse,
 )
+from kernel.llm.model_router import RoutingCandidate
+from kernel.llm.model_selection import ModelRequirements
 from kernel.llm.model_streaming import (
     ModelCallCancellation,
     ModelCallHandle,
@@ -79,7 +84,11 @@ _CAPABILITY_FIELD_NAMES = {
 }
 
 _DEFAULT_MAX_TIMEOUT_SECONDS = 300.0
-_DEFAULT_MAX_ATTEMPTS = 1
+
+#: The canonical ``ModelFallbackAction.NEXT_ROUTING_CANDIDATE`` value.  The
+#: gateway never imports the fallback authority's types; it reads the injected
+#: planner's decision through this one documented value.
+_NEXT_CANDIDATE_ACTION = "next_routing_candidate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,11 +115,12 @@ class ModelGateway:
         "_adapter_registry",
         "_clock",
         "_evidence_sink",
-        "_max_attempts",
+        "_fallback_planner",
         "_max_timeout_seconds",
         "_model_catalog",
         "_privacy_gate",
         "_provider_registry",
+        "_retry_policy",
     )
 
     def __init__(
@@ -123,6 +133,8 @@ class ModelGateway:
         | None = None,
         privacy_gate: PrivacyEgressGate | None = None,
         evidence_sink: ModelExecutionEvidenceSink | None = None,
+        retry_policy: ModelGatewayRetryPolicy | None = None,
+        fallback_planner: ModelFallbackPlanner | None = None,
         max_timeout_seconds: float = _DEFAULT_MAX_TIMEOUT_SECONDS,
         clock: object | None = None,
     ) -> None:
@@ -147,7 +159,16 @@ class ModelGateway:
         self._privacy_gate = self._normalize_privacy_gate(privacy_gate)
         self._evidence_sink = self._normalize_evidence_sink(evidence_sink)
         self._max_timeout_seconds = float(max_timeout_seconds)
-        self._max_attempts = _DEFAULT_MAX_ATTEMPTS
+        if retry_policy is not None and not isinstance(
+            retry_policy, ModelGatewayRetryPolicy
+        ):
+            raise TypeError("retry_policy must be a ModelGatewayRetryPolicy or None")
+        if fallback_planner is not None and not callable(
+            getattr(fallback_planner, "next_selection", None)
+        ):
+            raise TypeError("fallback_planner must implement next_selection()")
+        self._retry_policy = retry_policy or ModelGatewayRetryPolicy()
+        self._fallback_planner = fallback_planner
         self._clock = clock if callable(clock) else time.perf_counter
 
     # ── Read-only authority accessors ────────────────────────────────────────
@@ -199,9 +220,10 @@ class ModelGateway:
         started = self._clock()
         plan = self._preflight(request)
 
+        policy = self._retry_policy
         attempt = 0
         last_error: ModelGatewayError | None = None
-        while attempt < self._max_attempts:
+        while attempt < policy.max_attempts:
             attempt += 1
             try:
                 provider_response = self._execute_adapter(
@@ -212,13 +234,29 @@ class ModelGateway:
                 )
             except ModelGatewayError as error:
                 last_error = error
-                if not error.retryable or attempt >= self._max_attempts:
+                if not error.retryable or attempt >= policy.max_attempts:
                     break
+                if policy.backoff_seconds:
+                    time.sleep(policy.backoff_seconds)
                 continue
             return self._succeed(
                 request,
                 plan,
                 provider_response,
+                started=started,
+                attempt=attempt,
+            )
+
+        if (
+            last_error is not None
+            and last_error.retryable
+            and request.fallback_model_ids
+            and self._fallback_planner is not None
+        ):
+            return self._execute_authorized_fallback(
+                request,
+                plan,
+                last_error,
                 started=started,
                 attempt=attempt,
             )
@@ -644,6 +682,213 @@ class ModelGateway:
             )
         return event
 
+    # ── Authorized fallback mechanics ────────────────────────────────────────
+
+    def _execute_authorized_fallback(
+        self,
+        request: ModelGatewayRequest,
+        plan: _ExecutionPlan,
+        primary_error: ModelGatewayError,
+        *,
+        started: float,
+        attempt: int,
+    ) -> ModelGatewayResponse:
+        """Execute only an explicitly authorized, requirement-preserving fallback.
+
+        Only a retryable transport-level primary failure may lead here; a
+        privacy denial, an invalid request, an unsupported capability, a
+        cancellation or an incompatible explicit model never falls back.
+
+        Candidate order is exactly the caller's authorized sequence: the
+        canonical fallback authority decides *whether* another candidate may be
+        attempted and which one, and every candidate must still satisfy
+        capabilities, reasoning effort, modalities, tools, structured output,
+        context and canonical privacy before its adapter may run.
+        """
+
+        requirements = self._requirements(request)
+        routing_candidates, unresolved = self._authorized_candidates(request)
+        skipped = list(unresolved)
+        history: list[ModelFallbackAttempt] = [
+            ModelFallbackAttempt(
+                attempt_index=1,
+                model_id=plan.model.id,
+                provider_id=plan.provider.id,
+                success=False,
+                error_code=primary_error.code.value,
+                retryable=primary_error.retryable,
+                latency_ms=self._latency_ms(started),
+            )
+        ]
+        last_error = primary_error
+        fallback_index = 0
+
+        while routing_candidates:
+            try:
+                decision = self._fallback_planner.next_selection(  # type: ignore[union-attr]
+                    candidates=routing_candidates,
+                    attempts=tuple(history),
+                    error=last_error,
+                    requirements=requirements,
+                )
+            except Exception as error:
+                raise self._failed(
+                    request,
+                    plan,
+                    ModelGatewayError(
+                        ModelGatewayErrorCode.FALLBACK_EXHAUSTED,
+                        "the authorized fallback sequence could not be planned",
+                        details={"provider_id": plan.provider.id},
+                        retryable=False,
+                    ),
+                    started=started,
+                    attempt=attempt,
+                ) from error
+
+            skipped.extend(
+                str(entry)
+                for entry in getattr(decision, "skipped_candidates", ()) or ()
+            )
+            if not self._is_next_candidate_decision(decision):
+                break
+            selected_model_id = getattr(decision, "selected_model_id", None)
+            selected_provider_id = getattr(decision, "selected_provider_id", None)
+            if not selected_model_id or not selected_provider_id:
+                break
+
+            fallback_index += 1
+            try:
+                candidate_plan = self._preflight_candidate(
+                    request,
+                    provider_id=str(selected_provider_id),
+                    model_id=str(selected_model_id),
+                )
+            except ModelGatewayError as error:
+                skipped.append(
+                    f"{selected_provider_id}:{selected_model_id}:{error.code.value}"
+                )
+                history.append(
+                    ModelFallbackAttempt(
+                        attempt_index=len(history) + 1,
+                        model_id=str(selected_model_id),
+                        provider_id=str(selected_provider_id),
+                        success=False,
+                        error_code=error.code.value,
+                        retryable=error.retryable,
+                    )
+                )
+                last_error = error
+                continue
+
+            try:
+                provider_response = self._execute_adapter(
+                    candidate_plan,
+                    self._provider_request(request, candidate_plan),
+                    request,
+                    None,
+                )
+            except ModelGatewayError as error:
+                last_error = error
+                history.append(
+                    ModelFallbackAttempt(
+                        attempt_index=len(history) + 1,
+                        model_id=str(selected_model_id),
+                        provider_id=str(selected_provider_id),
+                        success=False,
+                        error_code=error.code.value,
+                        retryable=error.retryable,
+                        latency_ms=self._latency_ms(started),
+                    )
+                )
+                if not error.retryable:
+                    break
+                continue
+
+            return self._succeed(
+                request,
+                candidate_plan,
+                provider_response,
+                started=started,
+                attempt=1,
+                fallback_index=fallback_index,
+                fallback_used=True,
+                fallback_skipped=tuple(skipped),
+            )
+
+        raise self._failed(
+            request,
+            plan,
+            ModelGatewayError(
+                ModelGatewayErrorCode.FALLBACK_EXHAUSTED,
+                "no authorized fallback candidate could be executed",
+                details={
+                    "provider_id": plan.provider.id,
+                    "last_error_code": last_error.code.value,
+                },
+                retryable=False,
+            ),
+            started=started,
+            attempt=attempt,
+        )
+
+    def _authorized_candidates(
+        self,
+        request: ModelGatewayRequest,
+    ) -> tuple[tuple[RoutingCandidate, ...], tuple[str, ...]]:
+        """Resolve the caller's authorized sequence into canonical candidates."""
+
+        candidates: list[RoutingCandidate] = []
+        unresolved: list[str] = []
+        rank = 1
+        for entry in request.fallback_model_ids:
+            try:
+                model = self._model_catalog.get(entry)
+            except ProviderError:
+                unresolved.append(f"{entry}:MODEL_NOT_FOUND")
+                continue
+            candidates.append(
+                RoutingCandidate(
+                    rank=rank,
+                    qualified_model_id=model.qualified_id,
+                    provider_id=model.provider_id,
+                    model_id=model.id,
+                    input_cost_per_million=model.input_cost_per_million,
+                    output_cost_per_million=model.output_cost_per_million,
+                    context_window=model.context_window,
+                )
+            )
+            rank += 1
+        return tuple(candidates), tuple(unresolved)
+
+    @staticmethod
+    def _requirements(request: ModelGatewayRequest) -> ModelRequirements:
+        """Describe the caller's hard requirements for canonical fallback planning.
+
+        Real egress permission is enforced per candidate by the canonical
+        privacy gate, so this never asserts a routing privacy preference the
+        gateway does not own.
+        """
+
+        effort = request.reasoning_effort
+        return ModelRequirements(
+            tool_calling=bool(request.tools),
+            structured_output=request.structured_output is not None,
+            json_schema=(
+                request.structured_output is not None
+                and request.structured_output.schema is not None
+            ),
+            vision=request.has_image_input,
+            reasoning=effort not in (ReasoningEffort.DEFAULT, ReasoningEffort.NONE),
+        )
+
+    @staticmethod
+    def _is_next_candidate_decision(decision: object) -> bool:
+        action = getattr(decision, "action", None)
+        return str(getattr(action, "value", action)) == _NEXT_CANDIDATE_ACTION
+
+    def _latency_ms(self, started: float) -> int:
+        return max(int((self._clock() - started) * 1000), 0)
+
     # ── Read-only capability projection ──────────────────────────────────────
 
     def model_capabilities(
@@ -731,8 +976,48 @@ class ModelGateway:
                 },
                 retryable=False,
             )
+        return self._plan(
+            request,
+            self._resolve_model(request),
+            require_streaming=require_streaming,
+        )
 
-        model = self._resolve_model(request)
+    def _preflight_candidate(
+        self,
+        request: ModelGatewayRequest,
+        *,
+        provider_id: str,
+        model_id: str,
+    ) -> _ExecutionPlan:
+        """Validate one authorized fallback candidate before its adapter runs."""
+
+        try:
+            model = self._model_catalog.get(model_id, provider_id=provider_id)
+        except ProviderError as error:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.MODEL_NOT_FOUND,
+                "the authorized fallback model is not registered",
+                details={"model_id": f"{provider_id}:{model_id}"},
+                retryable=False,
+            ) from error
+        return self._plan(request, model)
+
+    def _plan(
+        self,
+        request: ModelGatewayRequest,
+        model: ModelSpec,
+        *,
+        require_streaming: bool = False,
+    ) -> _ExecutionPlan:
+        """Validate one model against the canonical authorities before I/O."""
+
+        if not self._model_catalog.is_bound_to_current_provider(model):
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.MODEL_UNAVAILABLE,
+                "the model is bound to a stale or missing provider authority",
+                details={"model_id": model.qualified_id},
+                retryable=False,
+            )
         provider = self._resolve_provider(model)
         if provider is None:
             raise ModelGatewayError(
@@ -780,7 +1065,7 @@ class ModelGateway:
         selection_mode = request.selection_mode
         if request.model_id is not None:
             try:
-                model = self._model_catalog.get(
+                return self._model_catalog.get(
                     request.model_id,
                     provider_id=request.provider_id,
                 )
@@ -790,14 +1075,6 @@ class ModelGateway:
                     "the requested model is not registered",
                     details={"model_id": request.model_id},
                 ) from error
-            if not self._model_catalog.is_bound_to_current_provider(model):
-                raise ModelGatewayError(
-                    ModelGatewayErrorCode.MODEL_UNAVAILABLE,
-                    "the model is bound to a stale or missing provider authority",
-                    details={"model_id": model.qualified_id},
-                    retryable=False,
-                )
-            return model
         raise ModelGatewayError(
             ModelGatewayErrorCode.MODEL_NOT_FOUND,
             f"{selection_mode.value} model selection is not resolvable",
@@ -1098,6 +1375,9 @@ class ModelGateway:
         *,
         started: float,
         attempt: int,
+        fallback_index: int = 0,
+        fallback_used: bool = False,
+        fallback_skipped: tuple[str, ...] = (),
     ) -> ModelGatewayResponse:
         facts = self._facts(
             request,
@@ -1105,6 +1385,9 @@ class ModelGateway:
             started=started,
             attempt=attempt,
             success=True,
+            fallback_index=fallback_index,
+            fallback_used=fallback_used,
+            fallback_skipped=fallback_skipped,
             error_code=None,
             finish_reason=provider_response.finish_reason,
             usage=provider_response.usage,
@@ -1173,8 +1456,11 @@ class ModelGateway:
         effective_reasoning_effort: ReasoningEffort,
         streamed: bool = False,
         cancelled: bool | None = None,
+        fallback_index: int = 0,
+        fallback_used: bool = False,
+        fallback_skipped: tuple[str, ...] = (),
     ) -> ModelExecutionFacts:
-        latency_ms = max(int((self._clock() - started) * 1000), 0)
+        latency_ms = self._latency_ms(started)
         return ModelExecutionFacts(
             request_id=request.request_id,
             provider_id=plan.provider.id,
@@ -1197,6 +1483,9 @@ class ModelGateway:
             ),
             timed_out=error_code == ModelGatewayErrorCode.PROVIDER_TIMEOUT.value,
             retry_count=max(attempt - 1, 0),
+            fallback_index=fallback_index,
+            fallback_used=fallback_used,
+            fallback_skipped=fallback_skipped,
             usage=usage if usage is not None else ModelUsage(),
             latency_ms=latency_ms,
             finish_reason=finish_reason,
