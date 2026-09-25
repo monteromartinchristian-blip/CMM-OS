@@ -351,6 +351,36 @@ class ConversationService:
         self._projector = projector
         self._domain_projections = domain_projections
 
+    # ── Read-only inspection ─────────────────────────────────────────────────
+
+    @property
+    def gateway(self) -> ApplicationGateway:
+        """Return the exact canonical ``ApplicationGateway`` this service used.
+
+        This is a read-only identity accessor, not an authority surface: it
+        hands back the very gateway instance the service was constructed with and
+        nothing else.  Phase 11.50's reusable client backend uses it to verify
+        that the facade and the conversational service really are wired to one
+        canonical application boundary rather than to two; no caller can mutate,
+        replace or re-enter the service through it, and no second owner is
+        created to make the identity observable.
+        """
+
+        return self._gateway
+
+    @property
+    def capability_resolver(self) -> ConversationCapabilityResolver:
+        """Return the exact canonical conversational capability resolver.
+
+        A read-only identity accessor: the resolver is the one the service was
+        constructed with, so a consumer (the Phase 11.50 client backend) can
+        report the same capability truth the service itself resolves rather than
+        guessing it.  Requesting a capability through the resolver grants
+        nothing.
+        """
+
+        return self._capabilities
+
     # ── submit ───────────────────────────────────────────────────────────────
 
     def submit(
