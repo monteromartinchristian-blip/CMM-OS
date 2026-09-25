@@ -7,7 +7,7 @@
 **Acceptance test:** `AT-DP-121` — `tests/llm/test_phase11_21_dp121_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`
-**State:** Remediation V2 implemented, pending independent Re-audit V3 (Audit V1 `FAIL` and Re-audit V2 `FAIL` preserved; see §16–§18)
+**State:** closed after Independent Re-audit V3 `PASS`; Audit V1 `FAIL` and Re-audit V2 `FAIL` preserved; `DP-121=VERIFIED_EXISTING`; `AT-DP-121=PASS`; `CLOSURE_ELIGIBLE=YES` (see §16–§19)
 
 This document describes the behaviour that exists in this repository. It does
 not describe planned Phase 11.35+ routing-policy intelligence, Phase 11.44 usage
@@ -389,10 +389,13 @@ names the service without exposing any sensitive key.
   first executable candidate, and continues to the next canonical candidate when
   one fails locally. A model with unknown context window is excluded by canonical
   selection, and an `AUTO` request whose candidates are all inexecutable fails
-  closed before any adapter call with the most specific safe canonical error. A
-  malformed request-level egress failure (no configured canonical privacy
-  authority, or remote candidates with no privacy metadata) stays terminal and is
-  never answered by skipping candidates.
+  closed before any adapter call with the most specific safe canonical error.
+  Remote egress remains fail-closed: explicit remote selection without canonical
+  privacy authority/metadata is denied before provider I/O, and an `AUTO` request
+  whose executable candidates are all remote fails closed. In a mixed `AUTO`
+  candidate set, a remote candidate that lacks egress authority is skipped as a
+  candidate-local hard-gate failure, so a later valid local candidate can execute
+  without remote privacy metadata.
 - **Agent-run evidence projection.** `ModelExecutionRecord` is agent-run scoped
   and its token/cost fields are non-optional integers. The projection therefore
   writes an unknown metric as the record's own default **and** marks it in
@@ -426,8 +429,7 @@ untouched.
 
 ## 17. Test evidence
 
-Local evidence only, recorded at the Remediation V2 exact HEAD
-(`AT_DP_121=PASS` here is local test evidence, not independent verification):
+Exact-head implementation evidence recorded for the Remediation V2 candidate; Independent Re-audit V3 subsequently verified the closure-critical behavior and `AT-DP-121`:
 
 | Gate | Command | Result |
 |---|---|---|
@@ -521,19 +523,46 @@ Consequences:
   absent privacy gate is `PRIVACY_DENIED` before provider I/O, with no silent
   substitution.
 
-```text
-PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-F11_020=UNCHANGED
-DP_121=UNCHANGED
-AT_DP_121=UNCHANGED
-MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT_V3
-```
-
 `AT-DP-121` gained one connected checkpoint (Scenario S — `AUTO` mixed
 remote/local without privacy metadata) inside the existing acceptance; no new
-requirement, Design Point or routing policy was introduced. No finding is
-labelled `VERIFIED_REMEDIATED`, `DP_121` is not `VERIFIED_EXISTING`,
-`CLOSURE_ELIGIBLE` is not claimed and Phase 11.21 is not closed. Only Independent
-Re-audit V3 of the exact-HEAD Remediation V2 bundle may declare closure.
+requirement, Design Point or routing policy was introduced.
+
+## 19. Independent Re-audit V3 and closure
+
+Independent Re-audit V3 audited exact remediation HEAD
+`fe5eda5ccba327d3002979910f9cf4d8a4053ddc` (tree `0e8a1ac75e5fdf32a5e5e240790a0d8ff986ced7`), bundle SHA-256
+`1873217d10222e87e9d5e319a319eaddf7741c4ef05d384377bb4548f47a5bd3`, and returned `PASS`. The final report is
+`docs/audits/phase-11.21-model-gateway-independent-reaudit-v3.md` and was recorded by audit-report commit
+`749dd87df5a919775058d116ba17a878cf5adc5f`.
+
+Independent reproduction verified the complete AUTO/privacy matrix: mixed
+remote/local AUTO continues to the valid local candidate when privacy metadata
+or the privacy gate is absent; explicit remote selection remains denied before
+provider I/O in those cases; and AUTO with only remote candidates remains
+fail-closed. Audit V1 MAJOR-02 through MAJOR-05 and MINOR-01 were also re-probed
+and remained remediated.
+
+```text
+PHASE11_21=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MAJOR_04=VERIFIED_REMEDIATED
+MAJOR_05=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+F11_020=VERIFIED_EXISTING
+DP_121=VERIFIED_EXISTING
+AT_DP_121=PASS
+CLOSURE_ELIGIBLE=YES
+NEXT=PHASE11_50_FRESH_REPOSITORY_INSPECTION
+```
+
+Phase 11.21 is formally closed by the dedicated docs-only closure commit that
+records this status. No production code, tests, historical audit evidence,
+frozen design or frozen implementation plan are modified by closure.

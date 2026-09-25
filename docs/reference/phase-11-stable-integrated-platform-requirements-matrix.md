@@ -1002,67 +1002,60 @@ Phase 11.5 is closed by the dedicated docs-only closure commit after the
 Independent Re-audit V2 `PASS`. Historical Audit V1 and Re-audit V1 `FAIL`
 evidence remains immutable.
 
-## 13. Phase 11.21 — Model Gateway current status
+## 13. Phase 11.21 — Model Gateway closed status
 
-Sections 5 to 12 record the closed Phase 11.34 and Phase 11.1–11.5 subphases and
-are not modified by Phase 11.21. The Phase 11.21 Model Gateway is a separate
-subphase reported here. Phase 11.5's historical deferred-scope list records the
-Model Gateway as deferred at that time; Phase 11.21 is the subphase that now
-implements it, and the 11.5 record is deliberately left as written.
+Sections 5 to 12 record the already-closed Phase 11.34 and Phase 11.1–11.5
+subphases. Phase 11.21 is now also independently verified and closed.
 
 ```text
-PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-F11_020=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP_121=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-AT_DP_121=PASS_LOCAL
+PHASE11_21=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+F11_020=VERIFIED_EXISTING
+DP_121=VERIFIED_EXISTING
+AT_DP_121=PASS
 AT_DP_134=PASS
 AT_DP_101=PASS
 AT_DP_102=PASS
 AT_DP_103=PASS
 AT_DP_104=PASS
 AT_DP_105=PASS
-MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_02=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_03=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_04=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_05=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MINOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT_V3
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MAJOR_04=VERIFIED_REMEDIATED
+MAJOR_05=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+CLOSURE_ELIGIBLE=YES
+AUDITED_HEAD=fe5eda5ccba327d3002979910f9cf4d8a4053ddc
+AUDITED_TREE=0e8a1ac75e5fdf32a5e5e240790a0d8ff986ced7
+AUDITED_BUNDLE_SHA256=1873217d10222e87e9d5e319a319eaddf7741c4ef05d384377bb4548f47a5bd3
+FINAL_REPORT=docs/audits/phase-11.21-model-gateway-independent-reaudit-v3.md
+AUDIT_REPORT_COMMIT=749dd87df5a919775058d116ba17a878cf5adc5f
+NEXT=PHASE11_50_FRESH_REPOSITORY_INSPECTION
 ```
 
-Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` against the original
-implementation (`BLOCKERS=0`, `MAJORS=5`, `MINORS=1`); that report is preserved
-unchanged in `docs/audits/phase-11.21-model-gateway-independent-audit-v1.md`.
-Remediation V1 implemented those six findings locally. Independent Re-audit V2
-then recorded `INDEPENDENT_REAUDIT_V2=FAIL` (`BLOCKERS=0`, `MAJORS=1`,
-`MINORS=0`, `PROCESS_DEVIATIONS=1`); that report is preserved unchanged in
-`docs/audits/phase-11.21-model-gateway-independent-reaudit-v2.md` and is not
-rewritten. Its single residual finding was that the `AUTO` candidate-set-wide
-egress precheck still aborted the whole request before a valid local candidate
-could be considered when privacy metadata was absent. Remediation V2 removes
-that precheck and evaluates egress/privacy authority per candidate without
-redesigning the subphase, creating a new requirement or Design Point, or
-introducing a second authority.
+Independent Audit V1 `FAIL` and Independent Re-audit V2 `FAIL` remain immutable
+historical evidence. Remediation V1 corrected the original five MAJOR and one
+MINOR findings; Remediation V2 corrected the sole residual AUTO/privacy finding.
+Independent Re-audit V3 then returned `PASS`, independently reproducing the
+mixed remote/local AUTO cases, explicit-remote fail-closed behavior, remote-only
+AUTO fail-closed behavior, and the already-remediated cancellation, streaming,
+legacy-adapter and schema-v3 persistence invariants.
 
-`IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` is this matrix's pre-verification
-vocabulary term applied to Phase 11.21 after Remediation V2: the remediation
-exists on `feature/phase-11-stable-integrated-platform`, the connected
-acceptance `AT-DP-121` is green in this repository, and no independent re-audit
-has examined it yet. It is **not** a closure and **not** a verification claim:
-`DP_121` is deliberately not `VERIFIED_EXISTING`, no finding is labelled
-`VERIFIED_REMEDIATED` and `CLOSURE_ELIGIBLE` is deliberately not claimed until
-Independent Re-audit V3 passes.
+`DP-121` is therefore `VERIFIED_EXISTING`, `AT-DP-121=PASS`, and the closure
+threshold is satisfied with `BLOCKERS=0`, `MAJORS=0`,
+`CLOSURE_ELIGIBLE=YES`.
 
-Phase 11.21 does not reopen Phase 11.34 or Phase 11.1–11.5: `PHASE11_34=CLOSED`,
-`PHASE11_1=CLOSED`, `PHASE11_2=CLOSED`, `PHASE11_3=CLOSED`, `PHASE11_4=CLOSED`
-and `PHASE11_5=CLOSED` all remain exactly as recorded above. The only changes to
-closed packages are the documented additive seams listed in §4.14, each with
-regression coverage in the inherited suites.
+Phase 11.21 does not reopen Phase 11.34 or Phase 11.1–11.5. The Phase 11.34
+provider-state schema-v3 addition remains an additive seam under the same
+persistence owner; no second store or routing authority exists.
 
-The implemented surface, the enforced invariants, the documented known limits
-and the local test evidence are recorded in
+The implemented surface and final evidence are documented in
 [`docs/reference/phase-11-model-gateway.md`](phase-11-model-gateway.md).
 
-<!-- PHASE11_21_REMEDIATION_V2_IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_21_CLOSED_AFTER_INDEPENDENT_REAUDIT_V3_PASS -->

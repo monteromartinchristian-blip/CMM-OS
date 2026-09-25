@@ -6829,10 +6829,7 @@ evidence remains immutable.
 <!-- PHASE11_21_IMPLEMENTATION_STATE -->
 # 11.21 — Model Gateway implementation state (2026-09-25)
 
-**Status:** implemented under Remediation V2; independent Re-audit V3 pending.
-This section records the
-implementation actually present in this repository; it is not a closure and not
-a verification claim. The Phase 11.21 scope is frozen by
+**Status:** closed after Independent Re-audit V3 `PASS`. This section records the final independently verified Phase 11.21 implementation and its immutable audit history. The Phase 11.21 scope is frozen by
 `docs/superpowers/specs/2026-09-25-phase-11.21-model-gateway-design.md` and
 `docs/superpowers/plans/2026-09-25-phase-11.21-model-gateway-implementation-plan.md`,
 and the residual correction by
@@ -6950,15 +6947,7 @@ candidate executes, `AUTO` with only remote candidates still fails closed before
 provider I/O, and explicit remote selection stays strictly fail-closed. The
 canonical `find_matching_models` ordering is untouched.
 
-`AT-DP-121` passes locally
-(`tests/llm/test_phase11_21_dp121_acceptance.py`, 38 passed, including
-Remediation V2 Scenario S; focused Phase 11.21 gateway suite 404 passed).
-`AT_DP_121=PASS_LOCAL` here is local implementation
-evidence, not independent verification: `PHASE11_21`, `REMEDIATION_V1` and
-`REMEDIATION_V2` remain
-`IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`, no finding is labelled
-`VERIFIED_REMEDIATED`, `DP_121` is not `VERIFIED_EXISTING` and
-`CLOSURE_ELIGIBLE` is not claimed until Independent Re-audit V3 passes.
+`AT-DP-121` passes (`tests/llm/test_phase11_21_dp121_acceptance.py`, 38 passed, including Remediation V2 Scenario S; focused Phase 11.21 gateway suite 404 passed) and Independent Re-audit V3 independently verified the closure-critical behavior. `DP_121=VERIFIED_EXISTING`, `AT_DP_121=PASS`, and `CLOSURE_ELIGIBLE=YES`.
 
 Inherited acceptances remain green:
 
@@ -6978,36 +6967,45 @@ Phase 11.21: the pre-existing repository debt is unchanged and Phase 11.21
 introduces zero new findings. Every new or touched Python file passes
 `ruff check` and `ruff format --check`.
 
-## Remediation V2 implemented, independent Re-audit V3 pending
+## Independent Re-audit V3 PASS and formal closure
 
-Independent Audit V1 recorded `INDEPENDENT_AUDIT_V1=FAIL` (`BLOCKERS=0`,
-`MAJORS=5`, `MINORS=1`) against the original implementation, and Independent
-Re-audit V2 recorded `INDEPENDENT_REAUDIT_V2=FAIL` (`BLOCKERS=0`, `MAJORS=1`,
-`MINORS=0`, `PROCESS_DEVIATIONS=1`). Both reports are preserved unchanged and are
-not rewritten. Remediation V1 implemented the six Audit V1 findings locally;
-Remediation V2 implements the one residual Re-audit V2 finding locally.
+Independent Audit V1 `FAIL` and Independent Re-audit V2 `FAIL` remain preserved
+unchanged. Remediation V2 exact HEAD `fe5eda5ccba327d3002979910f9cf4d8a4053ddc` (tree
+`0e8a1ac75e5fdf32a5e5e240790a0d8ff986ced7`) was independently audited from bundle SHA-256
+`1873217d10222e87e9d5e319a319eaddf7741c4ef05d384377bb4548f47a5bd3`.
+
+Independent Re-audit V3 returned:
 
 ```text
-PHASE11_21=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-REMEDIATION_V1=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-REMEDIATION_V2=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-F11_020=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-DP_121=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-AT_DP_121=PASS_LOCAL
-MAJOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_02=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_03=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_04=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MAJOR_05=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-MINOR_01=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-NEXT=INDEPENDENT_REAUDIT_V3
+INDEPENDENT_REAUDIT_V3=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
+MAJOR_04=VERIFIED_REMEDIATED
+MAJOR_05=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+F11_020=VERIFIED_EXISTING
+DP_121=VERIFIED_EXISTING
+AT_DP_121=PASS
+CLOSURE_ELIGIBLE=YES
 ```
 
-No finding is labelled `VERIFIED_REMEDIATED`, `DP_121` is not
-`VERIFIED_EXISTING`, `CLOSURE_ELIGIBLE` is not claimed and Phase 11.21 is not
-closed. Phase 11.21 may close only after Independent Re-audit V3 of the exact-HEAD
-Remediation V2 bundle reports `BLOCKERS=0`, `MAJORS=0`,
-`DP-121=VERIFIED_EXISTING`, `AT-DP-121=PASS` and `CLOSURE_ELIGIBLE=YES`; a
-separate docs-only closure commit follows. The implemented surface, enforced invariants, known limits and local
-evidence are documented in
+The final independent report is `docs/audits/phase-11.21-model-gateway-independent-reaudit-v3.md`, recorded by audit-report commit
+`749dd87df5a919775058d116ba17a878cf5adc5f`.
+
+This dedicated docs-only closure records:
+
+```text
+PHASE11_21=CLOSED
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V3_PASS
+NEXT=PHASE11_50_FRESH_REPOSITORY_INSPECTION
+```
+
+No code or tests are part of closure. Historical audit reports, the frozen
+Phase 11.21 design/plan and both remediation design/plan pairs remain immutable.
+The implemented surface, enforced invariants, known limits and final evidence are
+documented in
 [`docs/reference/phase-11-model-gateway.md`](../reference/phase-11-model-gateway.md).
