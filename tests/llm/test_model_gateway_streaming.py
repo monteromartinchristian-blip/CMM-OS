@@ -9,6 +9,8 @@ never appear, and an adapter that misbehaves is normalized rather than trusted.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -28,6 +30,7 @@ from kernel.llm.model_provider_adapter import (
     ProviderModelRequest,
     ProviderStreamEvent,
 )
+from kernel.llm.model_streaming import ModelCallCancellation
 from tests.llm.model_gateway_support import MULTIMODAL, build_runtime
 
 STREAMING = ModelCapabilities(streaming=True)
@@ -373,3 +376,186 @@ def _provider_response(content: str):
     from kernel.llm.model_provider_adapter import ProviderModelResponse
 
     return ProviderModelResponse(content=content)
+
+
+# ── Remediation V1 MAJOR-03 — the public stream deadline is authoritative.
+#
+# The gateway must never call a potentially blocking provider ``next()`` directly
+# on the public consumer path.  After the deadline no CONTENT_DELTA,
+# TOOL_CALL_DELTA, USAGE or COMPLETED may be emitted, exactly one
+# PROVIDER_TIMEOUT terminal is produced, and a permanently blocked provider
+# iterator cannot make the public stream or the test process wait without bound.
+
+
+class _LateContentAdapter(InMemoryModelProviderAdapter):
+    """Yield STARTED, block past the deadline, then yield late content."""
+
+    def __init__(self, provider_id: str, *, sleep_seconds: float) -> None:
+        super().__init__(provider_id)
+        self._sleep_seconds = sleep_seconds
+
+    def stream(
+        self,
+        request: ProviderModelRequest,
+        *,
+        cancellation: object | None = None,
+    ) -> Iterator[ProviderStreamEvent]:
+        self._record(request)
+        yield ProviderStreamEvent(event_type=ModelStreamEventType.STARTED)
+        time.sleep(self._sleep_seconds)
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.CONTENT_DELTA,
+            content_delta="LATE",
+        )
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.TOOL_CALL_DELTA,
+            tool_call=ModelToolCall(call_id="late-call", tool_id="t1"),
+        )
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.USAGE,
+            usage=ModelUsage(input_tokens=99, output_tokens=99),
+        )
+        yield ProviderStreamEvent(
+            event_type=ModelStreamEventType.COMPLETED,
+            response=_provider_response("LATE"),
+        )
+
+
+class _BlockingAdapter(InMemoryModelProviderAdapter):
+    """Block ``next()`` on a real event until the test releases it."""
+
+    def __init__(
+        self,
+        provider_id: str,
+        *,
+        gate: threading.Event,
+        follow_with: tuple[ProviderStreamEvent, ...] = (),
+    ) -> None:
+        super().__init__(provider_id)
+        self._gate = gate
+        self._follow_with = follow_with
+
+    def stream(
+        self,
+        request: ProviderModelRequest,
+        *,
+        cancellation: object | None = None,
+    ) -> Iterator[ProviderStreamEvent]:
+        self._record(request)
+        yield ProviderStreamEvent(event_type=ModelStreamEventType.STARTED)
+        # A bounded wait keeps the test process safe even if the pump is leaked;
+        # the gateway must already have returned by then.
+        self._gate.wait(timeout=5.0)
+        yield from self._follow_with
+
+
+def _streaming_adapter_runtime(adapter: InMemoryModelProviderAdapter):
+    return build_runtime(
+        capabilities=ModelCapabilities(streaming=True),
+        adapters=(adapter,),
+    )
+
+
+def test_the_public_stream_drops_content_arriving_after_the_deadline() -> None:
+    adapter = _LateContentAdapter("local", sleep_seconds=0.05)
+    runtime = _streaming_adapter_runtime(adapter)
+
+    started = time.monotonic()
+    events = list(runtime.gateway.stream(_request(timeout_seconds=0.02)))
+    elapsed = time.monotonic() - started
+
+    assert [event.event_type for event in events] == [
+        ModelStreamEventType.STARTED,
+        ModelStreamEventType.ERROR,
+    ]
+    assert events[-1].error_code == "PROVIDER_TIMEOUT"
+    assert sum(event.is_terminal for event in events) == 1
+    assert all(event.content_delta != "LATE" for event in events)
+    assert all(event.tool_call is None for event in events)
+    assert all(event.usage is None for event in events)
+    assert all(event.response is None for event in events)
+    # The public wait is bounded by the deadline, not by the provider's 50 ms.
+    assert elapsed < 0.04
+
+
+def test_a_permanently_blocked_provider_iterator_is_publicly_bounded() -> None:
+    gate = threading.Event()
+    adapter = _BlockingAdapter("local", gate=gate)
+    runtime = _streaming_adapter_runtime(adapter)
+
+    try:
+        started = time.monotonic()
+        events = list(runtime.gateway.stream(_request(timeout_seconds=0.02)))
+        elapsed = time.monotonic() - started
+
+        assert [event.event_type for event in events] == [
+            ModelStreamEventType.STARTED,
+            ModelStreamEventType.ERROR,
+        ]
+        assert events[-1].error_code == "PROVIDER_TIMEOUT"
+        assert elapsed < 0.5
+    finally:
+        gate.set()
+
+
+def test_a_provider_exception_inside_the_deadline_is_normalized() -> None:
+    class _ExplodingPumpAdapter(InMemoryModelProviderAdapter):
+        def stream(
+            self,
+            request: ProviderModelRequest,
+            *,
+            cancellation: object | None = None,
+        ) -> Iterator[ProviderStreamEvent]:
+            self._record(request)
+            yield ProviderStreamEvent(event_type=ModelStreamEventType.STARTED)
+            raise RuntimeError("raw provider internals: api_key=sk-secret")
+
+    runtime = _streaming_adapter_runtime(_ExplodingPumpAdapter("local"))
+
+    events = list(runtime.gateway.stream(_request(timeout_seconds=5.0)))
+
+    assert events[-1].event_type is ModelStreamEventType.ERROR
+    assert events[-1].error_code == "PROVIDER_FAILURE"
+    serialized = json.dumps([event.to_dict() for event in events])
+    assert "sk-secret" not in serialized
+    assert "RuntimeError" not in serialized
+
+
+def test_user_cancellation_while_the_provider_blocks_terminates_as_cancelled() -> None:
+    gate = threading.Event()
+    adapter = _BlockingAdapter("local", gate=gate)
+    runtime = _streaming_adapter_runtime(adapter)
+    cancellation = ModelCallCancellation()
+
+    received: list[ModelStreamEventType] = []
+    codes: list[str | None] = []
+    try:
+        for event in runtime.gateway.stream(
+            _request(timeout_seconds=5.0), cancellation=cancellation
+        ):
+            received.append(event.event_type)
+            codes.append(event.error_code)
+            if event.event_type is ModelStreamEventType.STARTED:
+                cancellation.cancel("user pressed stop")
+    finally:
+        gate.set()
+
+    assert received[0] is ModelStreamEventType.STARTED
+    assert received[-1] is ModelStreamEventType.CANCELLED
+    assert received.count(ModelStreamEventType.CANCELLED) == 1
+    assert "PROVIDER_TIMEOUT" not in codes
+
+
+def test_the_stream_deadline_is_distinct_from_user_cancellation() -> None:
+    adapter = _LateContentAdapter("local", sleep_seconds=0.05)
+    runtime = _streaming_adapter_runtime(adapter)
+    cancellation = ModelCallCancellation()
+
+    events = list(
+        runtime.gateway.stream(_request(timeout_seconds=0.02), cancellation=cancellation)
+    )
+
+    # A deadline expiration is a timeout, never a cancellation.
+    assert events[-1].event_type is ModelStreamEventType.ERROR
+    assert events[-1].error_code == "PROVIDER_TIMEOUT"
+    assert cancellation.is_cancelled is True
