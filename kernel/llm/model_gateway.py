@@ -1323,10 +1323,10 @@ class ModelGateway:
         except ModelGatewayError as error:
             if error.code is not ModelGatewayErrorCode.PRIVACY_DENIED:
                 raise
-            # The call-level egress prerequisites are enforced once for the whole
-            # candidate set (``_require_egress_authority``), so a denial here is
-            # this candidate's own canonical privacy policy refusing egress: it
-            # is candidate-local and never terminal, and AUTO may continue.
+            # Egress authority is evaluated per candidate inside the AUTO loop,
+            # so a denial is this candidate's own canonical privacy policy
+            # refusing egress: it is candidate-local and never terminal, and AUTO
+            # may continue to the next canonical candidate.
             raise _CandidateHardGateFailure(error.code, error) from None
         return provider, capability_decision, privacy_decision, adapter
 
@@ -1401,7 +1401,6 @@ class ModelGateway:
             self._provider_registry,
             self._requirements(request),
         )
-        self._require_egress_authority(matches, request)
         failure_codes: list[ModelGatewayErrorCode] = []
         for model in matches:
             try:
@@ -1421,43 +1420,6 @@ class ModelGateway:
                 privacy_decision=privacy_decision,
             )
         raise self._auto_exhausted(request, matches, failure_codes)
-
-    def _require_egress_authority(
-        self,
-        matches: tuple[ModelSpec, ...],
-        request: ModelGatewayRequest,
-    ) -> None:
-        """Fail a request-level egress-prerequisite failure before AUTO iteration.
-
-        A candidate that a *policy* denies is candidate-local and is skipped, but
-        a call that has no canonical privacy authority at all is a malformed
-        request-level failure: it is terminal and must not be answered by
-        silently evaluating a later candidate.  Applying the same prerequisites
-        up front also preserves the explicit-model error semantics for an AUTO
-        request whose only candidates are remote.
-        """
-
-        references_remote = any(
-            (provider := self._resolve_provider(model)) is not None
-            and provider.provider_type == "remote"
-            for model in matches
-        )
-        if not references_remote:
-            return
-        if self._privacy_gate is None:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.PRIVACY_DENIED,
-                "no canonical privacy authority is configured for remote egress",
-                details={"selection_mode": request.selection_mode.value},
-                retryable=False,
-            )
-        if request.privacy is None:
-            raise ModelGatewayError(
-                ModelGatewayErrorCode.PRIVACY_DENIED,
-                "remote transmission requires canonical privacy metadata",
-                details={"selection_mode": request.selection_mode.value},
-                retryable=False,
-            )
 
     @staticmethod
     def _auto_exhausted(
