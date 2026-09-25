@@ -27,7 +27,8 @@ import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import ROUND_HALF_UP, Decimal
 
 from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError
@@ -64,7 +65,53 @@ from kernel.llm.model_streaming import (
 )
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
-__all__ = ["ModelGateway"]
+__all__ = ["ModelGateway", "derive_model_call_cost"]
+
+#: Deterministic cost precision for catalog-derived pricing.
+_COST_QUANTUM = Decimal("0.00000001")
+_PER_MILLION = Decimal(1000000)
+
+
+def derive_model_call_cost(
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    cached_tokens: int | None,
+    input_cost_per_million: Decimal | None,
+    output_cost_per_million: Decimal | None,
+    cached_input_cost_per_million: Decimal | None,
+) -> Decimal | None:
+    """Derive a per-call cost from canonical pricing metadata, or ``None``.
+
+    Returns ``None`` — never zero — whenever the available metadata cannot price
+    the call deterministically: an unknown token count, or a missing price for a
+    token count that *is* known.  Cached tokens are billed at the cached price
+    when one is published and at the input price otherwise, and are never billed
+    twice.
+    """
+
+    if input_tokens is None and output_tokens is None:
+        return None
+    if input_tokens is not None and input_cost_per_million is None:
+        return None
+    if output_tokens is not None and output_cost_per_million is None:
+        return None
+
+    total = Decimal(0)
+    if input_tokens is not None:
+        cached = min(cached_tokens or 0, input_tokens)
+        billed_input = input_tokens - cached
+        total += Decimal(billed_input) * input_cost_per_million  # type: ignore[operator]
+        cached_price = (
+            cached_input_cost_per_million
+            if cached_input_cost_per_million is not None
+            else input_cost_per_million
+        )
+        total += Decimal(cached) * cached_price  # type: ignore[operator]
+    if output_tokens is not None:
+        total += Decimal(output_tokens) * output_cost_per_million  # type: ignore[operator]
+    return (total / _PER_MILLION).quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)
+
 
 _UNAVAILABLE_AVAILABILITY = frozenset({"unavailable", "disabled"})
 
@@ -586,7 +633,10 @@ class ModelGateway:
         content = provider_response.content
         if not content and accumulated:
             content = "".join(accumulated)
-        resolved_usage = usage if usage is not None else provider_response.usage
+        resolved_usage = self._resolve_usage(
+            plan.model,
+            usage if usage is not None else provider_response.usage,
+        )
         facts = self._facts(
             request,
             plan,
@@ -1367,6 +1417,24 @@ class ModelGateway:
 
     # ── Result normalization ─────────────────────────────────────────────────
 
+    @staticmethod
+    def _resolve_usage(model: ModelSpec, usage: ModelUsage) -> ModelUsage:
+        """Add a deterministic catalog-derived cost when no cost was reported."""
+
+        if usage.cost is not None or usage.cost_source is not None:
+            return usage
+        derived = derive_model_call_cost(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cached_tokens=usage.cached_tokens,
+            input_cost_per_million=model.input_cost_per_million,
+            output_cost_per_million=model.output_cost_per_million,
+            cached_input_cost_per_million=model.cached_input_cost_per_million,
+        )
+        if derived is None:
+            return usage
+        return replace(usage, cost=derived, cost_source="catalog_derived")
+
     def _succeed(
         self,
         request: ModelGatewayRequest,
@@ -1379,6 +1447,7 @@ class ModelGateway:
         fallback_used: bool = False,
         fallback_skipped: tuple[str, ...] = (),
     ) -> ModelGatewayResponse:
+        usage = self._resolve_usage(plan.model, provider_response.usage)
         facts = self._facts(
             request,
             plan,
@@ -1390,7 +1459,7 @@ class ModelGateway:
             fallback_skipped=fallback_skipped,
             error_code=None,
             finish_reason=provider_response.finish_reason,
-            usage=provider_response.usage,
+            usage=usage,
             reasoning_used=provider_response.reasoning_used,
             effective_reasoning_effort=provider_response.effective_reasoning_effort,
         )
@@ -1403,7 +1472,7 @@ class ModelGateway:
             content=provider_response.content,
             structured_output=provider_response.structured_output,
             tool_calls=provider_response.tool_calls,
-            usage=provider_response.usage,
+            usage=usage,
             facts=facts,
             finish_reason=provider_response.finish_reason,
             cancelled=False,
