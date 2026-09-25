@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 
+from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_gateway_contracts import (
@@ -378,6 +379,16 @@ class ModelGateway:
         model: ModelSpec,
     ) -> str:
         capabilities = model.capabilities
+        effort = request.reasoning_effort
+        if effort is not ReasoningEffort.DEFAULT and (
+            not capabilities.supports_reasoning_effort(effort)
+        ):
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.UNSUPPORTED_REASONING_EFFORT,
+                "the model does not declare the requested reasoning effort",
+                details={"effort": effort.value, "model_id": model.qualified_id},
+                retryable=False,
+            )
         for name in request.required_capabilities:
             if name == "document":
                 if not capabilities.document_media_types:
@@ -517,7 +528,7 @@ class ModelGateway:
             cancellation=cancellation,
         )
         try:
-            return future.result(timeout=request.timeout_seconds)
+            provider_response = future.result(timeout=request.timeout_seconds)
         except FuturesTimeoutError as error:
             if cancellation is not None:
                 cancellation.cancel("model call timed out")
@@ -542,6 +553,19 @@ class ModelGateway:
         finally:
             executor.shutdown(wait=False)
 
+        if provider_response.effective_reasoning_effort is not request.reasoning_effort:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.PROVIDER_FAILURE,
+                "provider adapter changed the requested reasoning effort",
+                details={
+                    "provider_id": plan.provider.id,
+                    "requested_effort": request.reasoning_effort.value,
+                    "effective_effort": provider_response.effective_reasoning_effort.value,
+                },
+                retryable=False,
+            )
+        return provider_response
+
     # ── Result normalization ─────────────────────────────────────────────────
 
     def _succeed(
@@ -563,6 +587,7 @@ class ModelGateway:
             finish_reason=provider_response.finish_reason,
             usage=provider_response.usage,
             reasoning_used=provider_response.reasoning_used,
+            effective_reasoning_effort=provider_response.effective_reasoning_effort,
         )
         self._emit(facts)
         return ModelGatewayResponse(
@@ -606,6 +631,7 @@ class ModelGateway:
             finish_reason=None,
             usage=None,
             reasoning_used=False,
+            effective_reasoning_effort=request.reasoning_effort,
         )
         self._emit(facts)
         return failure
@@ -622,6 +648,7 @@ class ModelGateway:
         finish_reason: str | None,
         usage: ModelUsage | None,
         reasoning_used: bool,
+        effective_reasoning_effort: ReasoningEffort,
     ) -> ModelExecutionFacts:
         latency_ms = max(int((self._clock() - started) * 1000), 0)
         return ModelExecutionFacts(
@@ -633,7 +660,7 @@ class ModelGateway:
             capability_decision=plan.capability_decision,
             privacy_decision=plan.privacy_decision,
             requested_reasoning_effort=request.reasoning_effort,
-            effective_reasoning_effort=request.reasoning_effort,
+            effective_reasoning_effort=effective_reasoning_effort,
             reasoning_used=reasoning_used,
             input_modalities=request.input_modalities,
             tool_use=bool(request.tools),

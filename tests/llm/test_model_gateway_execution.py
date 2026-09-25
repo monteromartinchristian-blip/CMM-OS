@@ -12,11 +12,10 @@ import json
 
 import pytest
 
-from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
+from kernel.llm.capabilities import ModelCapabilities
 from kernel.llm.model_catalog import ModelSpec
 from kernel.llm.model_gateway import ModelGateway
 from kernel.llm.model_gateway_contracts import (
-    InMemoryModelExecutionEvidenceSink,
     ModelGatewayRequest,
     ModelGatewayResponse,
     ModelInputPart,
@@ -30,72 +29,19 @@ from kernel.llm.model_provider_adapter import (
 )
 from kernel.llm.model_streaming import ModelCallCancellation
 from kernel.llm.provider_registry import ProviderSpec
-from tests.llm.model_gateway_support import CanonicalGraph, build_canonical_graph
-
-TEXT_CAPABLE = ModelCapabilities(
-    structured_output=True,
-    tool_calling=True,
-    json_schema=True,
+from tests.llm.model_gateway_support import (
+    TEXT_CAPABLE,
+    GatewayRuntime,
+    build_canonical_graph,
+    build_runtime,
 )
 
 
-class _Runtime:
-    """A composed gateway plus its observing canonical components."""
+def _runtime(**overrides: object) -> GatewayRuntime:
+    """Compose a gateway whose default model declares text/tool/schema support."""
 
-    def __init__(
-        self,
-        *,
-        graph: CanonicalGraph,
-        adapters: dict[str, InMemoryModelProviderAdapter],
-        sink: InMemoryModelExecutionEvidenceSink | None = None,
-        max_timeout_seconds: float | None = None,
-    ) -> None:
-        self.graph = graph
-        self.adapters = adapters
-        self.sink = sink or InMemoryModelExecutionEvidenceSink()
-        kwargs: dict[str, object] = {}
-        if max_timeout_seconds is not None:
-            kwargs["max_timeout_seconds"] = max_timeout_seconds
-        self.gateway = ModelGateway(
-            provider_registry=graph.providers,
-            model_catalog=graph.models,
-            adapters=ModelProviderAdapterRegistry(adapters.values()),
-            evidence_sink=self.sink,
-            **kwargs,  # type: ignore[arg-type]
-        )
-
-    def adapter(self, provider_id: str) -> InMemoryModelProviderAdapter:
-        return self.adapters[provider_id]
-
-
-def _runtime(
-    *,
-    capabilities: ModelCapabilities | None = None,
-    model_id: str = "model-1",
-    provider_id: str = "local",
-    sink: InMemoryModelExecutionEvidenceSink | None = None,
-    max_timeout_seconds: float | None = None,
-    derive_content_from_input: bool = False,
-) -> _Runtime:
-    graph = build_canonical_graph()
-    graph.models.register(
-        ModelSpec(
-            id=model_id,
-            provider_id=provider_id,
-            context_window=32768,
-            capabilities=capabilities or TEXT_CAPABLE,
-            availability="available",
-        )
-    )
-    adapter = InMemoryModelProviderAdapter(
-        provider_id, derive_content_from_input=derive_content_from_input
-    )
-    return _Runtime(
-        graph=graph,
-        adapters={provider_id: adapter},
-        sink=sink,
-        max_timeout_seconds=max_timeout_seconds,
-    )
+    overrides.setdefault("capabilities", TEXT_CAPABLE)
+    return build_runtime(**overrides)  # type: ignore[arg-type]
 
 
 def _request(**overrides: object) -> ModelGatewayRequest:
@@ -170,7 +116,6 @@ def test_evidence_serialization_never_carries_provider_metadata() -> None:
 
     serialized = json.dumps(response.to_dict())
     assert "input_content_digest" not in serialized
-    assert "echo:" not in serialized or True
     assert "input_parts" not in serialized
 
 
@@ -332,9 +277,7 @@ def test_unsupported_required_capability_fails_before_provider_io() -> None:
 
 
 def test_supported_required_capability_executes() -> None:
-    runtime = _runtime(
-        capabilities=ModelCapabilities(vision=True, tool_calling=True)
-    )
+    runtime = _runtime(capabilities=ModelCapabilities(vision=True, tool_calling=True))
     runtime.adapter("local").add_response(content="ok")
 
     response = runtime.gateway.execute(
@@ -374,9 +317,7 @@ def test_explicit_model_is_never_silently_substituted() -> None:
     )
 
     with pytest.raises(ModelGatewayError) as error:
-        gateway.execute(
-            _request(model_id="local:primary", fallback_model_ids=())
-        )
+        gateway.execute(_request(model_id="local:primary", fallback_model_ids=()))
 
     assert error.value.code is ModelGatewayErrorCode.PROVIDER_FAILURE
     assert primary.call_count == 1
@@ -451,9 +392,7 @@ def test_tool_declarations_reach_the_adapter_unexecuted() -> None:
     runtime = _runtime()
     runtime.adapter("local").add_response(
         content="",
-        tool_calls=(
-            ModelToolCall(call_id="call-1", tool_id="t1", arguments={"a": 1}),
-        ),
+        tool_calls=(ModelToolCall(call_id="call-1", tool_id="t1", arguments={"a": 1}),),
     )
     tool = ModelToolDefinition(tool_id="t1", description="example tool")
 
