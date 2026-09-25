@@ -26,7 +26,11 @@ from datetime import datetime
 
 import pytest
 
-from cmm.application.contracts import ApplicationErrorCode, ApplicationSession
+from cmm.application.contracts import (
+    ApplicationErrorCode,
+    ApplicationOperation,
+    ApplicationSession,
+)
 from cmm.application.errors import ApplicationResourceNotFoundError
 from cmm.application.gateway import ApplicationGateway
 from cmm.client_backend import (
@@ -675,3 +679,315 @@ def test_an_unknown_failure_projects_to_the_generic_client_error() -> None:
     assert projection["code"] == ClientBackendErrorCode.INTERNAL_CLIENT_ERROR.value
     assert "secret" not in projection["message"]
     assert "/Users/" not in projection["message"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Remediation V1 — MAJOR-01: no public live-owner escape hatch
+#
+# Independent Audit V1 reproduced that the public facade returned the live
+# canonical ``ApplicationGateway`` and ``ConversationService``, so a
+# public-only client could call ``client.gateway.handle(...)`` and reach a
+# canonical operation (``health.get``) that is not in the frozen
+# ``ClientOperation`` set.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Every public name that must never return a live authority-bearing owner: the
+#: two audited accessors plus every equivalent the remediation ruling forbids.
+FORBIDDEN_PUBLIC_OWNER_NAMES = (
+    "gateway",
+    "conversation",
+    "application_gateway",
+    "conversation_service",
+    "owner",
+    "delegate",
+    "raw_gateway",
+    "raw_conversation",
+)
+
+
+def _public_live_owners(client: ClientBackend) -> list[str]:
+    """Return every public attribute of *client* that is a live canonical owner."""
+
+    exposed: list[str] = []
+    for name in dir(client):
+        if name.startswith("_"):
+            continue
+        if isinstance(getattr(client, name, None), ApplicationGateway | ConversationService):
+            exposed.append(name)
+    return exposed
+
+
+def test_the_public_client_surface_exposes_no_live_canonical_owner() -> None:
+    """``PUBLIC_OWNER_ESCAPE_HATCH=ABSENT`` on the public facade."""
+
+    graph = build_client_backend_graph()
+
+    assert _public_live_owners(graph.client) == []
+    for name in FORBIDDEN_PUBLIC_OWNER_NAMES:
+        assert not hasattr(graph.client, name), (
+            f"the public facade must not expose {name!r}"
+        )
+
+
+def test_health_get_cannot_be_reached_from_the_public_client_surface() -> None:
+    """``HEALTH_GET_CLIENT_BYPASS=IMPOSSIBLE``: the frozen operation set is closed.
+
+    The exact Audit V1 bypass was ``client.gateway.handle(...)``.  The facade must
+    hand back no live owner at all, so the canonical ``handle`` entrypoint — the
+    only route to ``health.get`` — is unreachable from a public-only client.
+    """
+
+    graph = build_client_backend_graph()
+
+    # ``health.get`` is a canonical application operation and never a client one.
+    assert not any(
+        operation.value == ApplicationOperation.HEALTH_GET.value
+        for operation in ClientOperation
+    )
+
+    assert _public_live_owners(graph.client) == []
+    assert not hasattr(graph.client, "handle")
+    assert not hasattr(graph.client, "health")
+
+
+def test_the_conversation_service_no_longer_returns_its_application_gateway() -> None:
+    """The Phase 11.50-added ``ConversationService.gateway`` seam is narrowed.
+
+    The only evidence the facade needs is the immutable, non-authoritative
+    coherence answer — whether this service writes through one exact gateway —
+    never the live gateway object with its ``handle`` entrypoint.
+    """
+
+    graph = build_client_backend_graph()
+
+    assert not isinstance(
+        getattr(graph.conversation, "gateway", None), ApplicationGateway
+    )
+    assert graph.conversation.uses_application_gateway(graph.gateway) is True
+    assert graph.conversation.uses_application_gateway(object()) is False
+
+
+def test_the_frozen_client_operation_set_is_unchanged() -> None:
+    """``FROZEN_CLIENT_OPERATIONS=UNCHANGED`` by the remediation."""
+
+    assert tuple(member.name for member in ClientOperation) == (
+        "CAPABILITIES",
+        "CREATE_SESSION",
+        "GET_SESSION",
+        "LOAD_CONVERSATION",
+        "SUBMIT_MESSAGE",
+        "EDIT_MESSAGE",
+        "REGENERATE_RESPONSE",
+        "CANCEL_REQUEST",
+    )
+
+
+def test_the_public_client_surface_has_no_generic_service_locator() -> None:
+    """No locator, no raw container and no arbitrary invocation on the facade."""
+
+    graph = build_client_backend_graph()
+
+    for name in (
+        "get_service",
+        "resolve_service",
+        "resolve_any",
+        "invoke",
+        "raw_container",
+        "raw_registry",
+        "raw_platform",
+    ):
+        assert not hasattr(graph.client, name), name
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Remediation V1 — MAJOR-02: exact canonical owner types
+#
+# Independent Audit V1 reproduced that ``isinstance(...)`` accepted subclasses of
+# the canonical owners, so an adversarial subclass could override
+# authority-bearing behaviour while still claiming canonical identity.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_adversarial_owner_subclasses_are_rejected_by_exact_type() -> None:
+    """``APPLICATION_GATEWAY_SUBCLASS=REJECTED`` and conversation likewise."""
+
+    graph = build_client_backend_graph()
+
+    class GatewaySubclass(ApplicationGateway):
+        """A canonical gateway subclass: only its exact type differs."""
+
+    class ConversationSubclass(ConversationService):
+        """A canonical conversation subclass: only its exact type differs."""
+
+    subclass_gateway = GatewaySubclass.__new__(GatewaySubclass)
+    subclass_gateway.__dict__.update(graph.gateway.__dict__)
+    subclass_conversation = ConversationSubclass.__new__(ConversationSubclass)
+    subclass_conversation.__dict__.update(graph.conversation.__dict__)
+    subclass_conversation.__dict__["_gateway"] = subclass_gateway
+
+    # The adversarial pair is self-coherent, so only the exact-type gate can
+    # refuse it.
+    assert subclass_conversation.uses_application_gateway(subclass_gateway) is True
+
+    with pytest.raises(TypeError):
+        ClientBackend(
+            gateway=subclass_gateway,  # type: ignore[arg-type]
+            conversation=subclass_conversation,  # type: ignore[arg-type]
+        )
+
+
+def test_a_conversation_service_subclass_alone_is_rejected() -> None:
+    """``CONVERSATION_SERVICE_SUBCLASS=REJECTED``."""
+
+    graph = build_client_backend_graph()
+
+    class ConversationSubclass(ConversationService):
+        """A canonical conversation subclass: only its exact type differs."""
+
+    subclass_conversation = ConversationSubclass.__new__(ConversationSubclass)
+    subclass_conversation.__dict__.update(graph.conversation.__dict__)
+
+    with pytest.raises(TypeError):
+        ClientBackend(
+            gateway=graph.gateway,
+            conversation=subclass_conversation,  # type: ignore[arg-type]
+        )
+
+
+def test_the_official_exact_owner_types_remain_accepted() -> None:
+    """``EXACT_APPLICATION_GATEWAY=ACCEPTED`` and exact conversation likewise."""
+
+    graph = build_client_backend_graph()
+    other = build_client_backend_graph()
+
+    client = ClientBackend(gateway=other.gateway, conversation=other.conversation)
+
+    assert type(graph.gateway) is ApplicationGateway
+    assert type(graph.conversation) is ConversationService
+    assert type(client) is ClientBackend
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Remediation V1 — MAJOR-03: canonical failures survive the real client path
+#
+# Independent Audit V1 reproduced that a real canonical ``RESOURCE_NOT_FOUND``
+# became ``INTERNAL_CLIENT_ERROR`` on the session path and that a real canonical
+# conversational ``SESSION_CONFLICT`` became ``INTERNAL_CLIENT_ERROR`` through the
+# generic dispatch path.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_a_canonical_application_failure_is_preserved_on_the_session_path() -> None:
+    """A real canonical ``RESOURCE_NOT_FOUND`` keeps its canonical identity."""
+
+    graph = build_client_backend_graph()
+
+    with pytest.raises(ClientBackendError) as failure:
+        graph.client.get_session("remediation-absent-session")
+
+    assert failure.value.code is ApplicationErrorCode.RESOURCE_NOT_FOUND
+    assert failure.value.canonical_code == "RESOURCE_NOT_FOUND"
+    assert failure.value.message == "Application resource was not found"
+    assert failure.value.to_dict() == {
+        "code": "RESOURCE_NOT_FOUND",
+        "message": "Application resource was not found",
+    }
+
+
+def test_a_canonical_application_conflict_is_preserved_on_the_session_path() -> None:
+    """A real canonical ``CONFLICT`` keeps its canonical identity."""
+
+    graph = build_client_backend_graph()
+    graph.client.create_session(SESSION_ID)
+
+    with pytest.raises(ClientBackendError) as failure:
+        graph.client.create_session(SESSION_ID)
+
+    assert failure.value.code is ApplicationErrorCode.CONFLICT
+    assert failure.value.canonical_code == "CONFLICT"
+    assert failure.value.message == (
+        "Application resource state conflicts with the request"
+    )
+
+
+def test_a_canonical_application_failure_is_preserved_through_dispatch() -> None:
+    """The generic path preserves the canonical safe code and message."""
+
+    graph = build_client_backend_graph()
+
+    result = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version="1",
+            request_id="request-absent",
+            operation=ClientOperation.GET_SESSION,
+            payload={"session_id": "remediation-absent-session"},
+        )
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.code is ApplicationErrorCode.RESOURCE_NOT_FOUND
+    assert result.error.to_dict()["code"] == "RESOURCE_NOT_FOUND"
+    assert result.to_dict()["error"] == {
+        "code": "RESOURCE_NOT_FOUND",
+        "message": "Application resource was not found",
+    }
+
+
+def test_a_canonical_conversation_failure_is_preserved_through_dispatch() -> None:
+    """A real canonical conversational conflict stays canonical through dispatch."""
+
+    graph = build_client_backend_graph()
+    graph.client.create_session(SESSION_ID)
+
+    result = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version="1",
+            request_id="request-conflict",
+            operation=ClientOperation.SUBMIT_MESSAGE,
+            payload={
+                "message": _user("user-1"),
+                "message_request_id": "request-1",
+                "expected_session_revision": 9,
+                "assistant_message_id": "assistant-1",
+                "assistant_created_at": TURN_RESPONSE_AT,
+            },
+        )
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.code is ConversationErrorCode.SESSION_CONFLICT
+    assert result.error.canonical_code == "session_conflict"
+    assert result.error.message == (
+        "Conversation session revision conflicts with the request"
+    )
+
+
+def test_an_unknown_internal_failure_still_fails_closed_generically() -> None:
+    """``UNKNOWN_INTERNAL=INTERNAL_CLIENT_ERROR`` with no raw internal text."""
+
+    graph = build_client_backend_graph()
+    graph.client.create_session(SESSION_ID)
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError("raw /Users/secret token=sk-live-12345")
+
+    graph.conversation.load = _explode  # type: ignore[method-assign]
+
+    result = graph.client.dispatch(
+        ClientBackendRequest(
+            interface_version="1",
+            request_id="request-explode",
+            operation=ClientOperation.LOAD_CONVERSATION,
+            payload={"session_id": SESSION_ID},
+        )
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.code is ClientBackendErrorCode.INTERNAL_CLIENT_ERROR
+    assert result.error.canonical_code is None
+    serialized = str(result.to_dict())
+    for fragment in ("sk-live", "/Users/", "Traceback", "RuntimeError", "secret"):
+        assert fragment not in serialized, fragment

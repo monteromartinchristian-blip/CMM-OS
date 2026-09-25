@@ -335,6 +335,32 @@ def test_the_builder_refuses_an_impostor() -> None:
         build_client_backend_composition_module(service=_Impostor())  # type: ignore[arg-type]
 
 
+def test_the_builder_refuses_a_client_backend_subclass_binding() -> None:
+    """``CLIENT_BACKEND_SUBCLASS_BINDING=REJECTED``.
+
+    Independent Audit V1 reproduced that ``isinstance(service, ClientBackend)``
+    let an arbitrary facade subclass claim the canonical ``client.backend``
+    service identity.  The binding requires the exact official facade type.
+    """
+
+    module, service, _runtime = _module()
+
+    class ClientBackendSubclass(ClientBackend):
+        """A facade subclass: only its exact type differs from the official one."""
+
+    subclass = ClientBackendSubclass.__new__(ClientBackendSubclass)
+    subclass.__dict__.update(service.__dict__)
+
+    assert isinstance(subclass, ClientBackend)
+    assert type(subclass) is not ClientBackend
+
+    with pytest.raises(TypeError):
+        build_client_backend_composition_module(service=subclass)
+
+    # The exact official facade is still accepted.
+    assert module.contribute(CompositionConfiguration())[0].implementation is service
+
+
 def test_the_builder_constructs_nothing() -> None:
     """The contribution is side-effect free: two calls bind the same object."""
 

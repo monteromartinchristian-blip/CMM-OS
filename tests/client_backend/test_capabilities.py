@@ -213,6 +213,75 @@ def test_the_effective_attachment_mode_is_reference_only() -> None:
     assert attachments.effective == "reference_only"
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Remediation V1 — MAJOR-04: capability truth against the frozen design
+#
+# Independent Audit V1 reproduced that the manifest reported
+# ``attachments=available`` while dropping the canonical ``reference_only``
+# qualifier, and that ``response_event_stream`` was reported ``degraded`` purely
+# because provider token streaming is unavailable.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: The frozen Phase 11.50 effective mode of the attachment references.
+FROZEN_ATTACHMENT_EFFECTIVE_MODE = "reference_only"
+
+
+def test_attachments_are_degraded_with_the_frozen_reference_only_mode() -> None:
+    """``ATTACHMENTS_STATUS=DEGRADED`` and ``ATTACHMENTS_MODE=reference_only``.
+
+    A client must be able to distinguish "conversational reference metadata only"
+    from real attachment reachability, so the canonical ``reference_only``
+    qualifier is preserved as immutable client-visible evidence.
+    """
+
+    graph = build_client_backend_graph()
+    manifest = graph.client.capabilities()
+
+    assert manifest.attachments is ClientBackendCapabilityStatus.DEGRADED
+    assert manifest.attachment_effective_mode == FROZEN_ATTACHMENT_EFFECTIVE_MODE
+    assert manifest.document_upload is ClientBackendCapabilityStatus.UNAVAILABLE
+    assert (
+        manifest.to_dict()["attachment_effective_mode"]
+        == FROZEN_ATTACHMENT_EFFECTIVE_MODE
+    )
+
+
+def test_the_response_event_stream_is_available_independently_of_token_streaming() -> (
+    None
+):
+    """``RESPONSE_EVENT_STREAM=AVAILABLE`` while ``TOKEN_STREAM_FACTS_SEPARATE=YES``.
+
+    The public response-event delivery exists in its own right (the Phase 11.3
+    application boundary declares ``streaming`` available); provider token
+    streaming is a different, still degraded fact.
+    """
+
+    graph = build_client_backend_graph()
+    manifest = graph.client.capabilities()
+
+    assert manifest.response_event_stream is ClientBackendCapabilityStatus.AVAILABLE
+    assert manifest.end_to_end_token_stream is ClientBackendCapabilityStatus.DEGRADED
+    assert manifest.end_to_end_token_stream is not manifest.response_event_stream
+    assert manifest.response_event_stream is not manifest.model_boundary_token_stream
+
+
+def test_an_unknown_internal_failure_never_claims_the_response_event_stream() -> None:
+    """No declaration supplied means no claim: the row stays unavailable."""
+
+    from cmm.client_backend.capabilities import (
+        ClientBackendCapabilityEvidence,
+        build_client_backend_capabilities,
+    )
+
+    manifest = build_client_backend_capabilities(
+        evidence=ClientBackendCapabilityEvidence(),
+        conversation_resolver=None,
+    )
+
+    assert manifest.response_event_stream is ClientBackendCapabilityStatus.UNAVAILABLE
+    assert manifest.attachment_effective_mode is None
+
+
 # ── Model-boundary vs end-to-end ─────────────────────────────────────────────
 
 
