@@ -280,10 +280,21 @@ class ModelGateway:
         *,
         cancellation: ModelCallCancellation | None = None,
     ) -> ModelGatewayResponse:
-        """Execute one validated model request and return a normalized response."""
+        """Execute one validated model request and return a normalized response.
+
+        One cancellation token belongs to the whole model call, so it stays
+        authoritative across the primary attempt, transport retry, retry backoff,
+        fallback planning, fallback preflight and fallback execution.
+        Cancellation beats every recovery path: a cancelled call ends with
+        ``MODEL_CALL_CANCELLED`` and performs no later provider I/O.
+        """
 
         if not isinstance(request, ModelGatewayRequest):
             raise TypeError("request must be a ModelGatewayRequest")
+        if cancellation is not None and not isinstance(
+            cancellation, ModelCallCancellation
+        ):
+            raise TypeError("cancellation must be a ModelCallCancellation or None")
         if request.stream:
             raise ModelGatewayError(
                 ModelGatewayErrorCode.PROVIDER_REQUEST_INVALID,
@@ -293,6 +304,7 @@ class ModelGateway:
 
         started = self._clock()
         plan = self._preflight(request)
+        self._raise_if_call_cancelled(cancellation)
 
         policy = self._retry_policy
         attempt = 0
@@ -308,11 +320,14 @@ class ModelGateway:
                 )
             except ModelGatewayError as error:
                 last_error = error
+                self._raise_if_call_cancelled(cancellation)
                 if not error.retryable or attempt >= policy.max_attempts:
                     break
                 if policy.backoff_seconds:
                     time.sleep(policy.backoff_seconds)
+                self._raise_if_call_cancelled(cancellation)
                 continue
+            self._raise_if_call_cancelled(cancellation)
             return self._succeed(
                 request,
                 plan,
@@ -321,6 +336,7 @@ class ModelGateway:
                 attempt=attempt,
             )
 
+        self._raise_if_call_cancelled(cancellation)
         if (
             last_error is not None
             and last_error.retryable
@@ -333,6 +349,7 @@ class ModelGateway:
                 last_error,
                 started=started,
                 attempt=attempt,
+                cancellation=cancellation,
             )
 
         raise self._failed(
@@ -769,6 +786,7 @@ class ModelGateway:
         *,
         started: float,
         attempt: int,
+        cancellation: ModelCallCancellation | None = None,
     ) -> ModelGatewayResponse:
         """Execute only an explicitly authorized, requirement-preserving fallback.
 
@@ -781,8 +799,14 @@ class ModelGateway:
         attempted and which one, and every candidate must still satisfy
         capabilities, reasoning effort, modalities, tools, structured output,
         context and canonical privacy before its adapter may run.
+
+        A fallback is a continuation of the same model call, never a new one:
+        the caller's exact cancellation object stays authoritative across
+        planning, preflight, invocation and the returned success, so a cancelled
+        call performs no later provider I/O and never reports success.
         """
 
+        self._raise_if_call_cancelled(cancellation)
         requirements = self._requirements(request)
         routing_candidates, unresolved = self._authorized_candidates(request)
         skipped = list(unresolved)
@@ -801,6 +825,7 @@ class ModelGateway:
         fallback_index = 0
 
         while routing_candidates:
+            self._raise_if_call_cancelled(cancellation)
             try:
                 decision = self._fallback_planner.next_selection(  # type: ignore[union-attr]
                     candidates=routing_candidates,
@@ -822,6 +847,7 @@ class ModelGateway:
                     attempt=attempt,
                 ) from error
 
+            self._raise_if_call_cancelled(cancellation)
             skipped.extend(
                 str(entry)
                 for entry in getattr(decision, "skipped_candidates", ()) or ()
@@ -834,6 +860,7 @@ class ModelGateway:
                 break
 
             fallback_index += 1
+            self._raise_if_call_cancelled(cancellation)
             try:
                 candidate_plan = self._preflight_candidate(
                     request,
@@ -857,12 +884,13 @@ class ModelGateway:
                 last_error = error
                 continue
 
+            self._raise_if_call_cancelled(cancellation)
             try:
                 provider_response = self._execute_adapter(
                     candidate_plan,
                     self._provider_request(request, candidate_plan),
                     request,
-                    None,
+                    cancellation,
                 )
             except ModelGatewayError as error:
                 last_error = error
@@ -877,10 +905,12 @@ class ModelGateway:
                         latency_ms=self._latency_ms(started),
                     )
                 )
+                self._raise_if_call_cancelled(cancellation)
                 if not error.retryable:
                     break
                 continue
 
+            self._raise_if_call_cancelled(cancellation)
             return self._succeed(
                 request,
                 candidate_plan,
@@ -965,6 +995,24 @@ class ModelGateway:
 
     def _latency_ms(self, started: float) -> int:
         return max(int((self._clock() - started) * 1000), 0)
+
+    @staticmethod
+    def _raise_if_call_cancelled(
+        cancellation: ModelCallCancellation | None,
+    ) -> None:
+        """Fail with the canonical cancellation outcome when the call is cancelled.
+
+        This is the one cancellation checkpoint used across the whole call
+        lifecycle.  It never substitutes, copies or discards the caller's token,
+        so cancellation always wins over retry, backoff and fallback recovery.
+        """
+
+        if cancellation is not None and cancellation.is_cancelled:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.MODEL_CALL_CANCELLED,
+                "model call was cancelled",
+                retryable=False,
+            )
 
     # ── Read-only capability projection ──────────────────────────────────────
 
