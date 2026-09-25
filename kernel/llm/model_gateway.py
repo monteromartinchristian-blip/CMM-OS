@@ -391,6 +391,31 @@ class ModelGateway:
                 details={"effort": effort.value, "model_id": model.qualified_id},
                 retryable=False,
             )
+        if request.tools and not capabilities.tool_calling:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                "the model does not declare tool-calling support",
+                details={"model_id": model.qualified_id},
+                retryable=False,
+            )
+        if request.structured_output is not None:
+            if not capabilities.structured_output:
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                    "the model does not declare structured-output support",
+                    details={"model_id": model.qualified_id},
+                    retryable=False,
+                )
+            if (
+                request.structured_output.schema is not None
+                and not capabilities.json_schema
+            ):
+                raise ModelGatewayError(
+                    ModelGatewayErrorCode.CAPABILITY_UNSUPPORTED,
+                    "the model does not declare JSON-schema support",
+                    details={"model_id": model.qualified_id},
+                    retryable=False,
+                )
         for name in request.required_capabilities:
             if name == "document":
                 if not capabilities.document_media_types:
@@ -595,6 +620,24 @@ class ModelGateway:
         finally:
             executor.shutdown(wait=False)
 
+        if (
+            request.structured_output is not None
+            and request.structured_output.required
+            and provider_response.structured_output is None
+        ):
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.STRUCTURED_OUTPUT_INVALID,
+                "provider returned no structured output for a required requirement",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            )
+        if provider_response.tool_calls and not request.tools:
+            raise ModelGatewayError(
+                ModelGatewayErrorCode.TOOL_CALL_INVALID,
+                "provider returned a tool call that the request never declared",
+                details={"provider_id": plan.provider.id},
+                retryable=False,
+            )
         if provider_response.effective_reasoning_effort is not request.reasoning_effort:
             raise ModelGatewayError(
                 ModelGatewayErrorCode.PROVIDER_FAILURE,
