@@ -418,23 +418,40 @@ green here, while no independent audit has examined it yet.
 by §4.1, `F11-015` by §4.3, `F11-016` by §4.5, `F11-017` by §4.7, `F11-018`
 by §4.9, `F11-019` by §4.11 and `F11-020` by §4.13 of this document. `F11-021`
 is the next non-colliding Phase 11 functional identifier, assigned to Phase
-11.50 — Reusable Backend Interfaces. Its mapping status is
-`IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT`: Independent Audit V1
-examined the implementation and returned `INDEPENDENT_AUDIT_V1=FAIL` with
-`BLOCKERS=0`, `MAJORS=5`, `MINORS=1` and `DP_150=NOT_VERIFIED`; Remediation V1
-corrected exactly those findings, and Independent Re-audit V2 examined that state
-and returned `INDEPENDENT_REAUDIT_V2=FAIL` with `BLOCKERS=0`, `MAJORS=1`,
-`MINORS=0` — V1 MAJOR-01/03/04/05 and MINOR-01 `VERIFIED_REMEDIATED`, with one
-residual defect: the exact `client.backend` composition identity was enforced only
-by the convenience builder and could be bypassed by a hand-built canonical
-`ServiceBinding` (`CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=ACCEPTED`).
-Remediation V2 corrects exactly that one residual defect in this repository. The
-connected acceptance is green here, while no independent Re-audit V3 has examined
-the Remediation V2 state yet.
+11.50 — Reusable Backend Interfaces. Independent Audit V1 examined the
+implementation and returned `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`,
+`MAJORS=5`, `MINORS=1` and `DP_150=NOT_VERIFIED`; Remediation V1 corrected exactly
+those findings. Independent Re-audit V2 then returned `INDEPENDENT_REAUDIT_V2=FAIL`
+with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0` — V1 MAJOR-01/03/04/05 and MINOR-01
+`VERIFIED_REMEDIATED`, with one residual defect: the exact `client.backend`
+composition identity was enforced only by the convenience builder and could be
+bypassed by a hand-built canonical `ServiceBinding`
+(`CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=ACCEPTED`); Remediation V2 corrected
+that defect by making the exact rule authoritative in the Phase 11.1 registry.
+The `IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT` status is superseded:
+Independent Re-audit V3 examined the Remediation V2 state and returned
+`INDEPENDENT_REAUDIT_V3=FAIL` with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`. The one
+residual defect was
+
+```text
+MAJOR_V3_01=
+EXACT_CLIENT_BACKEND_IDENTITY_REMAINS_CALLER_ASSERTED_BECAUSE_A_HAND_BUILT_BINDING_CAN_REPLACE_THE_RUNTIME_CONTRACT_AND_BYPASS_THE_EXACT_MARKER
+```
+
+because the V2 rule derived the effective exactness from
+`ServiceBinding.runtime_contract`, a field of the very binding it was validating:
+keeping the canonical `client.backend` descriptor and service ID while replacing
+only that field restored acceptance, on `register()` and on `replace()` alike.
+Remediation V3 corrects exactly that one residual defect, moving the authoritative
+runtime identity of the configured canonical service onto the existing Phase 11.1
+`ServiceExpectation` configuration path. Its mapping status is
+`IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT`. The connected acceptance
+is green here, while no independent Re-audit V4 has examined the Remediation V3
+state yet.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`uses_application_gateway` narrowed non-authoritative coherence evidence; `capability_resolver` reviewed and kept) | `IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
+| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`uses_application_gateway` narrowed non-authoritative coherence evidence; `capability_resolver` reviewed and kept) | `IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
 
 ### 4.16 `F11-021` traceability
 
@@ -450,13 +467,13 @@ the Remediation V2 state yet.
 | Closed client error set | `ClientBackendErrorCode` — `UNSUPPORTED_INTERFACE_VERSION`, `INVALID_CLIENT_OPERATION`, `INVALID_CLIENT_CONTRACT`, `INTERNAL_CLIENT_ERROR`; no canonical application or conversational code is duplicated. Since Remediation V1 (Audit V1 MAJOR-03) `ClientBackendError` also preserves a **known canonical downstream failure verbatim** through `from_canonical(code, message)`: the canonical `RESOURCE_NOT_FOUND`/`CONFLICT`/`SESSION_CONFLICT`/`CAPABILITY_UNAVAILABLE`/`POLICY_DENIED`/`APPROVAL_REQUIRED`/`CANCELLED`/`INVALID_REQUEST`/`UNSUPPORTED_VERSION` identity is kept on the real typed and `dispatch` paths, while a canonical internal failure or an unknown exception still becomes `INTERNAL_CLIENT_ERROR` with no raw text. The preserved code must be a real member of the canonical closed taxonomy, so no third taxonomy is created |
 | Capability vocabulary | `ClientBackendCapabilityStatus` — `available`, `degraded`, `unavailable`, `boundary_only` (four closed states, no ambiguous booleans) |
 | Capability field inventory | `interface_version`; `application_api_version`; `session_create`; `session_get`; `conversation_load`; `conversation_submit`; `conversation_edit`; `conversation_regenerate`; `response_event_stream`; `request_cancellation`; `attachments`; `attachment_effective_mode`; `document_upload`; `model_boundary_reasoning`; `model_boundary_multimodal`; `model_boundary_token_stream`; `end_to_end_reasoning`; `end_to_end_multimodal`; `end_to_end_token_stream` |
-| Focused suite | `tests/client_backend/` — `test_contracts.py`, `test_interface.py`, `test_capabilities.py`, `test_platform_module.py`, `test_architecture.py`, `test_phase11_50_dp150_acceptance.py`, plus the test-only helper `_canonical_graph.py` (192 passed at the Remediation V2 HEAD) |
+| Focused suite | `tests/client_backend/` — `test_contracts.py`, `test_interface.py`, `test_capabilities.py`, `test_platform_module.py`, `test_architecture.py`, `test_phase11_50_dp150_acceptance.py`, plus the test-only helper `_canonical_graph.py` (216 passed at the Remediation V3 HEAD; 192 at the Remediation V2 HEAD) |
 | Architecture/anti-fragmentation gate | `tests/client_backend/test_architecture.py` (parallel-authority, forbidden-import, per-module seam pin, reverse-dependency, dynamic-import, service-locator, filesystem/network, hidden-reasoning gates); Scenario H of `AT-DP-150`; additive closed-phase allowlist seams in `tests/application/test_architecture.py` and `tests/platform/test_architecture.py` |
 | Reference documentation | `docs/reference/phase-11-reusable-backend-interfaces.md` |
 | Design specification | `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` |
 | Implementation plan | `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` |
 | Reused canonical owners | Phase 11.3 `ApplicationGateway` (one public `handle` entrypoint) and its `SessionApplicationService` session boundary; Phase 11.5 `ConversationService` (`load`, `submit`, `edit`, `regenerate`, `cancel`) and `ConversationCapabilityResolver`; Phase 11.2 `Orchestrator` reached only *through* the gateway; Phase 11.1 `ServiceBinding` / `StaticCompositionModule` / `ContractMetadata` |
-| Platform service identity | `client.backend` (module `phase11.client-backend`, owner `cmm.client_backend`, mode `local`, authority `client-backend-public-facade`, runtime contract `cmm.client_backend.interface.ClientBackend` with `runtime_contract_match=exact_type` and the private `__cmm_exact_runtime_contract__` marker, dependency edges `application.gateway` and `conversation.service` only) |
+| Platform service identity | `client.backend` (module `phase11.client-backend`, owner `cmm.client_backend`, mode `local`, authority `client-backend-public-facade`, runtime contract `cmm.client_backend.interface.ClientBackend` with `runtime_contract_match=exact_type` and the private `__cmm_exact_runtime_contract__` marker, dependency edges `application.gateway` and `conversation.service` only). Since Remediation V3 the authoritative runtime identity is the canonical `ServiceExpectation` from `client_backend_service_expectation()` (`runtime_contract=ClientBackend`, `runtime_contract_match=EXACT_TYPE`) carried through `CompositionConfiguration.expected_contracts`; the binding's own `runtime_contract` is only a declaration that must agree, and the marker is defense in depth only |
 | Deliberately absent platform dependency | `model.gateway` and `provider.registry` — the client never acquires model execution authority through composition; model-boundary capability facts travel as read-only declarations instead |
 | Not exposed to clients | `kernel.llm.ModelGateway`, provider adapters, model selection/routing, raw `ModelCallCancellationToken`, `ModelGateway.stream()`, provider token streaming, image/document bytes, file upload, path resolution and URL download |
 | CMMChat relationship | CMMChat is a first-party client and consumes this seam later; `CMMCHAT_CODE_CHANGES=NONE` in Phase 11.50 |
@@ -469,11 +486,15 @@ the Remediation V2 state yet.
 | Other gates | `compileall` PASS over `cmm/client_backend`, `cmm/application`, `cmm/conversation`, `cmm/platform`, `cmm/orchestration`, `kernel/llm`; `git diff --check` PASS |
 | Remediation V1 evidence | `AUDITED_HEAD=ed7bdc6f9c48ff94375613bb80c23ad10599710c`, `AUDITED_TREE=c065eb3d78ff19120a64b9e9eb1fff8311a59224`, `AUDITED_BUNDLE_SHA256=fa2ed501bdd5ba6ba87dfdbe713d12e3f37644bd200d73d598487be4862f3654`; `INDEPENDENT_AUDIT_V1=FAIL`, `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`, `DP_150=NOT_VERIFIED`, `AT_DP_150=FAIL_INDEPENDENT`, `CLOSURE_ELIGIBLE=NO` |
 | Remediation V1 result | `AUDIT_V1_MAJOR_01..05=IMPLEMENTED_PENDING_REAUDIT`; `PUBLIC_OWNER_ESCAPE_HATCH=ABSENT`; `HEALTH_GET_CLIENT_BYPASS=IMPOSSIBLE`; `APPLICATION_GATEWAY_SUBCLASS=REJECTED`; `CONVERSATION_SERVICE_SUBCLASS=REJECTED`; `CLIENT_BACKEND_SUBCLASS_BINDING=REJECTED`; `CANONICAL_NOT_FOUND=PRESERVED`; `CANONICAL_CONFLICT=PRESERVED`; `UNKNOWN_INTERNAL=INTERNAL_CLIENT_ERROR`; `ATTACHMENTS_STATUS=DEGRADED`; `ATTACHMENTS_MODE=reference_only`; `DOCUMENT_UPLOAD=UNAVAILABLE`; `RESPONSE_EVENT_STREAM=AVAILABLE`; `TOKEN_STREAM_FACTS_SEPARATE=YES`; `REQUEST_CANONICAL_PAYLOAD_JSON_SERIALIZABLE=PASS`; `RESULT_CANONICAL_PAYLOAD_JSON_SERIALIZABLE=PASS`; `OPAQUE_PAYLOAD=FAIL_CLOSED` |
-| Remediation V2 authoritative gate | `cmm/platform/contracts.py` — `RuntimeContractMatch` (`INSTANCE_OF` default, `EXACT_TYPE` opt-in) and `ServiceBinding.runtime_contract_match` with fail-closed validation (`RuntimeContractMatch` only; `EXACT_TYPE` requires a real Python type); `cmm/platform/service_registry.py` — one shared effective-match helper where a contract-level `__cmm_exact_runtime_contract__ = True` marker upgrades any declared mode to `EXACT_TYPE`, used by both `register()` and `replace()`; `EXACT_TYPE` requires `type(implementation) is runtime_contract` with no `isinstance` fallback and fails closed for a non-type contract; `cmm/client_backend/interface.py` — the private marker on `ClientBackend`; `cmm/client_backend/platform_module.py` — the binding declares `runtime_contract_match=RuntimeContractMatch.EXACT_TYPE` while keeping the fail-fast `type(service) is ClientBackend` builder check; `cmm/platform/__init__.py` — public export of `RuntimeContractMatch` only. Platform core keeps no service-ID or authority special case, no `cmm.client_backend` import and no parallel policy registry; inherited Phase 11.1 `INSTANCE_OF` semantics (including the safely-uncheckable path) are unchanged |
+| Remediation V2 authoritative gate | `cmm/platform/contracts.py` — `RuntimeContractMatch` (`INSTANCE_OF` default, `EXACT_TYPE` opt-in) and `ServiceBinding.runtime_contract_match` with fail-closed validation (`RuntimeContractMatch` only; `EXACT_TYPE` requires a real Python type); `cmm/platform/service_registry.py` — one shared effective-match helper where a contract-level `__cmm_exact_runtime_contract__ = True` marker upgrades any declared mode to `EXACT_TYPE`, used by both `register()` and `replace()`; `EXACT_TYPE` requires `type(implementation) is runtime_contract` with no `isinstance` fallback and fails closed for a non-type contract; `cmm/client_backend/interface.py` — the private marker on `ClientBackend`; `cmm/client_backend/platform_module.py` — the binding declares `runtime_contract_match=RuntimeContractMatch.EXACT_TYPE` while keeping the fail-fast `type(service) is ClientBackend` builder check; `cmm/platform/__init__.py` — public export of `RuntimeContractMatch` only. Platform core keeps no service-ID or authority special case, no `cmm.client_backend` import and no parallel policy registry; inherited Phase 11.1 `INSTANCE_OF` semantics (including the safely-uncheckable path) are unchanged. **Superseded in authority by Remediation V3**: the `RuntimeContractMatch` primitive and the marker remain, but the authoritative runtime identity of a configured canonical service is now the configured `ServiceExpectation`, not the caller-authored binding field |
 | Remediation V2 gate results | focused four-file selection — 170 passed; `tests/client_backend` — 192 passed; `AT-DP-150` run separately — 21 passed; inherited acceptances `AT-DP-134`/`AT-DP-121`/`AT-DP-101`/`AT-DP-102`/`AT-DP-103`/`AT-DP-104`/`AT-DP-105` — 68/38/31/33/47/69/1 = 287 passed; `tests/platform` — 383 passed; `tests/application` — 675 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/orchestration` — 498 passed; `tests/cli` — 459 passed; global `pytest -q` — 21989 passed, 1 warning, 0 failed (the +24 over the Remediation V1 HEAD is exactly the `tests/client_backend` growth from 182 to 192 plus the `tests/platform` growth from 369 to 383); `RUFF_TOUCHED=PASS`; `FORMAT=PASS`; `RUFF_GLOBAL=837`; `RUFF_NEW_FINDINGS=0`; `COMPILEALL=PASS`; `GIT_DIFF_CHECK=PASS` |
 | Remediation V2 result | `MAJOR_V2_01=IMPLEMENTED_PENDING_REAUDIT`; `CLIENT_BACKEND_SUBCLASS_BUILDER_BINDING=REJECTED`; `CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT=REJECTED`; `EXACT_CLIENT_BACKEND_HAND_BUILT_BINDING=ACCEPTED`; `EXACT_RUNTIME_CONTRACT_CANNOT_BE_DOWNGRADED=PASS`; `OMITTED_MATCH_CANNOT_DOWNGRADE_EXACT_CONTRACT=PASS`; `INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED`; `PLATFORM_IMPORTS_CLIENT_BACKEND=NO`; `CLIENT_BACKEND_SPECIAL_CASE_IN_PLATFORM=ABSENT`; `PARALLEL_POLICY_REGISTRY=NO`; `AT-DP-150` Scenario A2 exercises the authoritative registry path directly |
-| Mapping status | `IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT` |
-| Next step | independent Re-audit V3 of the Phase 11.50 Remediation V2 exact-HEAD bundle |
+| Re-audit V3 evidence | `AUDITED_HEAD=f7731b7f0616869bcf7d2fba15127a6486057fce`, `AUDITED_TREE=220bf0be54193248556b4daf0926671e6e196889`, `AUDITED_BUNDLE_SHA256=f3e49712983620a390ae1b5a69fccead0a48ef68be8f9acc15d0efa2052ebd0b`; `INDEPENDENT_REAUDIT_V3=FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`, `MAJOR_V3_01=EXACT_CLIENT_BACKEND_IDENTITY_REMAINS_CALLER_ASSERTED_BECAUSE_A_HAND_BUILT_BINDING_CAN_REPLACE_THE_RUNTIME_CONTRACT_AND_BYPASS_THE_EXACT_MARKER`, `DP_150=NOT_VERIFIED`, `AT_DP_150=FAIL_INDEPENDENT`, `CLOSURE_ELIGIBLE=NO` |
+| Remediation V3 authoritative runtime identity | `cmm/platform/configuration.py` — the existing `ServiceExpectation` gains the optional authoritative runtime policy (`runtime_contract`, an optional real Python type, plus `runtime_contract_match`), failing closed on a match rule declared without a runtime contract, a runtime contract that is not a real Python type, and a declared runtime contract with no match rule, while `ServiceExpectation(service_id, contract)` stays valid and semantically unchanged (`LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED`). `cmm/platform/service_registry.py` — the one `IntegrationServiceRegistry` holds copied, sorted, externally immutable expectations, exposes one generic `expected_contract_for(service_id)` lookup with no service-ID or authority branch, and applies one expectation-aware assertion path shared by `register()` and `replace()`: the descriptor contract must satisfy `expectation.contract` through the existing `check_contract_compatibility`, the binding must declare `binding.runtime_contract is expectation.runtime_contract` and may neither omit it nor downgrade an `EXACT_TYPE` expectation to `INSTANCE_OF`, and the bound implementation is judged against the expectation (`type(implementation) is expectation.runtime_contract` for `EXACT_TYPE`, `isinstance` otherwise) with a fail-closed guard against a malformed expectation. `cmm/client_backend/platform_module.py` — the canonical `client_backend_service_expectation()` (`client.backend`, the existing contract, `runtime_contract=ClientBackend`, `runtime_contract_match=EXACT_TYPE`), not added to `cmm.client_backend.__all__`. `cmm/platform/container.py` — `configuration.expected_contracts` is authoritative before READY on both the new-registry and the supplied-registry path; `configure_expected_contracts(...)` is monotonic, idempotent for an identical set and atomic. `cmm.platform` core keeps no service-ID or authority special case, no `cmm.client_backend` import, no parallel registry, runtime-type map or container; `FIRST_PARTY_CLIENT_API_EXPANSION=NO`; the V2 `__cmm_exact_runtime_contract__` marker remains defense in depth only (`CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION`, `BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO`) |
+| Remediation V3 gate results | focused six-file selection — 298 passed; `tests/platform/test_configuration.py` — 35 passed; `tests/platform/test_service_registry.py` — 105 passed; `tests/platform/test_container.py` — 35 passed; `tests/client_backend/test_platform_module.py` — 40 passed; `AT-DP-150` run separately — 31 passed; `tests/platform` — 439 passed; `tests/client_backend` — 216 passed; inherited acceptances `AT-DP-134`/`AT-DP-121`/`AT-DP-101`/`AT-DP-102`/`AT-DP-103`/`AT-DP-104`/`AT-DP-105` — 68/38/33/33/47/69/1 = 289 passed; `tests/application` — 675 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/orchestration` — 498 passed; `tests/cli` — 459 passed; global `pytest -q` — 22069 passed, 1 warning, 0 failed (the +80 over the Remediation V2 HEAD is exactly the `tests/platform` growth from 383 to 439 and the `tests/client_backend` growth from 192 to 216); `RUFF_TOUCHED=PASS`; `FORMAT=PASS`; `RUFF_GLOBAL=837`; `RUFF_NEW_FINDINGS=0`; `COMPILEALL=PASS`; `GIT_DIFF_CHECK=PASS` |
+| Remediation V3 result | `MAJOR_V3_01=IMPLEMENTED_PENDING_REAUDIT`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS`; `EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS`; `REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS`; `REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS`; `EXPECTATION_ATTACHMENT_ATOMIC=PASS`; `EXPECTATION_DOWNGRADE=REJECTED`; `IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT`; `PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED`; `CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO`; `EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED`; `LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED`; `INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED`; `CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION`; `BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO`; `AT-DP-150` Scenario A3 exercises the configuration-anchored authoritative expectation path over real components and a real `ApplicationContainer` |
+| Mapping status | `IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT` |
+| Next step | independent Re-audit V4 of the Phase 11.50 Remediation V3 exact-HEAD bundle |
 
 ## 5. Current lifecycle status
 
@@ -1154,17 +1175,39 @@ planned by
 `docs/superpowers/plans/2026-09-26-phase-11.50-remediation-v2-implementation-plan.md`
 (`SHA256=8260cb3f9f6d8e70f0453ce202743c910a188beb2f6ad69fefc52cecde33b8f4`),
 corrects exactly that one residual defect.
-**No independent Re-audit V3 has examined the Remediation V2 state yet, and no
+
+Independent Re-audit V3
+(`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v3.md`,
+`SHA256=5604c638fe27669710c147fa329afde5d1c79d30d1cd49ea0d1feda1272f8749`)
+then examined that Remediation V2 state at
+`AUDITED_HEAD=f7731b7f0616869bcf7d2fba15127a6486057fce`,
+`AUDITED_TREE=220bf0be54193248556b4daf0926671e6e196889` and returned
+`INDEPENDENT_REAUDIT_V3=FAIL` with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`, with one
+residual defect:
+
+```text
+MAJOR_V3_01=
+EXACT_CLIENT_BACKEND_IDENTITY_REMAINS_CALLER_ASSERTED_BECAUSE_A_HAND_BUILT_BINDING_CAN_REPLACE_THE_RUNTIME_CONTRACT_AND_BYPASS_THE_EXACT_MARKER
+```
+
+Remediation V3, designed by
+`docs/superpowers/specs/2026-09-26-phase-11.50-remediation-v3-design.md`
+(`SHA256=d5ef219797a2128e80b672c568811ede22a89ef6dbf2a0ae108e70173121debd`) and
+planned by
+`docs/superpowers/plans/2026-09-26-phase-11.50-remediation-v3-implementation-plan.md`
+(`SHA256=b9d90024e7a9f39258c4961ee5a153341eafbec67668569458bef2b4666ce660`),
+corrects exactly that one residual defect.
+**No independent Re-audit V4 has examined the Remediation V3 state yet, and no
 closure is claimed.**
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
-F11_021=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
+PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
-INDEPENDENT_REAUDIT_V3=NOT_PERFORMED
+INDEPENDENT_REAUDIT_V3=FAIL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
@@ -1215,6 +1258,57 @@ driven: the exact requirement travels with the runtime contract itself, so the
 single acceptance identifier and gains Scenario A2, which drives the authoritative
 `IntegrationServiceRegistry` path directly with a hand-built binding.
 
+What Remediation V3 corrects (Re-audit V3 findings only):
+
+```text
+MAJOR_V3_01  exact composition identity still derived from the caller-authored
+             ServiceBinding.runtime_contract field
+             -> authoritative runtime identity taken from the configured
+                ServiceExpectation in CompositionConfiguration.expected_contracts
+```
+
+The reproduced bypass and its closure:
+
+```text
+BEFORE  ClientBackendSubclass + canonical client.backend descriptor
+        + forged ServiceBinding.runtime_contract (None | object | ClientBackendSubclass)
+        + register() / replace()
+        -> CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=ACCEPTED
+           CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=ACCEPTED
+           CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=ACCEPTED
+
+AFTER   CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=REJECTED
+        CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=REJECTED
+        CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=REJECTED
+        CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=REJECTED
+        CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=REJECTED
+        CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=REJECTED
+        EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS
+        EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS
+        REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS
+        REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS
+        EXPECTATION_ATTACHMENT_ATOMIC=PASS
+        EXPECTATION_DOWNGRADE=REJECTED
+        IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT
+        PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED
+        CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO
+        EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED
+        LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED
+        INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED
+        CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION
+        BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO
+```
+
+The authority chain is the existing Phase 11.1 configuration path —
+`CompositionConfiguration.expected_contracts` → `ServiceExpectation` →
+`IntegrationServiceRegistry` → the binding must agree → `ApplicationContainer`
+READY — so the platform needs no product knowledge and introduces no parallel
+registry, runtime-type map or container. The V2 `RuntimeContractMatch` primitive
+and the private contract marker remain, but only as defense in depth:
+`AT-DP-150` keeps its single acceptance identifier and gains Scenario A3, which
+exercises the configuration-anchored expectation path over real components and a
+real `ApplicationContainer`.
+
 What Phase 11.50 adds:
 
 - one new top-layer package, `cmm/client_backend`, containing a
@@ -1256,4 +1350,4 @@ The implemented surface, capability truth table, security invariants and known
 limits are documented in
 [`docs/reference/phase-11-reusable-backend-interfaces.md`](phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT -->

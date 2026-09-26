@@ -4759,8 +4759,8 @@ CMMChat is a first-party client, not an execution authority owner.
 
 ## 11.50 implementation state (Phase 11.50 / DP-150)
 
-**Status:** Audit V1 remediation V1 and Re-audit V2 remediation V2 implemented,
-pending independent Re-audit V3.
+**Status:** Audit V1 remediation V1, Re-audit V2 remediation V2 and Re-audit V3
+remediation V3 implemented, pending independent Re-audit V4.
 
 Independent Audit V1 examined the Phase 11.50 implementation and returned
 `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`,
@@ -4782,13 +4782,13 @@ exactly that defect at the authoritative boundary, generically and without
 reopening the closed Phase 11.1 semantics.
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
-F11_021=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
+PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
-INDEPENDENT_REAUDIT_V3=NOT_PERFORMED
+INDEPENDENT_REAUDIT_V3=FAIL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
@@ -4814,6 +4814,91 @@ EXACT_RUNTIME_CONTRACT_CANNOT_BE_DOWNGRADED=PASS
 OMITTED_MATCH_CANNOT_DOWNGRADE_EXACT_CONTRACT=PASS
 INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED
 ```
+
+Independent Re-audit V3 then examined the Remediation V2 state and returned
+`INDEPENDENT_REAUDIT_V3=FAIL` with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`: the one
+residual defect was
+
+```text
+MAJOR_V3_01=
+EXACT_CLIENT_BACKEND_IDENTITY_REMAINS_CALLER_ASSERTED_BECAUSE_A_HAND_BUILT_BINDING_CAN_REPLACE_THE_RUNTIME_CONTRACT_AND_BYPASS_THE_EXACT_MARKER
+```
+
+because the V2 rule derived the effective exactness from
+`ServiceBinding.runtime_contract` — a field of the very binding being validated.
+Keeping the canonical `client.backend` descriptor and service ID while replacing
+only that field restored acceptance, on `register()` and equally on `replace()`:
+
+```text
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=ACCEPTED
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=ACCEPTED
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=ACCEPTED
+```
+
+Remediation V3 makes the runtime identity of a configured canonical service
+authoritative through the **existing Phase 11.1 configuration path** instead of
+the caller-authored binding field:
+
+```text
+CompositionConfiguration.expected_contracts
+        ↓
+ServiceExpectation(service_id, contract, runtime_contract, runtime_contract_match)
+        ↓
+IntegrationServiceRegistry
+        ↓
+ServiceBinding must agree
+        ↓
+ApplicationContainer READY
+```
+
+`ServiceExpectation` gains the optional authoritative runtime policy while the
+legacy `ServiceExpectation(service_id, contract)` construction keeps working
+unchanged and imposes no exact-type requirement. The canonical
+`client_backend_service_expectation()` declares `runtime_contract=ClientBackend`
+with `runtime_contract_match=EXACT_TYPE`; the configured registry requires the
+binding to declare exactly that contract and match rule and then judges the bound
+implementation against the expectation, so `None`, `object` and the facade
+subclass can no longer be substituted, omitted or downgraded on either
+`register()` or `replace()`. A rebuilt descriptor carrying the canonical service
+ID cannot bypass the expectation, because the lookup is by service identity. The
+V2 `__cmm_exact_runtime_contract__` marker remains as defense in depth only.
+
+`ApplicationContainer.build(...)` attaches `configuration.expected_contracts`
+before any module contribution registers for a registry it creates, and attaches
+them atomically to a caller-supplied pre-populated registry before READY, so a
+pre-populated forged `client.backend` binding is rejected before
+`ContainerState.READY` with the expectation, binding and freeze state untouched.
+Attachment is monotonic and idempotent: an identical set is a no-op and a weaker,
+removed or conflicting set fails closed. The platform core stays generic — no
+service-ID or authority special case, no `cmm.client_backend` import, no parallel
+registry, runtime-type map or container — and `cmm.client_backend.__all__` is
+unchanged.
+
+```text
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=REJECTED
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=REJECTED
+CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=REJECTED
+CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=REJECTED
+CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=REJECTED
+CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=REJECTED
+EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS
+EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS
+REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS
+REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS
+EXPECTATION_ATTACHMENT_ATOMIC=PASS
+EXPECTATION_DOWNGRADE=REJECTED
+IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT
+PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED
+CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO
+EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED
+LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED
+CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION
+BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO
+```
+
+`AT-DP-150` is extended in place with Scenario A3 — configuration-anchored
+canonical `client.backend` identity — over real components and a real
+`ApplicationContainer`; no new acceptance identifier is created.
 
 The broad interface list above is the historical roadmap wording and is preserved
 unchanged. Phase 11.50 implements a deliberately narrower, scoped slice of it —
@@ -4851,7 +4936,7 @@ inspection, per design §63.
 
 See [`docs/reference/phase-11-reusable-backend-interfaces.md`](../reference/phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT -->
 
 ---
 
