@@ -1061,8 +1061,11 @@ class TestIntegration:
         repo.save(event)
         request = AgentRuntimeEventReplayRequest(event_type=EventType.GOAL_CREATED)
         result = replayer.replay(request)
-        # replay tries to save again but append-only prevents it
-        assert result.failed_count >= 1
+        # Phase 11.22 corrected semantics: replay re-reports stored evidence and
+        # never appends a second record for an already-stored event.
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
+        assert repo.count() == 1
 
     def test_multiple_event_types(self) -> None:
         bus = AgentRuntimeEventBus()
@@ -1744,7 +1747,8 @@ class TestExtendedReplay:
         repo.save(event)
         request = AgentRuntimeEventReplayRequest(event_id="evt_target")
         result = replayer.replay(request)
-        assert result.replayed_count == 0
+        assert result.replayed_count == 1
+        assert result.failed_count == 0
 
     def test_replay_by_event_type(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1753,8 +1757,9 @@ class TestExtendedReplay:
         repo.save(make_event(event_id="evt_2", event_type=EventType.GOAL_UPDATED))
         request = AgentRuntimeEventReplayRequest(event_type=EventType.GOAL_CREATED)
         result = replayer.replay(request)
-        # Events already exist in repo; replay save fails (append-only)
-        assert result.failed_count == 1
+        # Phase 11.22: replay reports stored evidence and never re-persists it.
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
 
     def test_replay_by_agent_run_id(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1763,7 +1768,8 @@ class TestExtendedReplay:
         repo.save(make_event(event_id="evt_2", agent_run_id="run_2"))
         request = AgentRuntimeEventReplayRequest(agent_run_id="run_1")
         result = replayer.replay(request)
-        assert result.failed_count == 1
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
 
     def test_replay_by_goal_id(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1772,7 +1778,8 @@ class TestExtendedReplay:
         repo.save(make_event(event_id="evt_2", goal_id="g2"))
         request = AgentRuntimeEventReplayRequest(goal_id="g1")
         result = replayer.replay(request)
-        assert result.failed_count == 1
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
 
     def test_replay_by_correlation_id(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1781,7 +1788,8 @@ class TestExtendedReplay:
         repo.save(make_event(event_id="evt_2", correlation_id="corr_2"))
         request = AgentRuntimeEventReplayRequest(correlation_id="corr_1")
         result = replayer.replay(request)
-        assert result.failed_count == 1
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
 
     def test_replay_by_time_range(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1794,7 +1802,8 @@ class TestExtendedReplay:
         repo.save(make_event(event_id="evt_3", occurred_at=t3))
         request = AgentRuntimeEventReplayRequest(start_time=t2, end_time=t3)
         result = replayer.replay(request)
-        assert result.failed_count == 2
+        assert result.failed_count == 0
+        assert result.replayed_count == 2
 
     def test_replay_respects_limit(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1803,7 +1812,8 @@ class TestExtendedReplay:
             repo.save(make_event(event_id=f"evt_{i}"))
         request = AgentRuntimeEventReplayRequest(limit=2)
         result = replayer.replay(request)
-        assert result.failed_count == 2
+        assert result.failed_count == 0
+        assert result.replayed_count == 2
 
     def test_replay_generates_new_event_id(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1822,7 +1832,8 @@ class TestExtendedReplay:
         repo.save(event)
         request = AgentRuntimeEventReplayRequest(event_id="evt_preserved")
         result = replayer.replay(request)
-        assert result.replayed_count == 0
+        assert result.replayed_count == 1
+        assert result.events[0].header.event_id == "evt_preserved"
 
     def test_replay_preserves_correlation(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
@@ -1831,8 +1842,8 @@ class TestExtendedReplay:
         repo.save(event)
         request = AgentRuntimeEventReplayRequest(correlation_id="corr_1")
         result = replayer.replay(request)
-        # Event exists in repo; replay save fails (append-only)
-        assert result.failed_count == 1
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
         # Verify the event was found by correlation filter
         gathered = replayer._gather_events(request)
         assert len(gathered) == 1
@@ -1845,7 +1856,8 @@ class TestExtendedReplay:
         repo.save(event)
         request = AgentRuntimeEventReplayRequest()
         result = replayer.replay(request)
-        assert result.failed_count == 1
+        assert result.failed_count == 0
+        assert result.replayed_count == 1
         # Verify the event was found
         gathered = replayer._gather_events(request)
         assert len(gathered) == 1
@@ -1868,11 +1880,12 @@ class TestExtendedReplay:
         request = AgentRuntimeEventReplayRequest()
         result1 = replayer.replay(request)
         result2 = replayer.replay(request)
-        # Both replays find the event but cannot re-save (append-only)
-        assert result1.replayed_count == 0
-        assert result2.replayed_count == 0
-        assert result1.failed_count == 1
-        assert result2.failed_count == 1
+        # Replay is repeatable and never appends storage for a stored event.
+        assert result1.replayed_count == 1
+        assert result2.replayed_count == 1
+        assert result1.failed_count == 0
+        assert result2.failed_count == 0
+        assert repo.count() == 1
 
     def test_dry_run_does_not_publish(self) -> None:
         repo = InMemoryAgentRuntimeEventRepository()
