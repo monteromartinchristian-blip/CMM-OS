@@ -64,8 +64,31 @@ def _compute_fingerprint(
 ) -> str:
     """Compute a deterministic fingerprint for an event."""
     payload_str = json.dumps(payload.data, sort_keys=True, default=str)
-    raw = f"{header.event_id}:{header.event_type}:{header.schema_version}:{header.occurred_at.isoformat()}:{header.emitted_at.isoformat()}:{payload_str}"
+    raw = (
+        f"{header.event_id}:{header.event_type}:{header.schema_version}:"
+        f"{header.occurred_at.isoformat()}:{header.emitted_at.isoformat()}:"
+        f"{header.producer}:{header.aggregate_id}:{payload_str}"
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def event_fingerprint(event: AgentRuntimeEvent) -> str:
+    """Return the canonical, deterministic content fingerprint of *event*.
+
+    Phase 11.22 uses this identity as its content-bound deduplication key: two
+    persisted events with the same event ID and the same fingerprint are an
+    idempotent duplicate, while the same event ID with a different fingerprint is
+    an identity conflict that fails closed.
+
+    The fingerprint deliberately covers every identity-relevant header field
+    (event ID, type, schema version, both timestamps, producer and aggregate
+    identity) plus a canonical rendering of the payload, so a materially
+    different event can never share a fingerprint with a persisted one.
+    """
+
+    if not isinstance(event, AgentRuntimeEvent):
+        raise TypeError("event must be an AgentRuntimeEvent")
+    return _compute_fingerprint(event.header, event.payload)
 
 
 def _check_payload_safety(payload: dict[str, Any]) -> None:
@@ -93,6 +116,9 @@ def _check_payload_safety(payload: dict[str, Any]) -> None:
 class AgentRuntimeEventFactory:
     """Factory for creating runtime events."""
 
+    #: The one canonical event schema version this build can deserialize.
+    SUPPORTED_SCHEMA_VERSION = "1.0.0"
+
     def __init__(self) -> None:
         self._generate_id = _generate_event_id
 
@@ -118,6 +144,8 @@ class AgentRuntimeEventFactory:
         sensitivity: EventSensitivity = EventSensitivity.INTERNAL,
         permissions: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        producer: str | None = None,
+        aggregate_id: str | None = None,
     ) -> AgentRuntimeEvent:
         """Create a new runtime event."""
         if not is_registered_event_type(event_type):
@@ -155,6 +183,8 @@ class AgentRuntimeEventFactory:
             sensitivity=sensitivity,
             permissions=permissions_copy,
             metadata=metadata_copy,
+            producer=producer,
+            aggregate_id=aggregate_id,
         )
 
         payload_obj = AgentRuntimeEventPayload(data=payload_copy, raw=None)
@@ -164,6 +194,17 @@ class AgentRuntimeEventFactory:
         """Create event from dictionary."""
         header_data = data.get("header", {})
         payload_data = data.get("payload", {})
+
+        if not isinstance(header_data, dict):
+            raise TypeError("serialized event header must be a mapping")
+        if "event_type" not in header_data:
+            raise ValueError("serialized event header has no event_type")
+
+        schema_version = header_data.get("schema_version", "1.0.0")
+        if not isinstance(schema_version, str):
+            raise TypeError("serialized event schema_version must be a string")
+        if schema_version != self.SUPPORTED_SCHEMA_VERSION:
+            raise ValueError(f"unsupported event schema_version '{schema_version}'")
 
         occurred_at = header_data.get("occurred_at")
         if isinstance(occurred_at, str):
@@ -185,7 +226,7 @@ class AgentRuntimeEventFactory:
             event_type=header_data["event_type"],
             payload=payload_dict,
             event_id=header_data.get("event_id"),
-            schema_version=header_data.get("schema_version", "1.0.0"),
+            schema_version=schema_version,
             occurred_at=occurred_at,
             emitted_at=emitted_at,
             agent_id=header_data.get("agent_id"),
@@ -201,6 +242,8 @@ class AgentRuntimeEventFactory:
             sensitivity=sensitivity,
             permissions=header_data.get("permissions", []),
             metadata=header_data.get("metadata", {}),
+            producer=header_data.get("producer"),
+            aggregate_id=header_data.get("aggregate_id"),
         )
 
     def to_dict(self, event: AgentRuntimeEvent) -> dict[str, Any]:
@@ -225,6 +268,8 @@ class AgentRuntimeEventFactory:
                 "sensitivity": event.header.sensitivity.value,
                 "permissions": list(event.header.permissions),
                 "metadata": dict(event.header.metadata),
+                "producer": event.header.producer,
+                "aggregate_id": event.header.aggregate_id,
             },
             "payload": {
                 "data": dict(event.payload.data),
@@ -276,6 +321,8 @@ class AgentRuntimeEventNormalizer:
             sensitivity=header.sensitivity,
             permissions=list(header.permissions),
             metadata=dict(header.metadata),
+            producer=header.producer,
+            aggregate_id=header.aggregate_id,
         )
 
         return AgentRuntimeEvent(

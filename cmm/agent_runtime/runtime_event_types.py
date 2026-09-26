@@ -106,6 +106,30 @@ class EventType:
     MODEL_EXECUTION_FAILED = "model_execution.failed"
     MODEL_EXECUTION_CANCELLED = "model_execution.cancelled"
 
+    # ── Platform lifecycle facts (Phase 11.22) ─────────────────────────────────
+    # The Phase 11.22 platform event catalog is validated by this same canonical
+    # registration authority.  ``cmm.events.event_catalog`` declares the catalog
+    # and its producer dispositions; it is *not* a second registry, and these
+    # names are registered here for the same reason every other runtime event
+    # type is.  Names already present above are not repeated, so the smallest
+    # possible additive surface is added.
+    SESSION_CREATED = "session.created"
+    MESSAGE_RECEIVED = "message.received"
+    INTENT_RESOLVED = "intent.resolved"
+    DOMAIN_SELECTED = "domain.selected"
+    REASONING_COMPLETED = "reasoning.completed"
+    WORKFLOW_STARTED = "workflow.started"
+    WORKFLOW_PAUSED = "workflow.paused"
+    WORKFLOW_COMPLETED = "workflow.completed"
+    WORKFLOW_FAILED = "workflow.failed"
+    OPERATION_EXECUTED = "operation.executed"
+    APPROVAL_RESOLVED = "approval.resolved"
+    KNOWLEDGE_UPDATED = "knowledge.updated"
+    MEMORY_UPDATED = "memory.updated"
+    BACKUP_CREATED = "backup.created"
+    PLUGIN_FAILED = "plugin.failed"
+    SECURITY_ALERT = "security.alert"
+
 
 EVENT_TYPE_CATEGORY_MAP: dict[str, EventTypeCategory] = {
     # Goals
@@ -191,6 +215,23 @@ EVENT_TYPE_CATEGORY_MAP: dict[str, EventTypeCategory] = {
     EventType.MODEL_EXECUTION_ACCEPTANCE_UPDATED: EventTypeCategory.EXECUTION,
     EventType.MODEL_EXECUTION_FAILED: EventTypeCategory.EXECUTION,
     EventType.MODEL_EXECUTION_CANCELLED: EventTypeCategory.EXECUTION,
+    # Platform lifecycle facts (Phase 11.22)
+    EventType.SESSION_CREATED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.MESSAGE_RECEIVED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.INTENT_RESOLVED: EventTypeCategory.PLANNING,
+    EventType.DOMAIN_SELECTED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.REASONING_COMPLETED: EventTypeCategory.OBSERVATION,
+    EventType.WORKFLOW_STARTED: EventTypeCategory.PLANNING,
+    EventType.WORKFLOW_PAUSED: EventTypeCategory.PLANNING,
+    EventType.WORKFLOW_COMPLETED: EventTypeCategory.PLANNING,
+    EventType.WORKFLOW_FAILED: EventTypeCategory.PLANNING,
+    EventType.OPERATION_EXECUTED: EventTypeCategory.EXECUTION,
+    EventType.APPROVAL_RESOLVED: EventTypeCategory.APPROVAL,
+    EventType.KNOWLEDGE_UPDATED: EventTypeCategory.KNOWLEDGE,
+    EventType.MEMORY_UPDATED: EventTypeCategory.MEMORY,
+    EventType.BACKUP_CREATED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.PLUGIN_FAILED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.SECURITY_ALERT: EventTypeCategory.POLICY,
 }
 
 

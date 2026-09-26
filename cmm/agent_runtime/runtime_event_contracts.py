@@ -74,6 +74,16 @@ class AgentRuntimeEventHeader:
     sensitivity: EventSensitivity = EventSensitivity.INTERNAL
     permissions: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: Phase 11.22 additive platform-neutral producer identity.  ``source`` keeps
+    #: its Phase 9 meaning (the emitting runtime surface) and stays untouched;
+    #: ``producer`` names the canonical subsystem that owns the emitted lifecycle
+    #: fact.  Both fields are optional, so every Phase 9 construction and every
+    #: already-serialized event remains valid.
+    producer: str | None = None
+    #: Phase 11.22 additive optional aggregate/reference identity, for the
+    #: canonical subject the fact is about when it is neither an agent run, a
+    #: goal nor a workflow.
+    aggregate_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.event_id:
@@ -94,6 +104,10 @@ class AgentRuntimeEventHeader:
             raise ValueError("correlation_id cannot be empty")
         if self.causation_id is not None and not self.causation_id:
             raise ValueError("causation_id cannot be empty")
+        if self.producer is not None and not self.producer:
+            raise ValueError("producer cannot be empty")
+        if self.aggregate_id is not None and not self.aggregate_id:
+            raise ValueError("aggregate_id cannot be empty")
 
 
 @dataclass(frozen=True)
@@ -136,6 +150,11 @@ class AgentRuntimeEventSubscription:
     filters: dict[str, Any] = field(default_factory=dict)
     priority: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: Phase 11.22 replay opt-in.  Historical replay must never silently re-run
+    #: operational side effects, so the default is ``False`` and only a
+    #: subscriber that explicitly opts in receives replayed events.  Normal
+    #: publication is unaffected by this flag.
+    accept_replay: bool = False
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -144,6 +163,8 @@ class AgentRuntimeEventSubscription:
             raise ValueError("handler_name is required")
         if not self.event_types:
             raise ValueError("event_types cannot be empty")
+        if not isinstance(self.accept_replay, bool):
+            raise TypeError("accept_replay must be a bool")
 
 
 @dataclass(frozen=True)
@@ -259,3 +280,6 @@ class AgentRuntimeEventBusStats:
     active_subscriptions: int = 0
     queue_size: int = 0
     replay_count: int = 0
+    #: Phase 11.22 additive delivery-retry counter.  Zero for legacy direct bus
+    #: use, which performs exactly one attempt per matching subscriber.
+    retry_total: int = 0

@@ -66,5 +66,31 @@ class AgentRuntimeEventRepositoryError(AgentRuntimeEventError, RuntimeError):
     """Raised when event repository operations fail."""
 
 
+class AgentRuntimeEventIdentityConflictError(AgentRuntimeEventRepositoryError):
+    """Raised when one event ID is reused with materially different content.
+
+    Phase 11.22 deduplication is identity based *and* content bound: an exact
+    repeat of an already-persisted event is an idempotent duplicate, while the
+    same event ID carrying different canonical content is an identity conflict.
+    A conflict fails closed and mutates no stored record.
+    """
+
+
+class AgentRuntimeEventPersistenceCorruptionError(AgentRuntimeEventRepositoryError):
+    """Raised when stored event evidence cannot be trusted.
+
+    Corrupt, malformed, truncated or unsupported persisted records fail closed
+    rather than being silently skipped or repaired.
+    """
+
+
+class AgentRuntimeEventRetryExhaustedError(AgentRuntimeEventDeliveryError):
+    """Raised when a subscriber delivery exhausts its bounded attempts."""
+
+
+class AgentRuntimeEventReplayDeniedError(AgentRuntimeEventReplayError):
+    """Raised when replay is attempted for a subscriber that did not opt in."""
+
+
 class AgentRuntimeEventTraceSubscriberError(AgentRuntimeEventError, RuntimeError):
     """Raised when the trace subscriber encounters an error."""
