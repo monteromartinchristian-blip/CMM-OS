@@ -388,6 +388,13 @@ class NormalizedModel:
     locality: str  # "local" | "cloud"
     availability: ModelAvailability = "available"
     capabilities: Mapping[str, bool] = field(default_factory=dict)
+    #: Canonical reasoning-effort level names the model explicitly supports,
+    #: in declaration order.  Empty means "no explicit effort may be sent".
+    reasoning_efforts: tuple[str, ...] = ()
+    #: Normalized document media types the model explicitly accepts.
+    document_media_types: tuple[str, ...] = ()
+    context_window: int | None = None
+    streaming: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -408,6 +415,14 @@ class NormalizedModel:
         object.__setattr__(
             self, "capabilities", MappingProxyType(dict(self.capabilities))
         )
+        object.__setattr__(self, "reasoning_efforts", tuple(self.reasoning_efforts))
+        object.__setattr__(
+            self, "document_media_types", tuple(self.document_media_types)
+        )
+        if self.context_window is not None and (
+            not isinstance(self.context_window, int) or self.context_window <= 0
+        ):
+            raise ValueError("context_window must be a positive integer or None")
 
 
 @dataclass(frozen=True, slots=True)

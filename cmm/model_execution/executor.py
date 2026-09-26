@@ -516,6 +516,12 @@ class CanonicalModelExecutor:
             locality="local" if provider.provider_type == "local" else "cloud",
             availability="available" if available else "unavailable",
             capabilities=capabilities,
+            reasoning_efforts=tuple(
+                effort.value for effort in spec.capabilities.reasoning_efforts
+            ),
+            document_media_types=tuple(spec.capabilities.document_media_types),
+            context_window=spec.context_window,
+            streaming=bool(spec.capabilities.streaming),
         )
 
     def _generated_response(

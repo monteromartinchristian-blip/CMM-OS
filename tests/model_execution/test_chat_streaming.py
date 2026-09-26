@@ -18,7 +18,7 @@ import pytest
 from cmm.model_execution.contracts import NormalizedModel, ResolvedChatModel
 from cmm.model_execution.errors import ModelExecutionError
 from cmm.model_execution.executor import CanonicalModelExecutor
-from kernel.llm.capabilities import ModelCapabilities
+from kernel.llm.capabilities import ModelCapabilities, ReasoningEffort
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter
@@ -264,3 +264,50 @@ def test_stream_refuses_a_disabled_provider_at_the_stream_boundary() -> None:
     with pytest.raises(ModelExecutionError) as raised:
         list(executor.stream(disabled, prompt="x"))
     assert raised.value.code == "PROVIDER_UNAVAILABLE"
+
+
+def test_catalog_projects_the_structured_capability_truth() -> None:
+    """Effort levels, document types, context and streaming reach the selector."""
+
+    executor = _compose(
+        models=(
+            (
+                "vision-reasoner",
+                {
+                    "context_window": 8192,
+                    "capabilities": ModelCapabilities(
+                        vision=True,
+                        reasoning=True,
+                        reasoning_efforts=(
+                            ReasoningEffort.LOW,
+                            ReasoningEffort.MEDIUM,
+                        ),
+                        document_media_types=("application/pdf",),
+                        streaming=True,
+                    ),
+                },
+            ),
+        )
+    )
+
+    (model,) = executor.catalog()
+
+    assert model.reasoning_efforts == ("low", "medium")
+    assert model.document_media_types == ("application/pdf",)
+    assert model.context_window == 8192
+    assert model.streaming is True
+    assert model.capabilities == {
+        "reasoning": True,
+        "vision": True,
+        "tool_calling": False,
+        "structured_output": False,
+    }
+
+
+def test_capability_truth_rejects_invented_values() -> None:
+    with pytest.raises(ValueError):
+        ModelCapabilities(reasoning_efforts=(ReasoningEffort.LOW, ReasoningEffort.LOW))
+    with pytest.raises(ValueError):
+        ModelCapabilities(document_media_types=("pdf",))
+    with pytest.raises(ValueError):
+        ModelCapabilities().supports_reasoning_effort("not-a-level")

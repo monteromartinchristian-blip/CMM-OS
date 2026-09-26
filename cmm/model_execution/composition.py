@@ -147,7 +147,7 @@ def chat_only_router_provider_spec(*, base_url: str | None = None) -> ProviderSp
         base_url=_require_loopback_endpoint(
             CHAT_ONLY_ROUTER_BASE_URL if base_url is None else base_url
         ),
-        capabilities=ProviderCapabilities(chat_completions=True),
+        capabilities=ProviderCapabilities(chat_completions=True, streaming=True),
     )
 
 
@@ -281,6 +281,7 @@ def register_chat_only_router(
                     id=normalized,
                     provider_id=registered.id,
                     context_window=CHAT_ONLY_ROUTER_CONTEXT_WINDOW,
+                    capabilities=ModelCapabilities(streaming=True),
                 )
             )
         )
@@ -301,7 +302,7 @@ def local_runtime_provider_spec(*, base_url: str | None = None) -> ProviderSpec:
         api_style="chat_completions",
         api_key_env=LOCAL_RUNTIME_API_KEY_ENV,
         base_url=_require_loopback_endpoint(resolved),
-        capabilities=ProviderCapabilities(chat_completions=True),
+        capabilities=ProviderCapabilities(chat_completions=True, streaming=True),
     )
 
 
@@ -385,7 +386,8 @@ def register_local_runtime(
                     provider_id=registered.id,
                     context_window=LOCAL_RUNTIME_CONTEXT_WINDOW,
                     capabilities=ModelCapabilities(
-                        vision=normalized.lower() in vision_ids
+                        vision=normalized.lower() in vision_ids,
+                        streaming=True,
                     ),
                 )
             )
