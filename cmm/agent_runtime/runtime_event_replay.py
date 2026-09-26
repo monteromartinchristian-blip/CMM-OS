@@ -129,6 +129,93 @@ class AgentRuntimeEventReplayer:
             dry_run=False,
         )
 
+    def replay_to_subscription(
+        self,
+        request: AgentRuntimeEventReplayRequest,
+        subscription_id: str,
+    ) -> AgentRuntimeEventReplayResult:
+        """Re-deliver the selected stored events to exactly one subscriber.
+
+        Dead-letter replay uses this targeted path: a dead-letter entry records the
+        one ``subscription_id`` whose delivery failed, so the entry may only be
+        resolved by retrying that subscriber.  No other subscriber is invoked, and
+        the target subscriber must itself be replay-authorised.
+
+        This is an additive capability of the one canonical replay owner; it is not
+        a second replay engine, it never appends a repository record and it never
+        mutates the stored event.
+        """
+
+        if not isinstance(subscription_id, str) or not subscription_id:
+            raise ValueError("subscription_id must be a non-empty string")
+
+        events = self._gather_events(request)
+
+        if request.dry_run:
+            return AgentRuntimeEventReplayResult(
+                replayed_count=0,
+                skipped_count=len(events),
+                failed_count=0,
+                events=[],
+                errors=[],
+                dry_run=True,
+            )
+
+        if self._bus is None:
+            return AgentRuntimeEventReplayResult(
+                replayed_count=0,
+                skipped_count=0,
+                failed_count=len(events),
+                events=[],
+                errors=["replay_delivery_not_authorised"] * len(events),
+                dry_run=False,
+            )
+
+        seen_ids: set[str] = set()
+        replayed: list[AgentRuntimeEvent] = []
+        errors: list[str] = []
+        failed = 0
+        skipped = 0
+
+        for event in events:
+            event_id = event.header.event_id
+            if event_id in seen_ids:
+                skipped += 1
+                continue
+            seen_ids.add(event_id)
+
+            try:
+                delivery = self._bus.deliver_replay_to_subscription(
+                    event, subscription_id
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(type(exc).__name__)
+                failed += 1
+                continue
+
+            status = getattr(getattr(delivery, "status", None), "value", None)
+
+            if status == "delivered":
+                replayed.append(event)
+            elif status == "failed":
+                errors.append("replay_delivery_failed")
+                failed += 1
+            else:
+                # The target subscriber did not accept replay, no longer exists,
+                # or filtered the event: nothing was retried, so a dead-letter
+                # entry must stay unresolved.
+                errors.append("replay_delivery_not_authorised")
+                failed += 1
+
+        return AgentRuntimeEventReplayResult(
+            replayed_count=len(replayed),
+            skipped_count=skipped,
+            failed_count=failed,
+            events=replayed,
+            errors=errors,
+            dry_run=False,
+        )
+
     def _gather_events(
         self, request: AgentRuntimeEventReplayRequest
     ) -> list[AgentRuntimeEvent]:

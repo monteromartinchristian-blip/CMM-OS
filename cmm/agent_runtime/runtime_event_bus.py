@@ -251,6 +251,45 @@ class AgentRuntimeEventBus:
 
         return records
 
+    def deliver_replay_to_subscription(
+        self, event: AgentRuntimeEvent, subscription_id: str
+    ) -> AgentRuntimeEventDelivery:
+        """Re-notify exactly one replay-authorised subscriber with a stored event.
+
+        This is the additive Phase 11.22 remediation capability dead-letter replay
+        needs: a dead-letter entry names one failed ``subscription_id``, so replay
+        must target that subscriber instead of broadcasting the stored event to
+        every replay-enabled subscriber.
+
+        It reuses the same replay-policy and replay-delivery rules as
+        :meth:`deliver_replay`; it never broadcasts, never persists, and never
+        bypasses ``accept_replay``.  No second replay engine is introduced.
+        """
+
+        if not isinstance(subscription_id, str) or not subscription_id:
+            raise ValueError("subscription_id must be a non-empty string")
+
+        with self._lock:
+            record = self._subscribers.get(subscription_id)
+
+        if record is None:
+            # The original subscription is gone, so no delivery can be resolved.
+            return AgentRuntimeEventDelivery(
+                event_id=event.header.event_id,
+                subscription_id=subscription_id,
+                handler_name=subscription_id,
+                status=EventDeliveryStatus.SKIPPED,
+                metadata={"reason": "subscription_not_found"},
+            )
+
+        delivery = self._deliver_replay_to_subscriber(event, record)
+
+        if delivery.status == EventDeliveryStatus.DELIVERED:
+            with self._lock:
+                self._stats.replay_count += 1
+
+        return delivery
+
     def drain(self) -> None:
         """Drain all queued events."""
         with self._lock:
@@ -360,6 +399,12 @@ class AgentRuntimeEventBus:
                 continue
 
             record.delivered_ids.add(event_id)
+            if attempts > 1:
+                # A subscriber that failed and then succeeded really did retry:
+                # the counter reflects attempts actually made, not only exhausted
+                # deliveries.  A first-attempt success adds nothing.
+                with self._lock:
+                    self._stats.retry_total += attempts - 1
             return AgentRuntimeEventDelivery(
                 event_id=event_id,
                 subscription_id=subscription.id,

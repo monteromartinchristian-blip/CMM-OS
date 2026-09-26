@@ -720,8 +720,7 @@ def test_at_dp_122_same_id_correlation_change_fails_as_conflict(connected) -> No
 
     assert system.repository.count() == 1
     assert (
-        system.repository.get("evt-at-dp-122-adv-cor").header.correlation_id
-        == "CORR-A"
+        system.repository.get("evt-at-dp-122-adv-cor").header.correlation_id == "CORR-A"
     )
 
 

@@ -57,7 +57,11 @@ from cmm.agent_runtime.runtime_event_factory import (
 )
 from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
-from cmm.events.event_payload_safety import freeze_platform_payload
+from cmm.events.event_payload_safety import (
+    PlatformEventPayloadError,
+    freeze_platform_payload,
+    validate_platform_payload,
+)
 
 __all__ = [
     "EventSystem",
@@ -224,6 +228,7 @@ class EventSystem:
 
         safe_payload = dict(payload) if payload is not None else {}
         self._registry.ensure_registered(event_type)
+        validate_platform_payload(safe_payload)
 
         optional = dict(facts)
         event_id = optional.pop("event_id", None)
@@ -262,6 +267,12 @@ class EventSystem:
     def publish_event(self, event: AgentRuntimeEvent) -> PublicationResult:
         """Persist *event* durably, then deliver it, in that order.
 
+        This is a **publication boundary**, not a trusted back door: a manually
+        constructed canonical event is re-validated against the same canonical
+        registry and the same bounded platform payload policy that ``publish``
+        applies, so safety never depends on the caller choosing a safe method.
+        The supplied event identity and canonical header facts are preserved.
+
         * a brand new event is appended once and delivered once;
         * the exact same event identity and content is an idempotent duplicate: it
           is not persisted again and not delivered again;
@@ -275,17 +286,19 @@ class EventSystem:
         if not isinstance(event, AgentRuntimeEvent):
             raise TypeError("event must be an AgentRuntimeEvent")
 
-        persisted_now = self._persist(event)
+        validated = self._validate_platform_event(event)
+
+        persisted_now = self._persist(validated)
         if not persisted_now:
             return PublicationResult(
                 outcome=PublicationOutcome.IDEMPOTENT_DUPLICATE,
-                event=event,
+                event=validated,
                 persisted=False,
                 delivered=False,
                 dead_lettered=False,
             )
 
-        return self._deliver(event)
+        return self._deliver(validated)
 
     def publish(
         self,
@@ -369,12 +382,18 @@ class EventSystem:
         *,
         request: AgentRuntimeEventReplayRequest | None = None,
     ) -> AgentRuntimeEventReplayResult:
-        """Replay one exhausted delivery, resolving its original stored event.
+        """Replay one exhausted delivery to the subscriber whose delivery failed.
 
-        The original event identity is preserved, no second event is persisted,
-        and the dead-letter entry is removed **only** after a successful replay so
-        a failed replay leaves it intact.  This is not generalised recovery: it
-        resolves exactly one entry through the one canonical replay path.
+        A dead-letter entry records the original event **and** the specific failed
+        ``subscription_id``, so this targets that subscriber through the one
+        canonical replay owner.  An unrelated replay-enabled subscriber can never
+        stand in for the failed delivery, and the entry is removed **only** after
+        the targeted subscriber accepts replay and succeeds.  A target that did not
+        opt in with ``accept_replay=True`` leaves the entry unresolved: the DLQ API
+        does not bypass replay policy.
+
+        The original event identity is preserved, no second event is persisted, and
+        this is not generalised recovery: it resolves exactly one entry.
         """
 
         entry = self._dead_letters.get(index)
@@ -386,7 +405,7 @@ class EventSystem:
             event_type=event.header.event_type
         )
 
-        result = self._replayer.replay(
+        result = self._replayer.replay_to_subscription(
             AgentRuntimeEventReplayRequest(
                 event_id=event.header.event_id,
                 event_type=replay_request.event_type,
@@ -397,7 +416,8 @@ class EventSystem:
                 goal_id=replay_request.goal_id,
                 limit=replay_request.limit,
                 dry_run=replay_request.dry_run,
-            )
+            ),
+            entry.subscription_id,
         )
 
         if result.dry_run:
@@ -445,6 +465,31 @@ class EventSystem:
         }
 
     # ── Internals ────────────────────────────────────────────────────────────
+
+    def _validate_platform_event(self, event: AgentRuntimeEvent) -> AgentRuntimeEvent:
+        """Apply the one canonical platform publication boundary to *event*.
+
+        This is a helper inside the existing facade, not a second validator
+        authority: it composes the canonical registry and the existing Phase 11.22
+        bounded payload policy that ``publish`` already uses.
+
+        Order:
+
+        1. canonical registry membership;
+        2. no raw payload content on a platform event;
+        3. the bounded platform payload vocabulary, including forbidden keys,
+           credential/private content, opaque values and non-finite numbers;
+        4. canonical normalization, which preserves the event ID, correlation,
+           causation and every other canonical header fact the caller supplied.
+        """
+
+        self._registry.ensure_registered(event.header.event_type)
+        if event.payload.raw is not None:
+            raise PlatformEventPayloadError(
+                "platform events must not carry raw payload content"
+            )
+        validate_platform_payload(event.payload.data)
+        return self._normalizer.normalize(event)
 
     def _persist(self, event: AgentRuntimeEvent) -> bool:
         """Durably append *event*; return ``False`` for an idempotent duplicate.

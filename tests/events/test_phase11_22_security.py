@@ -447,9 +447,7 @@ def test_every_public_publication_route_fails_closed(
             if route == "publish":
                 system.publish(event_type, payload)
             else:
-                system.publish_event(
-                    manual_runtime_event(event_type, payload)
-                )
+                system.publish_event(manual_runtime_event(event_type, payload))
 
         assert system.repository.count() == 0, (label, route)
         assert system.bus.stats.published_total == before_published, (label, route)
