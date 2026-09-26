@@ -25,8 +25,6 @@ BRANCH=feature/phase-11-stable-integrated-platform
 BASE_HEAD=744de6d996e0aa3dc3f9326fdb33fc38ab13ac8d
 FROZEN_PRE_PROMPT_BASELINE=d691c753c25801d1957fc8dee917ef4e6fff4694
 REQUIRED_STARTING_TREE=36255f0293ac23fe93c2c85c94b989dd91ca0ff2
-FINAL_HEAD=da83146153c619b39f674a681fed333bb91826a6
-FINAL_TREE=55d24779a9936f0c1c8cb6a7d4ebe6b407378b91
 WORKTREE=CLEAN
 ```
 
@@ -172,12 +170,18 @@ subsystem either does not exist at Phase 11.22 or exposes no safe emission seam.
 
 ```text
 AUDIT_BRANCH=feature/phase-11-stable-integrated-platform
-AUDIT_HEAD=da83146153c619b39f674a681fed333bb91826a6
-AUDIT_TREE=55d24779a9936f0c1c8cb6a7d4ebe6b407378b91
+AUDIT_HEAD=<the HEAD this document is committed at>
+AUDIT_TREE=<the tree of that HEAD>
 AUDIT_BUNDLE=phase-11.22-event-system-audit-v1.tar.gz
-AUDIT_BUNDLE_SHA256=59400f132a4b630a3f976aa06fd227cb50297f2160a0a89ba534280ebd9ccc7e
+AUDIT_BUNDLE_SHA256=<reported in the implementation handoff>
 WORKTREE=CLEAN
 ```
+
+The exact `AUDIT_HEAD`, `AUDIT_TREE` and `AUDIT_BUNDLE_SHA256` are reported in the
+implementation handoff message rather than embedded here. A document cannot
+contain the hash of a bundle that includes that same document, so embedding it
+would make the record self-referential and stale by construction. The values in
+the implementation handoff are authoritative.
 
 The bundle is produced with `git archive` from the exact committed final HEAD and
 contains no `.git`, `.venv`, `.env`, private-key or credential path. It is not
