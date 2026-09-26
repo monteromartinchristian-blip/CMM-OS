@@ -4759,8 +4759,7 @@ CMMChat is a first-party client, not an execution authority owner.
 
 ## 11.50 implementation state (Phase 11.50 / DP-150)
 
-**Status:** Audit V1 remediation V1, Re-audit V2 remediation V2 and Re-audit V3
-remediation V3 implemented, pending independent Re-audit V4.
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V4_PASS`.
 
 Independent Audit V1 examined the Phase 11.50 implementation and returned
 `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`,
@@ -4782,14 +4781,18 @@ exactly that defect at the authoritative boundary, generically and without
 reopening the closed Phase 11.1 semantics.
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-F11_021=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-AT_DP_150=PASS_LOCAL
+PHASE11_50=CLOSED
+F11_021=VERIFIED_EXISTING
+DP_150=VERIFIED_EXISTING
+AT_DP_150=PASS
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
-CLOSURE_ELIGIBLE=NOT_CLAIMED
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+CLOSURE_ELIGIBLE=YES
 ```
 
 Remediation V2 adds one reusable opt-in platform primitive — an explicit
@@ -4896,6 +4899,17 @@ CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION
 BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO
 ```
 
+Independent Re-audit V4 then examined the exact Remediation V3 state at
+`AUDITED_HEAD=a405e883edbafd04acad9d26f357ad54723041f7`,
+`AUDITED_TREE=0bcd8f69710a28f3c372ac559afc17846a0baeb3` with bundle
+`AUDITED_BUNDLE_SHA256=526f575a20524dccbc9b1901ee9f4fe4f7dfc34add47fd4ca420144a118aa194` and returned
+`INDEPENDENT_REAUDIT_V4=PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`F11_021=VERIFIED_EXISTING`, `DP_150=VERIFIED_EXISTING`, `AT_DP_150=PASS` and
+`CLOSURE_ELIGIBLE=YES`. All Audit V1 findings and the V2/V3 residual findings are
+`VERIFIED_REMEDIATED`. Final report: `docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`; audit-report commit
+`bc101c74aa7e29edceafc47e20e69ed816be7b6d`. Phase 11.50 is closed by this dedicated docs-only closure
+commit.
+
 `AT-DP-150` is extended in place with Scenario A3 — configuration-anchored
 canonical `client.backend` identity — over real components and a real
 `ApplicationContainer`; no new acceptance identifier is created.
@@ -4936,7 +4950,7 @@ inspection, per design §63.
 
 See [`docs/reference/phase-11-reusable-backend-interfaces.md`](../reference/phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_CLOSED_AFTER_INDEPENDENT_REAUDIT_V4_PASS -->
 
 ---
 

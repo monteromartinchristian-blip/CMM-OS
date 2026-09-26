@@ -15,7 +15,8 @@
 **Independent Audit V1:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md)
 **Independent Re-audit V2:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v2.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v2.md)
 **Independent Re-audit V3:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v3.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v3.md)
-**Status:** `PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT`
+**Independent Re-audit V4:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md)
+**Status:** `PHASE11_50=CLOSED`
 
 ---
 
@@ -184,7 +185,7 @@ Phase 11.1 binding-declared semantics unchanged.
 `CompositionConfiguration`, the real `IntegrationServiceRegistry` and the real
 `ApplicationContainer`. It is one acceptance, not a new acceptance ID.
 
-Remediation V3 claims no verification and awaits independent Re-audit V4.
+Independent Re-audit V4 verified Remediation V3 and made Phase 11.50 closure-eligible; this reference records the final closed state.
 
 ## 2. Canonical ownership
 
@@ -632,7 +633,7 @@ Focused suite (`tests/client_backend`, 192 tests):
 | `test_capabilities.py` | frozen field inventory, canonical evidence, no optimistic upgrade, boundary-only vs end-to-end, the frozen attachment/`reference_only` and response-event-stream truth, determinism and immutability |
 | `test_platform_module.py` | frozen composition identities, downward dependencies, absent model-gateway edge, impostor and facade-subclass refusal, the declared `EXACT_TYPE` match mode, hand-built subclass rejection on `register()` and `replace()`, explicit and omitted-mode downgrade attempts, exact hand-built acceptance, real container composition, module hygiene |
 | `test_architecture.py` | parallel-authority, forbidden-import, dynamic-dispatch, service-locator, filesystem/network, hidden-reasoning and reverse-dependency gates, plus the facade's exact runtime-contract marker with no `cmm.platform` import edge |
-| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–K plus the Remediation V2 Scenario A2 (21 tests) |
+| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–K plus Remediation V2 Scenario A2 and Remediation V3 Scenario A3 (31 tests at the final audited implementation HEAD) |
 | `_canonical_graph.py` | the shared real canonical graph helper (test-only) |
 
 Every graph is the repository's own official composition root
@@ -776,10 +777,10 @@ F11-021 -> DP-150 -> AT-DP-150
 ```
 
 ```text
-F11_021=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-AT_DP_150=PASS_LOCAL
-CLOSURE_ELIGIBLE=NOT_CLAIMED
+F11_021=VERIFIED_EXISTING
+DP_150=VERIFIED_EXISTING
+AT_DP_150=PASS
+CLOSURE_ELIGIBLE=YES
 ```
 
 ## 16. Audit state
@@ -851,22 +852,30 @@ AT_DP_150=FAIL_INDEPENDENT
 CLOSURE_ELIGIBLE=NO
 ```
 
-That report is immutable historical evidence too. Remediation V3 corrects exactly
-the one residual defect (MAJOR_V3_01) and claims no verification:
+That report is immutable historical evidence too. Remediation V3 corrected exactly
+the one residual defect (MAJOR_V3_01). Independent Re-audit V4 then examined the
+exact Remediation V3 bundle and returned the final `PASS`:
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
+PHASE11_50=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
 CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION
 BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO
-AT_DP_150=PASS_LOCAL
-CLOSURE_ELIGIBLE=NOT_CLAIMED
+F11_021=VERIFIED_EXISTING
+DP_150=VERIFIED_EXISTING
+AT_DP_150=PASS
+CLOSURE_ELIGIBLE=YES
 ```
 
-Closure requires an independent Re-audit V4 with `BLOCKERS=0`, `MAJORS=0`,
-`DP_150=VERIFIED_EXISTING`, `AT_DP_150=PASS` and `CLOSURE_ELIGIBLE=YES`, followed
-by a separate docs-only closure commit. This document makes no closure claim.
+Final audited implementation: `AUDITED_HEAD=a405e883edbafd04acad9d26f357ad54723041f7`,
+`AUDITED_TREE=0bcd8f69710a28f3c372ac559afc17846a0baeb3`,
+`AUDITED_BUNDLE_SHA256=526f575a20524dccbc9b1901ee9f4fe4f7dfc34add47fd4ca420144a118aa194`.
+Final report: `docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`; audit-report commit `bc101c74aa7e29edceafc47e20e69ed816be7b6d`.
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_CLOSED_AFTER_INDEPENDENT_REAUDIT_V4_PASS -->

@@ -444,14 +444,15 @@ keeping the canonical `client.backend` descriptor and service ID while replacing
 only that field restored acceptance, on `register()` and on `replace()` alike.
 Remediation V3 corrects exactly that one residual defect, moving the authoritative
 runtime identity of the configured canonical service onto the existing Phase 11.1
-`ServiceExpectation` configuration path. Its mapping status is
-`IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT`. The connected acceptance
-is green here, while no independent Re-audit V4 has examined the Remediation V3
-state yet.
+`ServiceExpectation` configuration path. Independent Re-audit V4 examined the
+exact Remediation V3 state and returned `PASS` with `BLOCKERS=0`, `MAJORS=0`,
+`MINORS=0`, `F11_021=VERIFIED_EXISTING`, `DP_150=VERIFIED_EXISTING`,
+`AT_DP_150=PASS` and `CLOSURE_ELIGIBLE=YES`. The canonical mapping status is now
+`VERIFIED_EXISTING`.
 
 | `requirement_id` | Normative requirement | Source | Phase | Production owners | Mapping status | Acceptance test |
 |---|---|---|---|---|---|---|
-| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`uses_application_gateway` narrowed non-authoritative coherence evidence; `capability_resolver` reviewed and kept) | `IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
+| `F11-021` | Reusable First-Party Backend Interface. CMM OS shall expose exactly one reusable, versioned, transport-neutral first-party client backend interface over the already-closed Phase 11.3 `ApplicationGateway` and Phase 11.5 `ConversationService`; shall require the exact canonical owner types and refuse arbitrary duck-typed replacements and an incoherent gateway pair; shall validate its own interface version and closed operation set and fail closed with zero downstream owner calls on an unsupported version or unknown operation, never routing an operation by string, service name, import path or callable; shall delegate every session operation to the canonical application session boundary and every conversation operation to the exact canonical `ConversationService` without reimplementing orchestration, lineage, retry or persistence; shall reuse canonical public contracts rather than creating semantic copies; shall expose one immutable capability projection whose rows derive only from canonical `ApplicationCapability` and `ConversationCapabilityState` evidence and explicitly injected Phase 11.21 model-boundary declarations, distinguishing model-boundary availability (`boundary_only`) from end-to-end availability, never relabelling a response-event stream as a token stream, and never optimistically upgrading cancellation, multimodal, reasoning-effort or token-stream truth; shall map every failure safely with no traceback, repr, secret, path or hidden reasoning; shall introduce no second application gateway, conversation service, orchestrator, model gateway, provider registry, model catalog, session store, conversation store, router, runtime, engine, registry, repository, resolver, service locator, HTTP server or event bus; and shall compose through the Phase 11.1 root as one `client.backend` service binding whose dependencies point only at the canonical application and conversational services. | `SRC-R11` (detailed Phase 11 roadmap §11.50); `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md` §3–§43; `docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md` | Phase 11.50 | `cmm/client_backend/__init__.py`; `contracts.py`; `capabilities.py`; `interface.py`; `platform_module.py`; `cmm/conversation/service.py` (`uses_application_gateway` narrowed non-authoritative coherence evidence; `capability_resolver` reviewed and kept) | `VERIFIED_EXISTING` | `AT-DP-150` — `tests/client_backend/test_phase11_50_dp150_acceptance.py` |
 
 ### 4.16 `F11-021` traceability
 
@@ -493,8 +494,9 @@ state yet.
 | Remediation V3 authoritative runtime identity | `cmm/platform/configuration.py` — the existing `ServiceExpectation` gains the optional authoritative runtime policy (`runtime_contract`, an optional real Python type, plus `runtime_contract_match`), failing closed on a match rule declared without a runtime contract, a runtime contract that is not a real Python type, and a declared runtime contract with no match rule, while `ServiceExpectation(service_id, contract)` stays valid and semantically unchanged (`LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED`). `cmm/platform/service_registry.py` — the one `IntegrationServiceRegistry` holds copied, sorted, externally immutable expectations, exposes one generic `expected_contract_for(service_id)` lookup with no service-ID or authority branch, and applies one expectation-aware assertion path shared by `register()` and `replace()`: the descriptor contract must satisfy `expectation.contract` through the existing `check_contract_compatibility`, the binding must declare `binding.runtime_contract is expectation.runtime_contract` and may neither omit it nor downgrade an `EXACT_TYPE` expectation to `INSTANCE_OF`, and the bound implementation is judged against the expectation (`type(implementation) is expectation.runtime_contract` for `EXACT_TYPE`, `isinstance` otherwise) with a fail-closed guard against a malformed expectation. `cmm/client_backend/platform_module.py` — the canonical `client_backend_service_expectation()` (`client.backend`, the existing contract, `runtime_contract=ClientBackend`, `runtime_contract_match=EXACT_TYPE`), not added to `cmm.client_backend.__all__`. `cmm/platform/container.py` — `configuration.expected_contracts` is authoritative before READY on both the new-registry and the supplied-registry path; `configure_expected_contracts(...)` is monotonic, idempotent for an identical set and atomic. `cmm.platform` core keeps no service-ID or authority special case, no `cmm.client_backend` import, no parallel registry, runtime-type map or container; `FIRST_PARTY_CLIENT_API_EXPANSION=NO`; the V2 `__cmm_exact_runtime_contract__` marker remains defense in depth only (`CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION`, `BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO`) |
 | Remediation V3 gate results | focused six-file selection — 298 passed; `tests/platform/test_configuration.py` — 35 passed; `tests/platform/test_service_registry.py` — 105 passed; `tests/platform/test_container.py` — 35 passed; `tests/client_backend/test_platform_module.py` — 40 passed; `AT-DP-150` run separately — 31 passed; `tests/platform` — 439 passed; `tests/client_backend` — 216 passed; inherited acceptances `AT-DP-134`/`AT-DP-121`/`AT-DP-101`/`AT-DP-102`/`AT-DP-103`/`AT-DP-104`/`AT-DP-105` — 68/38/33/33/47/69/1 = 289 passed; `tests/application` — 675 passed; `tests/conversation` — 860 passed; `tests/llm` — 1153 passed; `tests/orchestration` — 498 passed; `tests/cli` — 459 passed; global `pytest -q` — 22069 passed, 1 warning, 0 failed (the +80 over the Remediation V2 HEAD is exactly the `tests/platform` growth from 383 to 439 and the `tests/client_backend` growth from 192 to 216); `RUFF_TOUCHED=PASS`; `FORMAT=PASS`; `RUFF_GLOBAL=837`; `RUFF_NEW_FINDINGS=0`; `COMPILEALL=PASS`; `GIT_DIFF_CHECK=PASS` |
 | Remediation V3 result | `MAJOR_V3_01=IMPLEMENTED_PENDING_REAUDIT`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS`; `EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS`; `REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS`; `REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS`; `EXPECTATION_ATTACHMENT_ATOMIC=PASS`; `EXPECTATION_DOWNGRADE=REJECTED`; `IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT`; `PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED`; `CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO`; `EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED`; `LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED`; `INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED`; `CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION`; `BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO`; `AT-DP-150` Scenario A3 exercises the configuration-anchored authoritative expectation path over real components and a real `ApplicationContainer` |
-| Mapping status | `IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT` |
-| Next step | independent Re-audit V4 of the Phase 11.50 Remediation V3 exact-HEAD bundle |
+| Final Independent Re-audit V4 | `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `F11_021=VERIFIED_EXISTING`; `DP_150=VERIFIED_EXISTING`; `AT_DP_150=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `a405e883edbafd04acad9d26f357ad54723041f7`; audited tree `0bcd8f69710a28f3c372ac559afc17846a0baeb3`; bundle SHA-256 `526f575a20524dccbc9b1901ee9f4fe4f7dfc34add47fd4ca420144a118aa194`; final report `docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`; audit-report commit `bc101c74aa7e29edceafc47e20e69ed816be7b6d` |
+| Mapping status | `VERIFIED_EXISTING` |
+| Next step | post-11.50 reasoning-effort, image/document, token-streaming and cancellation end-to-end reachability inspection before returning to CMMChat; Phase 11.51 remains deferred unless explicitly chosen |
 
 ## 5. Current lifecycle status
 
@@ -1144,7 +1146,7 @@ The implemented surface and final evidence are documented in
 
 <!-- PHASE11_21_CLOSED_AFTER_INDEPENDENT_REAUDIT_V3_PASS -->
 
-## 14. Phase 11.50 — Reusable Backend Interfaces remediation V2 status
+## 14. Phase 11.50 — Reusable Backend Interfaces — closed after Independent Re-audit V4 PASS
 
 Phase 11.50 implements the frozen design
 `docs/superpowers/specs/2026-09-25-phase-11.50-reusable-backend-interfaces-design.md`
@@ -1197,18 +1199,28 @@ planned by
 `docs/superpowers/plans/2026-09-26-phase-11.50-remediation-v3-implementation-plan.md`
 (`SHA256=b9d90024e7a9f39258c4961ee5a153341eafbec67668569458bef2b4666ce660`),
 corrects exactly that one residual defect.
-**No independent Re-audit V4 has examined the Remediation V3 state yet, and no
-closure is claimed.**
+
+Independent Re-audit V4
+(`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`,
+`SHA256=b9cc9d5c88538e58123a6ab7e751024a5434ac1012c56e767175d1e4aa9068c7`)
+then examined the exact Remediation V3 state at
+`AUDITED_HEAD=a405e883edbafd04acad9d26f357ad54723041f7`,
+`AUDITED_TREE=0bcd8f69710a28f3c372ac559afc17846a0baeb3` with
+`AUDITED_BUNDLE_SHA256=526f575a20524dccbc9b1901ee9f4fe4f7dfc34add47fd4ca420144a118aa194` and returned the final `PASS`.
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-F11_021=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT
-AT_DP_150=PASS_LOCAL
+PHASE11_50=CLOSED
+F11_021=VERIFIED_EXISTING
+DP_150=VERIFIED_EXISTING
+AT_DP_150=PASS
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
-CLOSURE_ELIGIBLE=NOT_CLAIMED
+INDEPENDENT_REAUDIT_V4=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+CLOSURE_ELIGIBLE=YES
 ```
 
 What Remediation V1 corrects (Audit V1 findings only; `F11-021`, `DP-150` and
@@ -1350,4 +1362,4 @@ The implemented surface, capability truth table, security invariants and known
 limits are documented in
 [`docs/reference/phase-11-reusable-backend-interfaces.md`](phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V3_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_CLOSED_AFTER_INDEPENDENT_REAUDIT_V4_PASS -->
