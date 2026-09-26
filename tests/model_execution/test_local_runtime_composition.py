@@ -251,3 +251,37 @@ def test_router_disabled_without_a_local_lane_fails_closed(
     monkeypatch.delenv(LOCAL_RUNTIME_MODEL_IDS_ENV, raising=False)
     with pytest.raises(ValueError):
         build_local_model_execution(provider_registry=ProviderRegistry())
+
+
+def test_a_router_that_refuses_the_connection_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A router that is down is a composition failure, never a silent empty seam."""
+
+    monkeypatch.delenv("CMM_ROUTER_DISABLED", raising=False)
+    monkeypatch.delenv(CHAT_ONLY_ROUTER_MODEL_ENV, raising=False)
+    monkeypatch.delenv(LOCAL_RUNTIME_MODEL_IDS_ENV, raising=False)
+
+    class RefusingClient:
+        def list_models(self):
+            raise ConnectionError("[Errno 61] Connection refused")
+
+    registry = ProviderRegistry()
+    with pytest.raises(ConnectionError):
+        build_local_model_execution(provider_registry=registry, client=RefusingClient())
+    assert registry.list() == ()
+
+
+def test_a_router_that_advertises_no_model_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CMM_ROUTER_DISABLED", raising=False)
+    monkeypatch.delenv(CHAT_ONLY_ROUTER_MODEL_ENV, raising=False)
+    monkeypatch.delenv(LOCAL_RUNTIME_MODEL_IDS_ENV, raising=False)
+
+    registry = ProviderRegistry()
+    with pytest.raises(ValueError):
+        build_local_model_execution(
+            provider_registry=registry, client=_ScriptedDiscoveryClient(())
+        )
+    assert registry.list() == ()
