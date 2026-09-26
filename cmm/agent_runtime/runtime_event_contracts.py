@@ -5,6 +5,8 @@ Defines immutable, serializable contracts for the Agent Runtime Event Bus.
 
 from __future__ import annotations
 
+import copy
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -128,6 +130,83 @@ class AgentRuntimeEvent:
 
     header: AgentRuntimeEventHeader
     payload: AgentRuntimeEventPayload
+
+
+def _detach(value: Any) -> Any:
+    """Return a recursively detached copy of *value* preserving container types.
+
+    Mappings become plain ``dict`` (a ``MappingProxyType`` is a read-only view, not
+    a JSON-compatible structure), sequences keep their kind, and immutable scalars
+    are shared.  Anything else falls back to :func:`copy.deepcopy`.
+    """
+
+    if isinstance(value, Mapping):
+        return {key: _detach(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_detach(item) for item in value)
+    if isinstance(value, list):
+        return [_detach(item) for item in value]
+    if isinstance(value, set):
+        return {_detach(item) for item in value}
+    if isinstance(value, frozenset):
+        return frozenset(_detach(item) for item in value)
+    if value is None or isinstance(
+        value, (str, bytes, bytearray, bool, int, float, datetime, Enum)
+    ):
+        return value
+    if isinstance(value, Sequence):
+        return [_detach(item) for item in value]
+    return copy.deepcopy(value)
+
+
+def detached_event_copy(event: AgentRuntimeEvent) -> AgentRuntimeEvent:
+    """Return a deep, detached copy of *event* sharing no mutable container.
+
+    The canonical event classes are frozen at the top level, but their nested
+    facts (``payload.data``, ``header.metadata``, ``header.permissions``) are
+    ordinary containers.  Every boundary that hands a canonical event to another
+    party — durable storage, delivery to a subscriber, the dead-letter record —
+    passes it through this function, so a recipient can never mutate what a later
+    recipient observes or what the repository already recorded.
+
+    The copy is canonically equal to the original: it serializes to the same
+    canonical dictionary and therefore to the same content fingerprint.
+    """
+
+    if not isinstance(event, AgentRuntimeEvent):
+        raise TypeError("event must be an AgentRuntimeEvent")
+
+    header = event.header
+    detached_header = AgentRuntimeEventHeader(
+        event_id=header.event_id,
+        event_type=header.event_type,
+        schema_version=header.schema_version,
+        occurred_at=header.occurred_at,
+        emitted_at=header.emitted_at,
+        agent_id=header.agent_id,
+        agent_run_id=header.agent_run_id,
+        goal_id=header.goal_id,
+        workflow_id=header.workflow_id,
+        task_id=header.task_id,
+        iteration_id=header.iteration_id,
+        correlation_id=header.correlation_id,
+        causation_id=header.causation_id,
+        actor_id=header.actor_id,
+        source=header.source,
+        sensitivity=header.sensitivity,
+        permissions=list(header.permissions),
+        metadata=_detach(header.metadata),
+        producer=header.producer,
+        aggregate_id=header.aggregate_id,
+    )
+
+    return AgentRuntimeEvent(
+        header=detached_header,
+        payload=AgentRuntimeEventPayload(
+            data=_detach(event.payload.data),
+            raw=event.payload.raw,
+        ),
+    )
 
 
 @dataclass(frozen=True)

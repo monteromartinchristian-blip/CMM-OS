@@ -31,6 +31,7 @@ from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEventFilter,
     AgentRuntimeEventSubscription,
     EventDeliveryStatus,
+    detached_event_copy,
 )
 from cmm.agent_runtime.runtime_event_errors import (
     AgentRuntimeEventBusClosedError,
@@ -392,7 +393,10 @@ class AgentRuntimeEventBus:
         while attempts < self._max_delivery_attempts:
             attempts += 1
             try:
-                record.handler(event)
+                # Every attempt receives its own detached canonical snapshot, so a
+                # subscriber can never mutate what a later subscriber observes or
+                # what the repository has already recorded.
+                record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
                 last_error_type = type(exc).__name__
                 last_error = str(exc)
@@ -482,7 +486,7 @@ class AgentRuntimeEventBus:
         while attempts < self._max_delivery_attempts:
             attempts += 1
             try:
-                record.handler(event)
+                record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
                 last_error_type = type(exc).__name__
                 continue
@@ -520,7 +524,7 @@ class AgentRuntimeEventBus:
         subscription = record.subscription
         now = datetime.now(timezone.utc)
         entry = AgentRuntimeEventDeadLetter(
-            event=event,
+            event=detached_event_copy(event),
             subscription_id=subscription.id,
             handler_name=subscription.handler_name,
             error=error_type,

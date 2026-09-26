@@ -29,20 +29,26 @@ workflow contract is changed by this module.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
 from cmm.events.event_catalog import catalog_spec
 from cmm.events.event_payload_safety import (
     ALLOWED_PAYLOAD_KEYS,
+    STRUCTURAL_SOURCE_ENVELOPE_KEYS,
     PlatformEventPayloadError,
     is_forbidden_source_content_key,
     scan_for_forbidden_platform_content,
+    validate_platform_identifier,
 )
 from cmm.events.event_system import EventSystem
 from cmm.events.event_translation import (
     KERNEL_SOURCE_TRANSLATIONS,
+    SourceTranslation,
     translate_kernel_event,
+    translate_source_sensitivity,
 )
 from kernel.events.event import Event as KernelEvent
 
@@ -56,7 +62,10 @@ KERNEL_ADAPTER_ID = "cmm.events.kernel_adapter"
 
 #: Facts the adapter may read from a kernel event payload.  This is the bounded
 #: Phase 11.22 platform vocabulary intersected with the identifiers closed phases
-#: actually publish on their own event contracts.
+#: actually publish on their own event contracts.  ``execution_id`` is a bounded
+#: platform payload fact in its own right (an operation/execution reference the
+#: design's safe payload policy explicitly allows), so a source that carries it
+#: *and* a mapping that names it stay consistent with the payload validator.
 READABLE_PAYLOAD_KEYS: frozenset[str] = frozenset(
     {
         "event_id",
@@ -93,11 +102,14 @@ _ALIASES: dict[str, str] = {
     "id": "event_id",
 }
 
-assert READABLE_PAYLOAD_KEYS <= ALLOWED_PAYLOAD_KEYS | {
-    # ``execution_id`` is projected to ``aggregate_id`` rather than copied, so it
-    # never has to exist in the platform payload vocabulary itself.
-    "execution_id"
-}, "adapter facts must stay inside the canonical platform payload vocabulary"
+assert READABLE_PAYLOAD_KEYS <= ALLOWED_PAYLOAD_KEYS, (
+    "adapter facts must stay inside the canonical platform payload vocabulary"
+)
+
+assert all(
+    set(translation.nested_fact_keys) <= ALLOWED_PAYLOAD_KEYS
+    for translation in KERNEL_SOURCE_TRANSLATIONS
+), "nested projected facts must stay inside the canonical platform payload vocabulary"
 
 
 def _canonical_domain_id(value: object) -> str | None:
@@ -151,23 +163,30 @@ class PlatformKernelEventAdapter:
         ``None`` when the source name has no explicit platform mapping.
         """
 
-        source_name, payload = self._validate(event)
+        source_name, payload, nested_payload = self._validate(event)
 
         translation = translate_kernel_event(source_name)
         if translation is None:
             self._skipped.append(SkippedKernelEvent(source_event_type=source_name))
             return None
 
-        projected = self._project(translation.fact_keys, payload)
+        projected = self._project(translation, payload, nested_payload)
         projected.setdefault("event_type", source_name)
+
+        facts: dict[str, Any] = {
+            "correlation_id": self._correlation(payload),
+            "causation_id": self._causation(payload),
+            "producer": self._producer_for(translation.platform_event_type),
+            "aggregate_id": self._aggregate_for(projected),
+        }
+        sensitivity = self._sensitivity(payload)
+        if sensitivity is not None:
+            facts["sensitivity"] = sensitivity
 
         result = self._system.publish(
             translation.platform_event_type,
             projected,
-            correlation_id=self._correlation(payload),
-            causation_id=self._causation(payload),
-            producer=self._producer_for(translation.platform_event_type),
-            aggregate_id=self._aggregate_for(projected),
+            **facts,
         )
         self._published.append(result.event)
         return result.event.header.event_id
@@ -187,7 +206,16 @@ class PlatformKernelEventAdapter:
     # ── Internals ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _validate(event: KernelEvent) -> tuple[str, dict[str, Any]]:
+    def _validate(event: KernelEvent) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Validate *event* and return its name, flat facts and nested container.
+
+        The returned nested mapping is the closed-phase source's own structural
+        ``payload`` container (a Phase 10.33 ``DomainEvent.to_dict()`` stores its
+        event-specific lifecycle facts there).  It is returned **only** so an
+        explicitly mapped translation can read the keys it names; the adapter never
+        flattens it generically, and it was fully scanned above.
+        """
+
         if not isinstance(event, KernelEvent):
             raise TypeError("event must be a kernel.events.event.Event")
 
@@ -198,13 +226,14 @@ class PlatformKernelEventAdapter:
 
         raw_payload = event.payload
         if raw_payload is None:
-            return normalized_name, {}
+            return normalized_name, {}, {}
         if not isinstance(raw_payload, dict):
             raise PlatformEventPayloadError(
                 "kernel event payload must be a mapping to be bridged"
             )
 
         payload: dict[str, Any] = {}
+        nested_payload: dict[str, Any] = {}
         for key, value in raw_payload.items():
             if not isinstance(key, str):
                 raise PlatformEventPayloadError("payload keys must be strings")
@@ -218,6 +247,12 @@ class PlatformKernelEventAdapter:
                         "forbidden kernel source key", key=key
                     )
                 scan_for_forbidden_platform_content(value, key=key)
+                if canonical_key in STRUCTURAL_SOURCE_ENVELOPE_KEYS and isinstance(
+                    value, Mapping
+                ):
+                    # The container is scanned above; only keys an explicit
+                    # translation names may ever be read from it.
+                    nested_payload = dict(value)
                 continue
             if canonical_key == "domain_id":
                 canonical_value = _canonical_domain_id(value)
@@ -227,19 +262,62 @@ class PlatformKernelEventAdapter:
                 continue
             payload[canonical_key] = value
 
-        return normalized_name, payload
+        return normalized_name, payload, nested_payload
 
     @staticmethod
-    def _project(fact_keys: tuple[str, ...], payload: dict[str, Any]) -> dict[str, Any]:
+    def _project(
+        translation: SourceTranslation,
+        payload: dict[str, Any],
+        nested_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Copy the explicitly mapped safe facts the translation names.
+
+        A fact key mapped as nested is read from the source's structural
+        ``payload`` container when it is present there (the real Phase 10.33
+        Domain Event shape), otherwise from the flattened top-level facts.  A key
+        the translation does not name is never read from either place, so an
+        arbitrary nested container is never flattened.
+        """
+
         projected: dict[str, Any] = {}
-        for key in fact_keys:
-            if key not in payload:
+        for key in translation.fact_keys:
+            if key in translation.nested_fact_keys and key in nested_payload:
+                value = nested_payload[key]
+            elif key in payload:
+                value = payload[key]
+            else:
                 continue
-            value = payload[key]
             if isinstance(value, tuple):
                 value = list(value)
             projected[key] = value
         return projected
+
+    @staticmethod
+    def _sensitivity(payload: dict[str, Any]) -> EventSensitivity | None:
+        """Return the platform classification for the source classification.
+
+        Phase 11.22 preserves a source classification already present on the
+        canonical source event: a more restrictive source class must never become
+        the platform default.  ``None`` means the source carries no explicit
+        classification, in which case the canonical default applies.  An
+        unrecognised classification fails closed instead of being guessed at or
+        silently downgraded.
+        """
+
+        value = payload.get("sensitivity")
+        if value is None:
+            return None
+        if isinstance(value, EventSensitivity):
+            return value
+
+        validate_platform_identifier(value, field="sensitivity")
+        mapped = translate_source_sensitivity(value)
+        if mapped is None:
+            raise PlatformEventPayloadError(
+                "source sensitivity has no explicitly mapped platform classification",
+                key="sensitivity",
+            )
+        return mapped
 
     @staticmethod
     def _identifier(payload: dict[str, Any]) -> str | None:

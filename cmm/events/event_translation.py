@@ -20,20 +20,23 @@ table rather than each carrying a private mapping.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
 from cmm.agent_runtime.runtime_event_types import EventType
 from cmm.events.event_catalog import PlatformEventSpec, catalog_spec
 
 __all__ = [
     "KERNEL_SOURCE_TRANSLATIONS",
     "ORCHESTRATION_SOURCE_TRANSLATIONS",
+    "SOURCE_SENSITIVITY_TRANSLATIONS",
     "SourceTranslation",
     "kernel_translation_table",
     "orchestration_translation_table",
     "translate_kernel_event",
     "translate_orchestration_event",
+    "translate_source_sensitivity",
     "translated_platform_event_types",
 ]
 
@@ -45,12 +48,22 @@ class SourceTranslation:
     ``fact_keys`` names the payload keys the mapping may read from the source
     event.  A translation never invents a field: a fact key absent from the
     source payload is absent from the translated payload.
+
+    ``nested_fact_keys`` names the subset of ``fact_keys`` that a closed-phase
+    source stores inside its own structural ``payload`` container rather than at
+    the top level of its serialization.  A Phase 10.33 ``DomainEvent.to_dict()``
+    is exactly such a shape: lifecycle facts such as ``execution_id``, ``status``,
+    ``approval_id`` or ``approved`` live under ``payload``.  Only the keys named
+    here may ever be read from that container — the container is never flattened
+    generically — and every nested key must itself be inside the bounded platform
+    payload vocabulary.
     """
 
     source_event_type: str
     platform_event_type: str
     fact_keys: tuple[str, ...]
     rationale: str
+    nested_fact_keys: tuple[str, ...] = field(default=())
 
     def __post_init__(self) -> None:
         if not self.source_event_type:
@@ -59,6 +72,11 @@ class SourceTranslation:
             raise ValueError("platform_event_type is required")
         if not self.rationale:
             raise ValueError("translation rationale is required")
+        unsupported = set(self.nested_fact_keys) - set(self.fact_keys)
+        if unsupported:
+            raise ValueError(
+                f"nested_fact_keys must be a subset of fact_keys: {sorted(unsupported)}"
+            )
         # Fail closed at import time if a mapping targets an unknown catalog name.
         catalog_spec(self.platform_event_type)
 
@@ -130,30 +148,38 @@ KERNEL_SOURCE_TRANSLATIONS: tuple[SourceTranslation, ...] = (
             "a completed canonical domain execution is the platform's "
             "operation.executed lifecycle fact"
         ),
+        nested_fact_keys=("execution_id", "status"),
     ),
     SourceTranslation(
         source_event_type="domain.resolution.completed",
         platform_event_type="domain.selected",
         fact_keys=("domain_id", "status"),
         rationale="a completed canonical domain resolution selects that domain",
+        nested_fact_keys=("status",),
     ),
     SourceTranslation(
         source_event_type="domain.approval.requested",
         platform_event_type="approval.requested",
         fact_keys=("domain_id", "status", "approval_id"),
         rationale="the canonical Phase 10.33 approval request lifecycle fact",
+        nested_fact_keys=("approval_id",),
     ),
     SourceTranslation(
         source_event_type="domain.approval.received",
         platform_event_type="approval.resolved",
-        fact_keys=("domain_id", "status", "approval_id"),
-        rationale="the canonical Phase 10.33 approval decision lifecycle fact",
+        fact_keys=("domain_id", "status", "approval_id", "approved"),
+        rationale=(
+            "the canonical Phase 10.33 approval decision lifecycle fact, carrying "
+            "its own bounded resolution fact and never an invented status"
+        ),
+        nested_fact_keys=("approval_id", "approved"),
     ),
     SourceTranslation(
         source_event_type="domain.memory.updated",
         platform_event_type="memory.updated",
         fact_keys=("domain_id", "status"),
         rationale="the canonical Phase 10.33 memory update lifecycle fact",
+        nested_fact_keys=("status",),
     ),
     SourceTranslation(
         source_event_type="workflow.started",
@@ -190,6 +216,27 @@ KERNEL_SOURCE_TRANSLATIONS: tuple[SourceTranslation, ...] = (
     ),
 )
 
+#: Explicit source-sensitivity classification → platform classification mapping.
+#:
+#: Phase 10.33 ``DomainEvent.sensitivity`` is a free-form classification string,
+#: while the platform header uses the four-class ``EventSensitivity`` vocabulary.
+#: Every entry here maps to a platform class that is at least as restrictive as its
+#: source class, so a source classification is never silently downgraded.  A source
+#: classification absent from this table has no explicitly mapped platform class,
+#: and the caller must fail closed rather than guess one.
+SOURCE_SENSITIVITY_TRANSLATIONS: tuple[tuple[str, EventSensitivity], ...] = (
+    ("public", EventSensitivity.PUBLIC),
+    ("internal", EventSensitivity.INTERNAL),
+    ("personal", EventSensitivity.CONFIDENTIAL),
+    ("confidential", EventSensitivity.CONFIDENTIAL),
+    ("sensitive", EventSensitivity.CONFIDENTIAL),
+    ("highly_sensitive", EventSensitivity.RESTRICTED),
+    ("highlysensitive", EventSensitivity.RESTRICTED),
+    ("restricted", EventSensitivity.RESTRICTED),
+)
+
+_SOURCE_SENSITIVITY_TABLE = MappingProxyType(dict(SOURCE_SENSITIVITY_TRANSLATIONS))
+
 _ORCHESTRATION_TABLE = MappingProxyType(
     {
         translation.source_event_type: translation
@@ -203,6 +250,23 @@ _KERNEL_TABLE = MappingProxyType(
         for translation in KERNEL_SOURCE_TRANSLATIONS
     }
 )
+
+
+def translate_source_sensitivity(
+    source_sensitivity: str,
+) -> EventSensitivity | None:
+    """Return the platform classification for an explicit source classification.
+
+    ``None`` means the source classification has no explicitly mapped platform
+    class.  The caller must then fail closed: choosing a class for an unknown
+    classification would either downgrade real sensitivity or invent a
+    classification the source never asserted.
+    """
+
+    if not isinstance(source_sensitivity, str):
+        return None
+    normalized = source_sensitivity.strip().lower().replace("-", "_")
+    return _SOURCE_SENSITIVITY_TABLE.get(normalized)
 
 
 def orchestration_translation_table() -> MappingProxyType:

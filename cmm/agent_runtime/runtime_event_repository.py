@@ -19,16 +19,53 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from cmm.agent_runtime.runtime_event_contracts import AgentRuntimeEvent
+from cmm.agent_runtime.runtime_event_contracts import (
+    AgentRuntimeEvent,
+    detached_event_copy,
+)
 from cmm.agent_runtime.runtime_event_errors import (
     AgentRuntimeEventIdentityConflictError,
     AgentRuntimeEventPersistenceCorruptionError,
     AgentRuntimeEventRepositoryError,
+    AgentRuntimeEventSerializationError,
+    AgentRuntimeEventUnsupportedSchemaError,
 )
 from cmm.agent_runtime.runtime_event_factory import (
     AgentRuntimeEventFactory,
     event_fingerprint,
 )
+
+
+def ensure_event_is_reopenable(
+    event: AgentRuntimeEvent, factory: AgentRuntimeEventFactory
+) -> None:
+    """Fail closed unless *factory* could deserialize *event* again.
+
+    Phase 11.22 durability invariant: a successful durable save by this build must
+    be readable by this build after a reopen.  The check asks the one canonical
+    factory rather than duplicating supported-schema knowledge, so a record whose
+    schema (or shape) the current canonical deserializer refuses can never be
+    appended in the first place.
+    """
+
+    schema_version = event.header.schema_version
+    if not factory.supports_schema_version(schema_version):
+        raise AgentRuntimeEventUnsupportedSchemaError(
+            f"unsupported event schema_version '{schema_version}': this build can "
+            f"only reopen '{factory.SUPPORTED_SCHEMA_VERSION}'"
+        )
+
+    serialized = factory.to_dict(event)
+    try:
+        factory.from_dict(
+            {"header": serialized["header"], "payload": serialized["payload"]}
+        )
+    except AgentRuntimeEventUnsupportedSchemaError:
+        raise
+    except Exception as exc:
+        raise AgentRuntimeEventSerializationError(
+            f"event '{event.header.event_id}' cannot be reopened by this build"
+        ) from exc
 
 
 class AgentRuntimeEventRepository:
@@ -84,11 +121,14 @@ class InMemoryAgentRuntimeEventRepository(AgentRuntimeEventRepository):
         event_id = event.header.event_id
         if event_id in self._events:
             raise ValueError(f"event '{event_id}' already exists; append-only")
-        self._events[event_id] = event
+        # A detached snapshot is stored, so a caller that keeps mutating its own
+        # event object can never change what the repository already recorded.
+        self._events[event_id] = detached_event_copy(event)
         self._order.append(event_id)
 
     def get(self, event_id: str) -> AgentRuntimeEvent | None:
-        return self._events.get(event_id)
+        stored = self._events.get(event_id)
+        return None if stored is None else detached_event_copy(stored)
 
     def list(
         self,
@@ -96,7 +136,7 @@ class InMemoryAgentRuntimeEventRepository(AgentRuntimeEventRepository):
         offset: int = 0,
         **filters: Any,
     ) -> builtins.list[AgentRuntimeEvent]:
-        events = list(self._events.values())
+        events = [detached_event_copy(event) for event in self._events.values()]
         events = self._apply_filters(events, **filters)
         # Chronological order with a deterministic insertion-order tie-break, so
         # replay of equal-timestamp events is stable rather than arbitrary.
@@ -108,7 +148,7 @@ class InMemoryAgentRuntimeEventRepository(AgentRuntimeEventRepository):
         return events[offset : offset + limit]
 
     def query(self, **filters: Any) -> builtins.list[AgentRuntimeEvent]:
-        events = list(self._events.values())
+        events = [detached_event_copy(event) for event in self._events.values()]
         return self._apply_filters(events, **filters)
 
     def delete(self, event_id: str) -> None:
@@ -228,16 +268,25 @@ class FileAgentRuntimeEventRepository(AgentRuntimeEventRepository):
     # ── Canonical repository contract ────────────────────────────────────────
 
     def save(self, event: AgentRuntimeEvent) -> None:
-        """Durably append *event*, deduplicating by identity and content."""
+        """Durably append *event*, deduplicating by identity and content.
+
+        A record whose schema or canonical shape this build cannot deserialize
+        again is refused **before** any byte is committed, so a successful save can
+        never make the store unreadable after a restart.
+        """
 
         if not isinstance(event, AgentRuntimeEvent):
             raise TypeError("event must be an AgentRuntimeEvent")
 
         event_id = event.header.event_id
-        fingerprint = event_fingerprint(event)
+        # A detached snapshot is stored, so the caller's own object (or a
+        # subscriber holding the same one) can never change stored evidence.
+        snapshot = detached_event_copy(event)
+        fingerprint = event_fingerprint(snapshot)
+        serialized = self._factory.to_dict(snapshot)
         record = {
-            "header": self._factory.to_dict(event)["header"],
-            "payload": self._factory.to_dict(event)["payload"],
+            "header": serialized["header"],
+            "payload": serialized["payload"],
             "fingerprint": fingerprint,
             "record_schema_version": DURABLE_RECORD_SCHEMA_VERSION,
         }
@@ -253,15 +302,19 @@ class FileAgentRuntimeEventRepository(AgentRuntimeEventRepository):
                     f"event '{event_id}' already exists with different content"
                 )
 
+            # No existing identity can be in conflict, so this is a genuinely new
+            # durable append: it must be reopenable by this same build.
+            ensure_event_is_reopenable(snapshot, self._factory)
+
             line = json.dumps(record, sort_keys=True, default=str, allow_nan=False)
             self._append_line(line)
             self._order.append(event_id)
-            self._by_id[event_id] = (event, fingerprint)
+            self._by_id[event_id] = (snapshot, fingerprint)
 
     def get(self, event_id: str) -> AgentRuntimeEvent | None:
         with self._lock:
             stored = self._by_id.get(event_id)
-            return None if stored is None else stored[0]
+            return None if stored is None else detached_event_copy(stored[0])
 
     def list(
         self,
@@ -270,12 +323,18 @@ class FileAgentRuntimeEventRepository(AgentRuntimeEventRepository):
         **filters: Any,
     ) -> builtins.list[AgentRuntimeEvent]:
         with self._lock:
-            events = [self._by_id[event_id][0] for event_id in self._order]
+            events = [
+                detached_event_copy(self._by_id[event_id][0])
+                for event_id in self._order
+            ]
         return _apply_filters(events, **filters)[offset : offset + limit]
 
     def query(self, **filters: Any) -> builtins.list[AgentRuntimeEvent]:
         with self._lock:
-            events = [self._by_id[event_id][0] for event_id in self._order]
+            events = [
+                detached_event_copy(self._by_id[event_id][0])
+                for event_id in self._order
+            ]
         return _apply_filters(events, **filters)
 
     def delete(self, event_id: str) -> None:
