@@ -25,6 +25,8 @@ BRANCH=feature/phase-11-stable-integrated-platform
 BASE_HEAD=744de6d996e0aa3dc3f9326fdb33fc38ab13ac8d
 FROZEN_PRE_PROMPT_BASELINE=d691c753c25801d1957fc8dee917ef4e6fff4694
 REQUIRED_STARTING_TREE=36255f0293ac23fe93c2c85c94b989dd91ca0ff2
+FINAL_HEAD=997a951f5af7b08b182ddf14380a4c2315e8f1b8
+FINAL_TREE=049a7bf5fbfe980037dd34300a6dbc9df8cb6c05
 WORKTREE=CLEAN
 ```
 
@@ -169,8 +171,11 @@ subsystem either does not exist at Phase 11.22 or exposes no safe emission seam.
 ## 8. Bundle
 
 ```text
+AUDIT_BRANCH=feature/phase-11-stable-integrated-platform
+AUDIT_HEAD=997a951f5af7b08b182ddf14380a4c2315e8f1b8
+AUDIT_TREE=049a7bf5fbfe980037dd34300a6dbc9df8cb6c05
 AUDIT_BUNDLE=phase-11.22-event-system-audit-v1.tar.gz
-AUDIT_BUNDLE_SHA256=<recorded below>
+AUDIT_BUNDLE_SHA256=c2891e64a2f3bf93a1bbfea0b8497b9f08bf5a701d8394aabff08b11d8cd07f9
 WORKTREE=CLEAN
 ```
 
