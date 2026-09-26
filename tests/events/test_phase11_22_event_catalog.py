@@ -44,6 +44,7 @@ from cmm.events.event_catalog import (
     reserved_platform_event_names,
     specs_by_disposition,
 )
+from cmm.events.event_payload_safety import ALLOWED_PAYLOAD_KEYS
 from cmm.events.event_translation import (
     KERNEL_SOURCE_TRANSLATIONS,
     ORCHESTRATION_SOURCE_TRANSLATIONS,
@@ -320,31 +321,45 @@ def test_unsupported_source_events_are_not_guessed() -> None:
 def test_mapping_does_not_invent_payload_fields() -> None:
     """A mapping may only name facts; it never manufactures a value."""
 
+    #: Facts the explicit mappings may name.  Remediation V2 adds ``approved``:
+    #: the real Phase 10.33 ``domain.approval.received`` payload carries the bounded
+    #: resolution fact, and ``approved`` is already inside the canonical platform
+    #: payload vocabulary, so projecting it invents nothing.
+    documented_mapping_facts = {
+        "channel",
+        "session_id",
+        "intent",
+        "needs_clarification",
+        "status",
+        "primary_domain",
+        "supporting_domains",
+        "approval_refs",
+        "validation_id",
+        "policy",
+        "duration_ms",
+        "workflow_id",
+        "domain_id",
+        "execution_id",
+        "run_id",
+        "node_id",
+        "error_code",
+        "approval_id",
+        "approved",
+    }
+
+    # A mapping may name only facts the bounded platform payload vocabulary already
+    # permits, so a translation can never widen what may be persisted.
+    assert documented_mapping_facts <= ALLOWED_PAYLOAD_KEYS
+
     for translation in (
         *ORCHESTRATION_SOURCE_TRANSLATIONS,
         *KERNEL_SOURCE_TRANSLATIONS,
     ):
         for key in translation.fact_keys:
-            assert key in {
-                "channel",
-                "session_id",
-                "intent",
-                "needs_clarification",
-                "status",
-                "primary_domain",
-                "supporting_domains",
-                "approval_refs",
-                "validation_id",
-                "policy",
-                "duration_ms",
-                "workflow_id",
-                "domain_id",
-                "execution_id",
-                "run_id",
-                "node_id",
-                "error_code",
-                "approval_id",
-            }, key
+            assert key in documented_mapping_facts, key
+        for key in translation.nested_fact_keys:
+            # A nested fact must be one the same translation already names.
+            assert key in translation.fact_keys, key
 
 
 def test_translation_is_one_way_and_changes_no_source_authority() -> None:

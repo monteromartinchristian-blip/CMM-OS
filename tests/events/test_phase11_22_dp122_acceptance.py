@@ -34,13 +34,16 @@ from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEvent,
     AgentRuntimeEventBusStats,
     AgentRuntimeEventReplayRequest,
+    EventSensitivity,
 )
 from cmm.agent_runtime.runtime_event_dead_letter import (
     InMemoryAgentRuntimeDeadLetterQueue,
 )
 from cmm.agent_runtime.runtime_event_errors import (
     AgentRuntimeEventIdentityConflictError,
+    AgentRuntimeEventSerializationError,
 )
+from cmm.agent_runtime.runtime_event_factory import event_fingerprint
 from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
 from cmm.agent_runtime.runtime_event_repository import (
@@ -999,3 +1002,405 @@ def test_at_dp_122_explicit_domain_causation_survives_the_kernel_adapter(
     stored = system.repository.query(event_type="operation.executed")[0]
 
     assert stored.header.causation_id == "CAUSE-ORIGINAL-2"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V2 — AT-DP-122 additions for the four new V2 majors
+#
+# The real composed event system (file-backed canonical repository, canonical
+# registry/bus/DLQ, real Domain Event publisher and Kernel bridge) is used
+# throughout; no component is replaced by a mock.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Producer-controlled persisted header channels carrying forbidden content.
+AT_DP_122_UNSAFE_HEADER_FACTS = (
+    ("metadata_prompt", {"metadata": {"prompt": "TOP SECRET"}}),
+    (
+        "metadata_api_key",
+        {"metadata": {"api_key": "sk-abcdefghijklmnop"}},
+    ),
+    ("permissions_credential", {"permissions": ["api_key=sk-abcdefghijklmnop"]}),
+    ("producer_credential", {"producer": "api_key=sk-abcdefghijklmnop"}),
+    ("source_forbidden_text", {"source": "system_prompt=TOP SECRET"}),
+    ("aggregate_id_credential", {"aggregate_id": "sk-abcdefghijklmnop"}),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "facts"),
+    AT_DP_122_UNSAFE_HEADER_FACTS,
+    ids=[case[0] for case in AT_DP_122_UNSAFE_HEADER_FACTS],
+)
+def test_at_dp_122_unsafe_header_facts_fail_before_persistence(
+    connected, label, facts
+) -> None:
+    """MAJOR-V2-001: no persisted event channel can carry forbidden content."""
+
+    system = connected["system"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+    stats_before = system.bus.stats.published_total
+
+    with pytest.raises((ValueError, PlatformEventPayloadError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v2-header", "channel": "conversation"},
+            **facts,
+        )
+
+    assert system.repository.count() == before, label
+    assert system.bus.stats.published_total == stats_before, label
+    assert received == [], label
+    assert system.dead_letter_count() == 0, label
+
+
+def test_at_dp_122_legitimate_header_facts_still_persist(connected) -> None:
+    """MAJOR-V2-001 control: real identifiers and bounded metadata stay valid."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v2-safe-header", "channel": "conversation"},
+        event_id="evt-v2-safe-header",
+        producer="orchestration",
+        aggregate_id="workflow:123",
+        source="domain.execution.completed",
+        permissions=["events:read"],
+        metadata={"status_code": "ok", "attempt": 1},
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get("evt-v2-safe-header")
+    assert stored is not None
+    assert stored.header.producer == "orchestration"
+    assert stored.header.aggregate_id == "workflow:123"
+    assert stored.header.source == "domain.execution.completed"
+    assert stored.header.permissions == ["events:read"]
+    assert stored.header.metadata == {"status_code": "ok", "attempt": 1}
+    assert system.repository.count() == before + 1
+
+
+def test_at_dp_122_unsupported_schema_is_rejected_before_durable_append(
+    connected,
+) -> None:
+    """MAJOR-V2-002: the durable store is never poisoned by this build."""
+
+    system = connected["system"]
+    store_path = Path(system.repository.path)
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before_bytes = store_path.read_bytes() if store_path.exists() else b""
+
+    with pytest.raises((ValueError, AgentRuntimeEventSerializationError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v2-schema", "channel": "conversation"},
+            event_id="evt-v2-unsupported-schema",
+            schema_version="9.9.9",
+        )
+
+    assert received == []
+    assert system.repository.get("evt-v2-unsupported-schema") is None
+    assert (store_path.read_bytes() if store_path.exists() else b"") == before_bytes
+    # The store is still openable by this build.
+    reopened = FileAgentRuntimeEventRepository(store_path)
+    assert reopened.count() == system.repository.count()
+
+
+def test_at_dp_122_supported_schema_survives_close_and_reopen(connected) -> None:
+    """MAJOR-V2-002: a supported-schema write is genuinely reopenable."""
+
+    system = connected["system"]
+    store_path = Path(system.repository.path)
+
+    system.publish(
+        "message.received",
+        {"request_id": "req-v2-roundtrip", "channel": "conversation"},
+        event_id="evt-v2-supported-roundtrip",
+        metadata={"status_code": "ok"},
+    )
+
+    reopened = FileAgentRuntimeEventRepository(store_path)
+    restored = reopened.get("evt-v2-supported-roundtrip")
+
+    assert restored is not None
+    assert restored.header.schema_version == "1.0.0"
+    assert restored.payload.data == {
+        "request_id": "req-v2-roundtrip",
+        "channel": "conversation",
+    }
+    assert event_fingerprint(restored) == event_fingerprint(
+        system.repository.get("evt-v2-supported-roundtrip")
+    )
+
+
+def _at_dp_122_mutating_subscriber(seen_by_later: list) -> object:
+    def tamper(event: AgentRuntimeEvent) -> None:
+        event.payload.data["request_id"] = "tampered-by-A"
+        event.header.metadata["tampered"] = "yes"
+        event.header.permissions.append("escalate")
+        seen_by_later.append(dict(event.payload.data))
+
+    return tamper
+
+
+def test_at_dp_122_subscriber_a_cannot_change_what_subscriber_b_sees(
+    connected,
+) -> None:
+    """MAJOR-V2-003: later subscribers observe the original canonical facts."""
+
+    system = connected["system"]
+    seen_by_b: list[tuple] = []
+
+    system.subscribe(_at_dp_122_mutating_subscriber([]), ["message.received"])
+    system.subscribe(
+        lambda event: seen_by_b.append(
+            (
+                dict(event.payload.data),
+                dict(event.header.metadata),
+                list(event.header.permissions),
+            )
+        ),
+        ["message.received"],
+        priority=1,
+    )
+
+    system.publish(
+        "message.received",
+        {"request_id": "req-v2-isolation", "channel": "conversation"},
+        event_id="evt-v2-isolation",
+        metadata={"origin": "original"},
+        permissions=["events:read"],
+    )
+
+    assert seen_by_b == [
+        (
+            {"request_id": "req-v2-isolation", "channel": "conversation"},
+            {"origin": "original"},
+            ["events:read"],
+        )
+    ]
+
+
+def test_at_dp_122_subscriber_cannot_mutate_repository_evidence(connected) -> None:
+    """MAJOR-V2-003: delivered mutation attempts never change stored evidence."""
+
+    system = connected["system"]
+    system.subscribe(_at_dp_122_mutating_subscriber([]), ["message.received"])
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v2-evidence", "channel": "conversation"},
+        event_id="evt-v2-evidence",
+        metadata={"origin": "original"},
+        permissions=["events:read"],
+    )
+
+    stored = system.repository.get("evt-v2-evidence")
+    assert stored is not None
+    assert stored.payload.data == {
+        "request_id": "req-v2-evidence",
+        "channel": "conversation",
+    }
+    assert stored.header.metadata == {"origin": "original"}
+    assert stored.header.permissions == ["events:read"]
+    assert result.event.payload.data["request_id"] == "req-v2-evidence"
+
+
+def test_at_dp_122_file_live_and_reopened_facts_match_after_mutation_attempt(
+    connected,
+) -> None:
+    """MAJOR-V2-003: live evidence cannot diverge from already-fsynced bytes."""
+
+    system = connected["system"]
+    store_path = Path(system.repository.path)
+    system.subscribe(_at_dp_122_mutating_subscriber([]), ["message.received"])
+
+    system.publish(
+        "message.received",
+        {"request_id": "req-v2-file-consistency", "channel": "conversation"},
+        event_id="evt-v2-file-consistency",
+        metadata={"origin": "original"},
+        permissions=["events:read"],
+    )
+
+    live = system.repository.get("evt-v2-file-consistency")
+    reopened = FileAgentRuntimeEventRepository(store_path).get(
+        "evt-v2-file-consistency"
+    )
+
+    assert live is not None and reopened is not None
+    assert event_fingerprint(live) == event_fingerprint(reopened)
+    assert reopened.payload.data == {
+        "request_id": "req-v2-file-consistency",
+        "channel": "conversation",
+    }
+    assert reopened.header.metadata == {"origin": "original"}
+    assert reopened.header.permissions == ["events:read"]
+
+
+def _at_dp_122_domain_bridge(connected):
+    """Real Domain Event → Kernel Event → Platform adapter over the composition."""
+
+    from cmm.domains.event_factory import DomainEventFactory
+    from cmm.domains.event_publisher import DomainKernelEventPublisher
+    from cmm.events.kernel_adapter import PlatformKernelEventAdapter
+
+    adapter = PlatformKernelEventAdapter(connected["system"])
+    publisher = DomainKernelEventPublisher(event_listener=adapter)
+    return DomainEventFactory(), publisher, adapter
+
+
+def test_at_dp_122_real_domain_execution_preserves_mapped_facts_and_sensitivity(
+    connected,
+) -> None:
+    """MAJOR-V2-004: real Domain execution identity, status and classification."""
+
+    factory, publisher, _adapter = _at_dp_122_domain_bridge(connected)
+    publisher.publish(
+        factory.create_event(
+            event_type="domain.execution.completed",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-V2-EXEC",
+            occurred_at=OCCURRED,
+            sensitivity="restricted",
+            correlation_id="CORR-ORIGINAL",
+            causation_id="CAUSE-ORIGINAL",
+            payload={"execution_id": "EXEC-V2", "status": "completed"},
+        )
+    )
+
+    stored = connected["system"].repository.query(event_type="operation.executed")[0]
+
+    assert stored.payload.data["execution_id"] == "EXEC-V2"
+    assert stored.payload.data["status"] == "completed"
+    assert stored.header.sensitivity is EventSensitivity.RESTRICTED
+    # Audit V1 MAJOR-004 stays green on the same connected path.
+    assert stored.header.correlation_id == "CORR-ORIGINAL"
+    assert stored.header.causation_id == "CAUSE-ORIGINAL"
+
+
+@pytest.mark.parametrize(
+    ("source_sensitivity", "expected"),
+    (
+        ("public", EventSensitivity.PUBLIC),
+        ("internal", EventSensitivity.INTERNAL),
+        ("confidential", EventSensitivity.CONFIDENTIAL),
+        ("restricted", EventSensitivity.RESTRICTED),
+    ),
+)
+def test_at_dp_122_domain_sensitivity_is_not_downgraded(
+    connected, source_sensitivity, expected
+) -> None:
+    """MAJOR-V2-004: SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED on the real chain."""
+
+    factory, publisher, _adapter = _at_dp_122_domain_bridge(connected)
+    publisher.publish(
+        factory.create_event(
+            event_type="domain.execution.completed",
+            domain_id="domain:general",
+            actor="system",
+            event_id=f"DOM-V2-SENS-{source_sensitivity}",
+            occurred_at=OCCURRED,
+            sensitivity=source_sensitivity,
+            payload={"execution_id": "EXEC-SENS", "status": "completed"},
+        )
+    )
+
+    stored = connected["system"].repository.query(event_type="operation.executed")[0]
+
+    assert stored.header.sensitivity is expected
+
+
+def test_at_dp_122_real_domain_approval_and_memory_preserve_mapped_facts(
+    connected,
+) -> None:
+    """MAJOR-V2-004: approval identity/resolution and memory status are preserved."""
+
+    factory, publisher, _adapter = _at_dp_122_domain_bridge(connected)
+    system = connected["system"]
+
+    publisher.publish(
+        factory.create_event(
+            event_type="domain.approval.requested",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-V2-APP-REQ",
+            occurred_at=OCCURRED,
+            payload={"approval_id": "APP-V2-1", "action": "delete"},
+        )
+    )
+    publisher.publish(
+        factory.create_event(
+            event_type="domain.approval.received",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-V2-APP-REC",
+            occurred_at=OCCURRED,
+            payload={
+                "approval_id": "APP-V2-2",
+                "approved": True,
+                "decision_by": "u1",
+            },
+        )
+    )
+    publisher.publish(
+        factory.create_event(
+            event_type="domain.memory.updated",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-V2-MEM",
+            occurred_at=OCCURRED,
+            payload={"update_id": "UPD-V2", "status": "updated"},
+        )
+    )
+
+    requested = system.repository.query(event_type="approval.requested")[0]
+    resolved = system.repository.query(event_type="approval.resolved")[0]
+    memory = system.repository.query(event_type="memory.updated")[0]
+
+    assert requested.payload.data["approval_id"] == "APP-V2-1"
+    # No invented approval status: the real source carries none.
+    assert "status" not in requested.payload.data
+
+    assert resolved.payload.data["approval_id"] == "APP-V2-2"
+    assert resolved.payload.data["approved"] is True
+    assert "decision_by" not in resolved.payload.data
+
+    assert memory.payload.data["status"] == "updated"
+    assert memory.payload.data["domain_id"] == "domain:general"
+
+
+def test_at_dp_122_nested_forbidden_domain_content_still_fails_closed(
+    connected,
+) -> None:
+    """MAJOR-V2-004: reading mapped nested facts must not weaken nested scanning."""
+
+    from kernel.events.event import Event as KernelEvent
+
+    _factory, _publisher, adapter = _at_dp_122_domain_bridge(connected)
+    system = connected["system"]
+    before = system.repository.count()
+
+    for unsafe in (
+        {"prompt": "leaked prompt"},
+        {"chain_of_thought": "step 1"},
+        {"provider_response": {"raw": "body"}},
+        {"api_key": "api_key=abcdef1234567890"},
+    ):
+        with pytest.raises(PlatformEventPayloadError):
+            adapter.handle(
+                KernelEvent(
+                    name="domain.execution.completed",
+                    payload={
+                        "domain_id": "domain:general",
+                        "event_type": "domain.execution.completed",
+                        "payload": unsafe,
+                    },
+                )
+            )
+        assert system.repository.count() == before, unsafe

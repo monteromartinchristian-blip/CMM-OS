@@ -529,3 +529,181 @@ def manual_runtime_event(
     return AgentRuntimeEvent(
         header=header, payload=AgentRuntimeEventPayload(data=payload, raw=raw)
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V2 — every persisted canonical event field is governed
+#
+# The independent Re-audit V2 proved that the V1 boundary covered
+# ``payload.data`` while persisted *header* channels stayed ungoverned.  These
+# tests make the universal claims permanent for **every** persisted field of the
+# canonical event, so forbidden material can never be relocated from the payload
+# into a header channel to bypass the boundary.
+#
+# Governed invariants::
+#
+#     PROMPTS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+#     HIDDEN_REASONING_NEVER_ENTERS_ANY_PERSISTED_EVENT_FIELD
+#     CREDENTIALS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+#     RAW_PROVIDER_PAYLOADS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+#     OPAQUE_VALUES_NEVER_ENTER_PERSISTED_PAYLOAD
+#     SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Forbidden content in the various shapes a caller might try to smuggle it.
+V2_FORBIDDEN_CONTENT = (
+    ("prompt_text", "system_prompt=TOP SECRET"),
+    ("prompt_word", "TOP SECRET prompt"),
+    ("reasoning", "hidden reasoning about the user"),
+    ("credential", "api_key=abcdef1234567890"),
+    ("prefixed_key", "sk-abcdefghijklmnop"),
+    ("bearer", "Bearer abcdefghijklmnopqrstuvwxyz0123456"),
+    ("provider_raw", 'provider_response={"raw":"body"}'),
+)
+
+#: A setter for every producer-controlled persisted header channel plus the
+#: payload channel, so no channel is left ungoverned.
+V2_HEADER_CHANNELS = (
+    ("metadata_value", lambda text: {"metadata": {"note": text}}),
+    ("metadata_key", lambda text: {"metadata": {text: "value"}}),
+    ("metadata_nested", lambda text: {"metadata": {"nested": {text: "value"}}}),
+    ("permissions", lambda text: {"permissions": [text]}),
+    ("producer", lambda text: {"producer": text}),
+    ("aggregate_id", lambda text: {"aggregate_id": text}),
+    ("source", lambda text: {"source": text}),
+    ("actor_id", lambda text: {"actor_id": text}),
+    ("agent_id", lambda text: {"agent_id": text}),
+    ("agent_run_id", lambda text: {"agent_run_id": text}),
+    ("goal_id", lambda text: {"goal_id": text}),
+    ("workflow_id", lambda text: {"workflow_id": text}),
+    ("task_id", lambda text: {"task_id": text}),
+    ("iteration_id", lambda text: {"iteration_id": text}),
+    ("correlation_id", lambda text: {"correlation_id": text}),
+    ("causation_id", lambda text: {"causation_id": text}),
+    ("payload_data", lambda text: {"payload": {"goal_id": text}}),
+)
+
+V2_CHANNEL_LABELS = tuple(channel[0] for channel in V2_HEADER_CHANNELS)
+V2_CONTENT_LABELS = tuple(content[0] for content in V2_FORBIDDEN_CONTENT)
+
+
+@pytest.mark.parametrize(
+    ("channel_label", "setter"),
+    V2_HEADER_CHANNELS,
+    ids=V2_CHANNEL_LABELS,
+)
+@pytest.mark.parametrize(
+    ("content_label", "text"),
+    V2_FORBIDDEN_CONTENT,
+    ids=V2_CONTENT_LABELS,
+)
+def test_no_persisted_event_field_accepts_forbidden_content(
+    channel_label, setter, content_label, text
+) -> None:
+    """No persisted field may carry prompts, reasoning, credentials or raw payloads."""
+
+    system = _system()
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["goal.created"])
+    before_published = system.bus.stats.published_total
+
+    facts = setter(text)
+    payload = facts.pop("payload", {"goal_id": "g1"})
+
+    with pytest.raises((ValueError, PlatformEventPayloadError)):
+        system.publish("goal.created", payload, **facts)
+
+    assert system.repository.count() == 0, (channel_label, content_label)
+    assert system.bus.stats.published_total == before_published
+    assert received == []
+    assert system.dead_letter_count() == 0
+
+
+def test_a_persisted_event_never_serializes_forbidden_content() -> None:
+    """Defence in depth: the stored canonical record itself carries no forbidden token."""
+
+    system = _system()
+    system.publish(
+        "goal.created",
+        {"goal_id": "goal-clean", "status": "created"},
+        event_id="evt-clean-record",
+        producer="orchestration",
+        aggregate_id="workflow:123",
+        source="domain.execution.completed",
+        permissions=["events:read"],
+        metadata={"status_code": "ok", "attempt": 1},
+    )
+
+    stored = system.repository.get("evt-clean-record")
+    assert stored is not None
+    serialized = repr(
+        {
+            "header": {
+                "event_id": stored.header.event_id,
+                "source": stored.header.source,
+                "producer": stored.header.producer,
+                "aggregate_id": stored.header.aggregate_id,
+                "correlation_id": stored.header.correlation_id,
+                "causation_id": stored.header.causation_id,
+                "permissions": list(stored.header.permissions),
+                "metadata": dict(stored.header.metadata),
+            },
+            "payload": dict(stored.payload.data),
+        }
+    ).lower()
+
+    for token in ("prompt", "reasoning", "api_key", "apikey", "bearer", "sk-"):
+        assert token not in serialized, token
+
+
+def test_opaque_values_never_enter_the_persisted_payload() -> None:
+    """OPAQUE_VALUES_NEVER_ENTER_PERSISTED_PAYLOAD stays universal."""
+
+    system = _system()
+
+    for opaque in (object(), b"\x00\x01", {1: "non-string key"}, {object(): 1}):
+        with pytest.raises(PlatformEventPayloadError):
+            system.publish("goal.created", {"goal_id": opaque})
+
+    assert system.repository.count() == 0
+
+
+def test_source_sensitivity_is_not_downgraded() -> None:
+    """SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED at the platform publication boundary."""
+
+    from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
+
+    system = _system()
+    for source_sensitivity, expected in (
+        ("public", EventSensitivity.PUBLIC),
+        ("internal", EventSensitivity.INTERNAL),
+        ("confidential", EventSensitivity.CONFIDENTIAL),
+        ("restricted", EventSensitivity.RESTRICTED),
+    ):
+        event_id = f"evt-sensitivity-{source_sensitivity}"
+        system.publish(
+            "goal.created",
+            {"goal_id": "g1"},
+            event_id=event_id,
+            sensitivity=expected,
+        )
+        stored = system.repository.get(event_id)
+        assert stored is not None
+        assert stored.header.sensitivity is expected
+
+
+def test_unknown_platform_event_type_fails_closed_on_every_route() -> None:
+    """UNKNOWN_PLATFORM_EVENT_TYPE_FAILS_CLOSED on creation and both publish routes."""
+
+    system = _system()
+
+    with pytest.raises(ValueError):
+        system.create_event("unknown.event.type", {"goal_id": "g1"})
+    with pytest.raises(ValueError):
+        system.publish("unknown.event.type", {"goal_id": "g1"})
+    with pytest.raises(ValueError):
+        system.publish_event(
+            manual_runtime_event("unknown.event.type", {"goal_id": "g1"})
+        )
+
+    assert system.repository.count() == 0

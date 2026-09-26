@@ -16,6 +16,7 @@ from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEvent,
     AgentRuntimeEventReplayRequest,
 )
+from cmm.agent_runtime.runtime_event_factory import event_fingerprint
 from cmm.agent_runtime.runtime_event_repository import (
     FileAgentRuntimeEventRepository,
     InMemoryAgentRuntimeEventRepository,
@@ -78,7 +79,12 @@ def test_replay_reads_canonical_stored_events() -> None:
     assert [event.header.event_id for event in received] == ["evt_r1"]
     assert result.replayed_count == 1
     # Replay re-notified a subscriber with the canonical stored event identity.
-    assert received[0] is system.repository.get("evt_r1")
+    # Delivery hands out a detached canonical snapshot (Remediation V2), so the
+    # guarantee is canonical equality with stored evidence, not object identity.
+    stored = system.repository.get("evt_r1")
+    assert stored is not None
+    assert event_fingerprint(received[0]) == event_fingerprint(stored)
+    assert received[0].payload.data == stored.payload.data
 
 
 def test_dry_run_invokes_no_subscriber() -> None:
@@ -150,11 +156,14 @@ def test_replay_does_not_mutate_the_original_record() -> None:
     system.subscribe(lambda event: None, ["message.received"], accept_replay=True)
     _publish(system, event_id="evt_immutable")
     before = system.repository.get("evt_immutable")
+    assert before is not None
 
     system.replay(AgentRuntimeEventReplayRequest(event_id="evt_immutable"))
 
     after = system.repository.get("evt_immutable")
-    assert after is before
+    assert after is not None
+    # Stored evidence is unchanged: replay neither replaces nor mutates the record.
+    assert event_fingerprint(after) == event_fingerprint(before)
 
 
 def test_replay_order_is_deterministic() -> None:
