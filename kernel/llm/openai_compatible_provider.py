@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+
 from collections.abc import Iterator
 from threading import Event
-from typing import Protocol
+from typing import Any, Protocol
 
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.models import LLMRequest, LLMResponse
@@ -29,7 +31,7 @@ class OpenAICompatibleClientProtocol(Protocol):
         self,
         *,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         temperature: float = 0.0,
         max_tokens: int | None = None,
         cancel_event: Event | None = None,
@@ -106,11 +108,59 @@ class OpenAICompatibleProvider(LLMProvider):
 
         yield from self.client.stream_chat(
             model=self.model,
-            messages=request.transcript(),
+            messages=self._stream_messages(request),
             temperature=request.temperature,
             max_tokens=self._max_tokens(request),
             cancel_event=cancel_event,
         )
+
+    @staticmethod
+    def _stream_messages(
+        request: LLMRequest,
+    ) -> list[dict[str, Any]]:
+        """Serialize canonical image inputs as multimodal content parts."""
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": item["role"],
+                "content": item["content"],
+            }
+            for item in request.transcript()
+        ]
+
+        if not request.images:
+            return messages
+
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": request.prompt,
+            }
+        ]
+
+        for image in request.images:
+            encoded = base64.b64encode(
+                image.data
+            ).decode("ascii")
+
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": (
+                            f"data:{image.media_type};"
+                            f"base64,{encoded}"
+                        )
+                    },
+                }
+            )
+
+        messages[-1] = {
+            "role": "user",
+            "content": content,
+        }
+
+        return messages
 
     @staticmethod
     def _max_tokens(request: LLMRequest) -> int | None:

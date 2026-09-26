@@ -88,7 +88,7 @@ class OpenAICompatibleClient:
         self,
         *,
         model: str,
-        messages: Sequence[dict[str, str]],
+        messages: Sequence[dict[str, Any]],
         temperature: float = 0.0,
         max_tokens: int | None = None,
         cancel_event: Event | None = None,

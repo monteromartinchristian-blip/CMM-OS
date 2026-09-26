@@ -55,7 +55,7 @@ from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter, RoutingDecision
 from kernel.llm.model_selection import ModelRequirements
-from kernel.llm.models import ChatTurn, LLMRequest, LLMResponse
+from kernel.llm.models import ChatTurn, ImageInput, LLMRequest, LLMResponse
 from kernel.llm.provider import LLMProvider
 from kernel.llm.provider_factory import ProviderFactory
 from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
@@ -254,6 +254,7 @@ class CanonicalModelExecutor:
         prompt: str,
         system: str | None = None,
         history: Sequence[tuple[str, str]] = (),
+        images: Sequence[ImageInput] = (),
         cancel_event: Event | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
@@ -280,6 +281,13 @@ class CanonicalModelExecutor:
         transcript_history = tuple(
             ChatTurn(role=role, content=content) for role, content in history
         )
+        transcript_images = tuple(images)
+
+        if transcript_images and not resolved.spec.capabilities.vision:
+            raise ModelExecutionError(
+                CHAT_PROMPT_INVALID_MESSAGE,
+                code=CHAT_PROMPT_INVALID_CODE,
+            )
 
         provider = self._chat_provider(resolved)
 
@@ -292,6 +300,7 @@ class CanonicalModelExecutor:
             temperature=parameters.temperature,
             metadata=metadata,
             history=transcript_history,
+            images=transcript_images,
         )
         return self._stream_deltas(provider, request, cancel_event)
 

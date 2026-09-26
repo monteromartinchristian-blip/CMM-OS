@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from cmm.model_execution.executor import CanonicalModelExecutor
-from kernel.llm.capabilities import ProviderCapabilities
+from kernel.llm.capabilities import ModelCapabilities, ProviderCapabilities
 from kernel.llm.clients.openai_compatible_client import OpenAICompatibleClient
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter
@@ -60,6 +60,7 @@ __all__ = [
     "LOCAL_RUNTIME_DEFAULT_BASE_URL",
     "LOCAL_RUNTIME_EGRESS_ENV",
     "LOCAL_RUNTIME_MODEL_IDS_ENV",
+    "LOCAL_RUNTIME_VISION_MODEL_IDS_ENV",
     "LOCAL_RUNTIME_PROVIDER_ID",
     "LocalModelExecution",
     "build_local_model_execution",
@@ -105,6 +106,7 @@ LOCAL_RUNTIME_PROVIDER_ID = "local-runtime"
 LOCAL_RUNTIME_DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
 LOCAL_RUNTIME_BASE_URL_ENV = "CMM_LOCAL_RUNTIME_BASE_URL"
 LOCAL_RUNTIME_MODEL_IDS_ENV = "CMM_LOCAL_RUNTIME_MODEL_IDS"
+LOCAL_RUNTIME_VISION_MODEL_IDS_ENV = "CMM_LOCAL_RUNTIME_VISION_MODEL_IDS"
 LOCAL_RUNTIME_API_KEY_ENV = "CMM_LOCAL_RUNTIME_API_KEY"
 LOCAL_RUNTIME_CONTEXT_WINDOW = 32_000
 
@@ -361,6 +363,15 @@ def register_local_runtime(
     else:
         registered = provider_registry.register(declared)
 
+    vision_ids = {
+        part.strip().lower()
+        for part in os.getenv(
+            LOCAL_RUNTIME_VISION_MODEL_IDS_ENV,
+            "",
+        ).split(",")
+        if part.strip()
+    }
+
     models: list[ModelSpec] = []
     for identity in identities:
         normalized = identity.strip()
@@ -373,6 +384,9 @@ def register_local_runtime(
                     id=normalized,
                     provider_id=registered.id,
                     context_window=LOCAL_RUNTIME_CONTEXT_WINDOW,
+                    capabilities=ModelCapabilities(
+                        vision=normalized.lower() in vision_ids
+                    ),
                 )
             )
         )

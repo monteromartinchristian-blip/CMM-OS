@@ -9,6 +9,29 @@ ChatRole = Literal["system", "user", "assistant"]
 
 
 @dataclass(frozen=True, slots=True)
+class ImageInput:
+    """Provider-independent image attached to the current user turn."""
+
+    media_type: str
+    data: bytes
+
+    def __post_init__(self) -> None:
+        normalized = self.media_type.split(";", 1)[0].strip().lower()
+
+        if not normalized.startswith("image/"):
+            raise ValueError(
+                "ImageInput media_type must be an image MIME type"
+            )
+
+        if not isinstance(self.data, bytes) or not self.data:
+            raise ValueError(
+                "ImageInput data must be non-empty bytes"
+            )
+
+        object.__setattr__(self, "media_type", normalized)
+
+
+@dataclass(frozen=True, slots=True)
 class ChatTurn:
     """One conversational turn inside an LLM request transcript."""
 
@@ -31,6 +54,7 @@ class LLMRequest:
     temperature: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
     history: tuple[ChatTurn, ...] = ()
+    images: tuple[ImageInput, ...] = ()
 
     def transcript(self) -> list[dict[str, str]]:
         """Return the provider-independent chat transcript for this request.
