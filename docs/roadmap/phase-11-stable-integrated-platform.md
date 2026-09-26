@@ -2882,12 +2882,14 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Implementation status:** `REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`
+**Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
 **Design specification:** `docs/superpowers/specs/2026-09-26-phase-11.22-event-system-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
+**Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2911,6 +2913,8 @@ runtime event infrastructure. It adds no second event system.
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-122=PASS_REPORTED
+INDEPENDENT_AUDIT_V1=FAIL
+REMEDIATION_V1=REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -2969,7 +2973,27 @@ a safe emission seam yet: `session.created`, `reasoning.completed`,
 producer was fabricated to make the catalog appear active.
 
 Gate results are recorded in the reference document and the requirements matrix.
-The phase remains open until independent audit.
+
+## Remediation V1 record
+
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=4`, `MINORS=5`) against
+implementation HEAD `4e3bfa8067099e2efd3c2fb793a2e640f5d1859e`. Remediation V1
+fixed exactly those nine findings — content-bound fingerprint, universal
+`publish_event()` publication boundary, subscriber-targeted dead-letter replay,
+preserved explicit source correlation/causation, `retry_total` on successful
+retries, canonical corruption errors for malformed persisted payload shapes,
+fail-closed forbidden kernel source content, corrected reserved-event count
+documentation, and corrected Phase 9 modification wording — using strict TDD with
+adversarial regressions per finding. The accepted one-authority architecture was
+preserved: no second bus, registry, repository protocol, replay engine or DLQ was
+added.
+
+The immutable Audit V1 report
+(`docs/audits/phase-11.22-event-system-independent-audit-v1.md`) and the immutable
+V1 bundle (`phase-11.22-event-system-audit-v1.tar.gz`, SHA-256
+`a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3`) are preserved
+unchanged. The phase remains open, not independently verified and not complete
+until the fresh independent re-audit of the V2 bundle passes.
 
 ## Event
 

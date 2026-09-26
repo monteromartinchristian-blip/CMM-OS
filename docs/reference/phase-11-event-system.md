@@ -1,21 +1,23 @@
 # Phase 11 — Event System reference
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Design specification:** `docs/superpowers/specs/2026-09-26-phase-11.22-event-system-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
 **Implementation agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-event-system-implementation-agent-prompt.md`
+**Remediation V1 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
 `DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`
 `AT-DP-122=PASS_REPORTED`
 
-Phase 11.22 is **implemented and awaiting independent audit**. It is not closed,
-audited, verified or complete, and the `VERIFIED_EXISTING` marker may only be
-written by the independent audit.
+Phase 11.22 was implemented, failed independent Audit V1, and has been
+**remediated**. It is not closed, not independently verified and not complete:
+the `VERIFIED_EXISTING` marker may only be written by the independent re-audit of
+the V2 bundle. See §24 for the remediation record.
 
 ### Provenance note (recorded deviation)
 
@@ -228,10 +230,13 @@ Platform transport reuses `AgentRuntimeEvent`; no new envelope exists.
 | sensitivity | `header.sensitivity` | existing |
 
 `source` keeps its Phase 9 meaning (the emitting runtime surface) and was **not**
-repurposed as a producer alias. Old constructors stay valid, old serialized
-events still deserialize, and `event_fingerprint()` covers event ID, type, schema
-version, both timestamps, producer, aggregate identity and a canonical rendering
-of the payload.
+repurposed as a producer alias. Old constructors stay valid, and old serialized
+events still deserialize. `event_fingerprint()` hashes the **complete canonical
+persisted event**: every persisted header field (event ID, type, schema version,
+both timestamps, agent/run/goal/workflow/task/iteration identity, correlation,
+causation, actor, `source`, sensitivity, permissions, metadata, producer,
+aggregate identity) plus every persisted payload field (`payload.data` and
+`payload.raw`). Corrections in Remediation V1 are recorded in §24.
 
 ## 8. Durable persistence semantics
 
@@ -254,6 +259,11 @@ One record is:
 * reading re-validates every record through the canonical factory and recomputes
   its fingerprint, so a tampered, truncated, malformed, unsupported-version or
   duplicated record raises `AgentRuntimeEventPersistenceCorruptionError`;
+* every malformed stored container shape — including a non-mapping `payload` or
+  `payload.data` — surfaces as that canonical corruption error, never as an
+  incidental `AttributeError`;
+* `payload.raw` is round-tripped faithfully, so the content-bound fingerprint of a
+  reloaded record matches the fingerprint written with it;
 * corrupt evidence is never silently skipped, repaired or guessed;
 * tests use temporary directories only, and the suite redirects
   `CMM_OS_DATA_DIR` so no test can write to a real user data location.
@@ -297,6 +307,8 @@ queue, thread pool, circuit breaker or recovery framework was added.
 * subscriber A succeeding and subscriber B failing leaves A successful and
   retries only B;
 * every attempt preserves the same event ID and creates no new event;
+* `retry_total` counts retries, not initial attempts: a subscriber that fails once
+  and then succeeds reports one retry, and a first-attempt success reports none;
 * a successful retry produces no dead-letter entry;
 * exhaustion produces **exactly one** dead-letter record;
 * a subscriber is never given a second *normal* delivery for the same event.
@@ -310,6 +322,22 @@ Preserved safe references: event ID, event type, subscription/subscriber ID,
 attempt count, final status, safe error **type**, and timestamps. The raw
 exception message is never persisted — the entry stores the exception class name
 and a safe category only, and no traceback text.
+
+A dead-letter entry is **subscriber-specific**. `replay_dead_letter()` therefore
+targets the `subscription_id` recorded on that entry through the one canonical
+replay owner:
+
+```text
+DLQ entry for subscriber A
+-> replay only to A
+-> remove the entry only if A itself accepts replay and succeeds
+-> leave the entry intact otherwise
+-> never let an unrelated replay-enabled subscriber resolve A's entry
+```
+
+A target that did not opt in with `accept_replay=True` leaves the entry
+unresolved: the dead-letter API does not bypass replay policy. No second replay
+engine and no broadcast DLQ replay exists.
 
 ## 13. Replay semantics
 
@@ -376,6 +404,22 @@ SAME_ID_DIFFERENT_CONTENT_FAILS_CLOSED
 REPLAY_TO_SIDE_EFFECT_SUBSCRIBERS_DEFAULT_DENIED
 DLQ_REPLAY_CANNOT_BYPASS_SUBSCRIBER_POLICY
 ```
+
+The boundary is **universal, never route-dependent**. `EventSystem.publish()`
+and the public `EventSystem.publish_event()` both enforce canonical registry
+membership, the bounded payload vocabulary and the raw-payload prohibition before
+anything is persisted, so a manually constructed `AgentRuntimeEvent` cannot reach
+persistence or a subscriber by choosing the lower-level entry point. The durable
+Phase 9 repository stays a generic persistence contract and is deliberately not
+turned into a Phase 11.22 platform-policy authority.
+
+The kernel adapter additionally fails closed on **forbidden, private or
+credential-bearing source content** even for source keys it does not model, while
+harmless irrelevant source facts are still ignored. The one documented exception
+is the structural source envelope name `payload`, which closed-phase contracts use
+as a container; the container's contents are still fully scanned. Explicit source
+`correlation_id` and `causation_id` are preserved unchanged, and the documented
+derivation order is used only when the source carries none.
 
 ## 16. Composition bindings
 
@@ -447,21 +491,43 @@ mock in the core chain:
 22. Domain Events remain 23/23 and keep their own authority;
 23. no second bus/registry/repository/replayer/DLQ authority exists.
 
+Remediation V1 strengthened the same connected acceptance with the adversarial
+scenarios independent Audit V1 reproduced, still against real components only:
+
+24. same-ID difference only in `correlation_id` fails as an identity conflict;
+25. same-ID difference only in `causation_id` fails as an identity conflict;
+26. same-ID difference only in `sensitivity` fails as an identity conflict;
+27. same-ID difference only in `metadata` fails as an identity conflict;
+28. direct `publish_event()` rejects an unknown event type;
+29. direct `publish_event()` rejects a prompt payload;
+30. direct `publish_event()` rejects a credential payload;
+31. direct `publish_event()` rejects hidden-reasoning content;
+32. dead-letter replay cannot be satisfied by another replay-enabled subscriber;
+33. targeted dead-letter replay removes the entry only after the failed
+    subscriber itself succeeds, and never invokes the unrelated subscriber;
+34. explicit Domain `correlation_id` survives the kernel adapter unchanged;
+35. explicit Domain `causation_id` survives the kernel adapter unchanged.
+
 `AT-DP-122=PASS_REPORTED`
 
 ## 19. Test evidence
 
+Post-remediation (Remediation V1) measurements; the original V1 figures are
+preserved in §19.2 and in the immutable Audit V1 report.
+
 | Gate | Result |
 | --- | --- |
-| Phase 11.22 focused tests (`tests/events/`) | `489 passed` |
-| `AT-DP-122` connected acceptance | `PASS` (see §18) |
-| Focused event baseline | `856 passed` (frozen baseline `856`) |
-| Event inventory (`tests/**/*event*`) | `1269 passed` (baseline `1204`, +65) |
+| Phase 11.22 focused tests (`tests/events/`) | `625 passed` |
+| Remediation V1 adversarial regressions | `86 passed` |
+| `AT-DP-122` connected acceptance | `45 passed` (see §18) |
+| Focused event baseline | `972 passed` |
+| Event inventory (`tests/**/*event*.py`) | `1270 passed` |
 | Closed-phase connected regressions | see §19.1 |
-| Global pytest | `22558 passed, 1 warning` |
+| Phase 9 runtime regressions (`tests/agent_runtime`) | `3635 passed` |
+| Global pytest | `22694 passed, 1 warning, 0 failed` |
 | Changed/new file Ruff | `PASS` (0 violations) |
-| Global Ruff count | `810` (frozen pre-existing baseline `811`, no new debt) |
-| Format check (`ruff format --check`, phase delta) | `PASS` |
+| Global Ruff count (`ruff check cmm kernel tests`) | `810` (frozen pre-existing baseline `811`, V1 HEAD `810`, no new debt) |
+| Format check (`ruff format --check`, changed-file delta) | `PASS` |
 | `compileall -q cmm kernel` | `PASS` |
 | `git diff --check` | `PASS` |
 | Architecture / security gates | `PASS` |
@@ -482,6 +548,9 @@ Phase 9     Autonomous Agent Runtime             PASS
 Workflow subsystem                               PASS
 ```
 
+The closed-phase acceptances (`AT-DP-102`, `AT-DP-103`, `AT-DP-105`, Phase 11.21,
+Phase 11.34, `AT-DP-150`) ran as one gate: `228 passed`.
+
 One inherited platform architecture gate was extended, not weakened:
 `tests/platform/test_architecture.py` sanctions `cmm.events` as the fifth bounded
 `cmm.platform` consumer, with the same one-way direction rule and no new platform
@@ -489,23 +558,47 @@ authority. One inherited Phase 11.3 acceptance assertion was updated to the
 corrected production graph: the production local runtime now composes the
 canonical service set **plus exactly the Phase 11.22 event-system services**.
 
+### 19.2 Original V1 measurements (historical)
+
+```text
+tests/events/                       489 passed
+AT-DP-122                            33 passed
+focused event baseline              856 passed
+event inventory                    1269 passed
+closed-phase regressions        16703 passed
+global pytest                   22558 passed, 1 warning
+global Ruff                          810 (frozen baseline 811)
+```
+
 ## 20. Global test evidence
 
-Frozen baseline: `22069 passed, 1 warning`. Post-implementation:
-`22558 passed, 1 warning` (489 new Phase 11.22 tests). The single retained warning
-is the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
+Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
+`22558 passed, 1 warning`. Post-remediation V1: `22694 passed, 1 warning, 0 failed`
+(+136 remediation tests over V1, +625 over the frozen baseline). The single
+retained warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`.
+
+One timing-sensitive, event-system-unrelated test
+(`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
+which asserts a `40 ms` wall-clock bound) failed once in an initial run that was
+executed concurrently with another heavy suite on the same machine; it passes
+repeatedly in isolation and in the clean, uncontended global run recorded above.
+No event-system code is involved.
 
 ## 21. Ruff baseline treatment
 
-The frozen global baseline is `811` pre-existing violations, which Phase 11.22
-does **not** clean up. At the frozen implementation base the same command reports
-`811`, confirming the baseline is exact.
+The frozen global baseline is `811` pre-existing violations (`ruff check cmm
+kernel tests`), which Phase 11.22 does **not** clean up. At the frozen
+implementation base the same command reports `811`, and at the audited V1 HEAD it
+reports `810`, confirming both baselines exactly.
 
-Every Phase 11.22-created or Phase 11.22-modified Python file is Ruff-clean. The
-global count after implementation is `810`: the only delta is one pre-existing
-violation removed while editing `tests/conftest.py` to add the test data-directory
-isolation fixture. No unrelated violation was fixed, no global auto-fix was run,
-and no file outside the Phase 11.22 delta was touched.
+Every Phase 11.22-created or Phase 11.22-modified Python file, including every
+Remediation V1 change, is Ruff-clean. The global count after remediation is `810`:
+identical to the audited V1 HEAD and one below the frozen baseline. The only delta
+against the baseline is one pre-existing violation removed while editing
+`tests/conftest.py` to add the test data-directory isolation fixture. No unrelated
+violation was fixed, no global auto-fix was run, and no file outside the Phase 11.22
+delta was touched.
 
 ## 22. Known non-goals and limitations
 
@@ -537,7 +630,51 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Independent ChatGPT audit of the exact committed implementation bundle. This
-document states only `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; Phase 11.22 must not
-be described as closed, audited, verified or complete, and Phase 11.23 has not
-begun.
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V2** bundle
+(`phase-11.22-event-system-audit-v2.tar.gz`, produced with `git archive` from the
+final remediation HEAD). This document states only
+`REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+described as closed, independently verified, re-audited, passed or complete, and
+Phase 11.23 has not begun.
+
+## 24. Remediation V1 record
+
+Independent Audit V1 (`docs/audits/phase-11.22-event-system-independent-audit-v1.md`,
+immutable) returned:
+
+```text
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=4
+MINORS=5
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_AUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V1_ONLY
+```
+
+Remediation V1 fixed exactly those nine findings under strict TDD — a red
+adversarial regression first, then the minimum fix, then the nearest regressions:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-001` | `event_fingerprint()` omitted material persisted fields, so same-ID events differing only in correlation, causation, sensitivity or metadata collided, and stored-field tampering evaded the integrity check | the fingerprint now hashes the complete canonical serialization produced by the one shared `canonical_event_dict()` used for persistence; every persisted header and payload field is covered, including `payload.raw` |
+| `MAJOR-002` | public `EventSystem.publish_event()` persisted a manually constructed event without the registry or payload-safety boundary | `publish_event()` is now itself the canonical publication boundary (registry membership, raw-payload rejection, bounded payload vocabulary, normalization) and preserves the supplied event identity and header facts; no new authority was created and the generic Phase 9 repository stays policy-free |
+| `MAJOR-003` | dead-letter replay broadcast the stored event, so an unrelated replay-enabled subscriber resolved another subscriber's failed delivery | dead-letter replay targets the `subscription_id` recorded on the entry through an additive targeted capability on the one canonical bus and replay owner; the entry is removed only after that subscriber itself accepts replay and succeeds |
+| `MAJOR-004` | the kernel adapter derived correlation/causation from other IDs and dropped explicit source `correlation_id`/`causation_id` | both are now readable source facts; an explicit authoritative value is preserved unchanged and derivation is only a fallback |
+| `MINOR-001` | `retry_total` counted only exhausted deliveries | retries are counted on eventual success as well as on exhaustion |
+| `MINOR-002` | a stored `payload: []` escaped as a raw `AttributeError` | every malformed stored container shape fails deterministically in the factory and surfaces as `AgentRuntimeEventPersistenceCorruptionError` |
+| `MINOR-003` | the kernel adapter silently ignored forbidden source keys such as `prompt` | forbidden, private and credential-bearing source keys/values now fail closed before persistence; harmless irrelevant facts are still ignored |
+| `MINOR-004` | the catalog documentation claimed twelve reserved events | the prose now states six reserved names, and a test derives the count from the real disposition map |
+| `MINOR-005` | the requirements matrix claimed Phase 9 was "not modified" while documenting its additive hardening | the matrix now states that Phase 9 remained the canonical authority, was not architecturally replaced or reopened as a new phase, and received bounded additive compatibility hardening under Phase 11.22 |
+
+The accepted architecture was preserved and the accepted Phase 9 changes were not
+reverted. No second bus, registry, repository protocol, replay engine, DLQ
+subsystem, container, broker abstraction, command bus or service locator was
+added.
+
+The immutable Audit V1 report and the immutable V1 bundle
+(`a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3`) are preserved
+byte-identical. The exact remediation HEAD, tree and V2 bundle SHA-256 are
+reported in the remediation handoff rather than embedded here, for the same
+self-reference reason as the V1 evidence record.
