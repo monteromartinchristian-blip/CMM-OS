@@ -8,8 +8,11 @@
 **Implementation plan:** [`docs/superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md`](../superpowers/plans/2026-09-25-phase-11.50-reusable-backend-interfaces-implementation-plan.md)
 **Remediation V1 design:** [`docs/superpowers/specs/2026-09-25-phase-11.50-remediation-v1-design.md`](../superpowers/specs/2026-09-25-phase-11.50-remediation-v1-design.md)
 **Remediation V1 plan:** [`docs/superpowers/plans/2026-09-25-phase-11.50-remediation-v1-implementation-plan.md`](../superpowers/plans/2026-09-25-phase-11.50-remediation-v1-implementation-plan.md)
+**Remediation V2 design:** [`docs/superpowers/specs/2026-09-26-phase-11.50-remediation-v2-design.md`](../superpowers/specs/2026-09-26-phase-11.50-remediation-v2-design.md)
+**Remediation V2 plan:** [`docs/superpowers/plans/2026-09-26-phase-11.50-remediation-v2-implementation-plan.md`](../superpowers/plans/2026-09-26-phase-11.50-remediation-v2-implementation-plan.md)
 **Independent Audit V1:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-audit-v1.md)
-**Status:** `PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT`
+**Independent Re-audit V2:** [`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v2.md`](../audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v2.md)
+**Status:** `PHASE11_50=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT`
 
 ---
 
@@ -60,6 +63,36 @@ MINOR_01  report evidence discipline         -> exact start HEAD and commit coun
 
 The remediation is implemented on `feature/phase-11-stable-integrated-platform`
 and awaits independent Re-audit V2.
+
+### Audit re-audit V2 remediation V2
+
+Independent Re-audit V2
+(`docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v2.md`)
+returned `INDEPENDENT_REAUDIT_V2=FAIL` with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`.
+V1 MAJOR-01/03/04/05 and MINOR-01 were verified remediated. The one residual
+defect (MAJOR_V2_01) was that the exact `client.backend` composition identity was
+enforced **only by the convenience builder** and could be bypassed by a valid
+hand-built canonical `ServiceBinding`:
+
+```text
+CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=ACCEPTED
+```
+
+Remediation V2 fixes exactly that one defect, generically, at the authoritative
+composition boundary:
+
+```text
+RuntimeContractMatch                    INSTANCE_OF (default) | EXACT_TYPE (opt-in)
+ServiceBinding.runtime_contract_match   explicit, validated match mode
+__cmm_exact_runtime_contract__          contract-level minimum semantic marker
+IntegrationServiceRegistry.register()   authoritative exact gate
+IntegrationServiceRegistry.replace()    same shared authoritative gate
+```
+
+The platform core stays generic: no service-ID or authority special case, no
+`cmm.client_backend` import inside `cmm.platform`, and no parallel policy
+registry. The inherited Phase 11.1 `INSTANCE_OF` default is unchanged, so no
+closed phase changes meaning. It awaits independent Re-audit V3.
 
 ## 2. Canonical ownership
 
@@ -201,9 +234,12 @@ narrowed non-authoritative `uses_application_gateway(...)` evidence. A duck-type
 stand-in and, since Remediation V1 (Audit V1 MAJOR-02), a *subclass* of either
 owner both fail closed before any downstream operation; a facade subclass may
 override authority-bearing behaviour, so the composition builder applies the same
-exact-type gate to its service argument (`type(service) is ClientBackend`).
-Official in-memory canonical construction remains fully supported — only
-subclassing is rejected.
+exact-type gate to its service argument (`type(service) is ClientBackend`). Since
+Remediation V2 (Re-audit V2 MAJOR_V2_01) that builder gate is fail-fast
+convenience validation only: the authoritative gate is the Phase 11.1 registry,
+which enforces the exact rule carried by the runtime contract itself. Official
+in-memory canonical construction remains fully supported — only subclassing is
+rejected.
 
 ## 6. Capability truth
 
@@ -427,15 +463,16 @@ direct ModelGateway execution path
 service binding:
 
 ```text
-module_id        = phase11.client-backend
-service_id       = client.backend
-owner            = cmm.client_backend
-contract_version = 1.0.0
-schema_version   = 1
-mode             = local
-authority        = client-backend-public-facade
-runtime_contract = cmm.client_backend.interface.ClientBackend
-dependencies     = application.gateway, conversation.service
+module_id              = phase11.client-backend
+service_id             = client.backend
+owner                  = cmm.client_backend
+contract_version       = 1.0.0
+schema_version         = 1
+mode                   = local
+authority              = client-backend-public-facade
+runtime_contract       = cmm.client_backend.interface.ClientBackend
+runtime_contract_match = exact_type
+dependencies           = application.gateway, conversation.service
 ```
 
 Both dependency edges point **downward** at the closed canonical owners. The
@@ -445,9 +482,21 @@ gate asserts `provider.registry` is absent too. The builder constructs nothing,
 accepts only the **exact** concrete facade type — an impostor and, since
 Remediation V1, a facade *subclass* both fail closed (Audit V1 MAJOR-02) — and the
 resolved `client.backend` service is provably the exact configured facade
-instance. The exact-type gate lives in the builder because Phase 11.1's shared
-`runtime_contract` mechanism is `isinstance`-based for every phase and is not
-changed by this remediation.
+instance.
+
+Since Remediation V2 (Re-audit V2 MAJOR_V2_01) that builder check is only
+fail-fast convenience validation, not the authoritative boundary. The canonical
+facade declares the private `__cmm_exact_runtime_contract__ = True` marker on the
+runtime contract, the binding declares `RuntimeContractMatch.EXACT_TYPE`, and
+`IntegrationServiceRegistry.register()` and `replace()` compute one effective
+match mode in which the contract marker wins over whatever the binding declared.
+A hand-built binding can therefore neither omit `runtime_contract_match` nor set
+it back to `INSTANCE_OF` to downgrade the canonical contract. Under `EXACT_TYPE`
+the registry requires `type(implementation) is runtime_contract` — no subclass, no
+adapter, no duck typing and no `isinstance` fallback — and fails closed when the
+contract is not a real Python type. Contracts that do not opt in keep the closed
+Phase 11.1 `INSTANCE_OF` semantics, including the existing safely-uncheckable
+path, unchanged.
 
 The module composes beside the closed Phase 11.2/11.3/11.5 contributions and
 reaches `READY`; omitting the conversation contribution fails the build closed.
@@ -474,16 +523,16 @@ canonical E2E bridge is missing for each of these.
 
 ## 13. Testing
 
-Focused suite (`tests/client_backend`, 182 tests):
+Focused suite (`tests/client_backend`, 192 tests):
 
 | File | Covers |
 | --- | --- |
 | `test_contracts.py` | interface version, closed operation set, closed error codes, public export surface, JSON-native canonical-payload serialization and the opaque-payload fail-closed rule |
 | `test_interface.py` | exact owner identity and subclass rejection, incoherent-pair rejection, absence of any public live-owner access or service locator, session and conversation delegation, canonical lineage, fail-closed version/operation, canonical failure preservation on the real typed and dispatch paths |
 | `test_capabilities.py` | frozen field inventory, canonical evidence, no optimistic upgrade, boundary-only vs end-to-end, the frozen attachment/`reference_only` and response-event-stream truth, determinism and immutability |
-| `test_platform_module.py` | frozen composition identities, downward dependencies, absent model-gateway edge, impostor and facade-subclass refusal, real container composition, module hygiene |
-| `test_architecture.py` | parallel-authority, forbidden-import, dynamic-dispatch, service-locator, filesystem/network, hidden-reasoning and reverse-dependency gates |
-| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–K (18 tests) |
+| `test_platform_module.py` | frozen composition identities, downward dependencies, absent model-gateway edge, impostor and facade-subclass refusal, the declared `EXACT_TYPE` match mode, hand-built subclass rejection on `register()` and `replace()`, explicit and omitted-mode downgrade attempts, exact hand-built acceptance, real container composition, module hygiene |
+| `test_architecture.py` | parallel-authority, forbidden-import, dynamic-dispatch, service-locator, filesystem/network, hidden-reasoning and reverse-dependency gates, plus the facade's exact runtime-contract marker with no `cmm.platform` import edge |
+| `test_phase11_50_dp150_acceptance.py` | the connected `AT-DP-150` acceptance, scenarios A–K plus the Remediation V2 Scenario A2 (21 tests) |
 | `_canonical_graph.py` | the shared real canonical graph helper (test-only) |
 
 Every graph is the repository's own official composition root
@@ -516,6 +565,36 @@ Inherited acceptances are run as separate required gate commands, not from insid
 another test module: `AT-DP-134`, `AT-DP-121`, `AT-DP-101`, `AT-DP-102`,
 `AT-DP-103`, `AT-DP-104`, `AT-DP-105`.
 
+### Remediation V2 gate results
+
+Remediation V2 gate results on the remediation HEAD: the focused four-file
+selection passed 170 tests, `tests/client_backend` passed 192, `AT-DP-150` run
+separately passed 21, `tests/platform` passed 383, the seven inherited acceptance
+files passed 287, and the `tests/application` / `tests/conversation` / `tests/llm`
+/ `tests/orchestration` / `tests/cli` suites passed 675 / 860 / 1153 / 498 / 459 —
+all identical to their pre-remediation counts, because Remediation V2 adds the
+opt-in match and changes no inherited `INSTANCE_OF` behavior. The global suite
+passed 21989 with zero failures and one warning; the +24 over the Remediation V1
+HEAD is exactly the `tests/client_backend` growth from 182 to 192 plus the
+`tests/platform` growth from 369 to 383. `RUFF_TOUCHED`, `FORMAT`, `COMPILEALL`
+and `GIT_DIFF_CHECK` all passed, and the repository-wide Ruff count stayed at the
+837 baseline with `RUFF_NEW_FINDINGS=0`.
+
+The required Remediation V2 markers are:
+
+```text
+CLIENT_BACKEND_SUBCLASS_BUILDER_BINDING=REJECTED
+CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=REJECTED
+CLIENT_BACKEND_SUBCLASS_REPLACEMENT=REJECTED
+EXACT_CLIENT_BACKEND_HAND_BUILT_BINDING=ACCEPTED
+EXACT_RUNTIME_CONTRACT_CANNOT_BE_DOWNGRADED=PASS
+OMITTED_MATCH_CANNOT_DOWNGRADE_EXACT_CONTRACT=PASS
+INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED
+PLATFORM_IMPORTS_CLIENT_BACKEND=NO
+CLIENT_BACKEND_SPECIAL_CASE_IN_PLATFORM=ABSENT
+PARALLEL_POLICY_REGISTRY=NO
+```
+
 ## 14. Known limits
 
 * **CMMChat integration is not implemented.** Phase 11.50 builds the seam CMMChat
@@ -545,8 +624,8 @@ F11-021 -> DP-150 -> AT-DP-150
 ```
 
 ```text
-F11_021=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
@@ -566,20 +645,42 @@ AT_DP_150=FAIL_INDEPENDENT
 CLOSURE_ELIGIBLE=NO
 ```
 
-That report is immutable historical evidence. Remediation V1 corrects exactly
-those five MAJOR findings plus the MINOR-01 evidence discipline, on branch
-`feature/phase-11-stable-integrated-platform`, and claims no verification:
+That report is immutable historical evidence. Remediation V1 corrected exactly
+those five MAJOR findings plus the MINOR-01 evidence discipline on branch
+`feature/phase-11-stable-integrated-platform`. Independent Re-audit V2 then
+examined the Remediation V1 state at
+`AUDITED_HEAD=c626fbfead204f58e67076375dc6f497f56af700` and returned:
 
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V2=FAIL
+BLOCKERS=0
+MAJORS=1
+MINORS=0
+AUDIT_V1_MAJOR_01=VERIFIED_REMEDIATED
+AUDIT_V1_MAJOR_02=PARTIALLY_REMEDIATED_RESIDUAL_OPEN
+AUDIT_V1_MAJOR_03=VERIFIED_REMEDIATED
+AUDIT_V1_MAJOR_04=VERIFIED_REMEDIATED
+AUDIT_V1_MAJOR_05=VERIFIED_REMEDIATED
+AUDIT_V1_MINOR_01=VERIFIED_REMEDIATED
+DP_150=NOT_VERIFIED
+AT_DP_150=FAIL_INDEPENDENT
+CLOSURE_ELIGIBLE=NO
+```
+
+That report is likewise immutable historical evidence. Remediation V2 corrects
+exactly the one residual defect (MAJOR_V2_01) and claims no verification:
+
+```text
+PHASE11_50=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_AUDIT_V1=FAIL
-INDEPENDENT_REAUDIT_V2=NOT_PERFORMED
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=NOT_PERFORMED
 AT_DP_150=PASS_LOCAL
 CLOSURE_ELIGIBLE=NOT_CLAIMED
 ```
 
-Closure requires an independent Re-audit V2 with `BLOCKERS=0`, `MAJORS=0`,
+Closure requires an independent Re-audit V3 with `BLOCKERS=0`, `MAJORS=0`,
 `DP_150=VERIFIED_EXISTING`, `AT_DP_150=PASS` and `CLOSURE_ELIGIBLE=YES`, followed
 by a separate docs-only closure commit. This document makes no closure claim.
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT -->

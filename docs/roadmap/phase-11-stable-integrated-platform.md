@@ -4759,25 +4759,60 @@ CMMChat is a first-party client, not an execution authority owner.
 
 ## 11.50 implementation state (Phase 11.50 / DP-150)
 
-**Status:** Audit V1 remediation V1 implemented, pending independent Re-audit V2.
+**Status:** Audit V1 remediation V1 and Re-audit V2 remediation V2 implemented,
+pending independent Re-audit V3.
 
 Independent Audit V1 examined the Phase 11.50 implementation and returned
 `INDEPENDENT_AUDIT_V1=FAIL` with `BLOCKERS=0`, `MAJORS=5`, `MINORS=1`,
-`DP_150=NOT_VERIFIED` and `CLOSURE_ELIGIBLE=NO`. Remediation V1 corrects exactly
+`DP_150=NOT_VERIFIED` and `CLOSURE_ELIGIBLE=NO`. Remediation V1 corrected exactly
 those findings — the public owner escape hatch (MAJOR-01), exact canonical owner
 types (MAJOR-02), canonical error preservation on the real client paths
 (MAJOR-03), the attachment/response-event-stream capability truth (MAJOR-04) and
 JSON-native public serialization (MAJOR-05) — plus the MINOR-01 evidence
 discipline. `F11-021`, `DP-150` and `AT-DP-150` are unchanged.
 
+Independent Re-audit V2 then examined that Remediation V1 state and returned
+`INDEPENDENT_REAUDIT_V2=FAIL` with `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`: V1
+MAJOR-01/03/04/05 and MINOR-01 `VERIFIED_REMEDIATED`, with one residual defect
+(MAJOR_V2_01) — the exact `client.backend` composition identity was enforced only
+by the convenience builder and could be bypassed by a hand-built canonical
+`ServiceBinding`, which registered a facade *subclass* successfully
+(`CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=ACCEPTED`). Remediation V2 corrects
+exactly that defect at the authoritative boundary, generically and without
+reopening the closed Phase 11.1 semantics.
+
 ```text
-PHASE11_50=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
-F11_021=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
-DP_150=IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT
+PHASE11_50=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
+F11_021=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
+DP_150=IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT
 AT_DP_150=PASS_LOCAL
 INDEPENDENT_AUDIT_V1=FAIL
-INDEPENDENT_REAUDIT_V2=NOT_PERFORMED
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=NOT_PERFORMED
 CLOSURE_ELIGIBLE=NOT_CLAIMED
+```
+
+Remediation V2 adds one reusable opt-in platform primitive — an explicit
+`RuntimeContractMatch` mode on `ServiceBinding` (`INSTANCE_OF` remains the
+default, `EXACT_TYPE` is the opt-in) plus a private contract-level
+`__cmm_exact_runtime_contract__` marker that acts as a *minimum* semantic, so no
+hand-built binding can omit the field or declare `INSTANCE_OF` to downgrade an
+exact contract. `IntegrationServiceRegistry.register()` and `replace()` share the
+one authoritative assertion path, an exact binding requires
+`type(implementation) is runtime_contract` with no `isinstance` fallback, and an
+exact-but-uncheckable contract fails closed. The `cmm.platform` core stays
+generic: no service-ID or authority special case, no `cmm.client_backend` import
+and no parallel policy registry. The canonical facade opts in, its binding
+declares `exact_type`, and the existing builder exact-type check remains as
+fail-fast convenience validation only.
+
+```text
+CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=REJECTED
+CLIENT_BACKEND_SUBCLASS_REPLACEMENT=REJECTED
+EXACT_CLIENT_BACKEND_HAND_BUILT_BINDING=ACCEPTED
+EXACT_RUNTIME_CONTRACT_CANNOT_BE_DOWNGRADED=PASS
+OMITTED_MATCH_CANNOT_DOWNGRADE_EXACT_CONTRACT=PASS
+INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED
 ```
 
 The broad interface list above is the historical roadmap wording and is preserved
@@ -4816,7 +4851,7 @@ inspection, per design §63.
 
 See [`docs/reference/phase-11-reusable-backend-interfaces.md`](../reference/phase-11-reusable-backend-interfaces.md).
 
-<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V1_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_50_IMPLEMENTED_REMEDIATION_V2_PENDING_INDEPENDENT_REAUDIT -->
 
 ---
 
