@@ -142,8 +142,19 @@ CANONICAL_SUBSYSTEM_PACKAGES = (
 #: additive: one module, canonical subsystem packages only.  Every other module
 #: of the package keeps the frozen core allowlists, and
 #: ``test_the_composition_root_exemption_stays_exact`` below keeps it that way.
+#: Phase 11.22 (DP-122) adds the platform event system to the same composition
+#: root: the runtime composes the canonical event services and resolves the
+#: durable event-storage location, so the real Orchestrator reports to the one
+#: canonical event transport instead of an in-memory recorder.  Both additions are
+#: package-exact and remain confined to this one module.
+COMPOSITION_ROOT_EVENT_SYSTEM_MODULES = (
+    "cmm.events.platform_module",
+    "cmm.events.storage",
+)
+
 COMPOSITION_ROOT_MODULES: dict[str, tuple[str, ...]] = {
-    "local_runtime.py": CANONICAL_SUBSYSTEM_PACKAGES,
+    "local_runtime.py": CANONICAL_SUBSYSTEM_PACKAGES
+    + COMPOSITION_ROOT_EVENT_SYSTEM_MODULES,
 }
 
 #: The external root the one composition root may name: ``kernel`` owns the

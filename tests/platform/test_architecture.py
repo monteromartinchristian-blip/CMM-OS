@@ -33,11 +33,19 @@ CANONICAL_MODULE = PLATFORM_PACKAGE / "canonical.py"
 #: ``client.backend`` through the same Phase 11.1 composition contracts, owns no
 #: platform authority of its own, and declares no canonical subsystem service as
 #: a dependency at all.
+#: Phase 11.22 (DP-122) sanctions ``cmm.events`` as the fifth: the platform event
+#: system contributes its event-system service bindings through the same Phase
+#: 11.1 composition module contracts.  It owns no platform authority, defines no
+#: second composition root and no service locator, and it is placed *above*
+#: ``cmm.platform`` because composing the canonical event services is exactly
+#: what the Phase 11.1 composition core is for.  ``cmm.platform`` itself must
+#: never import ``cmm.events``: the dependency direction stays one-way.
 PLATFORM_CONSUMER_PACKAGES = (
     "orchestration",
     "application",
     "conversation",
     "client_backend",
+    "events",
 )
 
 # ── Canonical imports used only to build real subsystem objects ---------------

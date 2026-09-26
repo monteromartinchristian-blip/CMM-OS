@@ -133,6 +133,7 @@ from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolver import DefaultDomainResolver
+from cmm.events.platform_module import EVENT_SYSTEM_SERVICE_IDS
 from cmm.execution.executor_registry import ExecutorRegistry
 from cmm.orchestration.agent_router import CanonicalAgentRouter
 from cmm.orchestration.context import DefaultContextResolver
@@ -758,11 +759,18 @@ def test_scenario_a_the_production_local_runtime_composes_this_same_graph() -> N
     assert health.status is ApplicationStatus.SUCCESS
     assert health.data is not None
     assert health.data["platform_ready"] is True
-    # The production composition's readiness owner is the same canonical
-    # service set this acceptance's platform container declares.
-    assert set(health.data["services"]) == {
+    # The production composition's readiness owner reaches the same canonical
+    # service set this acceptance's platform container declares, extended by
+    # exactly the Phase 11.22 event-system services: the production local runtime
+    # composes the platform event system so the real Orchestrator reports to the
+    # one canonical event transport instead of an in-memory recorder.
+    production_services = set(health.data["services"])
+    acceptance_services = {
         service.service_id for service in backend.platform_container.snapshot().services
     }
+
+    assert acceptance_services <= production_services
+    assert production_services - acceptance_services == set(EVENT_SYSTEM_SERVICE_IDS)
 
 
 # ══════════════════════════════════════════════════════════════════════════

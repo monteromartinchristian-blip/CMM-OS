@@ -36,6 +36,7 @@ from cmm.application.local_runtime import (
     build_local_application_runtime,
 )
 from cmm.application.platform_module import ORCHESTRATOR_DEPENDENCY_ID
+from cmm.events.platform_module import EVENT_SYSTEM_SERVICE_IDS
 from cmm.orchestration.orchestrator import Orchestrator
 from cmm.orchestration.platform_module import ORCHESTRATION_SERVICE_IDS
 from cmm.platform.container import ApplicationContainer
@@ -134,7 +135,7 @@ def test_the_composed_service_set_is_the_canonical_one() -> None:
 
     assert service_ids == set(ORCHESTRATION_SERVICE_IDS) | set(
         CANONICAL_SERVICE_IDS
-    ) | {APPLICATION_SERVICE_ID}
+    ) | set(EVENT_SYSTEM_SERVICE_IDS) | {APPLICATION_SERVICE_ID}
 
 
 def test_the_composition_is_local_and_declares_no_other_mode() -> None:
@@ -182,8 +183,10 @@ def test_the_graph_answers_health_and_capabilities_through_the_gateway() -> None
     assert health.data is not None
     assert health.data["platform_ready"] is True
     assert health.data["api_version"] == "v1"
-    assert set(health.data["services"]) == set(ORCHESTRATION_SERVICE_IDS) | set(
-        CANONICAL_SERVICE_IDS
+    assert set(health.data["services"]) == (
+        set(ORCHESTRATION_SERVICE_IDS)
+        | set(CANONICAL_SERVICE_IDS)
+        | set(EVENT_SYSTEM_SERVICE_IDS)
     )
 
     assert capabilities.status is ApplicationStatus.SUCCESS
@@ -287,6 +290,10 @@ def test_the_runtime_owns_only_its_canonical_composition() -> None:
         # Phase 11.5 (DP-105) sanctioned additive field: the canonical shared
         # session store a conversational consumer composes over.
         "session_store",
+        # Phase 11.22 (DP-122) sanctioned additive field: the composed platform
+        # event system the runtime's Orchestrator reports to, so a consumer can
+        # inspect the one canonical event transport without a second composition.
+        "event_system",
     ]
     assert runtime.container is not None
     assert runtime.gateway is not None

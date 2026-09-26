@@ -38,6 +38,7 @@ See ``docs/reference/phase-11-cli.md``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from cmm.agent_runtime.action_budget_service import ActionBudgetService
 from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
@@ -86,6 +87,13 @@ from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
 from cmm.domains.university.definition import UNIVERSITY_DOMAIN_ID
 from cmm.domains.university.integration import register_university_domain
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
+from cmm.events.platform_module import (
+    EVENT_SYSTEM_MODULE_ID,
+    EVENT_SYSTEM_SERVICE_IDS,
+    EventSystemComposition,
+    build_event_system_composition,
+)
+from cmm.events.storage import default_event_store_path
 from cmm.execution.executor_registry import ExecutorRegistry
 from cmm.orchestration.agent_router import CanonicalAgentRouter
 from cmm.orchestration.context import DefaultContextResolver
@@ -94,7 +102,6 @@ from cmm.orchestration.decision_repository import (
     InMemoryOrchestrationDecisionRepository,
 )
 from cmm.orchestration.domain_router import CanonicalDomainRouter
-from cmm.orchestration.events import RecordingOrchestrationEventSink
 from cmm.orchestration.intent import DeterministicIntentResolver
 from cmm.orchestration.orchestrator import Orchestrator
 from cmm.orchestration.platform_module import (
@@ -129,6 +136,13 @@ CANONICAL_SERVICE_IDS: tuple[str, ...] = (
     "provider.registry",
     "workflow.registry",
 )
+
+#: The Phase 11.22 event-system services this composition binds.  The canonical
+#: ``orchestration.event_sink`` identity is contributed by the Phase 11.22 module
+#: as the production adapter, so the real Orchestrator reports to the platform
+#: event system instead of an in-memory recorder; it is already part of
+#: ``ORCHESTRATION_SERVICE_IDS`` and is therefore required, not repeated here.
+EVENT_SYSTEM_REQUIRED_SERVICES: tuple[str, ...] = EVENT_SYSTEM_SERVICE_IDS
 
 #: The canonical core domains the local graph enables.  Each is registered
 #: through its own official integration path, so the graph carries canonical
@@ -165,6 +179,7 @@ class LocalApplicationRuntime:
     gateway: ApplicationGateway
     orchestrator: Orchestrator
     session_store: InMemorySessionStore
+    event_system: EventSystemComposition
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +198,7 @@ class _OrchestrationGraph:
 
     orchestrator: Orchestrator
     decisions: InMemoryOrchestrationDecisionRepository
-    events: RecordingOrchestrationEventSink
+    events: Any
     context_resolver: DefaultContextResolver
     domain_router: CanonicalDomainRouter
     agent_router: CanonicalAgentRouter
@@ -192,6 +207,7 @@ class _OrchestrationGraph:
     intent_resolver: DeterministicIntentResolver
     policy: DefaultOrchestrationPolicy
     domains: _DomainGraph
+    event_system: EventSystemComposition
 
 
 def _build_domain_graph() -> _DomainGraph:
@@ -234,8 +250,13 @@ def _build_domain_graph() -> _DomainGraph:
     )
 
 
-def _build_orchestration_graph() -> _OrchestrationGraph:
-    """Build the canonical orchestration graph over the local canonical owners."""
+def _build_orchestration_graph(*, event_store_path: Any = None) -> _OrchestrationGraph:
+    """Build the canonical orchestration graph over the local canonical owners.
+
+    ``event_store_path`` is the explicit durable event-storage location.  When it
+    is omitted, the deterministic per-user CMM OS data location is used, so the
+    source tree is never runtime storage.
+    """
 
     domains = _build_domain_graph()
 
@@ -263,7 +284,17 @@ def _build_orchestration_graph() -> _OrchestrationGraph:
         )
     )
     decisions = InMemoryOrchestrationDecisionRepository()
-    events = RecordingOrchestrationEventSink()
+    # The real Phase 11.22 event system is composed here, and the Orchestrator
+    # receives the production platform sink through the canonical
+    # ``orchestration.event_sink`` seam.
+    event_system = build_event_system_composition(
+        event_store_path=(
+            event_store_path
+            if event_store_path is not None
+            else default_event_store_path()
+        ),
+    )
+    events = event_system.orchestration_sink
     intent_resolver = DeterministicIntentResolver()
     agent_router = CanonicalAgentRouter(registry_service=agent_service)
 
@@ -279,6 +310,7 @@ def _build_orchestration_graph() -> _OrchestrationGraph:
         ),
         decisions=decisions,
         events=events,
+        event_system=event_system,
         context_resolver=context_resolver,
         domain_router=domain_router,
         agent_router=agent_router,
@@ -320,8 +352,12 @@ def _canonical_module(graph: _OrchestrationGraph) -> StaticCompositionModule:
 
 def _platform_configuration() -> CompositionConfiguration:
     return CompositionConfiguration(
-        required_services=(*ORCHESTRATION_SERVICE_IDS, *CANONICAL_SERVICE_IDS),
-        enabled_modules=("canonical", "orchestration"),
+        required_services=(
+            *ORCHESTRATION_SERVICE_IDS,
+            *CANONICAL_SERVICE_IDS,
+            *EVENT_SYSTEM_REQUIRED_SERVICES,
+        ),
+        enabled_modules=("canonical", "orchestration", EVENT_SYSTEM_MODULE_ID),
     )
 
 
@@ -330,13 +366,21 @@ def _application_configuration() -> CompositionConfiguration:
         required_services=(
             *ORCHESTRATION_SERVICE_IDS,
             *CANONICAL_SERVICE_IDS,
+            *EVENT_SYSTEM_REQUIRED_SERVICES,
             APPLICATION_SERVICE_ID,
         ),
-        enabled_modules=("canonical", "orchestration", APPLICATION_MODULE_ID),
+        enabled_modules=(
+            "canonical",
+            "orchestration",
+            EVENT_SYSTEM_MODULE_ID,
+            APPLICATION_MODULE_ID,
+        ),
     )
 
 
-def build_local_application_runtime() -> LocalApplicationRuntime:
+def build_local_application_runtime(
+    *, event_store_path: Any = None
+) -> LocalApplicationRuntime:
     """Compose one fresh, independent local canonical application runtime.
 
     The graph is official and in-memory: real canonical registries, the real
@@ -355,8 +399,9 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
     container that already contains it.
     """
 
-    graph = _build_orchestration_graph()
+    graph = _build_orchestration_graph(event_store_path=event_store_path)
     canonical_module = _canonical_module(graph)
+    event_system_module = graph.event_system.module
     orchestration_module = build_orchestration_composition_module(
         intent_resolver=graph.intent_resolver,
         context_resolver=graph.context_resolver,
@@ -369,7 +414,7 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
     )
     platform_container = ApplicationContainer.build(
         _platform_configuration(),
-        modules=(canonical_module, orchestration_module),
+        modules=(canonical_module, event_system_module, orchestration_module),
     )
 
     sessions = SessionApplicationService(graph.session_store)
@@ -387,6 +432,7 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
         _application_configuration(),
         modules=(
             canonical_module,
+            event_system_module,
             orchestration_module,
             build_application_composition_module(gateway=gateway),
         ),
@@ -397,4 +443,5 @@ def build_local_application_runtime() -> LocalApplicationRuntime:
         gateway=gateway,
         orchestrator=graph.orchestrator,
         session_store=graph.session_store,
+        event_system=graph.event_system,
     )
