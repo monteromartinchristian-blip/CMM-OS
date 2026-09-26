@@ -72,7 +72,12 @@ from cmm.orchestration.platform_module import (
 )
 from cmm.platform.configuration import CompositionConfiguration
 from cmm.platform.container import ApplicationContainer
-from cmm.platform.contracts import ContainerState, ServiceBinding, ServiceMode
+from cmm.platform.contracts import (
+    ContainerState,
+    RuntimeContractMatch,
+    ServiceBinding,
+    ServiceMode,
+)
 from cmm.platform.errors import IncompatibleContractError
 from cmm.platform.modules import StaticCompositionModule
 from cmm.platform.service_registry import IntegrationServiceRegistry
@@ -414,6 +419,133 @@ def test_the_authoritative_registry_rejects_a_hand_built_subclass_binding() -> N
     assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
     assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
     assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+
+def test_the_authoritative_registry_rejects_an_explicit_instance_of_downgrade() -> None:
+    """``EXACT_RUNTIME_CONTRACT_CANNOT_BE_DOWNGRADED=PASS``.
+
+    The canonical facade's runtime contract carries the private
+    ``__cmm_exact_runtime_contract__`` marker.  Declaring the binding's own match
+    mode as ``INSTANCE_OF`` is therefore not a downgrade the caller is allowed to
+    perform: the contract marker is a minimum semantic, so the subclass is still
+    rejected.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    subclass = _client_backend_subclass(composed.client)
+
+    hand_built = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+
+    registry = IntegrationServiceRegistry()
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(hand_built)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+
+def test_an_omitted_match_mode_cannot_downgrade_the_exact_contract() -> None:
+    """``OMITTED_MATCH_CANNOT_DOWNGRADE_EXACT_CONTRACT=PASS``.
+
+    Omitting ``runtime_contract_match`` entirely leaves the Phase 11.1 default
+    ``INSTANCE_OF`` — exactly the audited bypass shape — and the contract marker
+    still forces the effective rule to ``EXACT_TYPE``.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    subclass = _client_backend_subclass(composed.client)
+
+    hand_built = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+    assert hand_built.runtime_contract_match is RuntimeContractMatch.INSTANCE_OF
+
+    registry = IntegrationServiceRegistry()
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(hand_built)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+
+def test_the_authoritative_registry_accepts_an_exact_hand_built_binding() -> None:
+    """``EXACT_CLIENT_BACKEND_HAND_BUILT_BINDING=ACCEPTED``.
+
+    The remediation is not a blanket ban on manual bindings: the exact official
+    facade registers through the very same hand-built path.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+
+    hand_built = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=composed.client,
+        runtime_contract=ClientBackend,
+    )
+
+    registry = IntegrationServiceRegistry()
+    registry.register(hand_built)
+
+    stored = registry.get(CLIENT_BACKEND_SERVICE_ID)
+    assert stored is hand_built
+    assert stored is not None
+    assert stored.implementation is composed.client
+    assert type(stored.implementation) is ClientBackend
+
+
+def test_replacement_cannot_swap_in_a_client_backend_subclass() -> None:
+    """``CLIENT_BACKEND_SUBCLASS_REPLACEMENT=REJECTED``.
+
+    ``replace()`` shares the single authoritative runtime-contract assertion path
+    with ``register()``, so the subclass cannot enter by replacement either and
+    the exact binding stays in place.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    subclass = _client_backend_subclass(composed.client)
+
+    exact_binding = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=composed.client,
+        runtime_contract=ClientBackend,
+    )
+    subclass_binding = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+
+    registry = IntegrationServiceRegistry()
+    registry.register(exact_binding)
+
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.replace(CLIENT_BACKEND_SERVICE_ID, subclass_binding)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is exact_binding
+
+
+def test_the_contributed_binding_declares_exact_runtime_contract_matching() -> None:
+    """The canonical contribution declares the exact rule and the marker that backs it."""
+
+    module, _service, _runtime = _module()
+    binding = module.contribute(CompositionConfiguration())[0]
+
+    assert binding.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE
+    assert binding.runtime_contract is ClientBackend
+    assert ClientBackend.__cmm_exact_runtime_contract__ is True
 
 
 def test_the_builder_constructs_nothing() -> None:

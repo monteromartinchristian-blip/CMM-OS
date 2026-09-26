@@ -161,6 +161,22 @@ class ContainerState(str, Enum):
     FAILED = "failed"
 
 
+class RuntimeContractMatch(str, Enum):
+    """How the authoritative registry matches an implementation to its contract.
+
+    ``INSTANCE_OF`` is the Phase 11.1 default and keeps the inherited
+    subtype-compatible rule ``isinstance(implementation, runtime_contract)``.
+
+    ``EXACT_TYPE`` is the reusable opt-in exact rule
+    ``type(implementation) is runtime_contract``: a subclass, an adapter or a
+    duck-typed look-alike can never claim an exact contract's composition
+    identity.
+    """
+
+    INSTANCE_OF = "instance_of"
+    EXACT_TYPE = "exact_type"
+
+
 @dataclass(frozen=True, slots=True)
 class ContractMetadata:
     """Immutable description of one public contract boundary.
@@ -301,11 +317,39 @@ class ServiceBinding:
 
     The binding holds a reference to the canonical object.  It never clones or
     owns that object's internal state.
+
+    ``runtime_contract_match`` selects the rule the authoritative registry
+    applies to this binding.  ``INSTANCE_OF`` is the Phase 11.1 default and
+    preserves the inherited subtype-compatible behavior; ``EXACT_TYPE`` requires
+    the exact concrete runtime type and accepts no subclass.
+
+    A runtime contract may declare the private marker
+    ``__cmm_exact_runtime_contract__ = True``.  That marker is a *minimum*
+    semantic, not a preference: the registry upgrades any declared mode to
+    ``EXACT_TYPE``, so a hand-built binding can neither omit this field nor set it
+    back to ``INSTANCE_OF`` to downgrade an exact contract.  An exact contract
+    that is not a real Python type fails closed rather than passing unchecked.
     """
 
     descriptor: ServiceDescriptor
     implementation: object
     runtime_contract: type[Any] | None = None
+    runtime_contract_match: RuntimeContractMatch = RuntimeContractMatch.INSTANCE_OF
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.runtime_contract_match, RuntimeContractMatch):
+            raise TypeError(
+                "runtime_contract_match must be a RuntimeContractMatch, "
+                f"not {type(self.runtime_contract_match).__name__}"
+            )
+
+        if self.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE and not (
+            isinstance(self.runtime_contract, type)
+        ):
+            raise ValueError(
+                "runtime_contract_match=EXACT_TYPE requires runtime_contract to be "
+                "a real Python type"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +390,7 @@ __all__ = [
     "ContractClassification",
     "ContractMetadata",
     "ErrorResult",
+    "RuntimeContractMatch",
     "ServiceBinding",
     "ServiceDependency",
     "ServiceDescriptor",

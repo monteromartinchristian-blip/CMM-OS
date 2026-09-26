@@ -16,7 +16,7 @@ from __future__ import annotations
 import heapq
 
 from cmm.platform.compatibility import check_contract_compatibility
-from cmm.platform.contracts import ServiceBinding
+from cmm.platform.contracts import RuntimeContractMatch, ServiceBinding
 from cmm.platform.errors import (
     CircularDependencyError,
     DuplicateAuthorityError,
@@ -29,17 +29,48 @@ from cmm.platform.errors import (
 
 RUNTIME_CONTRACT_MISMATCH = "RUNTIME_CONTRACT_MISMATCH"
 
+#: Private runtime-contract marker a canonical contract uses to require exact
+#: concrete identity.  It is metadata read off the contract itself, so the
+#: registry stays generic: no service ID, authority string or product-specific
+#: knowledge is special-cased here.
+EXACT_RUNTIME_CONTRACT_MARKER = "__cmm_exact_runtime_contract__"
+
+
+def _effective_runtime_contract_match(binding: ServiceBinding) -> RuntimeContractMatch:
+    """Return the runtime-contract rule the registry must actually enforce.
+
+    A contract that declares :data:`EXACT_RUNTIME_CONTRACT_MARKER` is a *minimum*
+    semantic: it upgrades whatever the binding declared to ``EXACT_TYPE``, so a
+    hand-built binding can neither omit the field nor declare ``INSTANCE_OF`` to
+    downgrade the canonical contract back to subtype-compatible matching.
+    """
+
+    if getattr(binding.runtime_contract, EXACT_RUNTIME_CONTRACT_MARKER, False) is True:
+        return RuntimeContractMatch.EXACT_TYPE
+    return binding.runtime_contract_match
+
 
 def _runtime_contract_satisfied(binding: ServiceBinding) -> tuple[bool, bool]:
     """Return ``(checkable, satisfied)`` for a binding's runtime contract.
 
-    A runtime contract is only enforced when ``isinstance`` is legally usable
-    against it.  Anything else (``None``, a non-type such as a string, a
-    subscripted generic, an exotic metaclass) is reported as not safely
-    checkable rather than guessed at.
+    ``INSTANCE_OF`` (the Phase 11.1 default) is only enforced when ``isinstance``
+    is legally usable against the contract.  Anything else (``None``, a non-type
+    such as a string, a subscripted generic, an exotic metaclass) is reported as
+    not safely checkable rather than guessed at.
+
+    ``EXACT_TYPE`` is always enforced and never falls back to ``isinstance``: the
+    implementation's exact type must *be* the declared runtime contract.  A
+    contract that is not a real type cannot be checked exactly at all, so it
+    fails closed as unsatisfied instead of silently passing.
     """
 
     contract = binding.runtime_contract
+
+    if _effective_runtime_contract_match(binding) is RuntimeContractMatch.EXACT_TYPE:
+        if not isinstance(contract, type):
+            return True, False
+        return True, type(binding.implementation) is contract
+
     if contract is None or not isinstance(contract, type):
         return False, True
 

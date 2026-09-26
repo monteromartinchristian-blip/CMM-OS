@@ -123,6 +123,14 @@ __all__ = ["ClientBackend"]
 class ClientBackend:
     """The one reusable, non-authoritative first-party client backend facade."""
 
+    #: Private validation metadata: the canonical ``client.backend`` composition
+    #: identity is the exact concrete facade type.  The Phase 11.1 registry reads
+    #: this marker off the runtime contract and treats exact matching as a
+    #: *minimum* semantic, so no hand-built ``ServiceBinding`` can downgrade it
+    #: back to ``isinstance``.  It is not a public API, grants no authority and
+    #: creates no import edge into ``cmm.platform``.
+    __cmm_exact_runtime_contract__ = True
+
     def __init__(
         self,
         *,

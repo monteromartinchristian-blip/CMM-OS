@@ -7,10 +7,14 @@ safe-diagnostics contract is asserted next to the operations that raise them.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from cmm.platform.contracts import (
     ContractMetadata,
+    RuntimeContractMatch,
     ServiceBinding,
     ServiceDependency,
     ServiceDescriptor,
@@ -200,6 +204,7 @@ def _binding(
     authority: str | None = None,
     mode: ServiceMode = ServiceMode.LOCAL,
     runtime_contract: type | None = None,
+    runtime_contract_match: RuntimeContractMatch = RuntimeContractMatch.INSTANCE_OF,
     contract: ContractMetadata | None = None,
     implementation_id: str = "test.implementation",
     dependency_contracts: tuple[ServiceDependency, ...] | None = None,
@@ -221,6 +226,7 @@ def _binding(
         ),
         implementation=implementation,
         runtime_contract=runtime_contract,
+        runtime_contract_match=runtime_contract_match,
     )
 
 
@@ -356,6 +362,307 @@ def test_both_local_and_adapter_modes_satisfy_the_same_contract() -> None:
         for binding in registry.list_bindings()
     }
     assert modes == {"a.service": ServiceMode.LOCAL, "b.service": ServiceMode.ADAPTER}
+
+
+# ── Exact runtime contract matching ──────────────────────────────────────────
+#
+# Remediation V2 for Phase 11.50 MAJOR_V2_01.  The exact-runtime-type primitive
+# is proven here with test-local classes only, so the platform mechanism is
+# verified independently of ``cmm.client_backend``.
+
+
+class ExactPort:
+    """Test-local runtime contract opted into exact concrete identity."""
+
+    __cmm_exact_runtime_contract__ = True
+
+
+class ExactSubclass(ExactPort):
+    """A subclass that must never satisfy the exact contract."""
+
+
+class PlainPort:
+    """Test-local runtime contract without the exact marker."""
+
+
+class PlainSubclass(PlainPort):
+    """An ordinary subtype-compatible implementation."""
+
+
+class _DeclaredExactNonType:
+    """A non-type object that nonetheless declares the exact marker."""
+
+    __cmm_exact_runtime_contract__ = True
+
+
+def test_exact_runtime_contract_accepts_the_exact_type() -> None:
+    registry = IntegrationServiceRegistry()
+    implementation = ExactPort()
+
+    registry.register(
+        _binding(
+            "exact.service",
+            implementation,
+            runtime_contract=ExactPort,
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        )
+    )
+
+    stored = registry.get("exact.service")
+    assert stored is not None
+    assert stored.implementation is implementation
+    assert type(stored.implementation) is ExactPort
+
+
+def test_exact_runtime_contract_rejects_a_subclass() -> None:
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(
+            _binding(
+                "exact.service",
+                ExactSubclass(),
+                runtime_contract=ExactPort,
+                runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+            )
+        )
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert exc.value.result.details["service_id"] == "exact.service"
+    assert registry.get("exact.service") is None
+
+
+def test_exact_contract_marker_rejects_an_explicit_instance_of_downgrade() -> None:
+    """The contract marker is a minimum semantic, not a caller preference."""
+
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(
+            _binding(
+                "exact.service",
+                ExactSubclass(),
+                runtime_contract=ExactPort,
+                runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+            )
+        )
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("exact.service") is None
+
+
+def test_exact_contract_marker_overrides_an_omitted_match_mode() -> None:
+    """The Phase 11.1 default ``INSTANCE_OF`` cannot relax an exact contract."""
+
+    registry = IntegrationServiceRegistry()
+    binding = _binding("exact.service", ExactSubclass(), runtime_contract=ExactPort)
+    assert binding.runtime_contract_match is RuntimeContractMatch.INSTANCE_OF
+
+    with pytest.raises(IncompatibleContractError):
+        registry.register(binding)
+
+    assert registry.get("exact.service") is None
+
+
+def test_exact_contract_marker_rejects_replacement_by_a_subclass() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding("exact.service", ExactPort(), runtime_contract=ExactPort)
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.replace(
+            "exact.service",
+            _binding("exact.service", ExactSubclass(), runtime_contract=ExactPort),
+        )
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    stored = registry.get("exact.service")
+    assert stored is not None
+    assert type(stored.implementation) is ExactPort
+
+
+def test_exact_match_mode_requires_a_real_runtime_contract_type() -> None:
+    """Exact matching cannot be 'not safely checkable': it fails closed."""
+
+    with pytest.raises(ValueError):
+        _binding(
+            "exact.service",
+            ExactPort(),
+            runtime_contract="not-a-type",  # type: ignore[arg-type]
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        )
+
+
+def test_a_binding_rejects_a_malformed_match_mode() -> None:
+    with pytest.raises(TypeError):
+        _binding(
+            "exact.service",
+            ExactPort(),
+            runtime_contract=ExactPort,
+            runtime_contract_match="instance_of",  # type: ignore[arg-type]
+        )
+
+
+def test_registry_fails_closed_for_an_uncheckable_exact_contract() -> None:
+    """Defense in depth: a forged binding cannot smuggle in exact-but-uncheckable."""
+
+    registry = IntegrationServiceRegistry()
+
+    forged_declared = _binding(
+        "forged.declared", ExactPort(), runtime_contract=ExactPort
+    )
+    object.__setattr__(forged_declared, "runtime_contract", _DeclaredExactNonType())
+    object.__setattr__(
+        forged_declared, "runtime_contract_match", RuntimeContractMatch.INSTANCE_OF
+    )
+
+    forged_explicit = _binding(
+        "forged.explicit", ExactPort(), runtime_contract=ExactPort
+    )
+    object.__setattr__(forged_explicit, "runtime_contract", "not-a-type")
+    object.__setattr__(
+        forged_explicit, "runtime_contract_match", RuntimeContractMatch.EXACT_TYPE
+    )
+
+    for binding in (forged_declared, forged_explicit):
+        with pytest.raises(IncompatibleContractError) as exc:
+            registry.register(binding)
+        assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+
+    assert registry.list_bindings() == ()
+
+
+def test_inherited_instance_of_semantics_are_preserved() -> None:
+    """``INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED``.
+
+    Phase 11.1 is closed.  A contract *without* the exact marker keeps accepting a
+    subtype implementation under the default rule, and exact matching applies only
+    when the contract or the binding explicitly asks for it.
+    """
+
+    registry = IntegrationServiceRegistry()
+    subtype = PlainSubclass()
+
+    registry.register(_binding("plain.service", subtype, runtime_contract=PlainPort))
+    registry.register(
+        _binding(
+            "optin.service",
+            PlainPort(),
+            runtime_contract=PlainPort,
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        )
+    )
+
+    stored = registry.get("plain.service")
+    assert stored is not None
+    assert stored.implementation is subtype
+    assert registry.get("optin.service") is not None
+
+
+def test_explicit_exact_match_rejects_a_subclass_of_a_plain_contract() -> None:
+    """Opt-in exact matching is generic and needs no contract marker."""
+
+    with pytest.raises(IncompatibleContractError):
+        IntegrationServiceRegistry().register(
+            _binding(
+                "optin.service",
+                PlainSubclass(),
+                runtime_contract=PlainPort,
+                runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+            )
+        )
+
+
+def test_a_plain_contract_keeps_accepting_an_unrelated_subtype_shape() -> None:
+    """No global exact-type change: adapters and subtypes stay compatible."""
+
+    registry = IntegrationServiceRegistry()
+    registry.register(
+        _binding(
+            "adapter.service",
+            CountingValidationService(),
+            runtime_contract=ValidationPort,
+            mode=ServiceMode.ADAPTER,
+        )
+    )
+
+    assert registry.get("adapter.service") is not None
+
+
+# ── Platform-core genericity gates ───────────────────────────────────────────
+
+PLATFORM_PACKAGE = Path(__file__).resolve().parents[2] / "cmm" / "platform"
+
+#: Product-specific literals that must never appear in the reusable platform core.
+FORBIDDEN_PLATFORM_SPECIAL_CASES = (
+    "client.backend",
+    "client-backend-public-facade",
+)
+
+#: A parallel exact-type/composition-policy authority is forbidden.
+FORBIDDEN_POLICY_REGISTRY_NAMES = (
+    "ExactTypeRegistry",
+    "RuntimeContractRegistry",
+    "CompositionPolicyRegistry",
+    "ExactServiceMap",
+    "CanonicalServiceTypeMap",
+)
+
+
+def _platform_python_files() -> list[Path]:
+    return sorted(PLATFORM_PACKAGE.rglob("*.py"))
+
+
+def test_platform_core_carries_no_client_backend_special_case() -> None:
+    """``CLIENT_BACKEND_SPECIAL_CASE_IN_PLATFORM=ABSENT``.
+
+    The exact-match primitive is contract-driven: the registry must never
+    recognize a service ID or an authority string.
+    """
+
+    offenders = [
+        f"{path.name}:{needle}"
+        for path in _platform_python_files()
+        for needle in FORBIDDEN_PLATFORM_SPECIAL_CASES
+        if needle in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == []
+
+
+def test_platform_core_does_not_import_the_client_backend() -> None:
+    """``PLATFORM_IMPORTS_CLIENT_BACKEND=NO``."""
+
+    offenders: list[str] = []
+    for path in _platform_python_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            for module in modules:
+                if module == "cmm.client_backend" or module.startswith(
+                    "cmm.client_backend."
+                ):
+                    offenders.append(f"{path.name} -> {module}")
+
+    assert offenders == []
+
+
+def test_platform_core_defines_no_parallel_policy_registry() -> None:
+    """``PARALLEL_POLICY_REGISTRY=NO``: ``ServiceBinding`` stays canonical."""
+
+    defined: set[str] = set()
+    for path in _platform_python_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        defined.update(
+            node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+        )
+
+    assert defined & set(FORBIDDEN_POLICY_REGISTRY_NAMES) == set()
 
 
 # ── Freeze ───────────────────────────────────────────────────────────────────

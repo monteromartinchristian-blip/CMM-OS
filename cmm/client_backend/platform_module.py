@@ -8,9 +8,13 @@ semantics, and ``cmm.platform`` never imports ``cmm.client_backend``.
 
 The module constructs nothing.  The facade is an already-built object supplied by
 the composition root, and the binding declares an enforceable runtime contract —
-the exact concrete :class:`~cmm.client_backend.interface.ClientBackend` type — so
-an unrelated object, and equally a *subclass* of the facade, can never claim the
-public client-backend identity, not even through a hand-built binding.
+the exact concrete :class:`~cmm.client_backend.interface.ClientBackend` type, with
+``RuntimeContractMatch.EXACT_TYPE`` — so an unrelated object, and equally a
+*subclass* of the facade, can never claim the public client-backend identity.
+The builder check below is only fail-fast convenience validation: the
+authoritative gate is ``IntegrationServiceRegistry.register()`` / ``replace()``,
+which enforces the exact match carried by the contract itself, so the same
+identity holds for a hand-built ``ServiceBinding``.
 
 ``client-backend-public-facade`` is the only authority claimed here, and it is
 deliberately a *facade* authority: the layer owns no session, conversation,
@@ -40,6 +44,7 @@ from cmm.client_backend.contracts import (
 from cmm.client_backend.interface import ClientBackend
 from cmm.platform.contracts import (
     ContractMetadata,
+    RuntimeContractMatch,
     ServiceBinding,
     ServiceDependency,
     ServiceDescriptor,
@@ -156,6 +161,7 @@ def build_client_backend_composition_module(
         ),
         implementation=service,
         runtime_contract=ClientBackend,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
     )
 
     return StaticCompositionModule(CLIENT_BACKEND_MODULE_ID, (binding,))
