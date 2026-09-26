@@ -537,6 +537,109 @@ def test_replacement_cannot_swap_in_a_client_backend_subclass() -> None:
     assert registry.get(CLIENT_BACKEND_SERVICE_ID) is exact_binding
 
 
+# ── Forged runtime-contract expectation bypass (Remediation V3 RED) ──────────
+#
+# Independent Re-audit V3 (MAJOR_V3_01) reproduced that the V2 exact-marker
+# defense could be bypassed *without touching the descriptor or the service ID*.
+# A hand-built ``ServiceBinding`` that kept the canonical ``client.backend``
+# descriptor but replaced the caller-authored ``runtime_contract`` field with
+# ``None``, ``object`` or the facade subclass itself registered successfully,
+# because the registry derived the effective exactness rule from that very
+# field — the premise being validated was caller-controlled.
+#
+# These two probes record the bypass on the Remediation V3 starting HEAD:
+#
+# ```text
+# CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=ACCEPTED
+# CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=ACCEPTED
+# CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=ACCEPTED
+#
+# CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=ACCEPTED
+# CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=ACCEPTED
+# CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=ACCEPTED
+# ```
+#
+# Remediation V3 moves the authoritative runtime identity onto the existing
+# Phase 11.1 ``ServiceExpectation`` configuration path, and the same matrix is
+# then required to be REJECTED.
+
+
+class _ForgedFacadeSubclass(ClientBackend):
+    """The adversarial facade subclass of the V3 forged matrix."""
+
+
+def _forged_facade(service: ClientBackend) -> ClientBackend:
+    """Return the adversarial subclass carrying the official facade's state."""
+
+    forged = _ForgedFacadeSubclass.__new__(_ForgedFacadeSubclass)
+    forged.__dict__.update(service.__dict__)
+    assert isinstance(forged, ClientBackend)
+    assert type(forged) is not ClientBackend
+    return forged
+
+
+def _forged_runtime_contracts() -> tuple[tuple[str, type | None], ...]:
+    """The three substituted ``runtime_contract`` declarations of the matrix."""
+
+    return (
+        ("NONE", None),
+        ("OBJECT", object),
+        ("SUBCLASS", _ForgedFacadeSubclass),
+    )
+
+
+def test_reproduce_forged_runtime_contract_registration_bypass() -> None:
+    """RED — the pre-V3 registry accepts every forged registration variant."""
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    forged = _forged_facade(composed.client)
+
+    accepted: list[str] = []
+    for label, runtime_contract in _forged_runtime_contracts():
+        registry = IntegrationServiceRegistry()
+        binding = ServiceBinding(
+            descriptor=official.descriptor,
+            implementation=forged,
+            runtime_contract=runtime_contract,  # type: ignore[arg-type]
+        )
+        registry.register(binding)
+        assert registry.get(CLIENT_BACKEND_SERVICE_ID) is binding
+        accepted.append(label)
+
+    assert accepted == ["NONE", "OBJECT", "SUBCLASS"]
+
+
+def test_reproduce_forged_runtime_contract_replacement_bypass() -> None:
+    """RED — the pre-V3 registry accepts every forged replacement variant."""
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    forged = _forged_facade(composed.client)
+
+    accepted: list[str] = []
+    for label, runtime_contract in _forged_runtime_contracts():
+        registry = IntegrationServiceRegistry()
+        exact = ServiceBinding(
+            descriptor=official.descriptor,
+            implementation=composed.client,
+            runtime_contract=ClientBackend,
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        )
+        registry.register(exact)
+
+        forged_binding = ServiceBinding(
+            descriptor=official.descriptor,
+            implementation=forged,
+            runtime_contract=runtime_contract,  # type: ignore[arg-type]
+        )
+        registry.replace(CLIENT_BACKEND_SERVICE_ID, forged_binding)
+        assert registry.get(CLIENT_BACKEND_SERVICE_ID) is forged_binding
+        accepted.append(label)
+
+    assert accepted == ["NONE", "OBJECT", "SUBCLASS"]
+
+
 def test_the_contributed_binding_declares_exact_runtime_contract_matching() -> None:
     """The canonical contribution declares the exact rule and the marker that backs it."""
 
