@@ -202,7 +202,7 @@ def lane_egress_class(provider_id: str) -> str:
 
 
 def discover_chat_only_router_models(
-    *, client: object | None = None
+    *, client: object | None = None, base_url: str | None = None
 ) -> tuple[str, ...]:
     """Discover the router's model identities over the canonical contract.
 
@@ -212,7 +212,7 @@ def discover_chat_only_router_models(
     and base URL.  An empty or malformed advertisement fails closed.
     """
 
-    spec = chat_only_router_provider_spec()
+    spec = chat_only_router_provider_spec(base_url=base_url)
     transport = client or OpenAICompatibleClient(
         api_key=spec.resolve_api_key(), base_url=spec.resolve_base_url()
     )
@@ -442,7 +442,9 @@ def build_local_model_execution(
     if not router_disabled():
         resolved_ids = model_ids if model_ids is not None else configured_model_ids()
         if resolved_ids is None:
-            resolved_ids = discover_chat_only_router_models(client=client)
+            resolved_ids = discover_chat_only_router_models(
+                client=client, base_url=base_url
+            )
         provider_spec, models = register_chat_only_router(
             provider_registry=provider_registry,
             model_catalog=model_catalog,

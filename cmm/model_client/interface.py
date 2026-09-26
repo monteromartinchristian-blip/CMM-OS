@@ -138,9 +138,14 @@ class ModelClient:
         *,
         executor: Any | None = None,
         os_path: str | None = None,
+        router_base_url: str | None = None,
     ) -> None:
         self._executor = executor
         self._os_path = os_path or _default_os_path()
+        #: Loopback override for the CHAT_ONLY router lane, for tests and local
+        #: E2E only.  ``None`` keeps the canonical pinned endpoint; the loopback
+        #: rule still applies to any override.
+        self._router_base_url = router_base_url
         self._lock = threading.Lock()
         self._facade: Any | None = None
 
@@ -233,7 +238,8 @@ class ModelClient:
                     seam = self._seam()
                     try:
                         built = seam.build_local_model_execution(
-                            provider_registry=seam.provider_registry_class()
+                            provider_registry=seam.provider_registry_class(),
+                            base_url=self._router_base_url,
                         )
                     except Exception as error:
                         raise normalize(error) from error
@@ -314,6 +320,7 @@ class ModelClient:
             supports_vision=bool(model.capabilities.get("vision")),
             reasoning_efforts=efforts,
             document_media_types=documents,
+            capabilities=dict(model.capabilities or {}),
         )
 
     def _descriptor_for(self, model_id: str) -> ClientModelDescriptor | None:
