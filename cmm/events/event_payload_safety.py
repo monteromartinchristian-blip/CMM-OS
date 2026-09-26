@@ -38,12 +38,18 @@ __all__ = [
     "ALLOWED_PAYLOAD_KEYS",
     "FORBIDDEN_PAYLOAD_KEYS",
     "FORBIDDEN_PAYLOAD_KEY_TOKENS",
+    "MAX_PLATFORM_IDENTIFIER_LENGTH",
+    "PLATFORM_CONTAINER_HEADER_FIELDS",
+    "PLATFORM_IDENTIFIER_HEADER_FIELDS",
     "PlatformEventPayloadError",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
     "is_forbidden_source_content_key",
+    "scan_for_forbidden_event_facts",
     "scan_for_forbidden_platform_content",
     "thaw_platform_payload",
+    "validate_platform_event_facts",
+    "validate_platform_identifier",
     "validate_platform_payload",
 ]
 
@@ -66,6 +72,7 @@ ALLOWED_PAYLOAD_KEYS: frozenset[str] = frozenset(
         "task_id",
         "validation_id",
         "event_id",
+        "execution_id",
         "correlation_id",
         "causation_id",
         "aggregate_id",
@@ -177,6 +184,41 @@ _FORBIDDEN_PAYLOAD_KEYS_SQUASHED = frozenset(
 
 #: Category label used for every platform safety rejection.
 ERROR_CATEGORY = "PLATFORM_EVENT_PAYLOAD_UNSAFE"
+
+#: The persisted canonical header facts that are producer-controlled free-form
+#: identifier strings.  Each one is validated by
+#: :func:`validate_platform_identifier` before persistence, because a caller could
+#: otherwise move forbidden content out of ``payload.data`` and into a header
+#: channel that reaches the same durable canonical event.
+PLATFORM_IDENTIFIER_HEADER_FIELDS: tuple[str, ...] = (
+    "event_id",
+    "source",
+    "producer",
+    "aggregate_id",
+    "agent_id",
+    "agent_run_id",
+    "goal_id",
+    "workflow_id",
+    "task_id",
+    "iteration_id",
+    "correlation_id",
+    "causation_id",
+    "actor_id",
+)
+
+#: The persisted canonical header facts that are free-form containers rather than
+#: identifiers.  They are scanned recursively for forbidden keys, credentials and
+#: private markers by :func:`scan_for_forbidden_event_facts`.
+PLATFORM_CONTAINER_HEADER_FIELDS: tuple[str, ...] = ("metadata", "permissions")
+
+#: A persisted identifier is a single bounded token drawn from an explicit safe
+#: character set.  Assignments, whitespace, quotes and free prose — the shapes a
+#: leaked prompt or credential would arrive in — are refused outright, on top of
+#: the credential/private-marker scan.
+_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
+
+#: Upper bound for one persisted identifier fact.
+MAX_PLATFORM_IDENTIFIER_LENGTH = 256
 
 
 class PlatformEventPayloadError(ValueError):
@@ -313,13 +355,74 @@ def scan_for_forbidden_platform_content(value: object, *, key: str) -> None:
     content that it would otherwise silently drop.
     """
 
+    _scan_forbidden_content(
+        value,
+        key=key,
+        structural_envelope_names=STRUCTURAL_SOURCE_ENVELOPE_KEYS,
+        scan_key_content=False,
+    )
+
+
+def scan_for_forbidden_event_facts(value: object, *, key: str) -> None:
+    """Fail closed on forbidden/private/credential content in persisted header facts.
+
+    This is the same one content policy as
+    :func:`scan_for_forbidden_platform_content`, applied to a persisted canonical
+    header container (``metadata``, ``permissions``).  Two deliberate differences
+    make it the strictest form of the policy, because these facts are persisted
+    verbatim rather than merely observed on a source event:
+
+    * there is no structural envelope name to exempt; and
+    * a key is itself content, so it is judged by the canonical credential and
+      private-marker rule exactly as the Phase 10.33 Domain authority judges every
+      payload/metadata key.
+    """
+
+    _scan_forbidden_content(
+        value,
+        key=key,
+        structural_envelope_names=frozenset(),
+        scan_key_content=True,
+    )
+
+
+def _scan_forbidden_content(
+    value: object,
+    *,
+    key: str,
+    structural_envelope_names: frozenset[str],
+    scan_key_content: bool,
+) -> None:
+    """Shared implementation of the one forbidden-content scan."""
+
     if isinstance(value, Mapping):
         for nested_key, nested_value in value.items():
             if not isinstance(nested_key, str):
                 raise PlatformEventPayloadError("payload keys must be strings", key=key)
-            if is_forbidden_source_content_key(nested_key):
+            if _normalize_key(nested_key) in structural_envelope_names:
+                # A structural container name is not itself content, but what it
+                # contains is still scanned.
+                pass
+            elif is_forbidden_platform_payload_key(nested_key):
                 raise PlatformEventPayloadError("forbidden payload key", key=nested_key)
-            scan_for_forbidden_platform_content(nested_value, key=nested_key)
+            if scan_key_content:
+                # A persisted key is itself content: a credential-shaped or
+                # private-marker key name must fail closed rather than being
+                # trusted merely because it is not one of the forbidden words.
+                if contains_high_confidence_credential(nested_key):
+                    raise PlatformEventPayloadError(
+                        "credential-like key", key=nested_key
+                    )
+                if _contains_private_marker(nested_key):
+                    raise PlatformEventPayloadError(
+                        "forbidden private marker", key=nested_key
+                    )
+            _scan_forbidden_content(
+                nested_value,
+                key=nested_key,
+                structural_envelope_names=structural_envelope_names,
+                scan_key_content=scan_key_content,
+            )
         return
 
     if isinstance(value, str):
@@ -331,13 +434,107 @@ def scan_for_forbidden_platform_content(value: object, *, key: str) -> None:
 
     if _is_sequence(value):
         for item in value:
-            scan_for_forbidden_platform_content(item, key=key)
+            _scan_forbidden_content(
+                item,
+                key=key,
+                structural_envelope_names=structural_envelope_names,
+                scan_key_content=scan_key_content,
+            )
         return
 
     # Other value types carry no scannable string content here.  A key that is
     # actually persisted is still fully type-checked by
     # :func:`validate_platform_payload`; this scan never loosens that gate.
     return
+
+
+def validate_platform_identifier(value: object, *, field: str) -> str:
+    """Validate one persisted platform identifier fact, failing closed.
+
+    An identifier is a bounded, single-token value drawn from an explicit safe
+    character set, and it additionally has to survive the canonical
+    credential/private-marker scan.  Legitimate references such as
+    ``workflow:123``, ``domain.execution.completed`` or ``CORR-ORIGINAL`` pass;
+    assignments, prose and credential-shaped values do not.
+    """
+
+    if not isinstance(value, str) or not value:
+        raise PlatformEventPayloadError(
+            "identifier fact must be a non-empty string", key=field
+        )
+    if len(value) > MAX_PLATFORM_IDENTIFIER_LENGTH:
+        raise PlatformEventPayloadError(
+            "identifier fact is unbounded in length", key=field
+        )
+    if contains_high_confidence_credential(value):
+        raise PlatformEventPayloadError("credential-like value", key=field)
+    if _contains_private_marker(value):
+        raise PlatformEventPayloadError("forbidden private marker", key=field)
+    if not _SAFE_IDENTIFIER_PATTERN.match(value):
+        raise PlatformEventPayloadError(
+            "identifier fact is not a safe single-token identifier", key=field
+        )
+    return value
+
+
+def _header_identifier_facts(header: Any) -> tuple[tuple[str, object], ...]:
+    """Return every persisted identifier header fact as ``(field, value)``.
+
+    The fields are read explicitly rather than resolved by name, so the gate can
+    never become dispatch driven by event data, and so adding a new persisted
+    identifier field is a visible, deliberate edit here and in
+    :data:`PLATFORM_IDENTIFIER_HEADER_FIELDS`.
+    """
+
+    return (
+        ("event_id", header.event_id),
+        ("source", header.source),
+        ("producer", header.producer),
+        ("aggregate_id", header.aggregate_id),
+        ("agent_id", header.agent_id),
+        ("agent_run_id", header.agent_run_id),
+        ("goal_id", header.goal_id),
+        ("workflow_id", header.workflow_id),
+        ("task_id", header.task_id),
+        ("iteration_id", header.iteration_id),
+        ("correlation_id", header.correlation_id),
+        ("causation_id", header.causation_id),
+        ("actor_id", header.actor_id),
+    )
+
+
+def validate_platform_event_facts(event: Any) -> None:
+    """Apply the one canonical Phase 11.22 safety gate to every persisted fact.
+
+    ``payload.data`` and every persisted free-form header channel are judged by
+    the same policy, so forbidden material can no longer be moved out of the
+    payload and into ``metadata``, ``permissions``, ``producer``, ``aggregate_id``
+    or ``source`` to bypass the boundary.
+    """
+
+    header = getattr(event, "header", None)
+    if header is None:
+        raise PlatformEventPayloadError("platform event has no canonical header")
+
+    for field, value in _header_identifier_facts(header):
+        if value is None:
+            continue
+        validate_platform_identifier(value, field=field)
+
+    metadata = getattr(header, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        raise PlatformEventPayloadError(
+            "event metadata must be a mapping", key="metadata"
+        )
+    scan_for_forbidden_event_facts(metadata, key="metadata")
+
+    permissions = getattr(header, "permissions", None)
+    if permissions is None or not _is_sequence(permissions):
+        raise PlatformEventPayloadError(
+            "event permissions must be a sequence", key="permissions"
+        )
+    for index, entry in enumerate(permissions):
+        validate_platform_identifier(entry, field=f"permissions[{index}]")
 
 
 def _freeze(value: object) -> object:

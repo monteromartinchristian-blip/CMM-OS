@@ -50,6 +50,7 @@ from cmm.agent_runtime.runtime_event_dead_letter import (
 )
 from cmm.agent_runtime.runtime_event_errors import (
     AgentRuntimeEventBusClosedError,
+    AgentRuntimeEventUnsupportedSchemaError,
 )
 from cmm.agent_runtime.runtime_event_factory import (
     AgentRuntimeEventFactory,
@@ -60,6 +61,7 @@ from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
 from cmm.events.event_payload_safety import (
     PlatformEventPayloadError,
     freeze_platform_payload,
+    validate_platform_event_facts,
     validate_platform_payload,
 )
 
@@ -221,9 +223,11 @@ class EventSystem:
     ) -> AgentRuntimeEvent:
         """Create a validated, normalized canonical event without publishing it.
 
-        The event type is validated by the canonical registry and the payload is
-        restricted to the bounded platform vocabulary, so an unsafe payload can
-        never become an event in the first place.
+        The event type is validated by the canonical registry, the payload is
+        restricted to the bounded platform vocabulary, and every persisted
+        free-form header fact is judged by the same safety gate, so an unsafe fact
+        can never become an event in the first place — whichever persisted channel
+        the caller tries to hide it in.
         """
 
         safe_payload = dict(payload) if payload is not None else {}
@@ -262,6 +266,8 @@ class EventSystem:
         )
         if optional:
             raise TypeError(f"unexpected event fact(s): {', '.join(sorted(optional))}")
+        self._ensure_supported_schema(event.header.schema_version)
+        validate_platform_event_facts(event)
         return self._normalizer.normalize(event)
 
     def publish_event(self, event: AgentRuntimeEvent) -> PublicationResult:
@@ -471,7 +477,7 @@ class EventSystem:
 
         This is a helper inside the existing facade, not a second validator
         authority: it composes the canonical registry and the existing Phase 11.22
-        bounded payload policy that ``publish`` already uses.
+        safety policy that ``publish`` already uses.
 
         Order:
 
@@ -479,7 +485,10 @@ class EventSystem:
         2. no raw payload content on a platform event;
         3. the bounded platform payload vocabulary, including forbidden keys,
            credential/private content, opaque values and non-finite numbers;
-        4. canonical normalization, which preserves the event ID, correlation,
+        4. the same safety policy applied to **every** persisted free-form header
+           fact — metadata, permissions and each identifier field — so safety does
+           not depend on which persisted channel the caller chooses;
+        5. canonical normalization, which preserves the event ID, correlation,
            causation and every other canonical header fact the caller supplied.
         """
 
@@ -489,13 +498,29 @@ class EventSystem:
                 "platform events must not carry raw payload content"
             )
         validate_platform_payload(event.payload.data)
+        validate_platform_event_facts(event)
         return self._normalizer.normalize(event)
+
+    def _ensure_supported_schema(self, schema_version: str) -> None:
+        """Fail closed on a schema this build's canonical deserializer cannot read.
+
+        The supported-schema knowledge stays in the canonical factory, so the
+        publication boundary cannot drift from what durable storage can reopen.
+        """
+
+        if not self._factory.supports_schema_version(schema_version):
+            raise AgentRuntimeEventUnsupportedSchemaError(
+                f"unsupported event schema_version '{schema_version}': this build "
+                f"can only reopen '{self._factory.SUPPORTED_SCHEMA_VERSION}'"
+            )
 
     def _persist(self, event: AgentRuntimeEvent) -> bool:
         """Durably append *event*; return ``False`` for an idempotent duplicate.
 
         Raises before any delivery can start when persistence fails or the event
-        identity conflicts with different stored content.
+        identity conflicts with different stored content.  A new append also has
+        to be reopenable by this same build: a successful write must never make the
+        durable store unreadable after a restart.
         """
 
         from cmm.agent_runtime.runtime_event_factory import event_fingerprint
@@ -506,6 +531,7 @@ class EventSystem:
                 return False
             raise self._identity_conflict(event)
 
+        self._ensure_supported_schema(event.header.schema_version)
         self._repository.save(event)
         return True
 

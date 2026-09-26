@@ -158,6 +158,20 @@ class AgentRuntimeEventFactory:
     def __init__(self) -> None:
         self._generate_id = _generate_event_id
 
+    @classmethod
+    def supports_schema_version(cls, schema_version: object) -> bool:
+        """Return whether this build can deserialize *schema_version*.
+
+        This is the one canonical supported-schema knowledge.  Persistence and the
+        Phase 11.22 publication boundary ask here rather than duplicating a
+        version constant, so the two can never drift apart.
+        """
+
+        return (
+            isinstance(schema_version, str)
+            and schema_version == cls.SUPPORTED_SCHEMA_VERSION
+        )
+
     def create_event(
         self,
         event_type: str,
@@ -254,7 +268,7 @@ class AgentRuntimeEventFactory:
         schema_version = header_data.get("schema_version", "1.0.0")
         if not isinstance(schema_version, str):
             raise TypeError("serialized event schema_version must be a string")
-        if schema_version != self.SUPPORTED_SCHEMA_VERSION:
+        if not self.supports_schema_version(schema_version):
             raise ValueError(f"unsupported event schema_version '{schema_version}'")
 
         occurred_at = header_data.get("occurred_at")

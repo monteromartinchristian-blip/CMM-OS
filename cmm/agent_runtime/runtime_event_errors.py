@@ -34,6 +34,15 @@ class AgentRuntimeEventValidationError(AgentRuntimeEventError, ValueError):
     """Raised when event validation fails."""
 
 
+class AgentRuntimeEventUnsupportedSchemaError(AgentRuntimeEventSerializationError):
+    """Raised when an event schema cannot be read back by this build.
+
+    Phase 11.22 hardening: a durable append is refused when the current canonical
+    deserializer could not reopen the record it would write, so a successful save
+    can never poison the store for the same build after a restart.
+    """
+
+
 class AgentRuntimeEventBusClosedError(AgentRuntimeEventError, RuntimeError):
     """Raised when publishing to a closed event bus."""
 
