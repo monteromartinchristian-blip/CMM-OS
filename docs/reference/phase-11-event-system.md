@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -8,6 +8,7 @@
 **Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
 **Implementation agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-event-system-implementation-agent-prompt.md`
 **Remediation V1 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
+**Remediation V2 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -195,16 +196,26 @@ Unmapped by design: `orchestration.route_selected`, `orchestration.blocked`,
 | --- | --- | --- |
 | `validation.completed` | `validation.completed` | `validation_id`, `status`, `policy`, `duration_ms`, `workflow_id` |
 | `validation.failed` | `validation.completed` | same, carrying its own `failed` status |
-| `domain.execution.completed` | `operation.executed` | `domain_id`, `status`, `execution_id`, `duration_ms` |
-| `domain.resolution.completed` | `domain.selected` | `domain_id`, `status` |
-| `domain.approval.requested` | `approval.requested` | `domain_id`, `status`, `approval_id` |
-| `domain.approval.received` | `approval.resolved` | `domain_id`, `status`, `approval_id` |
-| `domain.memory.updated` | `memory.updated` | `domain_id`, `status` |
+| `domain.execution.completed` | `operation.executed` | `domain_id`, `status`\*, `execution_id`\*, `duration_ms` |
+| `domain.resolution.completed` | `domain.selected` | `domain_id`, `status`\* |
+| `domain.approval.requested` | `approval.requested` | `domain_id`, `status`, `approval_id`\* |
+| `domain.approval.received` | `approval.resolved` | `domain_id`, `status`, `approval_id`\*, `approved`\* |
+| `domain.memory.updated` | `memory.updated` | `domain_id`, `status`\* |
 | `workflow.started` | `workflow.started` | `workflow_id`, `run_id`, `status` |
 | `workflow.running` | `workflow.started` | `workflow_id`, `run_id`, `status` |
 | `workflow.paused` | `workflow.paused` | `workflow_id`, `run_id`, `status`, `node_id` |
 | `workflow.completed` | `workflow.completed` | `workflow_id`, `run_id`, `status` |
 | `workflow.failed` | `workflow.failed` | `workflow_id`, `run_id`, `status`, `error_code` |
+
+`*` A real `DomainEvent.to_dict()` stores its event-specific lifecycle facts inside
+its own structural top-level `payload` container rather than at the top level of
+its serialization. Each translation therefore declares an explicit
+`nested_fact_keys` subset naming exactly which facts may be read from that
+container. The container is never flattened generically: a nested key the
+translation does not name is unreadable to the bridge, only the named keys may
+cross, and each of them must already belong to the bounded platform payload
+vocabulary. A fact absent from the source stays absent — an approval request with
+no source status is projected with no `status`, and nothing is invented.
 
 Unmapped by design: every `validation.step.*`, `validation.started`,
 `validation.gate.*`, `domain.execution.started`, `domain.composition.*`,
@@ -219,7 +230,7 @@ Platform transport reuses `AgentRuntimeEvent`; no new envelope exists.
 | --- | --- | --- |
 | stable event ID | `header.event_id` | existing |
 | event type | `header.event_type` | existing |
-| schema version | `header.schema_version` | existing, deserialization now fails closed on an unsupported version |
+| schema version | `header.schema_version` | existing; the publication boundary and the durable repository both refuse a schema this build cannot deserialize (Remediation V2) |
 | occurrence time | `header.occurred_at` | existing |
 | emission time | `header.emitted_at` | existing |
 | safe producer identity | `header.producer` | **additive optional** |
@@ -228,6 +239,28 @@ Platform transport reuses `AgentRuntimeEvent`; no new envelope exists.
 | correlation ID | `header.correlation_id` | existing |
 | causation ID | `header.causation_id` | existing |
 | sensitivity | `header.sensitivity` | existing |
+| execution/operation reference | `payload.data["execution_id"]` | **bounded payload fact** (Remediation V2) |
+
+`schema_version` is persisted, so a durable append whose schema the current
+canonical factory could not reopen is refused before any byte is committed: a
+successful save by this build is always readable by this build after a restart.
+
+`execution_id` is decided once, deliberately: it is a **bounded platform payload
+fact**, not a second aggregate identity. The design's safe payload policy
+explicitly allows operation/execution references, and the source-to-platform
+translation table has always named it as a read fact. It is therefore in the
+bounded platform payload vocabulary, and no adapter path can emit a payload key
+the payload validator rejects. `header.aggregate_id` continues to carry the
+canonical subject identity (the domain, workflow, run or operation reference) and
+is unchanged by this decision.
+
+Sensitivity crosses the Kernel bridge explicitly. A source classification already
+present on a canonical source event is mapped through one explicit table
+(`personal`/`confidential`/`sensitive` → `CONFIDENTIAL`, `highly_sensitive`/
+`restricted` → `RESTRICTED`, `internal` → `INTERNAL`, `public` → `PUBLIC`), so a
+platform classification is never less restrictive than its source classification.
+A source classification with no explicit mapping fails closed rather than being
+guessed at or silently downgraded to the platform default.
 
 `source` keeps its Phase 9 meaning (the emitting runtime surface) and was **not**
 repurposed as a producer alias. Old constructors stay valid, and old serialized
@@ -236,7 +269,8 @@ persisted event**: every persisted header field (event ID, type, schema version,
 both timestamps, agent/run/goal/workflow/task/iteration identity, correlation,
 causation, actor, `source`, sensitivity, permissions, metadata, producer,
 aggregate identity) plus every persisted payload field (`payload.data` and
-`payload.raw`). Corrections in Remediation V1 are recorded in §24.
+`payload.raw`). Corrections in Remediation V1 are recorded in §24; Remediation V2
+in §25.
 
 ## 8. Durable persistence semantics
 
@@ -256,6 +290,9 @@ One record is:
 * append is flushed and `fsync`-ed before `save` reports success;
 * restrictive `0o600` permissions where the platform supports them;
 * parent-directory creation bounded to the explicitly configured path;
+* a durable append is refused **before any byte is committed** when the canonical
+  factory could not deserialize the record it would write, so a successful save by
+  this build is always readable by this build after a restart;
 * reading re-validates every record through the canonical factory and recomputes
   its fingerprint, so a tampered, truncated, malformed, unsupported-version or
   duplicated record raises `AgentRuntimeEventPersistenceCorruptionError`;
@@ -267,6 +304,35 @@ One record is:
 * corrupt evidence is never silently skipped, repaired or guessed;
 * tests use temporary directories only, and the suite redirects
   `CMM_OS_DATA_DIR` so no test can write to a real user data location.
+
+### 8.1 Effective immutability of published canonical facts
+
+A canonical event class is frozen at the top level, and its nested facts
+(`payload.data`, `header.metadata`, `header.permissions`) are ordinary containers.
+Phase 11.22 therefore treats published canonical facts as **effectively
+immutable** at every boundary that hands an event to another party:
+
+* `save()` stores a detached canonical snapshot, and `get()`/`list()`/`query()`
+  return detached canonical snapshots, so a caller can never reach the stored
+  representation;
+* the canonical bus hands **each subscriber** (normal delivery and replay) its own
+  detached snapshot, so one subscriber cannot change what a later subscriber
+  observes;
+* the dead-letter record holds a detached snapshot of the canonical facts;
+* the publication result therefore keeps the same facts it reported.
+
+The detached snapshot is canonically equal to the original: it serializes to the
+same canonical dictionary and therefore to the same content fingerprint, and it
+preserves the expected JSON-compatible container shapes (a mapping stays a
+mapping, a sequence stays a sequence). No second event contract is introduced; the
+helper lives on the one canonical contract module.
+
+Resulting invariants:
+
+```text
+LIVE_EVENT_FACTS_STABLE_AFTER_DELIVERY
+FILE_LIVE_AND_REOPENED_FACTS_MATCH
+```
 
 ## 9. Duplicate and conflict semantics
 
@@ -394,32 +460,44 @@ Invariants:
 ```text
 EVENTS_GRANT_NO_AUTHORITY
 REPLAY_GRANTS_NO_AUTHORITY
-HIDDEN_REASONING_NEVER_PERSISTED
-RAW_PROVIDER_PAYLOAD_NEVER_PERSISTED
-CREDENTIALS_NEVER_PERSISTED
-TOKENS_NEVER_PERSISTED
-UNKNOWN_EVENT_TYPES_FAIL_ACCORDING_TO_CANONICAL_REGISTRY
+UNKNOWN_PLATFORM_EVENT_TYPE_FAILS_CLOSED
+PROMPTS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+HIDDEN_REASONING_NEVER_ENTERS_ANY_PERSISTED_EVENT_FIELD
+CREDENTIALS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+RAW_PROVIDER_PAYLOADS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+OPAQUE_VALUES_NEVER_ENTER_PERSISTED_PAYLOAD
+SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED
 CORRUPT_PERSISTED_EVENTS_FAIL_CLOSED
 SAME_ID_DIFFERENT_CONTENT_FAILS_CLOSED
 REPLAY_TO_SIDE_EFFECT_SUBSCRIBERS_DEFAULT_DENIED
 DLQ_REPLAY_CANNOT_BYPASS_SUBSCRIBER_POLICY
 ```
 
-The boundary is **universal, never route-dependent**. `EventSystem.publish()`
-and the public `EventSystem.publish_event()` both enforce canonical registry
-membership, the bounded payload vocabulary and the raw-payload prohibition before
-anything is persisted, so a manually constructed `AgentRuntimeEvent` cannot reach
-persistence or a subscriber by choosing the lower-level entry point. The durable
-Phase 9 repository stays a generic persistence contract and is deliberately not
-turned into a Phase 11.22 platform-policy authority.
+The boundary is **universal, never route-dependent and never channel-dependent**.
+`EventSystem.create_event()`, `EventSystem.publish()` and the public
+`EventSystem.publish_event()` all enforce canonical registry membership, the
+bounded payload vocabulary, the raw-payload prohibition and the same safety policy
+for **every persisted free-form header fact** before anything is persisted, so
+forbidden material can neither choose a lower-level entry point nor be relocated
+from `payload.data` into `metadata`, `permissions`, `producer`, `aggregate_id`,
+`source` or another persisted identifier field. A persisted identifier is a
+bounded single-token value that additionally survives the credential/private-marker
+scan; a persisted `metadata`/`permissions` key is itself content and is judged by
+the same canonical key rule the Phase 10.33 Domain authority applies to its own
+payload and metadata keys. The durable Phase 9 repository stays a generic
+persistence contract and is deliberately not turned into a Phase 11.22
+platform-policy authority; it does, however, refuse to append a record this build
+could not reopen.
 
 The kernel adapter additionally fails closed on **forbidden, private or
 credential-bearing source content** even for source keys it does not model, while
 harmless irrelevant source facts are still ignored. The one documented exception
 is the structural source envelope name `payload`, which closed-phase contracts use
-as a container; the container's contents are still fully scanned. Explicit source
-`correlation_id` and `causation_id` are preserved unchanged, and the documented
-derivation order is used only when the source carries none.
+as a container; the container's contents are still fully scanned, and only facts an
+explicit translation names may ever be read from it. Explicit source
+`correlation_id` and `causation_id` are preserved unchanged, the documented
+derivation order is used only when the source carries none, and an explicit source
+sensitivity classification is preserved without downgrade.
 
 ## 16. Composition bindings
 
@@ -508,25 +586,52 @@ scenarios independent Audit V1 reproduced, still against real components only:
 34. explicit Domain `correlation_id` survives the kernel adapter unchanged;
 35. explicit Domain `causation_id` survives the kernel adapter unchanged.
 
+Remediation V2 strengthened the same connected acceptance with the scenarios
+Independent Re-audit V2 reproduced, still against real components only:
+
+36. unsafe `metadata` (key and value) is rejected before persistence;
+37. unsafe `permissions` entries are rejected before persistence;
+38. an unsafe `producer` is rejected before persistence;
+39. an unsafe `source` is rejected before persistence;
+40. an unsafe `aggregate_id` is rejected before persistence;
+41. a legitimate identifier/metadata combination still persists;
+42. an unsupported schema is rejected before durable append;
+43. a supported schema survives close and reopen with equal canonical facts;
+44. subscriber A cannot change what subscriber B sees;
+45. a subscriber cannot mutate repository evidence;
+46. file-backed live and reopened event facts stay equal after a mutation attempt;
+47. real `domain.execution.completed` preserves its mapped execution identity and
+    status;
+48. restrictive Domain sensitivity is not downgraded to the platform default;
+49. real Domain approval events preserve their mapped identity and bounded
+    resolution facts, and invent no status the source never carried;
+50. real `domain.memory.updated` preserves its mapped status;
+51. nested forbidden Domain content still fails closed.
+
 `AT-DP-122=PASS_REPORTED`
 
 ## 19. Test evidence
 
-Post-remediation (Remediation V1) measurements; the original V1 figures are
-preserved in §19.2 and in the immutable Audit V1 report.
+Post-remediation (Remediation V2) measurements; the Remediation V1 figures are
+preserved in §19.3, the original V1 figures in §19.2 and in the immutable Audit V1
+report.
 
 | Gate | Result |
 | --- | --- |
-| Phase 11.22 focused tests (`tests/events/`) | `625 passed` |
-| Remediation V1 adversarial regressions | `86 passed` |
-| `AT-DP-122` connected acceptance | `45 passed` (see §18) |
-| Focused event baseline | `972 passed` |
+| Phase 11.22 focused tests (`tests/events/`) | `893 passed` |
+| Remediation V2 adversarial regressions | `126 passed` |
+| Remediation V1 adversarial regressions (preserved) | `86 passed` |
+| `AT-DP-122` connected acceptance | `64 passed` (see §18) |
+| Runtime factory/repository/bus/replay sequence | `277 passed` |
+| Phase 10.33 Domain Events (`DP-033` + Domain Event modules) | `930 passed` |
+| Orchestration/validation kernel event modules | `33 passed` |
+| Security and architecture gates | `294 passed` |
 | Event inventory (`tests/**/*event*.py`) | `1270 passed` |
 | Closed-phase connected regressions | see §19.1 |
 | Phase 9 runtime regressions (`tests/agent_runtime`) | `3635 passed` |
-| Global pytest | `22694 passed, 1 warning, 0 failed` |
+| Global pytest | `22962 passed, 1 warning, 0 failed` |
 | Changed/new file Ruff | `PASS` (0 violations) |
-| Global Ruff count (`ruff check cmm kernel tests`) | `810` (frozen pre-existing baseline `811`, V1 HEAD `810`, no new debt) |
+| Global Ruff count (`ruff check cmm kernel tests`) | `810` (frozen pre-existing baseline `811`, V2 HEAD `810`, no new debt) |
 | Format check (`ruff format --check`, changed-file delta) | `PASS` |
 | `compileall -q cmm kernel` | `PASS` |
 | `git diff --check` | `PASS` |
@@ -549,7 +654,9 @@ Workflow subsystem                               PASS
 ```
 
 The closed-phase acceptances (`AT-DP-102`, `AT-DP-103`, `AT-DP-105`, Phase 11.21,
-Phase 11.34, `AT-DP-150`) ran as one gate: `228 passed`.
+Phase 11.34, `AT-DP-150`) ran as one gate: `218 passed`. Phase 11.1 `DP-101`, the
+validation kernel event module and the orchestration event module ran as a
+supporting gate: `112 passed`.
 
 One inherited platform architecture gate was extended, not weakened:
 `tests/platform/test_architecture.py` sanctions `cmm.events` as the fifth bounded
@@ -570,13 +677,28 @@ global pytest                   22558 passed, 1 warning
 global Ruff                          810 (frozen baseline 811)
 ```
 
+### 19.3 Remediation V1 measurements (historical)
+
+```text
+tests/events/                       625 passed
+AT-DP-122                            45 passed
+Remediation V1 regressions           86 passed
+focused event baseline              972 passed
+event inventory                    1270 passed
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+closed-phase acceptances            228 passed
+global pytest                   22694 passed, 1 warning, 0 failed
+global Ruff                          810
+```
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
-`22558 passed, 1 warning`. Post-remediation V1: `22694 passed, 1 warning, 0 failed`
-(+136 remediation tests over V1, +625 over the frozen baseline). The single
-retained warning is the pre-existing unrelated `starlette` `anyio`
-`DeprecationWarning`.
+`22558 passed, 1 warning`. Post-remediation V1: `22694 passed, 1 warning, 0 failed`.
+Post-remediation V2: `22962 passed, 1 warning, 0 failed` (+268 over the V1
+remediation figure, +893 over the frozen baseline). The single retained warning is
+the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -630,10 +752,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V2** bundle
-(`phase-11.22-event-system-audit-v2.tar.gz`, produced with `git archive` from the
-final remediation HEAD). This document states only
-`REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V3** bundle
+(`phase-11.22-event-system-audit-v3.tar.gz`, produced with `git archive` from the
+final Remediation V2 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 Phase 11.23 has not begun.
 
@@ -678,3 +800,67 @@ The immutable Audit V1 report and the immutable V1 bundle
 byte-identical. The exact remediation HEAD, tree and V2 bundle SHA-256 are
 reported in the remediation handoff rather than embedded here, for the same
 self-reference reason as the V1 evidence record.
+
+## 25. Remediation V2 record
+
+Independent Re-audit V2
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v2.md`, immutable)
+verified every Audit V1 finding as remediated and returned four new majors against
+the audited V2 implementation HEAD `e67ab1ccea691fd8e76a0dfb8e4721c03b13b51d`:
+
+```text
+INDEPENDENT_REAUDIT_V2=FAIL
+AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED
+BLOCKERS=0
+MAJORS=4
+MINORS=0
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V2_ONLY
+```
+
+Remediation V2 fixed exactly those four findings under strict TDD — a reproducing
+adversarial regression first, verified red, then the minimum fix, verified green,
+then the nearest regressions:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V2-001` | the V1 boundary governed `payload.data` while persisted free-form **header** channels (`metadata`, `permissions`, `producer`, `aggregate_id`, `source`, and the other persisted identifier facts) stayed ungoverned, so forbidden material could be relocated out of the payload and still reach the same durable canonical event | one canonical Phase 11.22 event-safety step now covers every persisted free-form event fact: `metadata` is scanned recursively (keys and values), each `permissions` entry is validated, and every persisted identifier is checked by a narrow safe-identifier rule plus the canonical credential/private-marker scan. The same step runs at `create_event()`, `publish()` and `publish_event()`. No second policy authority was created: the existing forbidden-key, credential and private-marker vocabulary is reused, and the persisted-container key rule now matches the Phase 10.33 key rule |
+| `MAJOR-V2-002` | an arbitrary `schema_version` was accepted by the public facade and durably appended, so a successful write produced a store the same build could not reopen | the supported-schema knowledge stays in the one canonical factory (`supports_schema_version`); `create_event()`/`publish()` refuse an unsupported schema; `_persist()` refuses one before `save()`; and the durable repository refuses any record this build could not deserialize, **before any byte is committed**. The identity-conflict check keeps its documented precedence, so the Audit V1 same-ID/different-content semantics are unchanged |
+| `MAJOR-V2-003` | the canonical event classes were frozen only at the top level, so a subscriber could mutate `payload.data`, `metadata` and `permissions` for later subscribers, for live repository evidence and for the file-backed live/open split | canonical published facts are now effectively immutable across the whole path: the repository stores a detached canonical snapshot and returns detached snapshots from `get()`/`list()`/`query()`; the bus hands **each** subscriber (normal and replay) its own detached snapshot; the dead-letter record holds a detached snapshot. `detached_event_copy()` lives on the one canonical contract module, preserves JSON-compatible container shapes and is canonically equal to the original, so fingerprints and serialization compatibility are unchanged |
+| `MAJOR-V2-004` | the Kernel bridge safety-scanned the real `DomainEvent.to_dict()` structural `payload` container and then discarded it, so the mapped lifecycle facts its own translation table claims were lost; the top-level `execution_id` fact was readable but rejected by the bounded payload vocabulary; and an explicit restrictive source sensitivity became the platform default | `SourceTranslation` gains an explicit `nested_fact_keys` subset: only those named facts may be read from the real Domain structure, each of which must already belong to the bounded platform payload vocabulary, so arbitrary nested content is never flattened. `approved` is projected as an already-bounded resolution fact, `execution_id` is decided once as a bounded payload fact (see §7), and source sensitivity maps through one explicit non-downgrading table (`personal`/`confidential`/`sensitive` → `CONFIDENTIAL`, `highly_sensitive`/`restricted` → `RESTRICTED`) that fails closed on an unrecognised classification. Nested forbidden content still fails closed, and explicit correlation/causation preservation from V1 is unchanged |
+
+The accepted one-authority architecture was preserved: no second event bus,
+registry, repository protocol, replay engine, DLQ subsystem, application container,
+service locator, broker abstraction, command bus or generic event-sourcing
+framework was added, and Phase 9 was not redesigned. All nine Audit V1 fixes
+remain green, and no V1 fix was reverted or weakened.
+
+Bounded contract clarifications recorded by Remediation V2:
+
+* `execution_id` is a **bounded platform payload fact** and is now in the bounded
+  payload vocabulary; it is not a second aggregate identity, and no adapter path
+  emits a payload key the validator rejects;
+* the source-sensitivity mapping is explicit, ordered and non-downgrading, and an
+  unmapped source classification fails closed rather than defaulting to
+  `INTERNAL`;
+* `approved` is a projected `domain.approval.received` fact because it is already
+  inside the bounded platform payload vocabulary; `decision_by`, `action` and
+  `update_id` remain outside it and are deliberately not projected;
+* persisted `metadata`/`permissions` keys are themselves content and are judged by
+  the same canonical key rule the Phase 10.33 Domain authority applies to its own
+  payload and metadata keys.
+
+Two tests inherited from earlier phases encoded the pre-V2 shared-object-identity
+behaviour and were updated to assert the stronger canonical-equality invariant
+instead of weakening it: `tests/events/test_phase11_22_replay.py` now proves a
+replayed delivery is canonically equal to stored evidence and that replay leaves
+the stored fingerprint unchanged; `tests/events/test_phase11_22_event_catalog.py`
+now validates mapping fact keys against the bounded platform payload vocabulary
+itself rather than a hand-maintained duplicate list.
+
+The immutable Audit V1 report, the immutable Re-audit V2 report, and the immutable
+V1 and V2 bundles are preserved byte-identical. The exact Remediation V2 HEAD, tree
+and V3 bundle SHA-256 are reported in the remediation handoff rather than embedded
+here, for the same self-reference reason as the earlier evidence records.

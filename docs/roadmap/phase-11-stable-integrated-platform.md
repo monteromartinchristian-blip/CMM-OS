@@ -2882,14 +2882,16 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
+**Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
 **Design specification:** `docs/superpowers/specs/2026-09-26-phase-11.22-event-system-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
+**Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2915,6 +2917,9 @@ DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-122=PASS_REPORTED
 INDEPENDENT_AUDIT_V1=FAIL
 REMEDIATION_V1=REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V2=FAIL
+AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED
+REMEDIATION_V2=REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -2992,8 +2997,47 @@ The immutable Audit V1 report
 (`docs/audits/phase-11.22-event-system-independent-audit-v1.md`) and the immutable
 V1 bundle (`phase-11.22-event-system-audit-v1.tar.gz`, SHA-256
 `a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3`) are preserved
-unchanged. The phase remains open, not independently verified and not complete
-until the fresh independent re-audit of the V2 bundle passes.
+unchanged.
+
+## Independent Re-audit V2 and Remediation V2 record
+
+Independent Re-audit V2 (`docs/audits/phase-11.22-event-system-independent-reaudit-v2.md`,
+immutable) verified all nine Audit V1 findings as remediated
+(`AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`) and raised exactly four new majors
+against the audited V2 implementation HEAD
+`e67ab1ccea691fd8e76a0dfb8e4721c03b13b51d`:
+
+```text
+INDEPENDENT_REAUDIT_V2=FAIL
+BLOCKERS=0
+MAJORS=4
+MINORS=0
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V2_ONLY
+```
+
+Remediation V2 fixed exactly those four findings under strict TDD (a reproducing
+adversarial regression first, then the minimum fix, then the nearest regressions):
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V2-001` | persisted free-form header channels (`metadata`, `permissions`, `producer`, `aggregate_id`, `source` and the other persisted identifiers) bypassed the safety policy, so forbidden material could be moved out of `payload.data` into a persisted header fact | one canonical safety step now covers every persisted free-form event fact — recursively scanned `metadata`, per-entry `permissions`, and every persisted identifier validated by a narrow safe-identifier rule plus the canonical credential/private-marker scan; the same policy is applied at `create_event()`, `publish()` and `publish_event()` |
+| `MAJOR-V2-002` | an unsupported `schema_version` could be published and durably appended, leaving a store the same build could not reopen | the publication boundary and the durable repository both refuse a schema (and a record) the canonical factory cannot deserialize, reusing the factory's one supported-schema knowledge, before any byte is committed |
+| `MAJOR-V2-003` | the event classes were frozen only at the top level, so a subscriber could mutate `payload.data`, `metadata` and `permissions` for later subscribers and for live repository evidence | canonical facts are effectively immutable at every boundary: the repository stores and returns detached canonical snapshots, the bus hands each subscriber its own detached snapshot, and the dead-letter record holds a detached snapshot; fingerprints and JSON-compatible container shapes are unchanged |
+| `MAJOR-V2-004` | the Kernel bridge scanned but discarded the real `DomainEvent` structural `payload`, losing mapped lifecycle facts, and downgraded a restrictive source sensitivity to the platform default | the translation table declares an explicit `nested_fact_keys` subset read from the real Domain structure (only named, vocabulary-bounded facts may cross), `approved` is projected as an already-bounded resolution fact, `execution_id` is decided once as a bounded payload fact, and an explicit source sensitivity maps through an explicit non-downgrading table that fails closed on an unmapped classification |
+
+The accepted one-authority architecture was preserved, all nine Audit V1 fixes
+remain green, and no second bus, registry, repository protocol, replay engine, DLQ,
+container, broker abstraction, command bus or service locator was added. The
+immutable Audit V1 report, the immutable Re-audit V2 report, and the immutable V1
+and V2 bundles are preserved byte-identical.
+
+The phase remains open, not independently verified and not complete until the fresh
+independent re-audit of the exact-HEAD **V3** bundle passes. Only that re-audit may
+write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
+`CLOSURE_ELIGIBLE=YES`.
 
 ## Event
 
