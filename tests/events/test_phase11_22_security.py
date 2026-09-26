@@ -397,3 +397,137 @@ def test_frozen_payload_is_recursively_immutable() -> None:
         frozen["status"] = "changed"  # type: ignore[index]
     with pytest.raises(TypeError):
         frozen["supporting_domains"][0] = "changed"  # type: ignore[index]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V1 — the boundary is universal, not route-dependent
+#
+# The independent audit V1 proved that ``EventSystem.publish()`` was safe while
+# the public ``publish_event()`` route could persist forbidden content.  These
+# tests make the universal claims permanent for **every** public publication
+# route, so safety can never again depend on the caller choosing a safe method.
+# ══════════════════════════════════════════════════════════════════════════
+
+UNSAFE_ROUTE_CASES = (
+    ("unknown_event_type", "unknown.event.type", {"request_id": "req-1"}),
+    ("prompt", "goal.created", {"prompt": "TOP SECRET"}),
+    ("system_prompt", "goal.created", {"system_prompt": "you are"}),
+    ("developer_prompt", "goal.created", {"developer_prompt": "you must"}),
+    ("chain_of_thought", "goal.created", {"chain_of_thought": "step 1"}),
+    ("hidden_reasoning", "goal.created", {"hidden_reasoning": "because"}),
+    ("provider_request", "goal.created", {"provider_request": {"model": "x"}}),
+    ("provider_response", "goal.created", {"provider_response": "text"}),
+    ("api_key", "goal.created", {"api_key": "abcdef1234567890"}),
+    ("password", "goal.created", {"password": "hunter2"}),
+    ("credential_value", "goal.created", {"goal_id": "Bearer abcdefghijklmnop012"}),
+    ("opaque_value", "goal.created", {"goal_id": object()}),
+    ("binary_value", "goal.created", {"goal_id": b"\x00\x01"}),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "event_type", "payload"),
+    UNSAFE_ROUTE_CASES,
+    ids=[case[0] for case in UNSAFE_ROUTE_CASES],
+)
+def test_every_public_publication_route_fails_closed(
+    label: str, event_type: str, payload: dict
+) -> None:
+    """PROMPTS/REASONING/CREDENTIALS/RAW/OPAQUE never reach persistence on any route."""
+
+    from cmm.events.event_system import EventSystem  # noqa: F401  (route surface)
+
+    for route in ("publish", "publish_event"):
+        system = _system()
+        received: list[AgentRuntimeEvent] = []
+        system.subscribe(received.append, ["goal.created"])
+        before_published = system.bus.stats.published_total
+
+        with pytest.raises((ValueError, PlatformEventPayloadError)):
+            if route == "publish":
+                system.publish(event_type, payload)
+            else:
+                system.publish_event(
+                    manual_runtime_event(event_type, payload)
+                )
+
+        assert system.repository.count() == 0, (label, route)
+        assert system.bus.stats.published_total == before_published, (label, route)
+        assert received == [], (label, route)
+        assert system.dead_letter_count() == 0, (label, route)
+
+
+def test_raw_payload_content_never_reaches_persistence_on_any_route() -> None:
+    """RAW_PROVIDER_PAYLOADS_NEVER_REACH_PLATFORM_PERSISTENCE."""
+
+    system = _system()
+
+    with pytest.raises(PlatformEventPayloadError):
+        system.publish_event(
+            manual_runtime_event(
+                "goal.created", {"goal_id": "g1"}, raw="raw provider request body"
+            )
+        )
+
+    assert system.repository.count() == 0
+
+
+def test_events_and_replay_grant_no_authority_on_the_direct_route() -> None:
+    """EVENTS_GRANT_NO_AUTHORITY / REPLAY_GRANTS_NO_AUTHORITY stay universal."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEventReplayRequest,
+    )
+
+    system = _system()
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["goal.created"], accept_replay=True)
+
+    result = system.publish_event(
+        manual_runtime_event(
+            "goal.created",
+            {"goal_id": "g1"},
+            event_id="evt-direct-authority",
+            permissions=["not-a-real-grant"],
+            metadata={"attempted_authority": "model-selection"},
+        )
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get("evt-direct-authority")
+    assert stored is not None
+    # Event metadata carries facts; it never becomes an executable grant.
+    assert stored.header.metadata == {"attempted_authority": "model-selection"}
+    received.clear()
+
+    system.replay(AgentRuntimeEventReplayRequest(event_id="evt-direct-authority"))
+
+    assert [event.header.event_id for event in received] == ["evt-direct-authority"]
+    assert received[0].header.permissions == ["not-a-real-grant"]
+
+
+def manual_runtime_event(
+    event_type: str,
+    payload: dict,
+    *,
+    event_id: str = "evt-boundary",
+    raw: str | None = None,
+    **header_facts,
+) -> AgentRuntimeEvent:
+    """Build a canonical event object directly, bypassing the safe factory path."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    header = AgentRuntimeEventHeader(
+        event_id=event_id,
+        event_type=event_type,
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+        **header_facts,
+    )
+    return AgentRuntimeEvent(
+        header=header, payload=AgentRuntimeEventPayload(data=payload, raw=raw)
+    )

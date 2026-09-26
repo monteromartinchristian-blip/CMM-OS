@@ -214,6 +214,102 @@ def test_credential_like_identifier_fails_before_persistence(adapter, system) ->
     assert system.repository.count() == 0
 
 
+#: Forbidden kernel source keys the adapter must reject instead of ignoring.
+FORBIDDEN_KERNEL_SOURCE_KEYS = (
+    "prompt",
+    "system_prompt",
+    "developer_prompt",
+    "chain_of_thought",
+    "hidden_reasoning",
+    "raw_reasoning",
+    "reasoning",
+    "provider_request",
+    "provider_response",
+    "provider_payload",
+    "api_key",
+    "password",
+    "authorization",
+    "access_token",
+    "credential",
+    "secret",
+    "traceback",
+)
+
+
+@pytest.mark.parametrize("key", FORBIDDEN_KERNEL_SOURCE_KEYS)
+def test_forbidden_kernel_source_keys_fail_closed(adapter, system, key: str) -> None:
+    """MINOR-003: forbidden/private source content must not be silently ignored."""
+
+    with pytest.raises(PlatformEventPayloadError):
+        adapter.handle(
+            KernelEvent(
+                name="validation.completed",
+                payload={"validation_id": "val-1", key: "unsafe content"},
+            )
+        )
+
+    assert system.repository.count() == 0
+    assert system.stats().published_total == 0
+
+
+def test_credential_like_value_under_an_ignored_source_key_fails_closed(
+    adapter, system
+) -> None:
+    """MINOR-003: credential-bearing values fail closed even on ignored keys."""
+
+    with pytest.raises(PlatformEventPayloadError):
+        adapter.handle(
+            KernelEvent(
+                name="validation.completed",
+                payload={
+                    "harmless_internal_note_id": (
+                        "Bearer abcdefghijklmnopqrstuvwxyz0123456"
+                    )
+                },
+            )
+        )
+
+    assert system.repository.count() == 0
+    assert system.stats().published_total == 0
+
+
+def test_forbidden_content_nested_in_an_ignored_source_fact_fails_closed(
+    adapter, system
+) -> None:
+    """MINOR-003: forbidden keys nested inside an ignored fact still fail closed."""
+
+    with pytest.raises(PlatformEventPayloadError):
+        adapter.handle(
+            KernelEvent(
+                name="validation.completed",
+                payload={"steps": [{"prompt": "leaked prompt"}]},
+            )
+        )
+
+    assert system.repository.count() == 0
+
+
+def test_harmless_irrelevant_source_facts_may_still_be_ignored(adapter, system) -> None:
+    """MINOR-003: only forbidden content is fatal; harmless facts stay ignorable."""
+
+    event_id = adapter.handle(
+        KernelEvent(
+            name="validation.completed",
+            payload={
+                "validation_id": "val-1",
+                "harmless_internal_note_id": "note-1",
+                "steps": [{"name": "step-1"}],
+            },
+        )
+    )
+
+    assert event_id is not None
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert "harmless_internal_note_id" not in stored.payload.data
+    assert "steps" not in stored.payload.data
+
+
 def test_identifier_aliases_are_read_without_inventing_facts(adapter, system) -> None:
     event_id = adapter.handle(
         KernelEvent(name="validation.completed", payload={"id": "evt-alias"})

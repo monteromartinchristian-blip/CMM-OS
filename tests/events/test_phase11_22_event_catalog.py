@@ -190,6 +190,54 @@ def test_dispositions_partition_the_catalog() -> None:
     ) == set(PLATFORM_EVENT_CATALOG)
 
 
+#: Number words used by the module prose, so a documentation count can be derived
+#: from the real disposition map instead of being restated by hand.
+_NUMBER_WORDS = {
+    0: "zero",
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+}
+
+
+def test_module_documentation_matches_the_derived_reserved_event_count() -> None:
+    """MINOR-004: the catalog prose must state the real reserved-event count.
+
+    The expectation is derived from the disposition map, so the prose cannot
+    drift away from the catalog without failing this test.
+    """
+
+    import pathlib
+
+    from cmm.events import event_catalog
+
+    connected = specs_by_disposition(ProducerDisposition.CONNECTED_EXISTING_OWNER)
+    canonical = specs_by_disposition(
+        ProducerDisposition.CANONICAL_EXISTING_RUNTIME_EVENT
+    )
+    reserved = specs_by_disposition(
+        ProducerDisposition.REGISTERED_RESERVED_OWNER_NOT_YET_AVAILABLE
+    )
+
+    assert (len(connected), len(canonical), len(reserved)) == (12, 2, 6)
+
+    source = pathlib.Path(event_catalog.__file__).read_text(encoding="utf-8")
+    reserved_word = _NUMBER_WORDS[len(reserved)].capitalize()
+
+    assert f"{reserved_word} of the twenty names" in source
+    if len(reserved) != 12:
+        assert "Twelve of the twenty names" not in source
+
+
 def test_reserved_events_name_no_owner_and_are_never_emitted() -> None:
     reserved = specs_by_disposition(
         ProducerDisposition.REGISTERED_RESERVED_OWNER_NOT_YET_AVAILABLE

@@ -684,3 +684,319 @@ def test_at_dp_122_ordering_is_fifo_and_deterministic(connected) -> None:
 
 def test_at_dp_122_composed_event_system_type_is_the_facade(connected) -> None:
     assert isinstance(connected["system"], EventSystem)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# AT-DP-122 strengthened — independent Audit V1 adversarial scenarios
+#
+# The V1 acceptance covered the happy paths only.  These scenarios run the audit's
+# adversarial reproductions through the same real connected composition, with no
+# mock standing in for any canonical component.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_at_dp_122_same_id_correlation_change_fails_as_conflict(connected) -> None:
+    """Audit V1 MAJOR-001: a correlation-only change is an identity conflict."""
+
+    system = connected["system"]
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-cor"},
+        event_id="evt-at-dp-122-adv-cor",
+        correlation_id="CORR-A",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    with pytest.raises(AgentRuntimeEventIdentityConflictError):
+        system.publish(
+            "message.received",
+            {"request_id": "req-adv-cor"},
+            event_id="evt-at-dp-122-adv-cor",
+            correlation_id="CORR-B",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        )
+
+    assert system.repository.count() == 1
+    assert (
+        system.repository.get("evt-at-dp-122-adv-cor").header.correlation_id
+        == "CORR-A"
+    )
+
+
+def test_at_dp_122_same_id_causation_change_fails_as_conflict(connected) -> None:
+    """Audit V1 MAJOR-001: a causation-only change is an identity conflict."""
+
+    system = connected["system"]
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-cause"},
+        event_id="evt-at-dp-122-adv-cause",
+        causation_id="CAUSE-A",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    with pytest.raises(AgentRuntimeEventIdentityConflictError):
+        system.publish(
+            "message.received",
+            {"request_id": "req-adv-cause"},
+            event_id="evt-at-dp-122-adv-cause",
+            causation_id="CAUSE-B",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        )
+
+    assert system.repository.count() == 1
+
+
+def test_at_dp_122_same_id_sensitivity_change_fails_as_conflict(connected) -> None:
+    """Audit V1 MAJOR-001: a sensitivity-only change is an identity conflict."""
+
+    from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
+
+    system = connected["system"]
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-sensitivity"},
+        event_id="evt-at-dp-122-adv-sensitivity",
+        sensitivity=EventSensitivity.INTERNAL,
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    with pytest.raises(AgentRuntimeEventIdentityConflictError):
+        system.publish(
+            "message.received",
+            {"request_id": "req-adv-sensitivity"},
+            event_id="evt-at-dp-122-adv-sensitivity",
+            sensitivity=EventSensitivity.CONFIDENTIAL,
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        )
+
+    assert system.repository.count() == 1
+
+
+def test_at_dp_122_same_id_metadata_change_fails_as_conflict(connected) -> None:
+    """Audit V1 MAJOR-001: a metadata-only change is an identity conflict."""
+
+    system = connected["system"]
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-metadata"},
+        event_id="evt-at-dp-122-adv-metadata",
+        metadata={"origin": "A"},
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    with pytest.raises(AgentRuntimeEventIdentityConflictError):
+        system.publish(
+            "message.received",
+            {"request_id": "req-adv-metadata"},
+            event_id="evt-at-dp-122-adv-metadata",
+            metadata={"origin": "B"},
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        )
+
+    assert system.repository.count() == 1
+
+
+def test_at_dp_122_direct_publish_event_rejects_an_unknown_type(connected) -> None:
+    """Audit V1 MAJOR-002: the direct public route enforces the canonical registry."""
+
+    from tests.events.test_phase11_22_remediation_v1_regressions import manual_event
+
+    system = connected["system"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+
+    with pytest.raises(ValueError):
+        system.publish_event(
+            manual_event("totally.unknown.event", {"request_id": "req-adv-unknown"})
+        )
+
+    assert system.repository.count() == before
+    assert received == []
+    assert system.dead_letter_count() == 0
+
+
+@pytest.mark.parametrize(
+    ("label", "payload"),
+    [
+        ("prompt", {"prompt": "TOP SECRET prompt contents"}),
+        ("credential", {"api_key": "abcdef1234567890abcdef"}),
+        ("hidden_reasoning", {"hidden_reasoning": "because the audit said so"}),
+    ],
+)
+def test_at_dp_122_direct_publish_event_rejects_unsafe_payload(
+    connected, label, payload
+) -> None:
+    """Audit V1 MAJOR-002: prompt/credential/reasoning cannot reach persistence."""
+
+    from tests.events.test_phase11_22_remediation_v1_regressions import manual_event
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises(PlatformEventPayloadError):
+        system.publish_event(manual_event("message.received", payload))
+
+    assert system.repository.count() == before, label
+
+
+def test_at_dp_122_dlq_replay_cannot_be_satisfied_by_another_subscriber(
+    connected,
+) -> None:
+    """Audit V1 MAJOR-003: an unrelated replay-enabled subscriber cannot resolve a DLQ entry."""
+
+    system = connected["system"]
+    system.bus._max_delivery_attempts = 2
+    a_calls: list[str] = []
+    b_calls: list[str] = []
+
+    def subscriber_a(event: AgentRuntimeEvent) -> None:
+        a_calls.append(event.header.event_id)
+        raise RuntimeError("subscriber A failed")
+
+    def subscriber_b(event: AgentRuntimeEvent) -> None:
+        b_calls.append(event.header.event_id)
+
+    subscription_a = system.subscribe(subscriber_a, ["message.received"])
+    system.subscribe(subscriber_b, ["message.received"], accept_replay=True)
+
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-dlq"},
+        event_id="evt-at-dp-122-adv-dlq",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    assert system.dead_letter_count() == 1
+    assert system.list_dead_letters()[0].subscription_id == subscription_a
+
+    result = system.replay_dead_letter(0)
+
+    assert result.replayed_count == 0
+    assert len(a_calls) == 2
+    assert len(b_calls) == 1
+    assert system.dead_letter_count() == 1
+
+
+def test_at_dp_122_targeted_dlq_replay_removes_the_entry_only_after_success(
+    connected,
+) -> None:
+    """Audit V1 MAJOR-003: the entry is removed only after the failed subscriber succeeds."""
+
+    system = connected["system"]
+    system.bus._max_delivery_attempts = 2
+    state = {"fail": True}
+    a_calls: list[str] = []
+    b_calls: list[str] = []
+
+    def subscriber_a(event: AgentRuntimeEvent) -> None:
+        a_calls.append(event.header.event_id)
+        if state["fail"]:
+            raise RuntimeError("subscriber A failed")
+
+    def subscriber_b(event: AgentRuntimeEvent) -> None:
+        b_calls.append(event.header.event_id)
+
+    subscription_a = system.subscribe(
+        subscriber_a, ["message.received"], accept_replay=True
+    )
+    system.subscribe(subscriber_b, ["message.received"], accept_replay=True)
+
+    system.publish(
+        "message.received",
+        {"request_id": "req-adv-targeted"},
+        event_id="evt-at-dp-122-adv-targeted",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    assert system.dead_letter_count() == 1
+    assert system.list_dead_letters()[0].subscription_id == subscription_a
+
+    while_failing = system.replay_dead_letter(0)
+    assert while_failing.failed_count == 1
+    assert system.dead_letter_count() == 1
+    # The unrelated replay-enabled subscriber was never used as a substitute.
+    assert len(b_calls) == 1
+
+    state["fail"] = False
+    succeeding = system.replay_dead_letter(0)
+
+    assert succeeding.replayed_count == 1
+    assert system.dead_letter_count() == 0
+    assert len(b_calls) == 1
+    assert a_calls[-1] == "evt-at-dp-122-adv-targeted"
+    # The targeted replay persisted no second record.
+    assert system.repository.count() == 1
+
+
+def test_at_dp_122_explicit_domain_correlation_survives_the_kernel_adapter(
+    connected,
+) -> None:
+    """Audit V1 MAJOR-004: the source correlation is preserved unchanged."""
+
+    from cmm.domains.event_factory import DomainEventFactory
+    from cmm.domains.event_publisher import DomainKernelEventPublisher
+    from cmm.events.kernel_adapter import PlatformKernelEventAdapter
+
+    system = connected["system"]
+    adapter = PlatformKernelEventAdapter(system)
+    publisher = DomainKernelEventPublisher(event_listener=adapter)
+
+    publisher.publish(
+        DomainEventFactory().create_event(
+            event_type="domain.execution.completed",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-E1",
+            occurred_at=OCCURRED,
+            correlation_id="CORR-ORIGINAL",
+            causation_id="CAUSE-ORIGINAL",
+            payload={"execution_id": "EXEC-1", "status": "completed"},
+        )
+    )
+
+    stored = system.repository.query(event_type="operation.executed")[0]
+
+    assert stored.header.correlation_id == "CORR-ORIGINAL"
+
+
+def test_at_dp_122_explicit_domain_causation_survives_the_kernel_adapter(
+    connected,
+) -> None:
+    """Audit V1 MAJOR-004: the source causation is preserved unchanged."""
+
+    from cmm.domains.event_factory import DomainEventFactory
+    from cmm.domains.event_publisher import DomainKernelEventPublisher
+    from cmm.events.kernel_adapter import PlatformKernelEventAdapter
+
+    system = connected["system"]
+    adapter = PlatformKernelEventAdapter(system)
+    publisher = DomainKernelEventPublisher(event_listener=adapter)
+
+    publisher.publish(
+        DomainEventFactory().create_event(
+            event_type="domain.execution.completed",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-E2",
+            occurred_at=OCCURRED,
+            correlation_id="CORR-ORIGINAL-2",
+            causation_id="CAUSE-ORIGINAL-2",
+            payload={"execution_id": "EXEC-2", "status": "completed"},
+        )
+    )
+
+    stored = system.repository.query(event_type="operation.executed")[0]
+
+    assert stored.header.causation_id == "CAUSE-ORIGINAL-2"
