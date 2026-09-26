@@ -10,7 +10,7 @@ from threading import Event
 from typing import Any
 
 from kernel.llm.capabilities import ReasoningEffort
-from kernel.llm.exceptions import ProviderError
+from kernel.llm.exceptions import ProviderError, ProviderTimeoutError
 
 #: Launcher configuration of the wire fragment each canonical reasoning-effort
 #: level needs for a given model on a given provider, e.g.
@@ -19,6 +19,11 @@ from kernel.llm.exceptions import ProviderError
 #: Capability declaration and wire transmission read this same map, so a level
 #: can never be advertised without a way to put it on the wire.
 REASONING_EFFORT_MAP_ENV = "CMM_OPENAI_COMPAT_REASONING_EFFORT_MAP_JSON"
+
+#: Per-request budget for the OpenAI-compatible transport, in seconds.  Unset
+#: keeps the SDK default; a vision prefill can legitimately stay silent for
+#: minutes, so no product default is imposed here.
+TIMEOUT_SECONDS_ENV = "CMM_OPENAI_COMPAT_TIMEOUT_SECONDS"
 
 
 def configured_reasoning_effort_map(
@@ -338,6 +343,14 @@ class OpenAICompatibleClient:
             parameters["api_key"] = self._api_key
         if self._base_url is not None:
             parameters["base_url"] = self._base_url
+        configured_timeout = os.getenv(TIMEOUT_SECONDS_ENV, "").strip()
+        if configured_timeout:
+            try:
+                parameters["timeout"] = float(configured_timeout)
+            except ValueError as error:
+                raise ProviderError(
+                    "OpenAI-compatible timeout must be a number of seconds"
+                ) from error
 
         try:
             return openai.OpenAI(**parameters)
@@ -350,7 +363,9 @@ class OpenAICompatibleClient:
         lowered = message.lower()
 
         if "timed out" in lowered or "timeout" in lowered:
-            raise ProviderError("OpenAI-compatible request timed out") from error
+            raise ProviderTimeoutError(
+                "OpenAI-compatible request timed out"
+            ) from error
         if "insufficient_quota" in lowered or "current quota" in lowered:
             raise ProviderError("OpenAI-compatible quota is exhausted") from error
         if "authentication" in lowered or "api key" in lowered or "401" in lowered:

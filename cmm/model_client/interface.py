@@ -51,6 +51,7 @@ _PASSTHROUGH_CODES = frozenset(
 #: Deeper canonical failure classes, matched by name so this boundary never
 #: needs an eager import of the layers below it.
 _CLASS_ERROR_CODES = {
+    "ProviderTimeoutError": "TIMEOUT",
     "ProviderError": "PROVIDER_FAILURE",
     "LLMError": "PROVIDER_FAILURE",
     "TimeoutError": "TIMEOUT",
@@ -116,6 +117,10 @@ def normalize(error: BaseException) -> ModelClientError:
         return error
     if type(error).__name__ == "ModelExecutionError":
         code = getattr(error, "code", None)
+        if code == "PROVIDER_TIMEOUT":
+            return ModelClientError(
+                "TIMEOUT", "The model runtime took too long to answer."
+            )
         if isinstance(code, str) and code in _PASSTHROUGH_CODES:
             return ModelClientError(code, str(getattr(error, "message", error)))
     if type(error).__name__ in _CAPABILITY_ERROR_CLASSES:

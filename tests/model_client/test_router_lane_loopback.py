@@ -33,6 +33,7 @@ class _RouterDouble:
         self.requests: list[dict] = []
         self.saw_disconnect = threading.Event()
         self.chunk_gap = 1.5
+        self.silence_seconds = 0.0
         double = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -83,6 +84,8 @@ class _RouterDouble:
                 try:
                     import time as _time
 
+                    if double.silence_seconds:
+                        _time.sleep(double.silence_seconds)
                     for index, delta in enumerate(double.deltas):
                         if index:
                             _time.sleep(double.chunk_gap)
@@ -241,3 +244,24 @@ def test_an_unadvertised_model_is_refused_before_any_call(router_double) -> None
 
     assert raised.value.code == "MODEL_UNAVAILABLE"
     assert [r for r in router_double.requests if "body" in r] == []
+
+
+def test_a_transport_timeout_is_reported_as_a_timeout_not_a_generic_failure(
+    router_double, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lane that accepts the call and never answers is a budget decision.
+
+    The product must be able to say "too slow" apart from "failed", so the
+    transport's timeout surfaces as the closed TIMEOUT code rather than being
+    folded into a generic runtime error.
+    """
+    monkeypatch.setenv("CMM_OPENAI_COMPAT_TIMEOUT_SECONDS", "1")
+    router_double.deltas = ()
+    router_double.silence_seconds = 30
+    client = _client(router_double)
+    resolved = client.resolve(MODEL_ONE)
+
+    with pytest.raises(ModelClientError) as raised:
+        list(client.stream(resolved, prompt="x"))
+
+    assert raised.value.code == "TIMEOUT"

@@ -53,7 +53,7 @@ from cmm.model_execution.contracts import (
 from cmm.model_execution.errors import ModelExecutionError
 from cmm.orchestration.contracts import ExecutionRoute
 from kernel.llm.capabilities import ReasoningEffort
-from kernel.llm.exceptions import ProviderError
+from kernel.llm.exceptions import ProviderError, ProviderTimeoutError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter, RoutingDecision
 from kernel.llm.model_selection import ModelRequirements
@@ -95,6 +95,9 @@ UNSUPPORTED_REASONING_EFFORT_MESSAGE = (
     "The selected model does not support that reasoning effort"
 )
 UNSUPPORTED_REASONING_EFFORT_CODE = "UNSUPPORTED_REASONING_EFFORT"
+
+PROVIDER_TIMEOUT_MESSAGE = "The model runtime took too long to answer."
+PROVIDER_TIMEOUT_CODE = "PROVIDER_TIMEOUT"
 
 
 def _normalized_effort(effort: ReasoningEffort | str) -> ReasoningEffort:
@@ -527,6 +530,12 @@ class CanonicalModelExecutor:
 
         try:
             yield from provider.stream(request, cancel_event=cancel_event)
+        except ProviderTimeoutError:
+            # A budget decision, not a provider verdict: the product must be
+            # able to say "too slow" apart from "failed".
+            raise ModelExecutionError(
+                PROVIDER_TIMEOUT_MESSAGE, code=PROVIDER_TIMEOUT_CODE
+            ) from None
         except Exception:  # noqa: BLE001 - every defect becomes a safe failure
             raise ModelExecutionError(
                 PROVIDER_FAILURE_MESSAGE,
