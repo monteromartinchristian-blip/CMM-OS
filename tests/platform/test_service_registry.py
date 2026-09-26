@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from cmm.platform.configuration import ServiceExpectation
 from cmm.platform.contracts import (
     ContractMetadata,
     RuntimeContractMatch,
@@ -588,6 +589,516 @@ def test_a_plain_contract_keeps_accepting_an_unrelated_subtype_shape() -> None:
     )
 
     assert registry.get("adapter.service") is not None
+
+
+# ── Authoritative service expectations (Remediation V3) ──────────────────────
+#
+# MAJOR_V3_01: the runtime contract a binding declares is caller-authored, so it
+# cannot be the authority for the identity that same binding claims.  Remediation
+# V3 moves the authority onto the existing Phase 11.1 ``ServiceExpectation``
+# configuration path.  These tests use test-local classes only — no class here
+# carries the V2 exact marker — so the expectation mechanism is verified
+# independently of ``cmm.client_backend`` and of the V2 defense in depth.
+
+
+class ExpectationPort:
+    """Test-local authoritative runtime contract, deliberately unmarked."""
+
+
+class ExpectationSubclass(ExpectationPort):
+    """A subclass that must never satisfy an exact expectation."""
+
+
+class UnrelatedExpectationService:
+    """An implementation unrelated to ``ExpectationPort``."""
+
+
+def _expectation(
+    service_id: str = "expected.service",
+    *,
+    runtime_contract: type | None = None,
+    runtime_contract_match: RuntimeContractMatch | None = None,
+) -> ServiceExpectation:
+    return ServiceExpectation(
+        service_id=service_id,
+        contract=_contract(service_id),
+        runtime_contract=runtime_contract,
+        runtime_contract_match=runtime_contract_match,
+    )
+
+
+def _exact_expectation(service_id: str = "expected.service") -> ServiceExpectation:
+    return _expectation(
+        service_id,
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+
+
+def _instance_of_expectation(
+    service_id: str = "expected.service",
+) -> ServiceExpectation:
+    return _expectation(
+        service_id,
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+
+
+def _exact_port_binding(service_id: str = "expected.service") -> ServiceBinding:
+    return _binding(
+        service_id,
+        ExpectationPort(),
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+
+
+def test_registry_copies_and_projects_expectations_read_only() -> None:
+    supplied = [_exact_expectation()]
+    registry = IntegrationServiceRegistry(expected_contracts=tuple(supplied))
+
+    supplied.append(_exact_expectation("added.service"))
+
+    projected = registry.expected_contracts()
+    assert isinstance(projected, tuple)
+    assert [item.service_id for item in projected] == ["expected.service"]
+    assert registry.expected_contract_for("expected.service") is not None
+    assert registry.expected_contract_for("missing.service") is None
+
+
+def test_registry_rejects_duplicate_configured_expectations() -> None:
+    """``DUPLICATE_SERVICE_EXPECTATION=REJECTED``."""
+
+    with pytest.raises(InvalidConfigurationError) as exc:
+        IntegrationServiceRegistry(
+            expected_contracts=(_exact_expectation(), _exact_expectation())
+        )
+
+    assert exc.value.result.details["service_id"] == "expected.service"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [_exact_expectation(), "not-a-tuple", ["expected.service"]],
+    ids=["single_expectation", "string", "list"],
+)
+def test_registry_requires_a_tuple_of_expectations(value: object) -> None:
+    with pytest.raises(InvalidConfigurationError):
+        IntegrationServiceRegistry(expected_contracts=value)  # type: ignore[arg-type]
+
+
+def test_registry_defaults_to_no_expectations() -> None:
+    registry = IntegrationServiceRegistry()
+
+    assert registry.expected_contracts() == ()
+    assert registry.expected_contract_for("expected.service") is None
+
+
+def test_configured_expectation_accepts_the_exact_binding() -> None:
+    """``EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED`` (generic form)."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    exact = _exact_port_binding()
+
+    registry.register(exact)
+
+    stored = registry.get("expected.service")
+    assert stored is exact
+    assert stored is not None
+    assert type(stored.implementation) is ExpectationPort
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [None, object, ExpectationSubclass],
+    ids=["NONE", "OBJECT", "SUBCLASS"],
+)
+def test_configured_expectation_rejects_a_forged_registration(
+    declared: type | None,
+) -> None:
+    """``CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_*=REJECTED`` (registration)."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    forged = _binding(
+        "expected.service", ExpectationSubclass(), runtime_contract=declared
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(forged)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert exc.value.result.details["service_id"] == "expected.service"
+    assert registry.get("expected.service") is None
+    assert registry.list_bindings() == ()
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [None, object, ExpectationSubclass],
+    ids=["NONE", "OBJECT", "SUBCLASS"],
+)
+def test_configured_expectation_rejects_a_forged_replacement(
+    declared: type | None,
+) -> None:
+    """``CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_*=REJECTED``."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    exact = _exact_port_binding()
+    registry.register(exact)
+
+    forged = _binding(
+        "expected.service", ExpectationSubclass(), runtime_contract=declared
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.replace("expected.service", forged)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is exact
+
+
+def test_a_binding_cannot_substitute_its_runtime_contract_declaration() -> None:
+    """``BINDING_RUNTIME_CONTRACT_MUST_MATCH_EXPECTATION=PASS``.
+
+    The implementation is the exact expected type, yet the binding declares
+    ``object``.  The declaration is not the authority and may not disagree with
+    the configured expectation.
+    """
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    substituted = _binding(
+        "expected.service", ExpectationPort(), runtime_contract=object
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(substituted)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is None
+
+
+def test_expected_runtime_contract_cannot_be_omitted() -> None:
+    """``EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS``."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    omitted = _binding("expected.service", ExpectationPort())
+    assert omitted.runtime_contract is None
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(omitted)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is None
+
+
+def test_expected_exact_match_cannot_be_downgraded() -> None:
+    """``EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS``."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    downgraded = _binding(
+        "expected.service", ExpectationPort(), runtime_contract=ExpectationPort
+    )
+    assert downgraded.runtime_contract_match is RuntimeContractMatch.INSTANCE_OF
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(downgraded)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is None
+
+
+def test_a_rebuilt_descriptor_cannot_bypass_the_expectation() -> None:
+    """``REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS``.
+
+    The expectation is looked up by canonical service identity, never by
+    descriptor object identity.
+    """
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    rebuilt = ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id="expected.service",
+            contract=_contract("expected.service"),
+            implementation_id="some.other.module.Implementation",
+        ),
+        implementation=ExpectationSubclass(),
+        runtime_contract=ExpectationPort,
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(rebuilt)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is None
+
+
+def test_configured_expectation_rejects_an_incompatible_descriptor_contract() -> None:
+    """The expectation contract check reuses the one compatibility engine."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    binding = _binding(
+        "expected.service",
+        ExpectationPort(),
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        contract=_contract("expected.service", contract_version="2.0.0"),
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(binding)
+
+    assert exc.value.result.details["reason_code"] == "CONTRACT_VERSION_MISMATCH"
+    assert exc.value.result.details["service_id"] == "expected.service"
+
+
+def test_an_instance_of_expectation_accepts_an_ordinary_subtype() -> None:
+    registry = IntegrationServiceRegistry(
+        expected_contracts=(_instance_of_expectation(),)
+    )
+    binding = _binding(
+        "expected.service",
+        ExpectationSubclass(),
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+
+    registry.register(binding)
+
+    assert registry.get("expected.service") is binding
+
+
+def test_an_instance_of_expectation_rejects_an_unrelated_implementation() -> None:
+    registry = IntegrationServiceRegistry(
+        expected_contracts=(_instance_of_expectation(),)
+    )
+    binding = _binding(
+        "expected.service",
+        UnrelatedExpectationService(),
+        runtime_contract=ExpectationPort,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(binding)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+
+
+def test_a_legacy_expectation_adds_no_runtime_policy() -> None:
+    """``INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED``.
+
+    A legacy Phase 11.1 expectation constrains the descriptor contract only: an
+    ordinary subtype-compatible binding keeps working, and no exact-type rule is
+    imposed implicitly.
+    """
+
+    registry = IntegrationServiceRegistry(
+        expected_contracts=(_expectation(),)  # no runtime policy
+    )
+    binding = _binding(
+        "expected.service", ExpectationSubclass(), runtime_contract=ExpectationPort
+    )
+
+    registry.register(binding)
+
+    assert registry.get("expected.service") is binding
+
+
+def test_unconfigured_services_keep_the_inherited_runtime_semantics() -> None:
+    """Expectations are keyed by service ID: no global exactification."""
+
+    registry = IntegrationServiceRegistry(expected_contracts=(_exact_expectation(),))
+    other = _binding("other.service", PlainSubclass(), runtime_contract=PlainPort)
+
+    registry.register(other)
+
+    assert registry.get("other.service") is other
+
+
+def test_the_v2_marker_remains_defense_in_depth_without_an_expectation() -> None:
+    registry = IntegrationServiceRegistry()
+
+    with pytest.raises(IncompatibleContractError):
+        registry.register(
+            _binding("exact.service", ExactSubclass(), runtime_contract=ExactPort)
+        )
+
+    assert registry.get("exact.service") is None
+
+
+def test_replacement_cannot_change_the_service_expectation() -> None:
+    """``REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS``."""
+
+    expectation = _exact_expectation()
+    registry = IntegrationServiceRegistry(expected_contracts=(expectation,))
+    registry.register(_exact_port_binding())
+
+    registry.replace("expected.service", _exact_port_binding())
+
+    assert registry.expected_contract_for("expected.service") is expectation
+    assert registry.expected_contracts() == (expectation,)
+
+
+def test_identical_expectation_reconfiguration_is_idempotent() -> None:
+    """``IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT``."""
+
+    registry = IntegrationServiceRegistry()
+    registry.configure_expected_contracts((_exact_expectation(),))
+
+    twin = _exact_expectation()
+    assert twin is not registry.expected_contract_for("expected.service")
+    assert twin == registry.expected_contract_for("expected.service")
+
+    registry.configure_expected_contracts((twin,))
+
+    assert registry.expected_contracts() == (twin,)
+
+
+def test_expectation_configuration_may_only_strengthen() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.configure_expected_contracts((_exact_expectation(),))
+
+    added = _expectation(
+        "added.service",
+        runtime_contract=PlainPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+    registry.configure_expected_contracts((_exact_expectation(), added))
+
+    assert [item.service_id for item in registry.expected_contracts()] == [
+        "added.service",
+        "expected.service",
+    ]
+
+
+@pytest.mark.parametrize(
+    "weaker",
+    [
+        _expectation(
+            runtime_contract=object,
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        ),
+        _expectation(
+            runtime_contract=ExpectationSubclass,
+            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+        ),
+        _instance_of_expectation(),
+    ],
+    ids=["OBJECT", "SUBCLASS", "INSTANCE_OF"],
+)
+def test_expectation_downgrade_is_rejected(weaker: ServiceExpectation) -> None:
+    """``EXPECTATION_DOWNGRADE=REJECTED``."""
+
+    expectation = _exact_expectation()
+    registry = IntegrationServiceRegistry(expected_contracts=(expectation,))
+
+    with pytest.raises(InvalidConfigurationError) as exc:
+        registry.configure_expected_contracts((weaker,))
+
+    assert exc.value.result.details["service_id"] == "expected.service"
+    assert registry.expected_contract_for("expected.service") is expectation
+
+
+def test_expectation_removal_is_rejected() -> None:
+    expectation = _exact_expectation()
+    registry = IntegrationServiceRegistry(expected_contracts=(expectation,))
+
+    with pytest.raises(InvalidConfigurationError):
+        registry.configure_expected_contracts(())
+
+    assert registry.expected_contracts() == (expectation,)
+
+
+def test_expectation_attachment_to_a_populated_registry_is_atomic() -> None:
+    """``EXPECTATION_ATTACHMENT_ATOMIC=PASS`` / ``PREPOPULATED_FORGED_*=REJECTED``.
+
+    A forged binding registered while no expectation existed cannot survive the
+    attachment of the authoritative expectation, and the rejection leaves the
+    expectation state, the binding state and the freeze state untouched.
+    """
+
+    registry = IntegrationServiceRegistry()
+    forged = _binding("expected.service", ExpectationSubclass(), runtime_contract=None)
+    registry.register(forged)
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.configure_expected_contracts((_exact_expectation(),))
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.expected_contracts() == ()
+    assert registry.expected_contract_for("expected.service") is None
+    assert registry.get("expected.service") is forged
+    assert registry.frozen is False
+
+
+def test_a_partially_satisfiable_expectation_set_installs_nothing() -> None:
+    """No partial expectation mutation: the whole set is validated first."""
+
+    registry = IntegrationServiceRegistry()
+    registry.register(_binding("aaa.service", PlainPort(), runtime_contract=PlainPort))
+    forged = _binding("zzz.service", ExpectationSubclass(), runtime_contract=None)
+    registry.register(forged)
+
+    satisfiable = _expectation(
+        "aaa.service",
+        runtime_contract=PlainPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+    unsatisfiable = _exact_expectation("zzz.service")
+
+    with pytest.raises(IncompatibleContractError):
+        registry.configure_expected_contracts((satisfiable, unsatisfiable))
+
+    assert registry.expected_contracts() == ()
+    assert registry.get("zzz.service") is forged
+
+
+def test_a_frozen_registry_rejects_expectation_configuration() -> None:
+    registry = IntegrationServiceRegistry()
+    registry.freeze()
+
+    with pytest.raises(FrozenServiceRegistryError):
+        registry.configure_expected_contracts((_exact_expectation(),))
+
+    assert registry.expected_contracts() == ()
+
+
+#: A non-type object used as a malformed runtime contract.
+_NOT_A_RUNTIME_TYPE = object()
+
+
+def test_a_malformed_expectation_fails_closed_rather_than_checking_open() -> None:
+    """Defense in depth for the authoritative check.
+
+    A hostile ``ServiceExpectation`` subclass that skips its own validation must
+    never turn the authoritative check into a pass — and must never surface as an
+    uncaught ``TypeError`` either.
+    """
+
+    class _UnvalidatedExpectation(ServiceExpectation):
+        def __post_init__(self) -> None:
+            pass  # deliberately skips the fail-closed validation
+
+    malformed = _UnvalidatedExpectation(
+        service_id="expected.service",
+        contract=_contract("expected.service"),
+        runtime_contract=_NOT_A_RUNTIME_TYPE,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+    registry = IntegrationServiceRegistry(expected_contracts=(malformed,))
+
+    binding = _binding(
+        "expected.service",
+        ExpectationPort(),
+        runtime_contract=_NOT_A_RUNTIME_TYPE,
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        registry.register(binding)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get("expected.service") is None
 
 
 # ── Platform-core genericity gates ───────────────────────────────────────────

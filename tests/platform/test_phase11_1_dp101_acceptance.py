@@ -62,6 +62,7 @@ from cmm.platform.configuration import (
 from cmm.platform.container import ApplicationContainer
 from cmm.platform.contracts import (
     ContainerState,
+    ContractMetadata,
     ServiceBinding,
     ServiceDependency,
     ServiceDescriptor,
@@ -1061,3 +1062,87 @@ def test_at_dp_101_provider_registry_regresses_cleanly(tmp_path: Path) -> None:
     assert tuple(spec.id for spec in canonical.provider_registry.list()) == before
     # Canonical phase-11.34 normalisation still applies to the same object.
     assert canonical.provider_registry.has(before[0])
+
+
+# ── Remediation V3: legacy expectations keep Phase 11.1 semantics ────────────
+#
+# Remediation V3 for Phase 11.50 MAJOR_V3_01 extended the shared
+# ``ServiceExpectation`` value with optional authoritative runtime identity.
+# AT-DP-101 therefore also proves the extension is strictly additive: a legacy
+# expectation with no runtime policy still constrains the descriptor contract
+# only, and ordinary Phase 11.1 subtype-compatible bindings keep working
+# unchanged.
+
+
+def test_at_dp_101_legacy_service_expectation_still_works(tmp_path: Path) -> None:
+    """``LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED``."""
+
+    canonical = build_canonical_test_components(tmp_path)
+    expected = provider_registry_binding(
+        canonical.provider_registry
+    ).descriptor.contract
+    expectation = ServiceExpectation(
+        service_id="provider.registry",
+        contract=expected,
+    )
+
+    assert expectation.runtime_contract is None
+    assert expectation.runtime_contract_match is None
+
+    configuration = CompositionConfiguration(
+        required_services=REQUIRED_SERVICE_IDS,
+        enabled_modules=(CANONICAL_MODULE_ID,),
+        expected_contracts=(expectation,),
+    )
+    module = StaticCompositionModule(
+        module_id=CANONICAL_MODULE_ID, bindings=canonical_bindings(canonical)
+    )
+
+    container = ApplicationContainer.build(configuration, modules=(module,))
+
+    assert container.state is ContainerState.READY
+    assert container.get_service("provider.registry") is canonical.provider_registry
+
+
+def test_at_dp_101_ordinary_subtype_binding_survives_a_legacy_expectation() -> None:
+    """``INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED``.
+
+    A legacy expectation adds no exact-type policy, so an ordinary
+    subtype-compatible binding registered under it keeps the inherited Phase 11.1
+    ``isinstance`` semantics.
+    """
+
+    class Port:
+        """Test-local runtime contract boundary."""
+
+    class OrdinarySubtype(Port):
+        """A normal subtype-compatible implementation."""
+
+    service_id = "subtype.service"
+    contract = ContractMetadata(
+        contract_name=service_id,
+        contract_version="1.0.0",
+        schema_version="1",
+        owner="cmm.platform.test",
+    )
+    expectation = ServiceExpectation(service_id=service_id, contract=contract)
+    registry = IntegrationServiceRegistry(expected_contracts=(expectation,))
+
+    implementation = OrdinarySubtype()
+    binding = ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id=service_id,
+            contract=contract,
+            implementation_id="test.ordinary.subtype",
+        ),
+        implementation=implementation,
+        runtime_contract=Port,
+    )
+
+    registry.register(binding)
+
+    stored = registry.get(service_id)
+    assert stored is binding
+    assert stored is not None
+    assert stored.implementation is implementation
+    assert type(stored.implementation) is not Port

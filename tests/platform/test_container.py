@@ -15,6 +15,7 @@ from cmm.platform.contracts import (
     ContainerState,
     ContractMetadata,
     ErrorResult,
+    RuntimeContractMatch,
     ServiceBinding,
     ServiceDependency,
     ServiceDescriptor,
@@ -372,6 +373,159 @@ def test_container_rejects_expected_contract_for_absent_service() -> None:
         ApplicationContainer.build(configuration, modules=(_core_module(),))
 
     assert exc.value.result.details["service_id"] == "absent.service"
+
+
+# ── Authoritative service expectations at READY (Remediation V3) ─────────────
+#
+# Remediation V3 for Phase 11.50 MAJOR_V3_01: ``configuration.expected_contracts``
+# is authoritative and must be active before the composition can reach READY, on
+# both the registry the container creates and a caller-supplied one.
+
+
+class ExpectedPort:
+    """Test-local runtime contract opted into exact configured identity."""
+
+
+class ExpectedSubclass(ExpectedPort):
+    """A subclass that must never claim an exact configured expectation."""
+
+
+def _exact_expectation(service_id: str = "domain.registry") -> ServiceExpectation:
+    return ServiceExpectation(
+        service_id=service_id,
+        contract=_contract(service_id),
+        runtime_contract=ExpectedPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+
+
+def _exact_binding(
+    service_id: str = "domain.registry", *, dependencies: tuple[str, ...] = ()
+) -> ServiceBinding:
+    return ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id=service_id,
+            contract=_contract(service_id),
+            implementation_id=f"impl.{service_id}",
+            dependencies=tuple(
+                ServiceDependency(service_id=name, contract=_contract(name))
+                for name in dependencies
+            ),
+        ),
+        implementation=ExpectedPort(),
+        runtime_contract=ExpectedPort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+
+
+def test_container_applies_configured_expectations_before_registration() -> None:
+    """A bad contributed binding fails at registration, not at final inspection."""
+
+    configuration = _core_config(
+        expected_contracts=(_exact_expectation("domain.registry"),)
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        ApplicationContainer.build(configuration, modules=(_core_module(),))
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert exc.value.result.details["service_id"] == "domain.registry"
+
+
+def test_container_reaches_ready_with_a_satisfied_runtime_expectation() -> None:
+    module = StaticCompositionModule(
+        module_id="core",
+        bindings=(
+            _exact_binding(),
+            _exact_binding("validation.application", dependencies=("domain.registry",)),
+        ),
+    )
+    configuration = _core_config(
+        expected_contracts=(
+            _exact_expectation("domain.registry"),
+            _exact_expectation("validation.application"),
+        )
+    )
+
+    container = ApplicationContainer.build(configuration, modules=(module,))
+
+    assert container.state is ContainerState.READY
+    assert type(container.get_service("domain.registry")) is ExpectedPort
+
+
+def test_container_rejects_a_prepopulated_forged_registry() -> None:
+    """``PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED`` /
+    ``CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO`` (generic form).
+
+    A registry populated while no expectation existed cannot reach READY once the
+    configuration declares the authoritative expectation, and the rejection is
+    atomic: no expectation is installed, the forged binding is untouched and the
+    registry is not frozen.
+    """
+
+    registry = IntegrationServiceRegistry()
+    forged = ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id="domain.registry",
+            contract=_contract("domain.registry"),
+            implementation_id="forged.domain.registry",
+        ),
+        implementation=ExpectedSubclass(),
+        runtime_contract=None,
+    )
+    registry.register(forged)
+
+    configuration = _core_config(
+        required_services=("domain.registry",),
+        enabled_modules=(),
+        expected_contracts=(_exact_expectation("domain.registry"),),
+    )
+
+    with pytest.raises(IncompatibleContractError) as exc:
+        ApplicationContainer.build(configuration, modules=(), registry=registry)
+
+    assert exc.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.expected_contracts() == ()
+    assert registry.get("domain.registry") is forged
+    assert registry.frozen is False
+
+
+def test_container_still_composes_a_prepopulated_compatible_registry() -> None:
+    """Supplying an already-populated registry stays supported, and stays safe."""
+
+    registry = IntegrationServiceRegistry()
+    exact = _exact_binding()
+    registry.register(exact)
+
+    configuration = _core_config(
+        required_services=("domain.registry",),
+        enabled_modules=(),
+        expected_contracts=(_exact_expectation("domain.registry"),),
+    )
+
+    container = ApplicationContainer.build(configuration, modules=(), registry=registry)
+
+    assert container.state is ContainerState.READY
+    assert container.get_service("domain.registry") is exact.implementation
+    assert registry.expected_contracts() == (_exact_expectation("domain.registry"),)
+
+
+def test_container_leaves_a_supplied_registry_unconfigured_without_expectations() -> (
+    None
+):
+    """No configured expectation means the inherited Phase 11.1 behavior stands."""
+
+    registry = IntegrationServiceRegistry()
+    binding = _binding("domain.registry", object())
+    registry.register(binding)
+
+    container = ApplicationContainer.build(
+        CompositionConfiguration(enabled_modules=()), modules=(), registry=registry
+    )
+
+    assert container.state is ContainerState.READY
+    assert registry.expected_contracts() == ()
+    assert registry.get("domain.registry") is binding
 
 
 # ── Failure semantics ────────────────────────────────────────────────────────

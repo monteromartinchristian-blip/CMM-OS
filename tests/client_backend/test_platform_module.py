@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+import cmm.client_backend as _client_backend_package
+import cmm.client_backend.platform_module as _client_backend_platform_module
 from cmm.application.local_runtime import (
     LocalApplicationRuntime,
     build_local_application_runtime,
@@ -54,6 +56,7 @@ from cmm.client_backend.platform_module import (
     CONVERSATION_DEPENDENCY_ID,
     CONVERSATION_OWNER,
     CONVERSATION_SCHEMA_VERSION,
+    client_backend_service_expectation,
 )
 from cmm.conversation.capabilities import ConversationCapabilityResolver
 from cmm.conversation.platform_module import (
@@ -76,6 +79,7 @@ from cmm.platform.contracts import (
     ContainerState,
     RuntimeContractMatch,
     ServiceBinding,
+    ServiceDescriptor,
     ServiceMode,
 )
 from cmm.platform.errors import IncompatibleContractError
@@ -85,6 +89,13 @@ from cmm.platform.service_registry import IntegrationServiceRegistry
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_BACKEND_PACKAGE = REPO_ROOT / "cmm" / "client_backend"
 PLATFORM_MODULE_PATH = CLIENT_BACKEND_PACKAGE / "platform_module.py"
+
+#: The frozen first-party client surface, and the owning contribution module's
+#: own surface.  The canonical expectation is composition infrastructure: the
+#: composition root imports it from ``cmm.client_backend.platform_module`` and it
+#: never widens ``cmm.client_backend``.
+CLIENT_BACKEND_PUBLIC_SURFACE = _client_backend_package.__all__
+PLATFORM_MODULE_SURFACE = _client_backend_platform_module.__all__
 
 #: Import roots that would make the client backend a transport, UI or model
 #: owner.  The facade consumes the application and conversational boundaries and
@@ -183,6 +194,14 @@ def _closed_phase_modules(
 
 
 def _backend_configuration() -> CompositionConfiguration:
+    """The canonical Phase 11.50 composition configuration.
+
+    The canonical ``client.backend`` expectation is part of the configuration, as
+    Remediation V3 requires: the authoritative runtime identity of the composed
+    facade travels to the container through ``expected_contracts`` and is active
+    before any module contribution registers.
+    """
+
     return CompositionConfiguration(
         required_services=(
             *ORCHESTRATION_SERVICE_IDS,
@@ -196,6 +215,7 @@ def _backend_configuration() -> CompositionConfiguration:
             CONVERSATION_MODULE_ID,
             CLIENT_BACKEND_MODULE_ID,
         ),
+        expected_contracts=(client_backend_service_expectation(),),
     )
 
 
@@ -537,17 +557,18 @@ def test_replacement_cannot_swap_in_a_client_backend_subclass() -> None:
     assert registry.get(CLIENT_BACKEND_SERVICE_ID) is exact_binding
 
 
-# ── Forged runtime-contract expectation bypass (Remediation V3 RED) ──────────
+# ── Forged runtime-contract expectation bypass (Remediation V3) ──────────────
 #
 # Independent Re-audit V3 (MAJOR_V3_01) reproduced that the V2 exact-marker
 # defense could be bypassed *without touching the descriptor or the service ID*.
 # A hand-built ``ServiceBinding`` that kept the canonical ``client.backend``
 # descriptor but replaced the caller-authored ``runtime_contract`` field with
-# ``None``, ``object`` or the facade subclass itself registered successfully,
-# because the registry derived the effective exactness rule from that very
-# field — the premise being validated was caller-controlled.
+# ``None``, ``object`` or the facade subclass itself registered successfully —
+# and the same substitution worked through ``replace()`` — because the registry
+# derived the effective exactness rule from that very field, the premise being
+# validated.
 #
-# These two probes record the bypass on the Remediation V3 starting HEAD:
+# On the Remediation V3 starting HEAD the bypass was recorded as:
 #
 # ```text
 # CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=ACCEPTED
@@ -559,9 +580,11 @@ def test_replacement_cannot_swap_in_a_client_backend_subclass() -> None:
 # CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=ACCEPTED
 # ```
 #
-# Remediation V3 moves the authoritative runtime identity onto the existing
-# Phase 11.1 ``ServiceExpectation`` configuration path, and the same matrix is
-# then required to be REJECTED.
+# Remediation V3 anchors the authority in the canonical
+# ``client_backend_service_expectation()`` carried through
+# ``CompositionConfiguration.expected_contracts``.  The same matrix is now
+# rejected by the configured registry, independently of the V2 marker, which
+# remains only defense in depth.
 
 
 class _ForgedFacadeSubclass(ClientBackend):
@@ -588,56 +611,194 @@ def _forged_runtime_contracts() -> tuple[tuple[str, type | None], ...]:
     )
 
 
-def test_reproduce_forged_runtime_contract_registration_bypass() -> None:
-    """RED — the pre-V3 registry accepts every forged registration variant."""
+def _configured_registry() -> IntegrationServiceRegistry:
+    """The authoritative registry of the canonical client-backend composition."""
+
+    return IntegrationServiceRegistry(
+        expected_contracts=(client_backend_service_expectation(),)
+    )
+
+
+def _canonical_official_binding() -> ServiceBinding:
+    composed = _composed()
+    return composed.module.contribute(CompositionConfiguration())[0]
+
+
+def test_the_canonical_service_expectation_is_the_exact_facade() -> None:
+    """The expectation, not the binding field, is the runtime-identity authority."""
+
+    expectation = client_backend_service_expectation()
+    official = _canonical_official_binding()
+
+    assert expectation.service_id == CLIENT_BACKEND_SERVICE_ID
+    assert expectation.contract == official.descriptor.contract
+    assert expectation.runtime_contract is ClientBackend
+    assert expectation.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE
+
+
+def test_the_canonical_expectation_is_not_first_party_client_api() -> None:
+    """``FIRST_PARTY_CLIENT_API_EXPANSION=NO``.
+
+    The expectation is composition infrastructure.  It is available to the
+    composition root through its owning module, and it never widens the frozen
+    ``cmm.client_backend`` public surface.
+    """
+
+    assert "client_backend_service_expectation" not in CLIENT_BACKEND_PUBLIC_SURFACE
+    assert "client_backend_service_expectation" in PLATFORM_MODULE_SURFACE
+
+
+def test_the_configured_expectation_accepts_the_exact_canonical_binding() -> None:
+    """``EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED``."""
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+
+    registry = _configured_registry()
+    registry.register(official)
+
+    stored = registry.get(CLIENT_BACKEND_SERVICE_ID)
+    assert stored is official
+    assert stored is not None
+    assert stored.implementation is composed.client
+    assert type(stored.implementation) is ClientBackend
+
+
+@pytest.mark.parametrize(
+    ("label", "declared"),
+    _forged_runtime_contracts(),
+    ids=[label for label, _ in _forged_runtime_contracts()],
+)
+def test_the_configured_expectation_rejects_a_forged_registration(
+    label: str, declared: type | None
+) -> None:
+    """``CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_<label>=REJECTED``."""
 
     composed = _composed()
     official = composed.module.contribute(CompositionConfiguration())[0]
     forged = _forged_facade(composed.client)
 
-    accepted: list[str] = []
-    for label, runtime_contract in _forged_runtime_contracts():
-        registry = IntegrationServiceRegistry()
-        binding = ServiceBinding(
-            descriptor=official.descriptor,
-            implementation=forged,
-            runtime_contract=runtime_contract,  # type: ignore[arg-type]
-        )
-        registry.register(binding)
-        assert registry.get(CLIENT_BACKEND_SERVICE_ID) is binding
-        accepted.append(label)
+    registry = _configured_registry()
+    hand_built = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=forged,
+        runtime_contract=declared,  # type: ignore[arg-type]
+    )
 
-    assert accepted == ["NONE", "OBJECT", "SUBCLASS"]
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(hand_built)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+    assert registry.list_bindings() == ()
 
 
-def test_reproduce_forged_runtime_contract_replacement_bypass() -> None:
-    """RED — the pre-V3 registry accepts every forged replacement variant."""
+@pytest.mark.parametrize(
+    ("label", "declared"),
+    _forged_runtime_contracts(),
+    ids=[label for label, _ in _forged_runtime_contracts()],
+)
+def test_the_configured_expectation_rejects_a_forged_replacement(
+    label: str, declared: type | None
+) -> None:
+    """``CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_<label>=REJECTED``."""
 
     composed = _composed()
     official = composed.module.contribute(CompositionConfiguration())[0]
     forged = _forged_facade(composed.client)
 
-    accepted: list[str] = []
-    for label, runtime_contract in _forged_runtime_contracts():
-        registry = IntegrationServiceRegistry()
-        exact = ServiceBinding(
-            descriptor=official.descriptor,
-            implementation=composed.client,
-            runtime_contract=ClientBackend,
-            runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
-        )
-        registry.register(exact)
+    registry = _configured_registry()
+    registry.register(official)
 
-        forged_binding = ServiceBinding(
-            descriptor=official.descriptor,
-            implementation=forged,
-            runtime_contract=runtime_contract,  # type: ignore[arg-type]
-        )
+    forged_binding = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=forged,
+        runtime_contract=declared,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(IncompatibleContractError) as failure:
         registry.replace(CLIENT_BACKEND_SERVICE_ID, forged_binding)
-        assert registry.get(CLIENT_BACKEND_SERVICE_ID) is forged_binding
-        accepted.append(label)
 
-    assert accepted == ["NONE", "OBJECT", "SUBCLASS"]
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is official
+    assert registry.expected_contracts() == (client_backend_service_expectation(),)
+
+
+def test_a_rebuilt_client_backend_descriptor_cannot_bypass_the_expectation() -> None:
+    """``REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS``.
+
+    The expectation is resolved by canonical service identity, never by
+    descriptor object identity.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    forged = _forged_facade(composed.client)
+
+    rebuilt = ServiceBinding(
+        descriptor=ServiceDescriptor(
+            service_id=CLIENT_BACKEND_SERVICE_ID,
+            contract=official.descriptor.contract,
+            implementation_id="rebuilt.client.backend",
+        ),
+        implementation=forged,
+        runtime_contract=ClientBackend,
+    )
+
+    registry = _configured_registry()
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(rebuilt)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+
+def test_the_expectation_cannot_be_omitted_or_downgraded() -> None:
+    """``EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED`` /
+    ``EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED``.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+
+    omitted = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=composed.client,
+        runtime_contract=None,
+    )
+    assert omitted.runtime_contract is None
+
+    registry = _configured_registry()
+    with pytest.raises(IncompatibleContractError):
+        registry.register(omitted)
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+    downgraded = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=composed.client,
+        runtime_contract=ClientBackend,
+        runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+    )
+    with pytest.raises(IncompatibleContractError):
+        registry.register(downgraded)
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+
+
+def test_the_v2_marker_only_agrees_with_the_authoritative_expectation() -> None:
+    """The V2 marker stays, but V3 correctness does not depend on it.
+
+    The canonical facade still carries ``__cmm_exact_runtime_contract__``, and the
+    configured expectation agrees with it.  Hostile bindings are rejected by the
+    expectation before the marker is ever consulted.
+    """
+
+    expectation = client_backend_service_expectation()
+
+    assert ClientBackend.__cmm_exact_runtime_contract__ is True
+    assert expectation.runtime_contract is ClientBackend
+    assert expectation.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE
 
 
 def test_the_contributed_binding_declares_exact_runtime_contract_matching() -> None:
@@ -710,6 +871,91 @@ def test_container_reaches_ready_with_the_client_backend_contribution() -> None:
     assert container.state is ContainerState.READY
     # Exact instance identity: the resolved service IS the configured facade.
     assert container.get_service(CLIENT_BACKEND_SERVICE_ID) is service
+
+
+def test_the_canonical_container_rejects_a_forged_contribution_before_ready() -> None:
+    """The canonical configuration rejects a forged contribution at registration.
+
+    The canonical Phase 11.50 configuration is authoritative *before* module
+    contributions register, so a contributed binding that keeps the canonical
+    descriptor while substituting ``runtime_contract=None`` never reaches READY.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    forged = _forged_facade(composed.client)
+
+    orchestration_module, application_module, conversation_module = (
+        _closed_phase_modules(composed.runtime, composed.conversation)
+    )
+    forged_module = StaticCompositionModule(
+        CLIENT_BACKEND_MODULE_ID,
+        (
+            ServiceBinding(
+                descriptor=official.descriptor,
+                implementation=forged,
+                runtime_contract=None,
+            ),
+        ),
+    )
+
+    with pytest.raises(IncompatibleContractError) as failure:
+        ApplicationContainer.build(
+            _backend_configuration(),
+            modules=(
+                orchestration_module,
+                application_module,
+                conversation_module,
+                forged_module,
+            ),
+        )
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+
+
+def test_the_canonical_container_rejects_a_prepopulated_forged_registry() -> None:
+    """``PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED`` /
+    ``CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO``.
+
+    Composing an already-populated registry stays supported, but it cannot bypass
+    the configuration's expectation: the attachment is rejected atomically and the
+    registry keeps its previous expectation, binding and freeze state.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    forged = _forged_facade(composed.client)
+
+    registry = IntegrationServiceRegistry()
+    forged_binding = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=forged,
+        runtime_contract=None,
+    )
+    registry.register(forged_binding)
+
+    orchestration_module, application_module, conversation_module = (
+        _closed_phase_modules(composed.runtime, composed.conversation)
+    )
+
+    with pytest.raises(IncompatibleContractError) as failure:
+        ApplicationContainer.build(
+            _backend_configuration(),
+            modules=(
+                orchestration_module,
+                application_module,
+                conversation_module,
+                composed.module,
+            ),
+            registry=registry,
+        )
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.expected_contracts() == ()
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is forged_binding
+    assert registry.frozen is False
 
 
 def test_ready_snapshot_projects_the_client_backend_identity() -> None:

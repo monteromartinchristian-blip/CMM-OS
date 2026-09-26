@@ -130,6 +130,11 @@ FORBIDDEN_FRAMEWORK_IMPORT_ROOTS = (
 )
 
 #: The sanctioned internal seams, package-exact, pinned per module below.
+#: ``cmm.platform.configuration`` was added by Remediation V3: the canonical
+#: ``client.backend`` ``ServiceExpectation`` is constructed next to the binding
+#: builder that owns the same service identity, and it travels downward into the
+#: Phase 11.1 composition path.  The dependency direction is unchanged — the
+#: facade depends on the platform boundary, never the reverse.
 ALLOWED_INTERNAL_IMPORT_ENTRIES = (
     "cmm.client_backend",
     "cmm.application.contracts",
@@ -140,6 +145,7 @@ ALLOWED_INTERNAL_IMPORT_ENTRIES = (
     "cmm.conversation.errors",
     "cmm.conversation.service",
     "cmm.conversation.state",
+    "cmm.platform.configuration",
     "cmm.platform.contracts",
     "cmm.platform.modules",
 )
@@ -171,7 +177,12 @@ CLIENT_BACKEND_INTERNAL_IMPORTS_PIN: dict[str, frozenset[str]] = {
         }
     ),
     "platform_module.py": frozenset(
-        {"cmm.client_backend", "cmm.platform.contracts", "cmm.platform.modules"}
+        {
+            "cmm.client_backend",
+            "cmm.platform.configuration",
+            "cmm.platform.contracts",
+            "cmm.platform.modules",
+        }
     ),
 }
 
@@ -713,6 +724,7 @@ def test_the_cmm_dependency_entry_set_is_frozen() -> None:
         "cmm.conversation.errors",
         "cmm.conversation.service",
         "cmm.conversation.state",
+        "cmm.platform.configuration",
         "cmm.platform.contracts",
         "cmm.platform.modules",
     }

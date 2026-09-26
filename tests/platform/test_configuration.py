@@ -11,7 +11,7 @@ from cmm.platform.configuration import (
     CompositionConfiguration,
     ServiceExpectation,
 )
-from cmm.platform.contracts import ContractMetadata
+from cmm.platform.contracts import ContractMetadata, RuntimeContractMatch
 from cmm.platform.errors import InvalidConfigurationError
 
 
@@ -173,6 +173,134 @@ def test_expected_contract_lookup_by_service_id() -> None:
 
     assert config.expected_contract_for("a.service") is expectation
     assert config.expected_contract_for("missing.service") is None
+
+
+# ── Authoritative runtime expectations (Remediation V3) ──────────────────────
+#
+# Remediation V3 for Phase 11.50 MAJOR_V3_01 anchors a canonical service's
+# runtime identity in the existing Phase 11.1 expectation path instead of the
+# caller-authored ``ServiceBinding.runtime_contract`` field.  These tests cover
+# the extension of the one canonical ``ServiceExpectation`` value.
+
+
+class RuntimePort:
+    """Test-local runtime contract type."""
+
+
+def _runtime_expectation(**overrides: object) -> ServiceExpectation:
+    values: dict[str, object] = {
+        "service_id": "a.service",
+        "contract": _contract("a.service"),
+    }
+    values.update(overrides)
+    return ServiceExpectation(**values)  # type: ignore[arg-type]
+
+
+def test_legacy_service_expectation_declaration_is_preserved() -> None:
+    """``LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED``.
+
+    The Phase 11.1 expectation shape ``ServiceExpectation(service_id, contract)``
+    stays source-compatible and adds no runtime policy of its own.
+    """
+
+    expectation = ServiceExpectation(
+        service_id="a.service", contract=_contract("a.service")
+    )
+
+    assert expectation.runtime_contract is None
+    assert expectation.runtime_contract_match is None
+
+
+@pytest.mark.parametrize(
+    "match",
+    [RuntimeContractMatch.INSTANCE_OF, RuntimeContractMatch.EXACT_TYPE],
+    ids=["INSTANCE_OF", "EXACT_TYPE"],
+)
+def test_service_expectation_accepts_a_complete_runtime_policy(
+    match: RuntimeContractMatch,
+) -> None:
+    expectation = _runtime_expectation(
+        runtime_contract=RuntimePort, runtime_contract_match=match
+    )
+
+    assert expectation.runtime_contract is RuntimePort
+    assert expectation.runtime_contract_match is match
+
+
+def test_service_expectation_rejects_a_match_without_a_runtime_contract() -> None:
+    with pytest.raises(InvalidConfigurationError) as exc:
+        _runtime_expectation(runtime_contract_match=RuntimeContractMatch.EXACT_TYPE)
+
+    assert exc.value.result.details["field"] == "runtime_contract_match"
+
+
+def test_service_expectation_rejects_a_runtime_contract_without_a_match() -> None:
+    """A declared runtime contract with no match rule is ambiguous: fail closed."""
+
+    with pytest.raises(InvalidConfigurationError) as exc:
+        _runtime_expectation(runtime_contract=RuntimePort)
+
+    assert exc.value.result.details["field"] == "runtime_contract_match"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["cmm.platform.configuration.ServiceExpectation", object(), 42, RuntimePort()],
+    ids=["import_path", "instance", "integer", "contract_instance"],
+)
+def test_service_expectation_rejects_a_non_type_runtime_contract(
+    value: object,
+) -> None:
+    with pytest.raises(InvalidConfigurationError) as exc:
+        _runtime_expectation(
+            runtime_contract=value,
+            runtime_contract_match=RuntimeContractMatch.INSTANCE_OF,
+        )
+
+    assert exc.value.result.details["field"] == "runtime_contract"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["exact_type", 1, object(), RuntimePort],
+    ids=["string", "integer", "object", "type"],
+)
+def test_service_expectation_rejects_a_non_enum_runtime_contract_match(
+    value: object,
+) -> None:
+    with pytest.raises(InvalidConfigurationError) as exc:
+        _runtime_expectation(runtime_contract=RuntimePort, runtime_contract_match=value)
+
+    assert exc.value.result.details["field"] == "runtime_contract_match"
+
+
+def test_runtime_expectations_are_immutable_hashable_values() -> None:
+    first = _runtime_expectation(
+        runtime_contract=RuntimePort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+    second = _runtime_expectation(
+        runtime_contract=RuntimePort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+
+    assert first == second
+    assert len({first, second}) == 1
+
+    with pytest.raises(FrozenInstanceError):
+        first.runtime_contract = None  # type: ignore[misc]
+
+
+def test_configuration_carries_an_authoritative_runtime_expectation() -> None:
+    expectation = _runtime_expectation(
+        runtime_contract=RuntimePort,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
+    config = CompositionConfiguration(
+        required_services=("a.service",), expected_contracts=(expectation,)
+    )
+
+    assert config.expected_contract_for("a.service") is expectation
 
 
 # ── Composition-only scope ───────────────────────────────────────────────────
