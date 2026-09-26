@@ -1,6 +1,16 @@
 """Phase 9.20 – Runtime Event Replay.
 
 Controlled event replay with filtering, dry-run, and chronological ordering.
+
+Phase 11.22 makes this the canonical *notification* replay owner: when a bus is
+bound, replay reads the stored canonical events and re-delivers them to
+replay-authorised subscribers under their original identity.  It never appends a
+second repository record, never mutates the original record, and never bypasses
+an event's validation: every replayed event is re-read from the canonical
+repository, which fails closed on anything that is not a canonical event.
+
+Replay is replay of event-notification evidence, not replay of business
+commands.  No second replay engine is introduced.
 """
 
 from __future__ import annotations
@@ -17,18 +27,32 @@ from cmm.agent_runtime.runtime_event_contracts import (
 class AgentRuntimeEventReplayer:
     """Replays events from a repository with filtering and safety."""
 
-    def __init__(self, repository: Any) -> None:
+    def __init__(self, repository: Any, bus: Any = None) -> None:
+        """Bind the canonical repository, and optionally the canonical bus.
+
+        ``bus`` is the Phase 9 ``AgentRuntimeEventBus``.  It is optional so every
+        existing Phase 9 construction and call site keeps working unchanged.
+        """
+
         self._repository = repository
+        self._bus = bus
+
+    @property
+    def bus(self) -> Any:
+        """Return the canonical transport bound for replay delivery, if any."""
+
+        return self._bus
 
     def replay(
         self, request: AgentRuntimeEventReplayRequest
     ) -> AgentRuntimeEventReplayResult:
-        """Execute a controlled event replay."""
+        """Execute a controlled event replay.
+
+        With a bound bus this re-delivers stored evidence to replay-authorised
+        subscribers.  Without one it preserves the historical Phase 9 behaviour
+        of reporting the selected stored events.
+        """
         events = self._gather_events(request)
-        replayed: list[AgentRuntimeEvent] = []
-        errors: list[str] = []
-        skipped = 0
-        failed = 0
 
         if request.dry_run:
             return AgentRuntimeEventReplayResult(
@@ -40,20 +64,61 @@ class AgentRuntimeEventReplayer:
                 dry_run=True,
             )
 
-        seen_ids: set = set()
+        seen_ids: set[str] = set()
+        selected: list[AgentRuntimeEvent] = []
+        skipped = 0
         for event in events:
             event_id = event.header.event_id
             if event_id in seen_ids:
                 skipped += 1
                 continue
             seen_ids.add(event_id)
+            selected.append(event)
 
+        if self._bus is None:
+            # No transport is bound, so replay reports the canonical stored
+            # evidence it selected.  It deliberately does not re-save: appending
+            # a second record for an already-stored event was never replay.
+            return AgentRuntimeEventReplayResult(
+                replayed_count=len(selected),
+                skipped_count=skipped,
+                failed_count=0,
+                events=list(selected),
+                errors=[],
+                dry_run=False,
+            )
+
+        replayed: list[AgentRuntimeEvent] = []
+        errors: list[str] = []
+        failed = 0
+
+        for event in selected:
             try:
-                self._repository.save(event)
-                replayed.append(event)
-            except (RuntimeError, ValueError, TypeError) as exc:
-                errors.append(str(exc))
+                deliveries = self._bus.deliver_replay(event)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(type(exc).__name__)
                 failed += 1
+                continue
+
+            statuses = [
+                getattr(getattr(delivery, "status", None), "value", None)
+                for delivery in deliveries
+            ]
+
+            if "failed" in statuses:
+                errors.append("replay_delivery_failed")
+                failed += 1
+                continue
+
+            if "delivered" not in statuses:
+                # Nobody was authorised and able to receive this replay: no
+                # subscriber was invoked, so this is not a replayed event.  A
+                # dead-letter replay must therefore leave its entry unresolved.
+                errors.append("replay_delivery_not_authorised")
+                failed += 1
+                continue
+
+            replayed.append(event)
 
         return AgentRuntimeEventReplayResult(
             replayed_count=len(replayed),
@@ -61,13 +126,13 @@ class AgentRuntimeEventReplayer:
             failed_count=failed,
             events=replayed,
             errors=errors,
-            dry_run=request.dry_run,
+            dry_run=False,
         )
 
     def _gather_events(
         self, request: AgentRuntimeEventReplayRequest
     ) -> list[AgentRuntimeEvent]:
-        """Collect events matching the replay request."""
+        """Collect events matching the replay request in stored order."""
         query: dict[str, Any] = {}
         if request.event_type:
             query["event_type"] = request.event_type
@@ -78,8 +143,9 @@ class AgentRuntimeEventReplayer:
         if request.correlation_id:
             query["correlation_id"] = request.correlation_id
 
+        events = self._repository.list(limit=request.limit, **query)
+
         if request.start_time or request.end_time:
-            events = self._repository.list()
             filtered: list[AgentRuntimeEvent] = []
             for event in events:
                 occurred = event.header.occurred_at
@@ -88,6 +154,9 @@ class AgentRuntimeEventReplayer:
                 if request.end_time and occurred > request.end_time:
                     continue
                 filtered.append(event)
-            return filtered[: request.limit]
+            events = filtered
 
-        return self._repository.list(limit=request.limit, **query)
+        if request.event_id:
+            events = [e for e in events if e.header.event_id == request.event_id]
+
+        return events

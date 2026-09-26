@@ -2,6 +2,16 @@
 
 Core event bus implementation with synchronous delivery, FIFO ordering,
 multiple subscribers, filters, backpressure, and idempotency.
+
+Phase 11.22 extends this one canonical transport additively:
+
+* an optional finite per-subscriber delivery-attempt count (``max_attempts``),
+  defaulting to the historical single attempt so legacy direct bus use keeps its
+  exact behaviour;
+* replay-authorised dispatch, which delivers stored events only to subscribers
+  that explicitly opted in with ``accept_replay=True``.
+
+No second bus, retry engine, replay engine or dead-letter authority is added.
 """
 
 from __future__ import annotations
@@ -10,11 +20,13 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEvent,
     AgentRuntimeEventBusStats,
+    AgentRuntimeEventDeadLetter,
     AgentRuntimeEventDelivery,
     AgentRuntimeEventFilter,
     AgentRuntimeEventSubscription,
@@ -28,6 +40,9 @@ from cmm.agent_runtime.runtime_event_errors import (
 from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 
 HandlerType = Callable[[AgentRuntimeEvent], None]
+
+#: Historical Phase 9 behaviour: exactly one delivery attempt per subscriber.
+DEFAULT_MAX_DELIVERY_ATTEMPTS = 1
 
 
 @dataclass
@@ -51,9 +66,18 @@ class AgentRuntimeEventBus:
         self,
         registry: AgentRuntimeEventRegistry | None = None,
         max_queue_size: int = 10000,
+        max_delivery_attempts: int = DEFAULT_MAX_DELIVERY_ATTEMPTS,
     ) -> None:
+        if isinstance(max_delivery_attempts, bool) or not isinstance(
+            max_delivery_attempts, int
+        ):
+            raise TypeError("max_delivery_attempts must be an int")
+        if max_delivery_attempts < 1:
+            raise ValueError("max_delivery_attempts must be at least 1")
+
         self._registry = registry or AgentRuntimeEventRegistry(strict_mode=True)
         self._max_queue_size = max_queue_size
+        self._max_delivery_attempts = max_delivery_attempts
         self._lock = threading.Lock()
         self._subscribers: dict[str, _SubscriberRecord] = {}
         self._queue: deque[_QueuedEvent] = deque()
@@ -61,10 +85,19 @@ class AgentRuntimeEventBus:
         self._closed = False
         self._stats = AgentRuntimeEventBusStats()
         self._subscriber_counter = 0
+        #: Phase 11.22 DLQ collaboration, bound by the composed event system.
+        #: ``None`` preserves the historical bus-only behaviour exactly.
+        self._dead_letter_queue: Any = None
 
     @property
     def registry(self) -> AgentRuntimeEventRegistry:
         return self._registry
+
+    @property
+    def max_delivery_attempts(self) -> int:
+        """Return the configured finite per-subscriber delivery attempt count."""
+
+        return self._max_delivery_attempts
 
     @property
     def stats(self) -> AgentRuntimeEventBusStats:
@@ -79,11 +112,23 @@ class AgentRuntimeEventBus:
                 active_subscriptions=len(self._subscribers),
                 queue_size=len(self._queue),
                 replay_count=self._stats.replay_count,
+                retry_total=self._stats.retry_total,
             )
 
     def is_closed(self) -> bool:
         with self._lock:
             return self._closed
+
+    def bind_dead_letter_queue(self, dead_letter_queue: Any) -> None:
+        """Bind the canonical dead-letter queue used after retry exhaustion.
+
+        The queue remains owned by the Phase 9 dead-letter implementation; the
+        bus only appends to it, and only when a bounded delivery policy is
+        configured.
+        """
+
+        with self._lock:
+            self._dead_letter_queue = dead_letter_queue
 
     def publish(self, event: AgentRuntimeEvent) -> None:
         """Publish an event synchronously to all matching subscribers."""
@@ -118,8 +163,14 @@ class AgentRuntimeEventBus:
         filters: dict[str, Any] | None = None,
         priority: int = 0,
         metadata: dict[str, Any] | None = None,
+        accept_replay: bool = False,
     ) -> str:
-        """Subscribe a handler to events matching criteria."""
+        """Subscribe a handler to events matching criteria.
+
+        ``accept_replay`` defaults to ``False``: a legacy subscriber is never
+        silently upgraded to replay-enabled, so historical replay can not re-run
+        its side effects.
+        """
         if self._closed:
             raise AgentRuntimeEventBusClosedError("Event bus is closed")
 
@@ -134,6 +185,7 @@ class AgentRuntimeEventBus:
             filters=filters or {},
             priority=priority,
             metadata=metadata or {},
+            accept_replay=accept_replay,
         )
 
         filter_obj = AgentRuntimeEventFilter(
@@ -169,6 +221,36 @@ class AgentRuntimeEventBus:
         """Dispatch a single event immediately and synchronously."""
         self._dispatch_sync(event)
 
+    def deliver_replay(
+        self, event: AgentRuntimeEvent
+    ) -> list[AgentRuntimeEventDelivery]:
+        """Deliver a stored event to replay-authorised subscribers only.
+
+        The event identity, correlation, causation and facts are the original
+        stored ones: this call re-notifies subscribers and neither persists nor
+        re-publishes anything.  Subscribers that did not opt in with
+        ``accept_replay=True`` are skipped, and the historical per-subscriber
+        published-ID delivery guard does not apply to replay, because replay is
+        exactly the act of re-notifying a stored event.
+        """
+
+        with self._lock:
+            subscribers = sorted(
+                self._subscribers.values(),
+                key=lambda rec: rec.subscription.priority,
+            )
+
+        records: list[AgentRuntimeEventDelivery] = []
+        for record in subscribers:
+            records.append(self._deliver_replay_to_subscriber(event, record))
+
+        with self._lock:
+            self._stats.replay_count += sum(
+                1 for item in records if item.status == EventDeliveryStatus.DELIVERED
+            )
+
+        return records
+
     def drain(self) -> None:
         """Drain all queued events."""
         with self._lock:
@@ -191,8 +273,8 @@ class AgentRuntimeEventBus:
                 self._subscribers.values(),
                 key=lambda rec: rec.subscription.priority,
             )
-            delivery_records: list[AgentRuntimeEventDelivery] = []
 
+        delivery_records: list[AgentRuntimeEventDelivery] = []
         for record in subscribers:
             delivery = self._deliver_to_subscriber(event, record)
             delivery_records.append(delivery)
@@ -208,7 +290,10 @@ class AgentRuntimeEventBus:
                 1 for d in delivery_records if d.status == EventDeliveryStatus.DUPLICATE
             )
             self._stats.failed_total += sum(
-                1 for d in delivery_records if d.status == EventDeliveryStatus.FAILED
+                1
+                for d in delivery_records
+                if d.status
+                in (EventDeliveryStatus.FAILED, EventDeliveryStatus.DEAD_LETTERED)
             )
             self._stats.dead_letter_total += sum(
                 1
@@ -216,14 +301,36 @@ class AgentRuntimeEventBus:
                 if d.status == EventDeliveryStatus.DEAD_LETTERED
             )
 
+    @staticmethod
+    def _subscriber_accepts(
+        event: AgentRuntimeEvent, record: _SubscriberRecord
+    ) -> bool:
+        """Return whether *record* accepts *event*.
+
+        A subscription declares both the event types it accepts and an optional
+        filter.  Both are honoured: a subscriber to ``goal.created`` must never
+        receive an unrelated event merely because the optional filter is empty.
+        """
+
+        if event.header.event_type not in record.subscription.event_types:
+            return False
+        return record.filter.matches(event)
+
     def _deliver_to_subscriber(
         self, event: AgentRuntimeEvent, record: _SubscriberRecord
     ) -> AgentRuntimeEventDelivery:
-        """Deliver an event to a single subscriber."""
+        """Deliver an event to a single subscriber within its bounded policy.
+
+        Delivery is per subscriber: a failing subscriber retries only itself and
+        can never delay, repeat or block delivery to an independent subscriber.
+        Every attempt carries the same event identity, and no attempt creates a
+        new event.
+        """
+
         event_id = event.header.event_id
         subscription = record.subscription
 
-        if not record.filter.matches(event):
+        if not self._subscriber_accepts(event, record):
             return AgentRuntimeEventDelivery(
                 event_id=event_id,
                 subscription_id=subscription.id,
@@ -239,20 +346,146 @@ class AgentRuntimeEventBus:
                 status=EventDeliveryStatus.DUPLICATE,
             )
 
-        try:
-            record.handler(event)
+        attempts = 0
+        last_error: str | None = None
+        last_error_type: str | None = None
+
+        while attempts < self._max_delivery_attempts:
+            attempts += 1
+            try:
+                record.handler(event)
+            except Exception as exc:  # noqa: BLE001
+                last_error_type = type(exc).__name__
+                last_error = str(exc)
+                continue
+
             record.delivered_ids.add(event_id)
             return AgentRuntimeEventDelivery(
                 event_id=event_id,
                 subscription_id=subscription.id,
                 handler_name=subscription.handler_name,
                 status=EventDeliveryStatus.DELIVERED,
+                metadata={"attempts": attempts},
             )
-        except Exception as exc:  # noqa: BLE001
+
+        with self._lock:
+            self._stats.retry_total += attempts - 1
+            dead_letter_queue = self._dead_letter_queue
+
+        safe_error_type = last_error_type or "Exception"
+
+        if dead_letter_queue is not None:
+            # A configured bounded delivery policy exhausted: the canonical
+            # dead-letter path records exactly one entry for this delivery, and
+            # no raw exception text is stored or returned.
+            self._dead_letter(
+                event=event,
+                record=record,
+                attempts=attempts,
+                error_type=safe_error_type,
+            )
             return AgentRuntimeEventDelivery(
                 event_id=event_id,
                 subscription_id=subscription.id,
                 handler_name=subscription.handler_name,
-                status=EventDeliveryStatus.FAILED,
-                error=str(exc),
+                status=EventDeliveryStatus.DEAD_LETTERED,
+                error=safe_error_type,
+                metadata={"attempts": attempts, "error_type": safe_error_type},
             )
+
+        # No canonical dead-letter queue is bound, so this is direct legacy bus
+        # use.  A single attempt keeps the historical Phase 9 failure shape
+        # exactly; a multi-attempt configuration reports only the safe error
+        # category rather than raw exception text.
+        return AgentRuntimeEventDelivery(
+            event_id=event_id,
+            subscription_id=subscription.id,
+            handler_name=subscription.handler_name,
+            status=EventDeliveryStatus.FAILED,
+            error=last_error if self._max_delivery_attempts == 1 else safe_error_type,
+            metadata={"attempts": attempts},
+        )
+
+    def _deliver_replay_to_subscriber(
+        self, event: AgentRuntimeEvent, record: _SubscriberRecord
+    ) -> AgentRuntimeEventDelivery:
+        """Re-notify one replay-authorised subscriber with a stored event."""
+
+        event_id = event.header.event_id
+        subscription = record.subscription
+
+        if not subscription.accept_replay:
+            return AgentRuntimeEventDelivery(
+                event_id=event_id,
+                subscription_id=subscription.id,
+                handler_name=subscription.handler_name,
+                status=EventDeliveryStatus.SKIPPED,
+                metadata={"reason": "replay_not_accepted"},
+            )
+
+        if not self._subscriber_accepts(event, record):
+            return AgentRuntimeEventDelivery(
+                event_id=event_id,
+                subscription_id=subscription.id,
+                handler_name=subscription.handler_name,
+                status=EventDeliveryStatus.FILTERED,
+            )
+
+        attempts = 0
+        last_error_type: str | None = None
+
+        while attempts < self._max_delivery_attempts:
+            attempts += 1
+            try:
+                record.handler(event)
+            except Exception as exc:  # noqa: BLE001
+                last_error_type = type(exc).__name__
+                continue
+
+            return AgentRuntimeEventDelivery(
+                event_id=event_id,
+                subscription_id=subscription.id,
+                handler_name=subscription.handler_name,
+                status=EventDeliveryStatus.DELIVERED,
+                metadata={"attempts": attempts, "replay": True},
+            )
+
+        return AgentRuntimeEventDelivery(
+            event_id=event_id,
+            subscription_id=subscription.id,
+            handler_name=subscription.handler_name,
+            status=EventDeliveryStatus.FAILED,
+            metadata={
+                "attempts": attempts,
+                "replay": True,
+                "error_type": last_error_type or "Exception",
+            },
+        )
+
+    def _dead_letter(
+        self,
+        *,
+        event: AgentRuntimeEvent,
+        record: _SubscriberRecord,
+        attempts: int,
+        error_type: str,
+    ) -> None:
+        """Append exactly one canonical dead-letter entry for an exhausted delivery."""
+
+        subscription = record.subscription
+        now = datetime.now(timezone.utc)
+        entry = AgentRuntimeEventDeadLetter(
+            event=event,
+            subscription_id=subscription.id,
+            handler_name=subscription.handler_name,
+            error=error_type,
+            error_type=error_type,
+            attempts=attempts,
+            first_failed_at=now,
+            last_failed_at=now,
+            metadata={"category": "subscriber_delivery_exhausted"},
+        )
+        with self._lock:
+            queue = self._dead_letter_queue
+        if queue is not None:
+            queue.add(entry)
