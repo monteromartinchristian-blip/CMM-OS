@@ -2882,9 +2882,94 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
+**Implementation status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Design Point:** `DP-122`
+**Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
+**Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
+**Design specification:** `docs/superpowers/specs/2026-09-26-phase-11.22-event-system-design.md`
+**Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
+
+> The broad roadmap wording below is preserved unchanged. The scoped
+> implementation record follows it.
+
+# 11.22 — Event System
+
 ## Objective
 
 Connect components through events without creating direct dependencies.
+# 11.22 — Event System
+
+## Objective
+
+Connect components through events without creating direct dependencies.
+
+## Scoped implementation record
+
+Phase 11.22 is an **integration and hardening** phase over the existing Phase 9
+runtime event infrastructure. It adds no second event system.
+
+```text
+DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
+AT-DP-122=PASS_REPORTED
+```
+
+What was implemented:
+
+- one canonical transport, reused: `AgentRuntimeEventBus` (now with an additive
+  finite per-subscriber attempt count, replay-authorised dispatch and canonical
+  dead-letter binding);
+- one canonical registry, reused: `AgentRuntimeEventRegistry` through the Phase 9
+  event-type map, extended additively with sixteen platform event names;
+- one canonical repository contract, reused and implemented durably:
+  `FileAgentRuntimeEventRepository` (append-only JSONL, canonical
+  serialization/deserialization, `fsync` before success, restrictive permissions,
+  content-bound deduplication, fail-closed corruption handling);
+- one canonical replay owner, extended: `AgentRuntimeEventReplayer` now
+  re-notifies stored events instead of attempting to re-save them;
+- one canonical dead-letter authority, reused unchanged;
+- an immutable twenty-name platform event catalog with exactly one producer
+  disposition per name, registered through the canonical authority rather than a
+  second registry;
+- explicit one-way translation tables for orchestration and kernel events, with
+  unmapped facts observed and skipped rather than guessed;
+- one payload safety gate that rejects unsafe content before persistence;
+- the thin `EventSystem` composition facade owning the persist-before-deliver
+  ordering, idempotent duplicate handling and fail-closed identity conflicts;
+- a production `OrchestrationEventSink` adapter and a one-way
+  `kernel.events.Event` adapter;
+- one Phase 11.1 composition module (`phase11_22_events`) with seven enforceable
+  service bindings, composed into the production local runtime;
+- an explicit, deterministic durable-storage location that is never the source
+  tree;
+- read-only stats/health projection for Phase 11.23.
+
+What Phase 11.22 does **not** add, by explicit design ruling:
+
+```text
+SECOND_EVENT_BUS=FORBIDDEN
+SECOND_EVENT_REGISTRY=FORBIDDEN
+SECOND_REPOSITORY_PROTOCOL=FORBIDDEN
+SECOND_REPLAY_ENGINE=FORBIDDEN
+SECOND_DLQ_AUTHORITY=FORBIDDEN
+BROKER_ABSTRACTION=FORBIDDEN
+COMMAND_BUS=FORBIDDEN
+JOB_QUEUE=FORBIDDEN
+SERVICE_LOCATOR=FORBIDDEN
+SECOND_APPLICATION_CONTAINER=FORBIDDEN
+EXTERNAL_BROKER_DEPENDENCY=FORBIDDEN
+HTTP_SSE_WEBSOCKET_EVENT_ROUTE=FORBIDDEN
+CMMCHAT_INTEGRATION=NOT_IMPLEMENTED
+OBSERVABILITY_BACKEND=PHASE_11_23
+GENERAL_RECOVERY=PHASE_11_24
+```
+
+Six catalog names are registered but reserved because no canonical owner exposes
+a safe emission seam yet: `session.created`, `reasoning.completed`,
+`knowledge.updated`, `backup.created`, `plugin.failed`, `security.alert`. No
+producer was fabricated to make the catalog appear active.
+
+Gate results are recorded in the reference document and the requirements matrix.
+The phase remains open until independent audit.
 
 ## Event
 
