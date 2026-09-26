@@ -103,6 +103,12 @@ class ClientResolvedModel:
     supports_vision: bool = False
     reasoning_efforts: tuple[str, ...] = ()
     document_media_types: tuple[str, ...] = ()
+    capabilities: Mapping[str, bool] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "capabilities", MappingProxyType(dict(self.capabilities))
+        )
 
 
 @dataclass(frozen=True, slots=True)
