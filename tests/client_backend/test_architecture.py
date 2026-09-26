@@ -470,6 +470,28 @@ def test_the_closed_layers_never_import_the_client_backend(layer: str) -> None:
     assert offenders == []
 
 
+def test_the_facade_declares_the_exact_runtime_contract_marker() -> None:
+    """``ClientBackend`` opts into the platform's exact runtime-contract rule.
+
+    Remediation V2 (Re-audit V2 MAJOR_V2_01) requires the canonical
+    ``client.backend`` composition identity to be the exact concrete facade type,
+    enforced authoritatively by the Phase 11.1 registry.  The facade declares that
+    requirement as private validation metadata on the runtime contract, and the
+    declaration creates no import edge back into ``cmm.platform``: the registry
+    reads the marker off the contract object it was handed.
+    """
+
+    from cmm.client_backend import ClientBackend
+
+    assert ClientBackend.__cmm_exact_runtime_contract__ is True
+
+    interface_imports = _imported_modules(CLIENT_BACKEND_PACKAGE / "interface.py")
+    assert not any(
+        module == "cmm.platform" or module.startswith("cmm.platform.")
+        for module in interface_imports
+    ), sorted(interface_imports)
+
+
 # ── No dynamic dispatch or service locator ───────────────────────────────────
 
 

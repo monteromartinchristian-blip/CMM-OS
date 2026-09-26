@@ -31,6 +31,12 @@ Scenario map (all connected, in one acceptance):
 * **A** — exact authority identity, proven behaviorally over two distinct
   canonical graphs (remediated by Audit V1 MAJOR-01: no public live-owner
   accessor exists);
+* **A2** — authoritative exact ``client.backend`` composition identity: a
+  hand-built ``ServiceBinding`` claiming the canonical descriptor with a facade
+  *subclass* implementation is rejected by the authoritative
+  ``IntegrationServiceRegistry`` on both ``register()`` and ``replace()``, while
+  the exact facade is accepted (added by Remediation V2 for Re-audit V2
+  MAJOR_V2_01);
 * **B** — session round trip through the facade over the canonical session store;
 * **C** — submit-message traversal through ``ConversationService`` →
   ``ApplicationGateway`` with canonical identities and safe ``AssistantResponse``;
@@ -91,6 +97,14 @@ from cmm.conversation.errors import (
     ConversationErrorCode,
     ConversationSessionConflictError,
 )
+from cmm.platform.configuration import CompositionConfiguration
+from cmm.platform.contracts import (
+    RuntimeContractMatch,
+    ServiceBinding,
+    ServiceDescriptor,
+)
+from cmm.platform.errors import DuplicateServiceError, IncompatibleContractError
+from cmm.platform.service_registry import IntegrationServiceRegistry
 from tests.client_backend._canonical_graph import build_client_backend_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -302,6 +316,177 @@ def test_at_dp150_scenario_a_exact_authority_identity() -> None:
     # through the narrowed coherence evidence, not by handing back an owner.
     with pytest.raises(ValueError):
         ClientBackend(gateway=other.gateway, conversation=graph.conversation)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Scenario A2 — authoritative exact client.backend composition identity
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _canonical_descriptor(graph) -> ServiceDescriptor:
+    """Return the real canonical ``client.backend`` descriptor.
+
+    The descriptor is copied from the official Phase 11.1 contribution built over
+    the real canonical facade, so the adversarial binding carries exactly the
+    identity the composed graph would use.
+    """
+
+    module = build_client_backend_composition_module(service=graph.client)
+    contributed = module.contribute(CompositionConfiguration())
+    assert len(contributed) == 1
+    binding = contributed[0]
+    assert binding.descriptor.service_id == CLIENT_BACKEND_SERVICE_ID
+    assert binding.runtime_contract is ClientBackend
+    return binding.descriptor
+
+
+def _adversarial_subclass(graph) -> ClientBackend:
+    """Build a facade subclass carrying the official facade's instance state."""
+
+    class ClientBackendSubclass(ClientBackend):
+        """A facade subclass: only its exact type differs from the official one."""
+
+    subclass = ClientBackendSubclass.__new__(ClientBackendSubclass)
+    subclass.__dict__.update(graph.client.__dict__)
+    assert isinstance(subclass, ClientBackend)
+    assert type(subclass) is not ClientBackend
+    return subclass
+
+
+def test_at_dp150_scenario_a2_authoritative_exact_composition_identity() -> None:
+    """The authoritative registry, not the builder, owns the exact identity.
+
+    Independent Re-audit V2 (MAJOR_V2_01) reproduced that
+    ``IntegrationServiceRegistry`` ACCEPTED a hand-built ``ServiceBinding`` whose
+    implementation was a ``ClientBackend`` *subclass*, because the registry fell
+    back to ``isinstance``.  Testing the convenience builder alone is therefore
+    insufficient, and this scenario drives the authoritative registry path
+    directly:
+
+    ```text
+    1. build a real canonical ClientBackend
+    2. create ClientBackendSubclass adversarially
+    3. obtain the canonical client.backend descriptor
+    4. hand-build a valid ServiceBinding
+    5. call IntegrationServiceRegistry.register()
+    6. prove the subclass binding is REJECTED
+    7. hand-build the exact ClientBackend binding and prove it is ACCEPTED
+    ```
+    """
+
+    graph = build_client_backend_graph()
+    canonical = graph.client
+    assert type(canonical) is ClientBackend
+
+    descriptor = _canonical_descriptor(graph)
+    subclass = _adversarial_subclass(graph)
+
+    registry = IntegrationServiceRegistry()
+
+    # 4-6: the hand-built subclass binding cannot claim the canonical identity.
+    hand_built_subclass = ServiceBinding(
+        descriptor=descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(hand_built_subclass)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
+    assert registry.list_bindings() == ()
+
+    # 7: the exact canonical facade registers through the very same manual path.
+    hand_built_exact = ServiceBinding(
+        descriptor=descriptor,
+        implementation=canonical,
+        runtime_contract=ClientBackend,
+    )
+    registry.register(hand_built_exact)
+
+    stored = registry.get(CLIENT_BACKEND_SERVICE_ID)
+    assert stored is hand_built_exact
+    assert stored is not None
+    assert stored.implementation is canonical
+    assert type(stored.implementation) is ClientBackend
+
+    # The exact identity is also the *declared* canonical contribution.
+    official = build_client_backend_composition_module(service=canonical).contribute(
+        CompositionConfiguration()
+    )[0]
+    assert official.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE
+
+    # Registering the canonical contribution after the manual binding is a
+    # duplicate, not a silent override: the manual path gained no privilege.
+    with pytest.raises(DuplicateServiceError) as duplicate:
+        registry.register(official)
+    assert duplicate.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+
+
+def test_at_dp150_scenario_a2_replacement_cannot_swap_in_a_subclass() -> None:
+    """``CLIENT_BACKEND_SUBCLASS_REPLACEMENT=REJECTED``.
+
+    ``register()`` and ``replace()`` share one authoritative runtime-contract
+    assertion path, so the replacement entry point is not an escape hatch: the
+    exact binding stays in place and no subclass ever claims the identity.
+    """
+
+    graph = build_client_backend_graph()
+    canonical = graph.client
+    descriptor = _canonical_descriptor(graph)
+    subclass = _adversarial_subclass(graph)
+
+    registry = IntegrationServiceRegistry()
+    exact_binding = ServiceBinding(
+        descriptor=descriptor,
+        implementation=canonical,
+        runtime_contract=ClientBackend,
+    )
+    registry.register(exact_binding)
+
+    subclass_binding = ServiceBinding(
+        descriptor=descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.replace(CLIENT_BACKEND_SERVICE_ID, subclass_binding)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+
+    resolved = registry.get(CLIENT_BACKEND_SERVICE_ID)
+    assert resolved is exact_binding
+    assert resolved is not None
+    assert resolved.implementation is canonical
+    assert type(resolved.implementation) is ClientBackend
+
+
+def test_at_dp150_scenario_a2_omitted_match_mode_cannot_downgrade() -> None:
+    """A binding that omits ``runtime_contract_match`` is still exact.
+
+    Omitting the field leaves the Phase 11.1 default ``INSTANCE_OF`` — the exact
+    audited bypass shape — and the canonical contract's own marker upgrades the
+    effective rule to ``EXACT_TYPE``.
+    """
+
+    graph = build_client_backend_graph()
+    descriptor = _canonical_descriptor(graph)
+    subclass = _adversarial_subclass(graph)
+
+    hand_built = ServiceBinding(
+        descriptor=descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+    assert hand_built.runtime_contract_match is RuntimeContractMatch.INSTANCE_OF
+
+    registry = IntegrationServiceRegistry()
+    with pytest.raises(IncompatibleContractError):
+        registry.register(hand_built)
+
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
