@@ -16,6 +16,16 @@ from __future__ import annotations
 import heapq
 
 from cmm.platform.compatibility import check_contract_compatibility
+
+# The registry reuses the configuration module's single canonicalization of
+# ``ServiceExpectation`` values, so a configured expectation set is validated and
+# ordered identically wherever it is installed.  Both modules live in the same
+# package and the helper stays private: the registry grows no second public
+# configuration surface.
+from cmm.platform.configuration import (
+    ServiceExpectation,
+    _canonicalize_expectations,
+)
 from cmm.platform.contracts import RuntimeContractMatch, ServiceBinding
 from cmm.platform.errors import (
     CircularDependencyError,
@@ -23,6 +33,7 @@ from cmm.platform.errors import (
     DuplicateServiceError,
     FrozenServiceRegistryError,
     IncompatibleContractError,
+    InvalidConfigurationError,
     InvalidReplacementError,
     MissingDependencyError,
 )
@@ -92,16 +103,110 @@ def _assert_runtime_contract(binding: ServiceBinding) -> None:
         )
 
 
+def _assert_expectation_contract(
+    binding: ServiceBinding, expectation: ServiceExpectation
+) -> None:
+    """Require the bound descriptor contract to satisfy *expectation*.
+
+    Compatibility reuses the one Phase 11.1 engine; no second compatibility rule
+    is introduced here.
+    """
+
+    compatibility = check_contract_compatibility(
+        expectation.contract, binding.descriptor.contract
+    )
+    if not compatibility.compatible:
+        raise IncompatibleContractError(
+            "Bound descriptor contract does not satisfy the configured "
+            "service expectation",
+            details={
+                "service_id": binding.descriptor.service_id,
+                "reason_code": compatibility.reason_code,
+            },
+        )
+
+
+def _assert_expectation_runtime_contract(
+    binding: ServiceBinding,
+    expectation: ServiceExpectation,
+    expected_contract: type,
+) -> None:
+    """Enforce the authoritative runtime identity declared by *expectation*.
+
+    ``expectation.runtime_contract`` — never the caller-authored
+    ``binding.runtime_contract`` — is the authority.  The binding field is only a
+    declaration that must agree with it, so a hand-built binding can neither omit
+    the runtime contract, substitute ``object`` or a subclass for it, nor
+    downgrade an exact rule back to subtype-compatible matching.  The bound
+    implementation is then judged against the expectation.
+    """
+
+    service_id = binding.descriptor.service_id
+
+    if binding.runtime_contract is not expected_contract:
+        raise IncompatibleContractError(
+            "Binding runtime contract declaration does not match the configured "
+            "service expectation",
+            details={
+                "service_id": service_id,
+                "reason_code": RUNTIME_CONTRACT_MISMATCH,
+            },
+        )
+
+    if expectation.runtime_contract_match is RuntimeContractMatch.EXACT_TYPE:
+        if binding.runtime_contract_match is not RuntimeContractMatch.EXACT_TYPE:
+            raise IncompatibleContractError(
+                "Binding declaration cannot downgrade the configured exact "
+                "runtime contract match",
+                details={
+                    "service_id": service_id,
+                    "reason_code": RUNTIME_CONTRACT_MISMATCH,
+                },
+            )
+        satisfied = type(binding.implementation) is expected_contract
+    else:
+        # Fail closed rather than raising: even if a malformed expectation
+        # somehow reached the registry, the bound implementation is rejected
+        # instead of the check failing open.
+        try:
+            satisfied = isinstance(binding.implementation, expected_contract)
+        except TypeError:
+            satisfied = False
+
+    if not satisfied:
+        raise IncompatibleContractError(
+            "Bound implementation does not satisfy the configured runtime expectation",
+            details={
+                "service_id": service_id,
+                "reason_code": RUNTIME_CONTRACT_MISMATCH,
+            },
+        )
+
+
 class IntegrationServiceRegistry:
     """Registry of platform composition bindings.
 
     Supports explicit registration, lookup, deterministic listing, explicit
     replacement before freeze, freeze semantics and graph validation.
+
+    The registry also holds the **authoritative** runtime expectations of the
+    services it composes.  When a :class:`ServiceExpectation` declares a runtime
+    contract, that expectation decides which runtime type may claim the service
+    identity: the binding must declare the same contract and match rule, and the
+    bound implementation is judged against the expectation.  When no expectation
+    is configured for a service ID, the inherited Phase 11.1 binding-declared
+    behavior is preserved unchanged.
+
+    The expectation set is copied, sorted and externally immutable, and it may
+    only be strengthened — never weakened or replaced — so no composition can
+    silently relax the identity of a service it already configured.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, expected_contracts: tuple[ServiceExpectation, ...] = ()) -> None:
         self._bindings: dict[str, ServiceBinding] = {}
+        self._expected_contracts: dict[str, ServiceExpectation] = {}
         self._frozen = False
+        self._install_expected_contracts(expected_contracts)
 
     # ── State ────────────────────────────────────────────────────────────────
 
@@ -115,6 +220,114 @@ class IntegrationServiceRegistry:
         """Freeze the registry.  Idempotent; further mutation fails closed."""
 
         self._frozen = True
+
+    # ── Authoritative service expectations ───────────────────────────────────
+    #
+    # Remediation V3 for Phase 11.50 MAJOR_V3_01.  The runtime identity of a
+    # configured service is owned by the existing Phase 11.1
+    # ``CompositionConfiguration.expected_contracts`` path, not by the
+    # caller-authored ``ServiceBinding.runtime_contract`` field that is being
+    # validated.  The registry only reads generic ``ServiceExpectation`` data: no
+    # service ID, authority string or product-specific type is special-cased.
+
+    def configure_expected_contracts(
+        self, expected_contracts: tuple[ServiceExpectation, ...]
+    ) -> None:
+        """Attach authoritative service expectations to an existing registry.
+
+        The operation is monotonic and atomic.  The candidate set must contain
+        every already-configured expectation unchanged, so a later weaker,
+        removed or different policy fails closed with
+        :class:`~cmm.platform.errors.InvalidConfigurationError`; reapplying a
+        semantically identical set is idempotent.  When the registry already
+        holds bindings, every affected binding is validated against the candidate
+        set *before* any expectation is installed, so a rejection leaves both the
+        expectation state and the binding state exactly as they were.
+        """
+
+        if self._frozen:
+            raise FrozenServiceRegistryError(
+                "Cannot configure expectations on a frozen service registry"
+            )
+
+        self._install_expected_contracts(expected_contracts)
+
+    def expected_contract_for(self, service_id: str) -> ServiceExpectation | None:
+        """Return the authoritative expectation configured for *service_id*.
+
+        One generic lookup by service identity: no service ID, authority string
+        or product-specific knowledge is special-cased.
+        """
+
+        return self._expected_contracts.get(service_id)
+
+    def expected_contracts(self) -> tuple[ServiceExpectation, ...]:
+        """Return the configured expectations in deterministic service-ID order.
+
+        A read-only projection: the registry never hands out its internal
+        expectation state.
+        """
+
+        return tuple(
+            self._expected_contracts[service_id]
+            for service_id in sorted(self._expected_contracts)
+        )
+
+    def _install_expected_contracts(
+        self,
+        expected_contracts: tuple[ServiceExpectation, ...],
+    ) -> None:
+        """Validate one candidate expectation set, then install it atomically."""
+
+        canonical = _canonicalize_expectations(expected_contracts)
+        candidate = {item.service_id: item for item in canonical}
+
+        for service_id, current in self._expected_contracts.items():
+            if candidate.get(service_id) != current:
+                raise InvalidConfigurationError(
+                    "Configured service expectations cannot be weakened, "
+                    "removed or replaced",
+                    details={"service_id": service_id},
+                )
+
+        if candidate == self._expected_contracts:
+            return
+
+        # Atomic attachment: validate every already-registered binding the
+        # candidate set covers before a single expectation is installed.
+        for service_id in sorted(candidate):
+            binding = self._bindings.get(service_id)
+            if binding is not None:
+                self._assert_binding_acceptable(binding, candidate[service_id])
+
+        self._expected_contracts.update(candidate)
+
+    def _assert_binding_acceptable(
+        self,
+        binding: ServiceBinding,
+        expectation: ServiceExpectation | None,
+    ) -> None:
+        """The one expectation-aware validation path shared by register/replace.
+
+        With an authoritative expectation the expectation decides; the binding's
+        own runtime declaration is only checked for agreement.  Without one, the
+        inherited Phase 11.1 binding-declared semantics are preserved unchanged.
+        """
+
+        if expectation is None:
+            _assert_runtime_contract(binding)
+            return
+
+        _assert_expectation_contract(binding, expectation)
+
+        expected_contract = expectation.runtime_contract
+        if expected_contract is None:
+            # A legacy expectation adds no authoritative runtime-type policy, so
+            # the binding keeps the inherited Phase 11.1 runtime semantics.
+            _assert_runtime_contract(binding)
+            return
+
+        _assert_expectation_runtime_contract(binding, expectation, expected_contract)
 
     # ── Registration ─────────────────────────────────────────────────────────
 
@@ -138,7 +351,9 @@ class IntegrationServiceRegistry:
                 details={"service_id": service_id},
             )
 
-        _assert_runtime_contract(binding)
+        self._assert_binding_acceptable(
+            binding, self._expected_contracts.get(service_id)
+        )
 
         self._bindings[service_id] = binding
         return binding
@@ -149,6 +364,11 @@ class IntegrationServiceRegistry:
         Replacement keeps the service ID stable and requires a compatible
         contract.  Neither the replaced nor the replacement implementation is
         mutated.
+
+        Replacement changes the *binding only*: the authoritative expectation
+        configured for the service is untouched, and the replacement is validated
+        against that same expectation through the one shared assertion path that
+        ``register()`` uses.
         """
 
         if not isinstance(binding, ServiceBinding):
@@ -187,7 +407,9 @@ class IntegrationServiceRegistry:
                 details={**details, "reason_code": compatibility.reason_code},
             )
 
-        _assert_runtime_contract(binding)
+        self._assert_binding_acceptable(
+            binding, self._expected_contracts.get(service_id)
+        )
 
         self._bindings[service_id] = binding
         return binding

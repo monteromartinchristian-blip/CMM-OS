@@ -14,8 +14,9 @@ never be silently collapsed into a valid one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
-from cmm.platform.contracts import ContractMetadata
+from cmm.platform.contracts import ContractMetadata, RuntimeContractMatch
 from cmm.platform.errors import InvalidConfigurationError
 
 
@@ -66,10 +67,34 @@ def _canonicalize_identifiers(
 
 @dataclass(frozen=True, slots=True)
 class ServiceExpectation:
-    """A configured expectation about one composed service contract."""
+    """A configured expectation about one composed service contract.
+
+    ``runtime_contract`` and ``runtime_contract_match`` are the *optional*
+    authoritative runtime-identity policy of this expectation.
+
+    With both left at ``None`` the expectation is a legacy Phase 11.1
+    expectation: it constrains the descriptor contract only, and the binding's
+    own runtime declaration keeps its inherited Phase 11.1 semantics.
+
+    With ``runtime_contract`` declared, this expectation — not the
+    caller-authored :attr:`~cmm.platform.contracts.ServiceBinding.runtime_contract`
+    field — is authoritative.  A binding may only *declare* the expected runtime
+    contract, and the bound implementation is judged against the expectation.
+    ``runtime_contract_match`` selects ``EXACT_TYPE`` (``type(implementation) is
+    runtime_contract``) or ``INSTANCE_OF`` (``isinstance(implementation,
+    runtime_contract)``).
+
+    A partially declared runtime policy fails closed: a match rule without a
+    runtime contract, a runtime contract without a match rule, and a runtime
+    contract that is not a real Python type are all rejected.  Strings, import
+    paths, callables and arbitrary objects are never accepted as runtime
+    contracts.
+    """
 
     service_id: str
     contract: ContractMetadata
+    runtime_contract: type[Any] | None = None
+    runtime_contract_match: RuntimeContractMatch | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -83,10 +108,39 @@ class ServiceExpectation:
                 details={"field": "contract"},
             )
 
+        if self.runtime_contract is None:
+            if self.runtime_contract_match is not None:
+                raise InvalidConfigurationError(
+                    "runtime_contract_match requires runtime_contract",
+                    details={"field": "runtime_contract_match"},
+                )
+            return
+
+        if not isinstance(self.runtime_contract, type):
+            raise InvalidConfigurationError(
+                "runtime_contract must be a real Python type",
+                details={"field": "runtime_contract"},
+            )
+        if not isinstance(self.runtime_contract_match, RuntimeContractMatch):
+            raise InvalidConfigurationError(
+                "runtime_contract requires a RuntimeContractMatch",
+                details={"field": "runtime_contract_match"},
+            )
+
 
 def _canonicalize_expectations(
     values: tuple[ServiceExpectation, ...],
 ) -> tuple[ServiceExpectation, ...]:
+    """Validate and canonicalize one expectation set.
+
+    This is the single canonicalization of ``ServiceExpectation`` values: the
+    composition configuration and the Phase 11.1 integration service registry
+    both route through it, so a configured expectation set has exactly one
+    meaning and one failure mode wherever it is installed.  Duplicates fail
+    closed rather than being silently collapsed, and the result is sorted by
+    service ID so no policy can depend on declaration order.
+    """
+
     if not isinstance(values, tuple):
         raise InvalidConfigurationError(
             "expected_contracts must be a tuple",

@@ -75,10 +75,17 @@ class ApplicationContainer:
         """Build a ready composition, or fail closed with a typed error.
 
         The pipeline order is fixed and matches the approved readiness
-        semantics: validate configuration, validate module IDs, select enabled
-        modules, collect contributions, register bindings, verify required
-        services, verify expected contracts, validate the graph, freeze, build a
-        safe snapshot, and only then become ready.
+        semantics: validate configuration and make its authoritative service
+        expectations active, validate module IDs, select enabled modules, collect
+        contributions, register bindings, verify required services, verify
+        expected contracts, validate the graph, freeze, build a safe snapshot, and
+        only then become ready.
+
+        ``configuration.expected_contracts`` is authoritative: for a registry the
+        container creates it is installed before any module registers, and for a
+        caller-supplied registry it is attached (or revalidated) atomically before
+        READY.  A composition can therefore never become READY while a binding
+        violates the runtime identity its configuration declares.
         """
 
         # 1. Validate configuration (and the supplied registry).
@@ -89,17 +96,28 @@ class ApplicationContainer:
             )
 
         if registry is None:
-            registry = IntegrationServiceRegistry()
+            # The configuration's authoritative service expectations must be
+            # active *before* any module contribution registers, so a bad
+            # contributed binding fails at registration rather than only at final
+            # inspection.
+            registry = IntegrationServiceRegistry(configuration.expected_contracts)
         elif not isinstance(registry, IntegrationServiceRegistry):
             raise InvalidConfigurationError(
                 "registry must be an IntegrationServiceRegistry",
                 details={"field": "registry"},
             )
+        else:
+            if registry.frozen:
+                raise FrozenServiceRegistryError(
+                    "Composition registry must not be frozen before the build"
+                )
 
-        if registry.frozen:
-            raise FrozenServiceRegistryError(
-                "Composition registry must not be frozen before the build"
-            )
+            # Composing an already-populated registry stays supported, but it can
+            # no longer bypass the configuration's expectations: they are
+            # attached (or revalidated) atomically before the composition may
+            # reach READY, so a pre-populated forged binding is rejected here and
+            # the registry keeps its previous expectation and binding state.
+            registry.configure_expected_contracts(configuration.expected_contracts)
 
         # 2. Validate module IDs.
         module_ids: list[str] = []

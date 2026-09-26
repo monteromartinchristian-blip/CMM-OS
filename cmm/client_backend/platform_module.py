@@ -11,10 +11,18 @@ the composition root, and the binding declares an enforceable runtime contract â
 the exact concrete :class:`~cmm.client_backend.interface.ClientBackend` type, with
 ``RuntimeContractMatch.EXACT_TYPE`` â€” so an unrelated object, and equally a
 *subclass* of the facade, can never claim the public client-backend identity.
-The builder check below is only fail-fast convenience validation: the
-authoritative gate is ``IntegrationServiceRegistry.register()`` / ``replace()``,
-which enforces the exact match carried by the contract itself, so the same
-identity holds for a hand-built ``ServiceBinding``.
+
+The builder check below is only fail-fast convenience validation, and the
+binding's declaration is only a declaration.  The **authority** is
+:func:`client_backend_service_expectation`, the canonical Phase 11.1
+``ServiceExpectation`` for ``client.backend`` that the composition root carries
+through ``CompositionConfiguration.expected_contracts``.  Remediation V3 moved the
+authority there because a hand-built ``ServiceBinding`` can replace its own
+``runtime_contract`` field and thereby hide the contract marker the V2 rule read
+off that same caller-controlled field (Re-audit V3 ``MAJOR_V3_01``).  The
+configured ``IntegrationServiceRegistry`` now enforces the expectation on both
+``register()`` and ``replace()``, so the exact identity holds for a hand-built
+binding whose runtime declaration is hostile.
 
 ``client-backend-public-facade`` is the only authority claimed here, and it is
 deliberately a *facade* authority: the layer owns no session, conversation,
@@ -42,6 +50,7 @@ from cmm.client_backend.contracts import (
     CLIENT_BACKEND_SERVICE_ID,
 )
 from cmm.client_backend.interface import ClientBackend
+from cmm.platform.configuration import ServiceExpectation
 from cmm.platform.contracts import (
     ContractMetadata,
     RuntimeContractMatch,
@@ -66,6 +75,7 @@ __all__ = [
     "CONVERSATION_OWNER",
     "CONVERSATION_SCHEMA_VERSION",
     "build_client_backend_composition_module",
+    "client_backend_service_expectation",
 ]
 
 CLIENT_BACKEND_OWNER = "cmm.client_backend"
@@ -121,6 +131,30 @@ def _conversation_contract() -> ContractMetadata:
 def _implementation_id(implementation: Any) -> str:
     implementation_type = type(implementation)
     return f"{implementation_type.__module__}.{implementation_type.__qualname__}"
+
+
+def client_backend_service_expectation() -> ServiceExpectation:
+    """Return the canonical authoritative expectation for ``client.backend``.
+
+    This is the authority for the runtime identity of the composed client
+    backend: the exact concrete :class:`~cmm.client_backend.interface.ClientBackend`
+    type with ``RuntimeContractMatch.EXACT_TYPE``.  It travels to the Phase 11.1
+    composition root through ``CompositionConfiguration.expected_contracts``, so
+    the identity no longer rests on the caller-authored
+    ``ServiceBinding.runtime_contract`` field that the registry is validating
+    (Remediation V3, Re-audit V3 ``MAJOR_V3_01``).
+
+    The expectation constrains the descriptor contract and the runtime identity
+    only; it claims no additional authority and adds no first-party client
+    operation.
+    """
+
+    return ServiceExpectation(
+        service_id=CLIENT_BACKEND_SERVICE_ID,
+        contract=_boundary_contract(CLIENT_BACKEND_SERVICE_ID),
+        runtime_contract=ClientBackend,
+        runtime_contract_match=RuntimeContractMatch.EXACT_TYPE,
+    )
 
 
 def build_client_backend_composition_module(
