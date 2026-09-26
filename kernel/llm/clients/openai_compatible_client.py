@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import os
 from collections.abc import Iterator, Sequence
 from threading import Event
 from typing import Any
@@ -42,13 +44,18 @@ class OpenAICompatibleClient:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        upstream_model = self._provider_model_id(model)
         parameters: dict[str, Any] = {
-            "model": model,
+            "model": upstream_model,
             "messages": messages,
             "temperature": temperature,
         }
         if max_tokens is not None:
             parameters["max_tokens"] = max_tokens
+
+        extra_body = self._extra_body_for_model(upstream_model)
+        if extra_body:
+            parameters["extra_body"] = extra_body
 
         try:
             response = client.chat.completions.create(**parameters)
@@ -98,14 +105,19 @@ class OpenAICompatibleClient:
 
         client = self._client or self._build_client()
 
+        upstream_model = self._provider_model_id(model)
         parameters: dict[str, Any] = {
-            "model": model,
+            "model": upstream_model,
             "messages": list(messages),
             "temperature": temperature,
             "stream": True,
         }
         if max_tokens is not None:
             parameters["max_tokens"] = max_tokens
+
+        extra_body = self._extra_body_for_model(upstream_model)
+        if extra_body:
+            parameters["extra_body"] = extra_body
 
         try:
             stream = client.chat.completions.create(**parameters)
@@ -132,6 +144,68 @@ class OpenAICompatibleClient:
                     close()
                 except Exception:  # noqa: BLE001, S110 - best effort
                     pass
+
+    @staticmethod
+    def _provider_model_id(model: str) -> str:
+        """Resolve a canonical model id to its opaque upstream provider id."""
+
+        raw = os.getenv("CMM_OPENAI_COMPAT_MODEL_ID_MAP_JSON", "").strip()
+        if not raw:
+            return model
+
+        try:
+            configured = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ProviderError(
+                "OpenAI-compatible model id map contains invalid JSON"
+            ) from error
+
+        if not isinstance(configured, dict):
+            raise ProviderError(
+                "OpenAI-compatible model id map must be a JSON object"
+            )
+
+        selected = configured.get(model)
+        if selected is None:
+            return model
+
+        if not isinstance(selected, str) or not selected.strip():
+            raise ProviderError(
+                "OpenAI-compatible provider model id must be a non-empty string"
+            )
+
+        return selected.strip()
+
+    @staticmethod
+    def _extra_body_for_model(model: str) -> dict[str, Any] | None:
+        """Return configured non-standard Chat Completions fields for one model."""
+
+        raw = os.getenv("CMM_OPENAI_COMPAT_MODEL_OVERRIDES_JSON", "").strip()
+        if not raw:
+            return None
+
+        try:
+            configured = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ProviderError(
+                "OpenAI-compatible model overrides contain invalid JSON"
+            ) from error
+
+        if not isinstance(configured, dict):
+            raise ProviderError(
+                "OpenAI-compatible model overrides must be a JSON object"
+            )
+
+        selected = configured.get(model)
+        if selected is None:
+            return None
+
+        if not isinstance(selected, dict):
+            raise ProviderError(
+                "OpenAI-compatible model override must be a JSON object"
+            )
+
+        return dict(selected)
 
     def list_models(self) -> tuple[str, ...]:
         """Discover model IDs via the administrative /models endpoint.
