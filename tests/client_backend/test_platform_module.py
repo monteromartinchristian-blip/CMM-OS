@@ -73,7 +73,9 @@ from cmm.orchestration.platform_module import (
 from cmm.platform.configuration import CompositionConfiguration
 from cmm.platform.container import ApplicationContainer
 from cmm.platform.contracts import ContainerState, ServiceBinding, ServiceMode
+from cmm.platform.errors import IncompatibleContractError
 from cmm.platform.modules import StaticCompositionModule
+from cmm.platform.service_registry import IntegrationServiceRegistry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_BACKEND_PACKAGE = REPO_ROOT / "cmm" / "client_backend"
@@ -359,6 +361,59 @@ def test_the_builder_refuses_a_client_backend_subclass_binding() -> None:
 
     # The exact official facade is still accepted.
     assert module.contribute(CompositionConfiguration())[0].implementation is service
+
+
+# ── Authoritative registry composition identity ──────────────────────────────
+
+
+def _client_backend_subclass(service: ClientBackend) -> ClientBackend:
+    """Return an adversarial facade subclass carrying the official instance state.
+
+    Only the exact type differs from the official facade, so a runtime-contract
+    check that falls back to ``isinstance`` accepts it.
+    """
+
+    class ClientBackendSubclass(ClientBackend):
+        """A facade subclass: only its exact type differs from the official one."""
+
+    subclass = ClientBackendSubclass.__new__(ClientBackendSubclass)
+    subclass.__dict__.update(service.__dict__)
+    return subclass
+
+
+def test_the_authoritative_registry_rejects_a_hand_built_subclass_binding() -> None:
+    """``CLIENT_BACKEND_SUBCLASS_HAND_BUILT_BINDING=REJECTED``.
+
+    Independent Re-audit V2 reproduced that the exact-type identity of
+    ``client.backend`` was enforced only by the convenience builder: a valid
+    hand-built ``ServiceBinding`` carrying the canonical ``client.backend``
+    descriptor, the ``ClientBackend`` runtime contract and a facade *subclass*
+    implementation was ACCEPTED by the authoritative Phase 11.1 registry, which
+    fell back to ``isinstance``.  Remediation V2 moves the exact gate into the
+    registry itself, so the manual binding can no longer claim the canonical
+    service identity.
+    """
+
+    composed = _composed()
+    official = composed.module.contribute(CompositionConfiguration())[0]
+    subclass = _client_backend_subclass(composed.client)
+
+    assert isinstance(subclass, ClientBackend)
+    assert type(subclass) is not ClientBackend
+
+    hand_built = ServiceBinding(
+        descriptor=official.descriptor,
+        implementation=subclass,
+        runtime_contract=ClientBackend,
+    )
+
+    registry = IntegrationServiceRegistry()
+    with pytest.raises(IncompatibleContractError) as failure:
+        registry.register(hand_built)
+
+    assert failure.value.result.details["reason_code"] == "RUNTIME_CONTRACT_MISMATCH"
+    assert failure.value.result.details["service_id"] == CLIENT_BACKEND_SERVICE_ID
+    assert registry.get(CLIENT_BACKEND_SERVICE_ID) is None
 
 
 def test_the_builder_constructs_nothing() -> None:
