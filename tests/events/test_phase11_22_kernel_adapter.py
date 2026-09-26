@@ -289,6 +289,42 @@ def test_forbidden_content_nested_in_an_ignored_source_fact_fails_closed(
     assert system.repository.count() == 0
 
 
+def test_forbidden_content_inside_the_structural_payload_envelope_fails_closed(
+    adapter, system
+) -> None:
+    """MINOR-003: ``payload`` is structural, but what it contains is still checked."""
+
+    with pytest.raises(PlatformEventPayloadError):
+        adapter.handle(
+            KernelEvent(
+                name="validation.completed",
+                payload={"validation_id": "val-1", "payload": {"prompt": "leaked"}},
+            )
+        )
+
+    assert system.repository.count() == 0
+
+
+def test_structural_payload_envelope_with_safe_content_is_ignored(
+    adapter, system
+) -> None:
+    """MINOR-003: the Domain/Kernel ``payload`` envelope stays ignorable when safe."""
+
+    event_id = adapter.handle(
+        KernelEvent(
+            name="validation.completed",
+            payload={
+                "validation_id": "val-1",
+                "payload": {"execution_id": "EXEC-1"},
+            },
+        )
+    )
+
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert "payload" not in stored.payload.data
+
+
 def test_harmless_irrelevant_source_facts_may_still_be_ignored(adapter, system) -> None:
     """MINOR-003: only forbidden content is fatal; harmless facts stay ignorable."""
 

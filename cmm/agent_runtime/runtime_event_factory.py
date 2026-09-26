@@ -59,17 +59,50 @@ def _normalize_timestamp(value: datetime | None) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _compute_fingerprint(
-    header: AgentRuntimeEventHeader, payload: AgentRuntimeEventPayload
-) -> str:
-    """Compute a deterministic fingerprint for an event."""
-    payload_str = json.dumps(payload.data, sort_keys=True, default=str)
-    raw = (
-        f"{header.event_id}:{header.event_type}:{header.schema_version}:"
-        f"{header.occurred_at.isoformat()}:{header.emitted_at.isoformat()}:"
-        f"{header.producer}:{header.aggregate_id}:{payload_str}"
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def canonical_event_dict(event: AgentRuntimeEvent) -> dict[str, Any]:
+    """Return the one canonical serialization of *event*.
+
+    This is the single source of truth for both durable persistence and content
+    identity.  The fingerprint is computed from exactly this mapping, so there is
+    no second, manually maintained list of "identity-relevant" fields that could
+    drift away from what is actually persisted.
+    """
+
+    header = event.header
+    return {
+        "header": {
+            "event_id": header.event_id,
+            "event_type": header.event_type,
+            "schema_version": header.schema_version,
+            "occurred_at": header.occurred_at.isoformat(),
+            "emitted_at": header.emitted_at.isoformat(),
+            "agent_id": header.agent_id,
+            "agent_run_id": header.agent_run_id,
+            "goal_id": header.goal_id,
+            "workflow_id": header.workflow_id,
+            "task_id": header.task_id,
+            "iteration_id": header.iteration_id,
+            "correlation_id": header.correlation_id,
+            "causation_id": header.causation_id,
+            "actor_id": header.actor_id,
+            "source": header.source,
+            "sensitivity": header.sensitivity.value,
+            "permissions": list(header.permissions),
+            "metadata": dict(header.metadata),
+            "producer": header.producer,
+            "aggregate_id": header.aggregate_id,
+        },
+        "payload": {
+            "data": dict(event.payload.data),
+            "raw": event.payload.raw,
+        },
+    }
+
+
+def _canonical_serialization(event: AgentRuntimeEvent) -> str:
+    """Return the deterministic canonical serialization used for the fingerprint."""
+
+    return json.dumps(canonical_event_dict(event), sort_keys=True, default=str)
 
 
 def event_fingerprint(event: AgentRuntimeEvent) -> str:
@@ -80,15 +113,18 @@ def event_fingerprint(event: AgentRuntimeEvent) -> str:
     idempotent duplicate, while the same event ID with a different fingerprint is
     an identity conflict that fails closed.
 
-    The fingerprint deliberately covers every identity-relevant header field
-    (event ID, type, schema version, both timestamps, producer and aggregate
-    identity) plus a canonical rendering of the payload, so a materially
-    different event can never share a fingerprint with a persisted one.
+    The fingerprint hashes the complete canonical serialization of the event, so
+    it necessarily covers every persisted header field (including correlation,
+    causation, sensitivity, permissions and metadata) and every persisted payload
+    field (including ``payload.raw``).  A materially different event can therefore
+    never share a fingerprint with a persisted one, and a stored record mutated in
+    any persisted field no longer matches its stored fingerprint.
     """
 
     if not isinstance(event, AgentRuntimeEvent):
         raise TypeError("event must be an AgentRuntimeEvent")
-    return _compute_fingerprint(event.header, event.payload)
+    serialized = _canonical_serialization(event)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _check_payload_safety(payload: dict[str, Any]) -> None:
@@ -146,10 +182,14 @@ class AgentRuntimeEventFactory:
         metadata: dict[str, Any] | None = None,
         producer: str | None = None,
         aggregate_id: str | None = None,
+        raw: str | None = None,
     ) -> AgentRuntimeEvent:
         """Create a new runtime event."""
         if not is_registered_event_type(event_type):
             raise ValueError(f"unknown event_type '{event_type}'")
+
+        if raw is not None and not isinstance(raw, str):
+            raise TypeError("payload raw content must be a string or None")
 
         event_id = event_id or self._generate_id()
         occurred_at = _normalize_timestamp(occurred_at)
@@ -187,11 +227,20 @@ class AgentRuntimeEventFactory:
             aggregate_id=aggregate_id,
         )
 
-        payload_obj = AgentRuntimeEventPayload(data=payload_copy, raw=None)
+        payload_obj = AgentRuntimeEventPayload(data=payload_copy, raw=raw)
         return AgentRuntimeEvent(header=header, payload=payload_obj)
 
     def from_dict(self, data: dict[str, Any]) -> AgentRuntimeEvent:
-        """Create event from dictionary."""
+        """Create event from dictionary.
+
+        Every malformed persisted shape fails deterministically with a
+        ``TypeError`` or ``ValueError``: the durable repository converts those
+        into its canonical corruption error, and no shape may escape as an
+        incidental ``AttributeError``.
+        """
+        if not isinstance(data, dict):
+            raise TypeError("serialized event must be a mapping")
+
         header_data = data.get("header", {})
         payload_data = data.get("payload", {})
 
@@ -199,6 +248,8 @@ class AgentRuntimeEventFactory:
             raise TypeError("serialized event header must be a mapping")
         if "event_type" not in header_data:
             raise ValueError("serialized event header has no event_type")
+        if not isinstance(payload_data, dict):
+            raise TypeError("serialized event payload must be a mapping")
 
         schema_version = header_data.get("schema_version", "1.0.0")
         if not isinstance(schema_version, str):
@@ -218,9 +269,21 @@ class AgentRuntimeEventFactory:
         if isinstance(sensitivity, str):
             sensitivity = EventSensitivity(sensitivity)
 
+        permissions = header_data.get("permissions", [])
+        if not isinstance(permissions, list):
+            raise TypeError("serialized event permissions must be a list")
+
+        metadata = header_data.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise TypeError("serialized event metadata must be a mapping")
+
         payload_dict = payload_data.get("data", {})
         if not isinstance(payload_dict, dict):
-            payload_dict = {}
+            raise TypeError("serialized event payload.data must be a mapping")
+
+        raw = payload_data.get("raw")
+        if raw is not None and not isinstance(raw, str):
+            raise TypeError("serialized event payload.raw must be a string or None")
 
         return self.create_event(
             event_type=header_data["event_type"],
@@ -240,42 +303,17 @@ class AgentRuntimeEventFactory:
             actor_id=header_data.get("actor_id"),
             source=header_data.get("source", "agent_runtime"),
             sensitivity=sensitivity,
-            permissions=header_data.get("permissions", []),
-            metadata=header_data.get("metadata", {}),
+            permissions=permissions,
+            metadata=metadata,
             producer=header_data.get("producer"),
             aggregate_id=header_data.get("aggregate_id"),
+            raw=raw,
         )
 
     def to_dict(self, event: AgentRuntimeEvent) -> dict[str, Any]:
-        """Serialize event to dictionary."""
-        return {
-            "header": {
-                "event_id": event.header.event_id,
-                "event_type": event.header.event_type,
-                "schema_version": event.header.schema_version,
-                "occurred_at": event.header.occurred_at.isoformat(),
-                "emitted_at": event.header.emitted_at.isoformat(),
-                "agent_id": event.header.agent_id,
-                "agent_run_id": event.header.agent_run_id,
-                "goal_id": event.header.goal_id,
-                "workflow_id": event.header.workflow_id,
-                "task_id": event.header.task_id,
-                "iteration_id": event.header.iteration_id,
-                "correlation_id": event.header.correlation_id,
-                "causation_id": event.header.causation_id,
-                "actor_id": event.header.actor_id,
-                "source": event.header.source,
-                "sensitivity": event.header.sensitivity.value,
-                "permissions": list(event.header.permissions),
-                "metadata": dict(event.header.metadata),
-                "producer": event.header.producer,
-                "aggregate_id": event.header.aggregate_id,
-            },
-            "payload": {
-                "data": dict(event.payload.data),
-                "raw": event.payload.raw,
-            },
-        }
+        """Serialize event to the one canonical dictionary representation."""
+
+        return canonical_event_dict(event)
 
     def to_json(self, event: AgentRuntimeEvent) -> str:
         """Serialize event to JSON string."""

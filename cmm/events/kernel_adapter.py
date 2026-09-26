@@ -13,8 +13,12 @@ Phase 11.22 needs.  It is not a second Kernel event system:
 * it validates the incoming event before reading anything from it;
 * it translates only explicitly mapped event names, never guessing;
 * it copies only mapped safe facts, so a missing fact stays missing;
+* it preserves an explicit source ``correlation_id``/``causation_id`` unchanged
+  and derives one only when the source carries none;
 * it fails closed on any content the platform vocabulary refuses, *before*
-  persistence;
+  persistence, and it fails closed on forbidden, private or credential-bearing
+  source content even when that source key is one it would otherwise ignore;
+* harmless irrelevant source facts it does not model may still be ignored;
 * it publishes through the canonical ``EventSystem`` facade.
 
 Unmapped kernel events are observed and skipped.  They remain completely valid
@@ -32,6 +36,8 @@ from cmm.events.event_catalog import catalog_spec
 from cmm.events.event_payload_safety import (
     ALLOWED_PAYLOAD_KEYS,
     PlatformEventPayloadError,
+    is_forbidden_source_content_key,
+    scan_for_forbidden_platform_content,
 )
 from cmm.events.event_system import EventSystem
 from cmm.events.event_translation import (
@@ -73,6 +79,11 @@ READABLE_PAYLOAD_KEYS: frozenset[str] = frozenset(
         "error_category",
         "sensitivity",
         "schema_version",
+        # Explicit tracing facts a closed-phase source may already carry.  Phase
+        # 11.22 must preserve an authoritative correlation/causation rather than
+        # replacing it with a derived value.
+        "correlation_id",
+        "causation_id",
     }
 )
 
@@ -154,7 +165,7 @@ class PlatformKernelEventAdapter:
             translation.platform_event_type,
             projected,
             correlation_id=self._correlation(payload),
-            causation_id=self._identifier(payload),
+            causation_id=self._causation(payload),
             producer=self._producer_for(translation.platform_event_type),
             aggregate_id=self._aggregate_for(projected),
         )
@@ -199,6 +210,14 @@ class PlatformKernelEventAdapter:
                 raise PlatformEventPayloadError("payload keys must be strings")
             canonical_key = _ALIASES.get(key, key)
             if canonical_key not in READABLE_PAYLOAD_KEYS:
+                # A source fact the platform does not model may be ignored, but
+                # forbidden, private or credential-bearing content must fail closed
+                # rather than be silently dropped.
+                if is_forbidden_source_content_key(key):
+                    raise PlatformEventPayloadError(
+                        "forbidden kernel source key", key=key
+                    )
+                scan_for_forbidden_platform_content(value, key=key)
                 continue
             if canonical_key == "domain_id":
                 canonical_value = _canonical_domain_id(value)
@@ -239,11 +258,30 @@ class PlatformKernelEventAdapter:
 
     @staticmethod
     def _correlation(payload: dict[str, Any]) -> str | None:
+        """Return the correlation identity, preferring an explicit source value.
+
+        Phase 11.22 preserves an authoritative source ``correlation_id``
+        unchanged; the documented derivation order is only a fallback for sources
+        that do not carry one.
+        """
+
+        explicit = payload.get("correlation_id")
+        if isinstance(explicit, str) and explicit:
+            return explicit
         for key in ("workflow_id", "request_id", "execution_id", "validation_id"):
             value = payload.get(key)
             if isinstance(value, str) and value:
                 return value
         return None
+
+    @staticmethod
+    def _causation(payload: dict[str, Any]) -> str | None:
+        """Return the causation identity, preferring an explicit source value."""
+
+        explicit = payload.get("causation_id")
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        return PlatformKernelEventAdapter._identifier(payload)
 
     @staticmethod
     def _aggregate_for(projected: dict[str, Any]) -> str | None:

@@ -395,7 +395,11 @@ class FileAgentRuntimeEventRepository(AgentRuntimeEventRepository):
             event = self._factory.from_dict(
                 {"header": record["header"], "payload": record["payload"]}
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except Exception as exc:
+            # The factory validates every persisted container shape and raises a
+            # deterministic TypeError/ValueError, but any deserialization failure
+            # of a stored record is corruption by contract.  Nothing malformed may
+            # escape as an incidental AttributeError or IndexError.
             raise AgentRuntimeEventPersistenceCorruptionError(
                 f"stored event record {number} is not a canonical event"
             ) from exc

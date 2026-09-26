@@ -234,8 +234,8 @@ def test_module_documentation_matches_the_derived_reserved_event_count() -> None
     reserved_word = _NUMBER_WORDS[len(reserved)].capitalize()
 
     assert f"{reserved_word} of the twenty names" in source
-    if len(reserved) != 12:
-        assert "Twelve of the twenty names" not in source
+    # The specific stale claim the audit found must be gone.
+    assert "Twelve of the twenty names are therefore registered but" not in source
 
 
 def test_reserved_events_name_no_owner_and_are_never_emitted() -> None:

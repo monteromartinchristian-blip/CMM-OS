@@ -45,10 +45,8 @@ from cmm.agent_runtime.runtime_event_factory import (
 )
 from cmm.agent_runtime.runtime_event_repository import (
     FileAgentRuntimeEventRepository,
-    InMemoryAgentRuntimeEventRepository,
 )
 from cmm.events.event_payload_safety import PlatformEventPayloadError
-from cmm.events.event_system import EventSystem
 from tests.events.test_phase11_22_event_system import build_system
 
 MOMENT = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -94,7 +92,7 @@ HEADER_MATERIAL_CHANGES = (
     ("event_id", "evt-fp-other"),
     ("event_type", "goal.created"),
     ("schema_version", "1.1.0"),
-    ("occurred_at", MOMENT + timedelta(seconds=1)),
+    ("occurred_at", MOMENT - timedelta(seconds=1)),
     ("emitted_at", MOMENT + timedelta(seconds=1)),
     ("agent_id", "agent-2"),
     ("agent_run_id", "run-2"),
@@ -115,9 +113,13 @@ HEADER_MATERIAL_CHANGES = (
 
 
 @pytest.mark.parametrize(
-    ("field", "changed"), HEADER_MATERIAL_CHANGES, ids=[c[0] for c in HEADER_MATERIAL_CHANGES]
+    ("field", "changed"),
+    HEADER_MATERIAL_CHANGES,
+    ids=[c[0] for c in HEADER_MATERIAL_CHANGES],
 )
-def test_fingerprint_changes_when_a_persisted_header_field_changes(field, changed) -> None:
+def test_fingerprint_changes_when_a_persisted_header_field_changes(
+    field, changed
+) -> None:
     """MAJOR-001: each canonical header field is material to the fingerprint."""
 
     factory = AgentRuntimeEventFactory()
@@ -159,7 +161,9 @@ PAYLOAD_MATERIAL_CHANGES = (
     PAYLOAD_MATERIAL_CHANGES,
     ids=[c[0] for c in PAYLOAD_MATERIAL_CHANGES],
 )
-def test_fingerprint_changes_when_a_persisted_payload_field_changes(field, changed) -> None:
+def test_fingerprint_changes_when_a_persisted_payload_field_changes(
+    field, changed
+) -> None:
     """MAJOR-001: ``payload.data`` and ``payload.raw`` are material."""
 
     factory = AgentRuntimeEventFactory()
@@ -227,10 +231,12 @@ def test_same_id_with_one_material_header_change_is_an_identity_conflict(
     ),
     ids=["correlation", "sensitivity", "metadata"],
 )
-def test_durable_repository_rejects_same_id_material_header_change(field, changed) -> None:
+def test_durable_repository_rejects_same_id_material_header_change(
+    tmp_path, field, changed
+) -> None:
     """MAJOR-001: the durable repository fails closed on the same conflict."""
 
-    repository = InMemoryAgentRuntimeEventRepository()
+    repository = FileAgentRuntimeEventRepository(tmp_path / "runtime_events.jsonl")
     base = base_fingerprint_event()
     variant = dataclasses.replace(
         base, header=dataclasses.replace(base.header, **{field: changed})
@@ -431,7 +437,9 @@ def test_direct_publish_event_rejects_unsafe_raw_payload_content() -> None:
     _assert_nothing_reached_persistence(system, received)
 
 
-def test_direct_publish_event_accepts_a_safe_manual_event_and_preserves_identity() -> None:
+def test_direct_publish_event_accepts_a_safe_manual_event_and_preserves_identity() -> (
+    None
+):
     """MAJOR-002: the boundary must not break legitimate direct publication."""
 
     system = build_system()
@@ -856,7 +864,7 @@ def test_non_mapping_persisted_payload_is_canonical_corruption(
 ) -> None:
     """MINOR-002: ``payload`` that is not a mapping must not raise ``AttributeError``."""
 
-    path = tmp_path / "events" / "runtime_events.jsonl"
+    path = tmp_path / "runtime_events.jsonl"
     record = _canonical_record(base_fingerprint_event())
     record["payload"] = payload_shape
     _rewrite_record(path, record)
@@ -875,7 +883,7 @@ def test_non_mapping_persisted_payload_data_is_canonical_corruption(
 ) -> None:
     """MINOR-002: a non-mapping ``payload.data`` is canonical corruption too."""
 
-    path = tmp_path / "events" / "runtime_events.jsonl"
+    path = tmp_path / "runtime_events.jsonl"
     record = _canonical_record(base_fingerprint_event())
     record["payload"] = {"data": payload_data_shape, "raw": None}
     _rewrite_record(path, record)

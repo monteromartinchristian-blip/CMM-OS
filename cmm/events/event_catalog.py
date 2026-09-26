@@ -17,11 +17,13 @@ Producer truth rule
 -------------------
 
 An event may be emitted only when a real canonical owner supplies evidence for
-that lifecycle fact.  Twelve of the twenty names are therefore registered but
-**reserved**: the owning subsystem either does not exist at Phase 11.22 or has no
-safe emission seam, so the name is valid and resolvable while never being
-synthetically emitted.  Phase 11.22 must not invent backup, plugin, security,
-model-gateway or memory owners merely to make the catalog look active.
+that lifecycle fact.  Twelve of the twenty names are connected to an existing
+owner; two are already canonical Phase 9 runtime events.  Six of the twenty names
+are registered but **reserved**: the owning subsystem either does not exist at
+Phase 11.22 or has no safe emission seam, so the name is valid and resolvable
+while never being synthetically emitted.  Phase 11.22 must not invent backup,
+plugin, security, model-gateway or memory owners merely to make the catalog look
+active.
 """
 
 from __future__ import annotations

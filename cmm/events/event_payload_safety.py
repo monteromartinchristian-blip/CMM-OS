@@ -41,6 +41,8 @@ __all__ = [
     "PlatformEventPayloadError",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
+    "is_forbidden_source_content_key",
+    "scan_for_forbidden_platform_content",
     "thaw_platform_payload",
     "validate_platform_payload",
 ]
@@ -210,6 +212,31 @@ def is_forbidden_platform_payload_key(key: str) -> bool:
     return "".join(segments) in FORBIDDEN_PAYLOAD_KEY_TOKENS
 
 
+#: Frozen source-contract envelope names that are structural containers rather
+#: than content.  A ``kernel.events.Event`` payload and a Phase 10.33 Domain Event
+#: serialization both legitimately use ``payload`` as the name of their own nested
+#: container, so an adapter that already ignores that fact must not mistake the
+#: envelope name for forbidden content.  The container's *contents* are still
+#: scanned by :func:`scan_for_forbidden_platform_content`.
+STRUCTURAL_SOURCE_ENVELOPE_KEYS: frozenset[str] = frozenset({"payload"})
+
+
+def is_forbidden_source_content_key(key: str) -> bool:
+    """Return whether an ignored *source* fact key names forbidden content.
+
+    This is the canonical forbidden-key vocabulary applied to source facts the
+    platform does not model.  It differs from
+    :func:`is_forbidden_platform_payload_key` in exactly one documented way: the
+    structural source envelope name ``payload`` is not itself forbidden, because
+    closed-phase contracts use it as a container.  A prompt, credential or raw
+    provider payload *inside* that container still fails closed.
+    """
+
+    if _normalize_key(key) in STRUCTURAL_SOURCE_ENVELOPE_KEYS:
+        return False
+    return is_forbidden_platform_payload_key(key)
+
+
 def _check_key(key: str) -> None:
     if is_forbidden_platform_payload_key(key):
         raise PlatformEventPayloadError("forbidden payload key", key=key)
@@ -273,6 +300,44 @@ def validate_platform_payload(payload: Mapping[str, object]) -> None:
             raise PlatformEventPayloadError("payload keys must be strings")
         _check_key(key)
         _scan(value, key)
+
+
+def scan_for_forbidden_platform_content(value: object, *, key: str) -> None:
+    """Fail closed on forbidden keys, credentials or private markers in *value*.
+
+    Unlike :func:`validate_platform_payload` this applies **only** the content
+    half of the policy: it deliberately does not require the key to belong to the
+    bounded platform vocabulary.  It exists for one bounded purpose — an adapter
+    that must ignore harmless source facts the platform does not model, while
+    still refusing to ignore forbidden, private or credential-bearing source
+    content that it would otherwise silently drop.
+    """
+
+    if isinstance(value, Mapping):
+        for nested_key, nested_value in value.items():
+            if not isinstance(nested_key, str):
+                raise PlatformEventPayloadError("payload keys must be strings", key=key)
+            if is_forbidden_source_content_key(nested_key):
+                raise PlatformEventPayloadError("forbidden payload key", key=nested_key)
+            scan_for_forbidden_platform_content(nested_value, key=nested_key)
+        return
+
+    if isinstance(value, str):
+        if contains_high_confidence_credential(value):
+            raise PlatformEventPayloadError("credential-like value", key=key)
+        if _contains_private_marker(value):
+            raise PlatformEventPayloadError("forbidden private marker", key=key)
+        return
+
+    if _is_sequence(value):
+        for item in value:
+            scan_for_forbidden_platform_content(item, key=key)
+        return
+
+    # Other value types carry no scannable string content here.  A key that is
+    # actually persisted is still fully type-checked by
+    # :func:`validate_platform_payload`; this scan never loosens that gate.
+    return
 
 
 def _freeze(value: object) -> object:
