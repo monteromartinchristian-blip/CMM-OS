@@ -36,11 +36,12 @@ adds no parallel authority: the same injected ``ModelRouter``,
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from threading import Event
 from typing import Any
 
 from cmm.model_execution.contracts import (
+    ChatStreamFacts,
     ModelExecutionErrorCode,
     ModelExecutionFailure,
     ModelExecutionParameters,
@@ -51,6 +52,7 @@ from cmm.model_execution.contracts import (
 )
 from cmm.model_execution.errors import ModelExecutionError
 from cmm.orchestration.contracts import ExecutionRoute
+from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter, RoutingDecision
@@ -88,6 +90,23 @@ CHAT_PROMPT_INVALID_MESSAGE = "A chat request requires a non-empty prompt"
 #: not return a result).
 NO_MODELS_AVAILABLE_CODE = "NO_MODELS_AVAILABLE"
 CHAT_PROMPT_INVALID_CODE = "CHAT_PROMPT_INVALID"
+
+UNSUPPORTED_REASONING_EFFORT_MESSAGE = (
+    "The selected model does not support that reasoning effort"
+)
+UNSUPPORTED_REASONING_EFFORT_CODE = "UNSUPPORTED_REASONING_EFFORT"
+
+
+def _normalized_effort(effort: ReasoningEffort | str) -> ReasoningEffort:
+    """Return the canonical effort level, refusing invented values."""
+
+    try:
+        return ReasoningEffort(effort)
+    except ValueError as error:
+        raise ModelExecutionError(
+            UNSUPPORTED_REASONING_EFFORT_MESSAGE,
+            code=UNSUPPORTED_REASONING_EFFORT_CODE,
+        ) from error
 
 #: The selection values that mean "let the canonical router choose".
 AUTO_SELECTION_VALUES = frozenset({"", "cmm-auto", "auto"})
@@ -258,12 +277,16 @@ class CanonicalModelExecutor:
         cancel_event: Event | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | str = ReasoningEffort.DEFAULT,
+        facts_sink: Callable[[ChatStreamFacts], None] | None = None,
     ) -> Iterator[str]:
         """Stream normalized content deltas for one resolved chat model.
 
         Caller defects (a bad ``ResolvedChatModel``, blank prompt or malformed
         history) raise at call time; every provider and transport defect is
-        normalized to a secret-free :class:`ModelExecutionError`.
+        normalized to a secret-free :class:`ModelExecutionError`.  A reasoning
+        effort the model does not declare, or the provider cannot put on the
+        wire, is refused before any provider call — never silently dropped.
         """
 
         if not isinstance(resolved, ResolvedChatModel):
@@ -273,6 +296,12 @@ class CanonicalModelExecutor:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ModelExecutionError(
                 CHAT_PROMPT_INVALID_MESSAGE, code=CHAT_PROMPT_INVALID_CODE
+            )
+        effort = _normalized_effort(reasoning_effort)
+        if not resolved.spec.capabilities.supports_reasoning_effort(effort):
+            raise ModelExecutionError(
+                UNSUPPORTED_REASONING_EFFORT_MESSAGE,
+                code=UNSUPPORTED_REASONING_EFFORT_CODE,
             )
 
         parameters = ModelExecutionParameters(
@@ -291,6 +320,13 @@ class CanonicalModelExecutor:
 
         provider = self._chat_provider(resolved)
 
+        wire_supports = getattr(provider, "supports_reasoning_effort", None)
+        if callable(wire_supports) and not wire_supports(effort):
+            raise ModelExecutionError(
+                UNSUPPORTED_REASONING_EFFORT_MESSAGE,
+                code=UNSUPPORTED_REASONING_EFFORT_CODE,
+            )
+
         metadata: dict[str, Any] = {}
         if parameters.max_tokens is not None:
             metadata["max_tokens"] = parameters.max_tokens
@@ -301,7 +337,17 @@ class CanonicalModelExecutor:
             metadata=metadata,
             history=transcript_history,
             images=transcript_images,
+            reasoning_effort=effort,
         )
+        if facts_sink is not None:
+            # These runtimes never echo the effort they applied, so the honest
+            # effective value is "unknown", never an echo of the request.
+            facts_sink(
+                ChatStreamFacts(
+                    requested_reasoning_effort=effort.value,
+                    effective_reasoning_effort=None,
+                )
+            )
         return self._stream_deltas(provider, request, cancel_event)
 
     # ── Canonical delegation ─────────────────────────────────────────────────

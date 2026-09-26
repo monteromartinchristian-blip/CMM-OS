@@ -9,7 +9,72 @@ from collections.abc import Iterator, Sequence
 from threading import Event
 from typing import Any
 
+from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError
+
+#: Launcher configuration of the wire fragment each canonical reasoning-effort
+#: level needs for a given model on a given provider, e.g.
+#: ``{"local-runtime": {"qwen3-1.7b": {"medium":
+#: {"chat_template_kwargs": {"enable_thinking": true}}}}}``.
+#: Capability declaration and wire transmission read this same map, so a level
+#: can never be advertised without a way to put it on the wire.
+REASONING_EFFORT_MAP_ENV = "CMM_OPENAI_COMPAT_REASONING_EFFORT_MAP_JSON"
+
+
+def configured_reasoning_effort_map(
+    provider_id: str,
+) -> dict[str, dict[ReasoningEffort, dict[str, Any]]]:
+    """Return configured wire fragments per model id and canonical effort level."""
+
+    raw = os.getenv(REASONING_EFFORT_MAP_ENV, "").strip()
+    if not raw:
+        return {}
+
+    try:
+        configured = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ProviderError(
+            "OpenAI-compatible reasoning effort map contains invalid JSON"
+        ) from error
+
+    if not isinstance(configured, dict):
+        raise ProviderError(
+            "OpenAI-compatible reasoning effort map must be a JSON object"
+        )
+
+    selected = configured.get(provider_id)
+    if selected is None:
+        return {}
+    if not isinstance(selected, dict):
+        raise ProviderError(
+            "OpenAI-compatible reasoning effort map entry must be a JSON object"
+        )
+
+    parsed: dict[str, dict[ReasoningEffort, dict[str, Any]]] = {}
+    for model_id, levels in selected.items():
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ProviderError(
+                "OpenAI-compatible reasoning effort map keys must be model ids"
+            )
+        if not isinstance(levels, dict):
+            raise ProviderError(
+                "a reasoning effort map model entry must be a JSON object"
+            )
+        efforts: dict[ReasoningEffort, dict[str, Any]] = {}
+        for level, fragment in levels.items():
+            try:
+                effort = ReasoningEffort(level)
+            except ValueError as error:
+                raise ProviderError(
+                    f"unknown canonical reasoning effort level in map: {level}"
+                ) from error
+            if not isinstance(fragment, dict):
+                raise ProviderError(
+                    "a reasoning effort wire fragment must be a JSON object"
+                )
+            efforts[effort] = dict(fragment)
+        parsed[model_id.strip().lower()] = efforts
+    return parsed
 
 
 class OpenAICompatibleClient:
@@ -92,6 +157,7 @@ class OpenAICompatibleClient:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         cancel_event: Event | None = None,
+        request_extras: Mapping[str, Any] | None = None,
     ) -> Iterator[str]:
         """Yield provider-independent content deltas from a streamed chat call.
 
@@ -115,7 +181,11 @@ class OpenAICompatibleClient:
         if max_tokens is not None:
             parameters["max_tokens"] = max_tokens
 
-        extra_body = self._extra_body_for_model(upstream_model)
+        extra_body = dict(self._extra_body_for_model(upstream_model) or {})
+        # Per-request extras (a translated reasoning effort, for example) win
+        # over the per-model configured overrides: a request states what this
+        # call needs, the configuration states the model's standing defaults.
+        extra_body.update(dict(request_extras or {}))
         if extra_body:
             parameters["extra_body"] = extra_body
 

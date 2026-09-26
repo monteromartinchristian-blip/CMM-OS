@@ -98,6 +98,7 @@ ALLOWED_OWNERS = frozenset(
     {
         "CanaryReport",
         "CanonicalModelExecutor",
+        "ChatStreamFacts",
         "LocalModelExecution",
         "ModelExecutionError",
         "ModelExecutionErrorCode",

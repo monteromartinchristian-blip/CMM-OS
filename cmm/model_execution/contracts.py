@@ -426,6 +426,35 @@ class NormalizedModel:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatStreamFacts:
+    """What one chat stream actually imposed on the runtime.
+
+    ``requested`` is the canonical effort the caller asked for; ``effective`` is
+    the effort the runtime reported back, or ``None`` when the transport cannot
+    say.  ``None`` is honest, not "same as requested": a runtime that stays
+    silent about the effort it applied must not be answered for.
+    """
+
+    requested_reasoning_effort: str
+    effective_reasoning_effort: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChatStreamFacts:
+    """What one chat stream actually imposed on the runtime.
+
+    ``requested_reasoning_effort`` is the canonical level the caller asked for;
+    ``effective_reasoning_effort`` is the level the runtime reports it applied,
+    or ``None`` when the transport cannot say.  ``None`` is honest, never
+    "same as requested": a runtime that stays silent about the effort it applied
+    must not be answered for.
+    """
+
+    requested_reasoning_effort: str
+    effective_reasoning_effort: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedChatModel:
     """One model selection resolved against the canonical authorities.
 

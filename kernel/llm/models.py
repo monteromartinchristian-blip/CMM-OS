@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from kernel.llm.capabilities import ReasoningEffort
+
 ChatRole = Literal["system", "user", "assistant"]
 
 
@@ -55,6 +57,8 @@ class LLMRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
     history: tuple[ChatTurn, ...] = ()
     images: tuple[ImageInput, ...] = ()
+    #: The canonical reasoning effort to impose; ``DEFAULT`` sends no override.
+    reasoning_effort: ReasoningEffort = ReasoningEffort.DEFAULT
 
     def transcript(self) -> list[dict[str, str]]:
         """Return the provider-independent chat transcript for this request.
@@ -83,6 +87,10 @@ class LLMResponse:
     usage_completion_tokens: int = 0
     finish_reason: str = "stop"
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: The effort the runtime reports it actually applied, when it reports one
+    #: at all.  ``None`` means "requested but not observable", never "same as
+    #: requested": a transport that cannot say must not be answered for.
+    effective_reasoning_effort: ReasoningEffort | None = None
 
     @property
     def total_tokens(self) -> int:

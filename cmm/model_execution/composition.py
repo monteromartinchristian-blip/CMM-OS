@@ -43,7 +43,10 @@ from urllib.parse import urlsplit
 
 from cmm.model_execution.executor import CanonicalModelExecutor
 from kernel.llm.capabilities import ModelCapabilities, ProviderCapabilities
-from kernel.llm.clients.openai_compatible_client import OpenAICompatibleClient
+from kernel.llm.clients.openai_compatible_client import (
+    OpenAICompatibleClient,
+    configured_reasoning_effort_map,
+)
 from kernel.llm.model_catalog import ModelCatalog, ModelSpec
 from kernel.llm.model_router import ModelRouter
 from kernel.llm.provider_factory import ProviderFactory
@@ -372,6 +375,7 @@ def register_local_runtime(
         ).split(",")
         if part.strip()
     }
+    effort_map = configured_reasoning_effort_map(LOCAL_RUNTIME_PROVIDER_ID)
 
     models: list[ModelSpec] = []
     for identity in identities:
@@ -379,6 +383,7 @@ def register_local_runtime(
         if model_catalog.has(normalized, provider_id=registered.id):
             models.append(model_catalog.get(normalized, provider_id=registered.id))
             continue
+        declared_efforts = tuple(effort_map.get(normalized.lower(), {}))
         models.append(
             model_catalog.register(
                 ModelSpec(
@@ -388,6 +393,8 @@ def register_local_runtime(
                     capabilities=ModelCapabilities(
                         vision=normalized.lower() in vision_ids,
                         streaming=True,
+                        reasoning=bool(declared_efforts),
+                        reasoning_efforts=declared_efforts,
                     ),
                 )
             )

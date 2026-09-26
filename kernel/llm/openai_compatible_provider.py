@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from threading import Event
 from typing import Any, Protocol
 
+from kernel.llm.capabilities import ReasoningEffort
+from kernel.llm.clients.openai_compatible_client import configured_reasoning_effort_map
 from kernel.llm.exceptions import ProviderError
 from kernel.llm.models import LLMRequest, LLMResponse
 from kernel.llm.provider import LLMProvider
@@ -35,6 +37,7 @@ class OpenAICompatibleClientProtocol(Protocol):
         temperature: float = 0.0,
         max_tokens: int | None = None,
         cancel_event: Event | None = None,
+        request_extras: Mapping[str, Any] | None = None,
     ) -> Iterator[str]:
         """Stream content deltas through an OpenAI-compatible endpoint."""
 
@@ -48,6 +51,7 @@ class OpenAICompatibleProvider(LLMProvider):
         provider_id: str,
         client: OpenAICompatibleClientProtocol,
         model: str,
+        reasoning_effort_map: Mapping[ReasoningEffort, Mapping[str, Any]] | None = None,
     ) -> None:
         normalized_provider_id = provider_id.strip().lower()
         if not normalized_provider_id:
@@ -58,6 +62,46 @@ class OpenAICompatibleProvider(LLMProvider):
         self.provider_id = normalized_provider_id
         self.client = client
         self.model = model.strip()
+        #: Per-model map of canonical effort level -> the wire fragment this
+        #: endpoint understands.  A level absent from the map is one this
+        #: provider cannot transmit, so it is refused instead of being silently
+        #: dropped.  An injected map wins; otherwise the launcher's configured
+        #: map for this provider answers, so capability declaration and wire
+        #: transmission can never diverge.
+        injected = (
+            {self.model.strip().lower(): dict(reasoning_effort_map)}
+            if reasoning_effort_map is not None
+            else None
+        )
+        self.reasoning_effort_map: Mapping[
+            str, Mapping[ReasoningEffort, Mapping[str, Any]]
+        ] = injected or configured_reasoning_effort_map(normalized_provider_id)
+
+    def _efforts_for_model(self) -> Mapping[ReasoningEffort, Mapping[str, Any]]:
+        return self.reasoning_effort_map.get(self.model.lower(), {})
+
+    def supports_reasoning_effort(self, effort: ReasoningEffort | str) -> bool:
+        """Whether this provider can put ``effort`` on the wire for this model."""
+
+        normalized = ReasoningEffort(effort)
+        if normalized is ReasoningEffort.DEFAULT:
+            return True
+        return normalized in self._efforts_for_model()
+
+    def reasoning_effort_extras(
+        self, effort: ReasoningEffort | str
+    ) -> Mapping[str, Any]:
+        """Return the wire fragment for ``effort``; empty for ``DEFAULT``."""
+
+        normalized = ReasoningEffort(effort)
+        if normalized is ReasoningEffort.DEFAULT:
+            return {}
+        fragment = self._efforts_for_model().get(normalized)
+        if fragment is None:
+            raise ProviderError(
+                f"this provider cannot transmit reasoning effort {normalized.value}"
+            )
+        return dict(fragment)
 
     def generate(self, request: LLMRequest) -> LLMResponse:
         """Generate a response for the supplied request."""
@@ -112,6 +156,7 @@ class OpenAICompatibleProvider(LLMProvider):
             temperature=request.temperature,
             max_tokens=self._max_tokens(request),
             cancel_event=cancel_event,
+            request_extras=self.reasoning_effort_extras(request.reasoning_effort),
         )
 
     @staticmethod
