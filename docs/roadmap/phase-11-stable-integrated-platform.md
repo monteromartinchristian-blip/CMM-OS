@@ -2882,10 +2882,11 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
+**Independent Re-audit V4:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2894,6 +2895,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
+**Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2925,6 +2927,9 @@ REMEDIATION_V2=REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V3=FAIL
 REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED
 REMEDIATION_V3=REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V4=FAIL
+REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED
+REMEDIATION_V4=REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -3075,8 +3080,49 @@ contract was added. The immutable Audit V1 report, the immutable Re-audit V2
 report, the immutable Re-audit V3 report and the immutable V1, V2 and V3 bundles are
 preserved byte-identical.
 
+## Independent Re-audit V4 and Remediation V4 record
+
+Independent Re-audit V4 (`docs/audits/phase-11.22-event-system-independent-reaudit-v4.md`,
+immutable) verified all three Re-audit V3 reproductions as fixed
+(`REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`) and raised exactly three majors
+against the audited V4 implementation HEAD
+`621cf5f67c2935f05cdc1ceb2ab966b562b1381e`:
+
+```text
+INDEPENDENT_REAUDIT_V4=FAIL
+BLOCKERS=0
+MAJORS=3
+MINORS=0
+MAJOR_V4_001=MEMORYVIEW_BINARY_BYPASSES_CANONICAL_EVENT_SAFETY
+MAJOR_V4_002=MANUAL_PUBLISH_EVENT_SENSITIVITY_NOT_CANONICALIZED
+MAJOR_V4_003=DLQ_ERROR_TYPE_CAN_LEAK_SECRET_TEXT
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V4_ONLY
+```
+
+Remediation V4 fixed exactly those three findings under strict TDD (a reproducing
+adversarial regression first — initial red `18 failed / 5 passed` — then the
+minimum fix, then the nearest regressions), inside the existing safety authority
+and canonical contracts:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V4-001` | the V3 scalar binary rejection already listed `memoryview`, but the shared sequence predicate excluded only `str`, `bytes` and `bytearray`. `memoryview` is a registered `collections.abc.Sequence`, so a binary buffer was treated as an ordinary descriptive sequence and recursively canonicalized into a plain integer list, putting raw binary bytes into persisted `payload.data` and persisted header containers | the one existing sequence predicate now classifies `memoryview` as binary, so the already-existing scalar binary rejection is reachable for it; the payload shape transform also refuses a binary container explicitly. `bytes`, `bytearray` and `memoryview` now all fail closed in every persisted Phase 11.22 content channel |
+| `MAJOR-V4-002` | the publication boundary validated a canonical sensitivity string without replacing it, and the normalizer copied `header.sensitivity` unchanged, so a manually built event with `sensitivity="restricted"` kept a `str`: accepted and stored in memory, and `AttributeError: 'str' object has no attribute 'value'` for the durable repository | the publication boundary now normalizes rather than merely validates: it applies the existing canonical sensitivity rule to the persisted fact and, when the result differs, replaces the header sensitivity with the canonical member before normalization and persistence. Both public routes produce one representation and both official repository implementations agree |
+| `MAJOR-V4-003` | the DLQ derived `error_type`/`error` from `type(exc).__name__` unvalidated, so a dynamically created credential-bearing or private-marker class name could enter canonical DLQ data with no raw exception message involved | one bounded safe DLQ error-category derivation now guards both exception-capture sites and the single DLQ write point: the transport-local bounded-name half lives in `runtime_event_bus.py`, and the credential/private-marker half is `category_for_delivery_error()` in the existing `cmm/events/event_payload_safety.py`, injected through `bind_error_categorizer()` because `cmm/agent_runtime` is architecturally forbidden from importing `cmm.domains`. An ordinary `RuntimeError` stays meaningfully categorized; every other name becomes the neutral bounded category `SubscriberDeliveryError` |
+
+The accepted one-authority architecture was preserved, all nine Audit V1 fixes, all
+four Re-audit V2 reproductions and all three Re-audit V3 reproductions remain green,
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still enforced, and no second bus, registry,
+repository protocol, replay engine, DLQ, safety module, container, broker
+abstraction or event contract was added. The immutable Audit V1 report, the
+immutable Re-audit V2 report, the immutable Re-audit V3 report, the immutable
+Re-audit V4 report and the immutable V1-V4 bundles are preserved byte-identical.
+
 The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V4** bundle passes. Only that re-audit may
+independent re-audit of the exact-HEAD **V5** bundle passes. Only that re-audit may
 write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
 `CLOSURE_ELIGIBLE=YES`.
 

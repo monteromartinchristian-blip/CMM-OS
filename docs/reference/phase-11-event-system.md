@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -9,16 +9,19 @@
 **Implementation agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-event-system-implementation-agent-prompt.md`
 **Remediation V1 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
+**Remediation V3 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
+**Remediation V4 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
 `DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`
 `AT-DP-122=PASS_REPORTED`
 
-Phase 11.22 was implemented, failed independent Audit V1, and has been
-**remediated**. It is not closed, not independently verified and not complete:
-the `VERIFIED_EXISTING` marker may only be written by the independent re-audit of
-the V2 bundle. See §24 for the remediation record.
+Phase 11.22 was implemented, failed independent Audit V1, failed independent
+Re-audit V2, failed independent Re-audit V3 and has been **remediated** after
+each. It is not closed, not independently verified and not complete: the
+`VERIFIED_EXISTING` marker may only be written by the independent re-audit of the
+V5 bundle. See §27 for the Remediation V4 record.
 
 ### Provenance note (recorded deviation)
 
@@ -724,7 +727,7 @@ global pytest                   22694 passed, 1 warning, 0 failed
 global Ruff                          810
 ```
 
-### 19.4 Remediation V3 measurements (current)
+### 19.4 Remediation V3 measurements (historical)
 
 ```text
 tests/events/                       956 passed
@@ -745,7 +748,33 @@ The V3 production tree measured `893` in `tests/events/` and `22962` globally.
 Both V3 deltas are therefore accounted for exactly: the new V3 regression module
 adds `44` and the strengthened `AT-DP-122` adds `19`, so the global suite moves
 `22962 → 23025` (`+63`) and `tests/events/` moves `893 → 956` (`+63`), while
-`AT-DP-122` itself moves `64 → 83`.
+`AT-DP-122` itself moves `64 → 83`. The recorded `tests/events/` label was `63`
+below its own per-file total; that clerical discrepancy is preserved here as
+historical record rather than silently corrected.
+
+### 19.5 Remediation V4 measurements (current)
+
+```text
+tests/events/                       991 passed
+AT-DP-122                            95 passed
+Remediation V4 regressions           23 passed
+Remediation V3 regressions           44 passed (preserved)
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+event inventory                    1270 passed
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+Closed-phase acceptances            218 passed
+Closed-phase support                112 passed
+global pytest                   23060 passed, 1 warning, 0 failed
+global Ruff                          810 (V4 baseline 810, no new debt)
+```
+
+The V4 production tree measured `956` in `tests/events/` and `23025` globally.
+Both V4 deltas are accounted for exactly: the new V4 regression module adds `23`
+and the strengthened `AT-DP-122` adds `12`, so the global suite moves
+`23025 → 23060` (`+35`), `tests/events/` moves `956 → 991` (`+35`), and
+`AT-DP-122` itself moves `83 → 95`.
 
 ## 20. Global test evidence
 
@@ -753,9 +782,11 @@ Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
 `22558 passed, 1 warning`. Post-remediation V1: `22694 passed, 1 warning, 0 failed`.
 Post-remediation V2: `22962 passed, 1 warning, 0 failed`. Post-remediation V3:
 `23025 passed, 1 warning, 0 failed` (+63 over the V2 remediation figure: 44 new V3
-adversarial regressions and 19 strengthened `AT-DP-122` connected scenarios). The
-single retained warning is the pre-existing unrelated `starlette` `anyio`
-`DeprecationWarning`.
+adversarial regressions and 19 strengthened `AT-DP-122` connected scenarios).
+Post-remediation V4: `23060 passed, 1 warning, 0 failed` (+35 over the V3
+remediation figure: 23 new V4 adversarial regressions and 12 strengthened
+`AT-DP-122` connected scenarios). The single retained warning is the pre-existing
+unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -809,10 +840,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V4** bundle
-(`phase-11.22-event-system-audit-v4.tar.gz`, produced with `git archive` from the
-final Remediation V3 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V5** bundle
+(`phase-11.22-event-system-audit-v5.tar.gz`, produced with `git archive` from the
+final Remediation V4 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 Phase 11.23 has not begun.
 
@@ -973,3 +1004,56 @@ Re-audit V3 report and the immutable V1, V2 and V3 bundles are preserved
 byte-identical. The exact Remediation V3 HEAD, tree and V4 bundle SHA-256 are
 reported in the remediation handoff rather than embedded here, for the same
 self-reference reason as the earlier evidence records.
+
+## 27. Remediation V4 record
+
+Independent Re-audit V4
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v4.md`, immutable)
+verified all three V3 reproductions fixed (`3/3_VERIFIED`) and returned three new
+findings:
+
+```text
+INDEPENDENT_REAUDIT_V4=FAIL
+BLOCKERS=0
+MAJORS=3
+MINORS=0
+REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V4_ONLY
+```
+
+Remediation V4 fixed exactly those three findings under strict TDD — a red
+adversarial regression first (initial red `18 failed / 5 passed`), then the
+minimum fix, then the nearest regressions — inside the existing safety authority
+and canonical contracts, with no new bus, registry, repository protocol, replayer,
+DLQ, safety module or event contract:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V4-001` | the V3 scalar binary rejection already listed `memoryview`, but the shared sequence predicate `_is_sequence()` excluded only `str`, `bytes` and `bytearray`. `memoryview` is a registered `collections.abc.Sequence`, so a binary buffer was treated as an ordinary descriptive sequence and recursively canonicalized into a plain integer list — raw binary bytes entered persisted `payload.data` and persisted header containers | the **one existing** sequence predicate now classifies `memoryview` as binary, so the already-existing scalar binary rejection is reachable for it. `_canonicalize_payload_value()` also refuses a binary container explicitly, so the shape transform can never produce an integer list even if it is reached without validation. `bytes`, `bytearray` and `memoryview` now all fail closed in every persisted Phase 11.22 content channel |
+| `MAJOR-V4-002` | `validate_platform_event_facts()` called `canonicalize_platform_event_sensitivity()` and discarded its return value, and `AgentRuntimeEventNormalizer` copied `header.sensitivity` unchanged. A manually built event with `sensitivity="restricted"` therefore passed the public boundary and kept a `str`: accepted and stored by the in-memory repository, and `AttributeError: 'str' object has no attribute 'value'` for the file-backed one | `EventSystem._validate_platform_event()` now **normalizes** rather than merely validates: it applies the existing canonical sensitivity rule to the persisted fact and, when the result differs, replaces the header's sensitivity with the canonical member before normalization and persistence. The existing `create_event()` normalization is unchanged, so both public routes produce one representation and both official repository implementations agree |
+| `MAJOR-V4-003` | the DLQ derived `error_type`/`error` from `type(exc).__name__` unvalidated. Python permits `type("api_key=abcdef1234567890", (Exception,), {})`, so a credential-bearing (or private-marker) class name could enter canonical DLQ data with no raw exception message involved | one bounded safe DLQ error-category derivation now guards both exception-capture sites and the single DLQ write point. The transport-local bounded-name half lives in `cmm/agent_runtime/runtime_event_bus.py`; the credential/private-marker half is `category_for_delivery_error()` in the existing `cmm/events/event_payload_safety.py`, injected through `bind_error_categorizer()` by the composed `EventSystem` because `cmm/agent_runtime` is architecturally forbidden from importing `cmm.domains`. An ordinary `RuntimeError` stays meaningfully categorized; every other name becomes the neutral bounded category `SubscriberDeliveryError`, never stored, truncated or partially echoed |
+
+Sensitivity canonicalization decision (explicit): the **preferred minimal rule** was
+chosen — a canonical string is *accepted and normalized immediately* to
+`EventSensitivity`, not rejected. That is consistent with the already-established
+public `publish()` contract, with `create_event()`, and with the canonical
+repository contract's requirement that the persisted fact be the enum. Strict
+enum-only was rejected because it would have made the two public
+publication routes semantically different for the same input.
+
+DLQ error-category rule (explicit): an exception class name is stored as the DLQ
+category only when it is **both** a bounded Python-style identifier
+(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`) **and** free of any Phase 10.33 high-confidence
+credential and any forbidden private marker. Otherwise the neutral bounded category
+`SubscriberDeliveryError` is recorded. Raw exception messages and tracebacks remain
+excluded from all DLQ-facing fields, and no unsafe original class name may appear
+anywhere in them.
+
+The immutable Audit V1 report, the immutable Re-audit V2 report, the immutable
+Re-audit V3 report, the immutable Re-audit V4 report and the immutable V1–V4
+bundles are preserved byte-identical. The exact Remediation V4 HEAD, tree and V5
+bundle SHA-256 are reported in the remediation handoff rather than embedded here,
+for the same self-reference reason as the earlier evidence records.
