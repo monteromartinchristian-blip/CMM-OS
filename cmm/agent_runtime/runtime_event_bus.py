@@ -16,6 +16,7 @@ No second bus, retry engine, replay engine or dead-letter authority is added.
 
 from __future__ import annotations
 
+import re
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -44,6 +45,71 @@ HandlerType = Callable[[AgentRuntimeEvent], None]
 
 #: Historical Phase 9 behaviour: exactly one delivery attempt per subscriber.
 DEFAULT_MAX_DELIVERY_ATTEMPTS = 1
+
+#: The neutral bounded category recorded when an exception class name is not itself
+#: a safe bounded category.  It names *what failed* (subscriber delivery) without
+#: carrying any attacker-controlled text.
+NEUTRAL_DELIVERY_ERROR_TYPE = "SubscriberDeliveryError"
+
+#: A safe DLQ error category is a plain Python-style class name and nothing else.
+#: The name is attacker-influenced: Python permits ``type("api_key=...", ...)``, so
+#: assignments, whitespace, punctuation, dotted paths and free prose — every shape a
+#: leaked credential or private marker arrives in — are refused outright.
+_SAFE_ERROR_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+class _UnsafeDeadLetterErrorType(ValueError):
+    """Raised when an unsafe error category would be recorded in the DLQ."""
+
+
+def _is_safe_error_type_name(name: object) -> bool:
+    """Return whether *name* is a bounded, content-safe DLQ error category.
+
+    This is the single safety predicate behind :func:`safe_delivery_error_type`, so
+    classification and the defensive check at the DLQ write are provably the same
+    rule rather than two drifting copies.
+    """
+
+    if not isinstance(name, str):
+        return False
+    if not _SAFE_ERROR_TYPE_PATTERN.match(name):
+        return False
+    # Imported lazily so this transport module keeps its place in the canonical
+    # dependency direction and no import cycle is introduced.
+    from cmm.domains.credential_policy import contains_high_confidence_credential
+    from cmm.domains.event_contracts import _contains_private_marker
+
+    if contains_high_confidence_credential(name):
+        return False
+    return not _contains_private_marker(name)
+
+
+def safe_delivery_error_type(exception: BaseException) -> str:
+    """Return one bounded, content-safe DLQ error category for *exception*.
+
+    The canonical DLQ must never retain attacker-controlled text.  The raw
+    exception message and the traceback were already excluded, but
+    ``type(exc).__name__`` is itself attacker-influenced: Python lets a caller create
+    ``type("api_key=abcdef1234567890", (Exception,), {})`` and raise it.
+
+    This is the one derivation of a DLQ error category.  It reuses the existing
+    Phase 10.33 credential detector and forbidden private-marker vocabulary — the
+    same scanners the canonical event-safety gate composes — rather than inventing
+    a second policy:
+
+    * an exception class name that is a narrow bounded safe identifier **and** passes
+      the existing credential/private-marker scanning is retained, so an ordinary
+      ``RuntimeError`` stays meaningfully categorized; and
+    * every other name falls back to the neutral bounded category
+      :data:`NEUTRAL_DELIVERY_ERROR_TYPE`.
+
+    The original unsafe class name is never stored, truncated or partially echoed.
+    """
+
+    name = type(exception).__name__
+    if _is_safe_error_type_name(name):
+        return name
+    return NEUTRAL_DELIVERY_ERROR_TYPE
 
 
 @dataclass
@@ -398,7 +464,7 @@ class AgentRuntimeEventBus:
                 # what the repository has already recorded.
                 record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
-                last_error_type = type(exc).__name__
+                last_error_type = safe_delivery_error_type(exc)
                 last_error = str(exc)
                 continue
 
@@ -421,7 +487,7 @@ class AgentRuntimeEventBus:
             self._stats.retry_total += attempts - 1
             dead_letter_queue = self._dead_letter_queue
 
-        safe_error_type = last_error_type or "Exception"
+        safe_error_type = last_error_type or NEUTRAL_DELIVERY_ERROR_TYPE
 
         if dead_letter_queue is not None:
             # A configured bounded delivery policy exhausted: the canonical
@@ -488,7 +554,7 @@ class AgentRuntimeEventBus:
             try:
                 record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
-                last_error_type = type(exc).__name__
+                last_error_type = safe_delivery_error_type(exc)
                 continue
 
             return AgentRuntimeEventDelivery(
@@ -507,7 +573,7 @@ class AgentRuntimeEventBus:
             metadata={
                 "attempts": attempts,
                 "replay": True,
-                "error_type": last_error_type or "Exception",
+                "error_type": last_error_type or NEUTRAL_DELIVERY_ERROR_TYPE,
             },
         )
 
@@ -519,7 +585,17 @@ class AgentRuntimeEventBus:
         attempts: int,
         error_type: str,
     ) -> None:
-        """Append exactly one canonical dead-letter entry for an exhausted delivery."""
+        """Append exactly one canonical dead-letter entry for an exhausted delivery.
+
+        The recorded category is re-checked here, at the single write point, so no
+        caller can put an unsafe exception class name into DLQ data even if it
+        bypasses :func:`safe_delivery_error_type`.
+        """
+
+        if not _is_safe_error_type_name(error_type):
+            raise _UnsafeDeadLetterErrorType(
+                "dead-letter error category failed the bounded safe-category rule"
+            )
 
         subscription = record.subscription
         now = datetime.now(timezone.utc)
