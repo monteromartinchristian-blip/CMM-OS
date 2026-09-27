@@ -2882,13 +2882,14 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
 **Independent Re-audit V4:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable)
 **Independent Re-audit V5:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable)
 **Independent Re-audit V6:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=1`; `V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v6.md` (immutable)
+**Independent Re-audit V7:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`; `V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=477_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v7.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2900,6 +2901,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 **Remediation V6 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
+**Remediation V7 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2942,6 +2944,10 @@ INDEPENDENT_REAUDIT_V6=FAIL
 V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
 PRIOR_REMEDIATION_REGRESSIONS=350_PASS
 REMEDIATION_V6=REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V7=FAIL
+V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=477_PASS
+REMEDIATION_V7=REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -3194,8 +3200,62 @@ suite; no V5 finding, fix or invariant was weakened. The immutable Audit V1 repo
 the immutable Re-audit V2, V3, V4, V5 and V6 reports, and the immutable V1-V6
 bundles are preserved byte-identical.
 
+## Remediation V7 record
+
+Independent Re-audit V7 verified all four Re-audit V6 findings fixed
+(`V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED`) with `477` prior remediation
+regressions preserved, and returned `FAIL` with two new majors and no minors
+(`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`). Remediation V7 fixed exactly those two
+under strict TDD — a red adversarial regression suite first (initial red
+`89 failed / 37 passed`), then the minimum fix, then the nearest regressions:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V7-001` | the V6 classifier recognized strong *absolute* filesystem signatures but had no traversal-segment rule and no relative private-system-root signature, so `safe/../../etc/shadow` and `foo/../bar/../../private/var` qualified as identifiers and were durably persisted through `payload.request_id`, `header.producer`, `metadata.error_type`, `header.permissions[]` and nested structured references | three patterns added to the **existing** private-filesystem classifier: a syntactic `..` traversal segment delimited by `/` or `\` (or bounding the whole token), a sensitive system file in relative form (`etc/shadow`, `etc/passwd`, `etc/sudoers` — which also refuses the network spelling `nfs://server/etc/shadow`), and the macOS private system roots in relative form (`private/var`, `private/etc`, `private/tmp`, `private/root`). The rule matches the traversal *segment*, never a naive `".." in value` substring, so `cmm.orchestration`, `v1..2` and `provider/model` stay valid. No filesystem I/O, no host path resolution, no second path-policy module |
+| `MAJOR-V7-002` | the identifier grammar deliberately admits `:`, `/` and `@`, but the composed credential scanner recognized only token formats and explicit secret markers — not URI userinfo password *structure* — so `https://admin:hunter2hunter2@example.com/path` and `postgres://alice:supersecret@example.com/db` qualified as identifiers and were durably persisted | one narrow `contains_uri_userinfo_credential()` rule in the **existing** authority: a real scheme, a `//` authority, userinfo terminated by `@`, and a colon inside that userinfo with a non-empty password component. The userinfo is percent-decoded before the colon test, so an encoded `%3A` that decodes to a password separator is refused as the same credential. Credential-free URIs (`https://example.com/model`, `postgres://example.com/db`) and bare-username userinfo stay valid. The check returns a boolean and the rejection message is a static literal, so the refused secret is never echoed. No second credential policy |
+
+Both rules live in `validate_platform_identifier()`, the single shared authority
+used by payload identifier fields, the canonical header facts, `permissions`,
+identifier-classified metadata facts and nested structured references, so no channel
+can be patched alone. The canonical transport DLQ channel was already closed to both
+shapes by its bounded class-name rule (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`), so no DLQ
+change was needed and none was made.
+
+```text
+REMEDIATION_V7_TESTS=127 passed (initial red 89 failed / 37 passed)
+V6_REGRESSIONS=127 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=477 passed (V1-V6 preserved)
+REMEDIATION_V1_TO_V7_REGRESSIONS=604 passed
+PHASE_SUITE=tests/events/ 1471 passed
+AT_DP_122=250 passed (177 prior + 73 V7)
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed
+CLOSED_PHASE_SUPPORT=1077 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+GLOBAL_PYTEST=23540 passed, 1 warning, 0 failed (V7 baseline 23340, +200)
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V7 baseline 810, no new debt)
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+```
+
+The accepted one-authority architecture was preserved: no second bus, registry,
+repository protocol, replay engine, DLQ, safety module, path-policy module,
+credential-policy module, payload registry, numeric-policy registry, timestamp
+subsystem, container, broker abstraction or event contract was added, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still enforced. All nine Audit V1 fixes, all
+four Re-audit V2 reproductions, all three Re-audit V3 reproductions, all three
+Re-audit V4 reproductions, all three Re-audit V5 reproductions and all four Re-audit
+V6 findings remain green (`PRIOR_REMEDIATION_REGRESSIONS=477_PASS`). No earlier
+fix, test or invariant was weakened. The immutable Audit V1 report, the immutable
+Re-audit V2, V3, V4, V5, V6 and V7 reports, and the immutable V1-V7 bundles are
+preserved byte-identical.
+
 The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V7** bundle passes. Only that re-audit may
+independent re-audit of the exact-HEAD **V8** bundle passes. Only that re-audit may
 write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
 `CLOSURE_ELIGIBLE=YES`.
 

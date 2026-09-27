@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -13,6 +13,7 @@
 **Remediation V4 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Remediation V5 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 **Remediation V6 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
+**Remediation V7 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -21,11 +22,12 @@
 
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
 Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
-failed independent Re-audit V5, failed independent Re-audit V6 and has been
-**remediated** after each. It is not closed, not independently verified and not
-complete: the `VERIFIED_EXISTING` marker may only be written by the independent
-re-audit of the V7 bundle. See §27 for the Remediation V4 record, §28 for the
-Remediation V5 record and §29 for the Remediation V6 record.
+failed independent Re-audit V5, failed independent Re-audit V6, failed independent
+Re-audit V7 and has been **remediated** after each. It is not closed, not
+independently verified and not complete: the `VERIFIED_EXISTING` marker may only be
+written by the independent re-audit of the V8 bundle. See §27 for the Remediation
+V4 record, §28 for the Remediation V5 record, §29 for the Remediation V6 record and
+§30 for the Remediation V7 record.
 
 ### Provenance note (recorded deviation)
 
@@ -553,7 +555,7 @@ reached, so no repository is responsible for discovering an invalid platform num
 and the two official repositories cannot diverge. `ratio` follows the normalized
 `0.0 <= ratio <= 1.0` contract current producers actually publish.
 
-### 15.2 Non-public filesystem locations (Remediation V6)
+### 15.2 Non-public filesystem locations (Remediation V6, extended by V7)
 
 The identifier character set deliberately keeps `:`, `/` and `.` because
 legitimate platform references need them (`workflow:123`, `domain:legal`,
@@ -583,6 +585,29 @@ canonical header identifier facts, `permissions` entries and identifier-classifi
 metadata facts — while `workflow:123`, `domain:legal`, `provider/model`,
 `cmm.orchestration`, `CORR-ORIGINAL` and every other genuine public reference stay
 valid.
+
+Absolute-path classification alone was incomplete, so Remediation V7 extended the
+**same** classifier rather than adding a second path policy:
+
+```text
+a syntactic .. traversal segment delimited by / or \ (or bounding the whole token)
+a known sensitive system file in relative form (etc/shadow, etc/passwd, etc/sudoers)
+the macOS private system roots in relative form (private/var, private/etc,
+  private/tmp, private/root)
+```
+
+The traversal rule matches the **segment**, never a naive `".." in value`
+substring, so `cmm.orchestration`, `v1..2` and `provider/model` stay valid;
+`safe/../../etc/shadow` and `foo/../bar/../../private/var` do not. Both separator
+characters are accepted in any mix: the identifier grammar only admits `/`, but a
+Windows spelling is a filesystem path semantic too. The relative sensitive-system
+file pattern also refuses the network spelling `nfs://server/etc/shadow`. There is
+still no filesystem I/O and no host path resolution: the requirement is about the
+*public-safety of the token*, not about the host's filesystem.
+
+The classifier also answers this question through the public
+`is_private_filesystem_reference()` predicate, which is the same function
+`validate_platform_identifier()` calls.
 
 ### 15.3 One canonical header fact authority (Remediation V6)
 
@@ -691,7 +716,9 @@ forbidden material can neither choose a lower-level entry point nor be relocated
 from `payload.data` into `metadata`, `permissions`, `producer`, `aggregate_id`,
 `source` or another persisted identifier field. A persisted identifier is a
 bounded single-token value that additionally survives the credential/private-marker
-scan; a persisted `metadata`/`permissions` key is itself content and is judged by
+scan, the URI userinfo credential rule and the non-public filesystem classifier
+(absolute signatures, `..` traversal segments and relative private system roots); a
+persisted `metadata`/`permissions` key is itself content and is judged by
 the same canonical key rule the Phase 10.33 Domain authority applies to its own
 payload and metadata keys. The durable Phase 9 repository stays a generic
 persistence contract and is deliberately not turned into a Phase 11.22
@@ -707,6 +734,31 @@ explicit translation names may ever be read from it. Explicit source
 `correlation_id` and `causation_id` are preserved unchanged, the documented
 derivation order is used only when the source carries none, and an explicit source
 sensitivity classification is preserved without downgrade.
+
+### 15.5 URI userinfo credentials (Remediation V7)
+
+The identifier grammar deliberately admits `:`, `/` and `@` because legitimate
+references need them, so URI authority syntax must be classified semantically
+rather than character by character. Remediation V7 added one narrow check to the
+**same** authority — not a second credential policy:
+
+```text
+<scheme>://<name>:<secret>@<authority>
+```
+
+`contains_uri_userinfo_credential()` requires a real scheme, a `//` authority,
+userinfo terminated by `@`, and a colon inside that userinfo with a non-empty
+password component. It percent-decodes the userinfo (`urllib.parse.unquote`) before
+the colon test, so an encoded `%3A` that decodes to a password separator is refused
+as the same credential. The function returns a boolean and the caller's rejection
+message is a static literal, so the refused secret is never echoed into a log, an
+error or a DLQ record.
+
+Credential-free URIs stay valid (`https://example.com/model`,
+`postgres://example.com/db`, `http://localhost:8080/health`,
+`urn:cmm:event:message.received`, `mailto:ops@example.com`), and so does
+bare-username userinfo with no password component. A password with an empty
+username (`https://:secret@example.com/db`) is still a password and is refused.
 
 ## 16. Composition bindings
 
@@ -1015,8 +1067,12 @@ and 29 strengthened `AT-DP-122` connected scenarios). Post-remediation V6:
 V6 adversarial regressions and 53 strengthened `AT-DP-122` connected scenarios;
 one superseded V5 *control* case was relocated into a dedicated named control, so
 the V5 module still collects `71` tests and no previously passing global test was
-removed). The single retained warning is the pre-existing unrelated `starlette`
-`anyio` `DeprecationWarning`.
+removed). Post-remediation V7: `23540 passed, 1 warning, 0 failed` (+200 over the
+V6 remediation figure: 127 new V7 adversarial regressions and 73 strengthened
+`AT-DP-122` connected scenarios; no previously passing test was removed or
+weakened, so `tests/events/` moves `1271 -> 1471` and `AT-DP-122` moves
+`177 -> 250`). The single retained warning is the pre-existing unrelated
+`starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -1033,15 +1089,14 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1, V2, V3, V4, V5 and V6 change, is Ruff-clean. The global count after
-Remediation V6 is `810`: identical to the audited V1 HEAD, to the V5 figure, and one
-below the frozen baseline. The only delta against the baseline is one pre-existing
-violation removed while editing `tests/conftest.py` to add the test data-directory
-isolation fixture. No unrelated violation was fixed, no global auto-fix was run, and
-no file outside the Phase 11.22 delta was touched. Every changed and created V6 file
-is also `ruff format --check`-clean; the six pre-existing changed files were
-format-clean at the audited HEAD, so the V6 formatting pass introduced no unrelated
-churn.
+Remediation V1, V2, V3, V4, V5, V6 and V7 change, is Ruff-clean. The global count
+after Remediation V7 is `810`: identical to the audited V1 HEAD, to the V5 and V6
+figures, and one below the frozen baseline. The only delta against the baseline is
+one pre-existing violation removed while editing `tests/conftest.py` to add the test
+data-directory isolation fixture. No unrelated violation was fixed, no global
+auto-fix was run, and no file outside the Phase 11.22 delta was touched. Every
+changed and created V7 file is also `ruff format --check`-clean, so the V7
+formatting pass introduced no unrelated churn.
 
 ## 22. Known non-goals and limitations
 
@@ -1073,10 +1128,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V7** bundle
-(`phase-11.22-event-system-audit-v7.tar.gz`, produced with `git archive` from the
-final Remediation V6 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V8** bundle
+(`phase-11.22-event-system-audit-v8.tar.gz`, produced with `git archive` from the
+final Remediation V7 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -1428,5 +1483,75 @@ matches the figure the independent Re-audit V6 reported exactly.
 The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5 and V6
 reports, and the immutable V1–V6 bundles are preserved byte-identical. The exact
 Remediation V6 HEAD, tree and V7 bundle SHA-256 are reported in the remediation
+handoff rather than embedded here, for the same self-reference reason as the
+earlier evidence records.
+
+## 30. Remediation V7 record
+
+Independent Re-audit V7
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v7.md`) verified all
+four V6 findings fixed (`4/4_VERIFIED`) and preserved `477` prior remediation
+regressions, while failing the phase with two new majors and no minors
+(`BLOCKERS=0`):
+
+```text
+INDEPENDENT_REAUDIT_V7=FAIL
+V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=477_PASS
+MAJOR_V7_001=RELATIVE_PATH_TRAVERSAL_AND_SENSITIVE_FILESYSTEM_REFERENCES_BYPASS_PATH_SAFETY
+MAJOR_V7_002=URI_USERINFO_CREDENTIALS_CAN_ENTER_PERSISTED_IDENTIFIER_FIELDS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V7_ONLY
+```
+
+Remediation V7 fixed exactly those two findings under strict TDD — a red
+reproduction suite first (`89 failed / 37 passed`), then the minimum fix in the
+existing authority:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V7-001` | the V6 classifier recognized strong *absolute* filesystem signatures but had no traversal-segment rule and no relative private-system-root signature, so `safe/../../etc/shadow` and `foo/../bar/../../private/var` qualified as identifiers and were durably persisted through `payload.request_id`, `header.producer`, `metadata.error_type`, `header.permissions[]` and nested structured references | three patterns added to the **existing** `_PRIVATE_FILESYSTEM_PATTERNS` classifier: a `..` traversal segment delimited by `/` or `\` (or bounding the token), a sensitive system file in relative form (`etc/shadow`, `etc/passwd`, `etc/sudoers` — which also refuses `nfs://server/etc/shadow`), and the macOS private roots in relative form (`private/var`, `private/etc`, `private/tmp`, `private/root`). Segment-based, never a naive substring rule. No I/O, no path resolution, no new policy module |
+| `MAJOR-V7-002` | the identifier grammar admits `:`, `/` and `@`, but the composed credential scanner did not treat URI userinfo password *structure* as credential material, so `https://admin:hunter2hunter2@example.com/path` and `postgres://alice:supersecret@example.com/db` were durably persisted | one narrow `contains_uri_userinfo_credential()` check in the **existing** authority: a real scheme, a `//` authority, userinfo terminated by `@`, and a colon inside that userinfo with a non-empty password component. The userinfo is percent-decoded before the colon test. Credential-free URIs and bare-username userinfo stay valid. Returns a boolean; the rejection message is a static literal, so the secret is never echoed. No second credential policy |
+
+Both rules live in `validate_platform_identifier()`, the single shared authority
+used by payload identifier fields, the canonical header facts, `permissions`,
+identifier-classified metadata facts and nested structured references, so no
+channel can be patched alone. The canonical transport DLQ channel was already
+closed to both shapes by its bounded class-name rule (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`),
+so no DLQ change was needed and none was made.
+
+```text
+REMEDIATION_V7_TESTS=127 passed (initial red 89 failed / 37 passed)
+PRIOR_REMEDIATION_REGRESSIONS=477 passed (V1-V6 preserved)
+REMEDIATION_V1_TO_V7_REGRESSIONS=604 passed
+PHASE_SUITE=tests/events/ 1471 passed
+AT_DP_122=250 passed (177 prior + 73 V7)
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed
+CLOSED_PHASE_SUPPORT=1077 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+GLOBAL_PYTEST=23540 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V7 baseline 810, no new debt)
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+```
+
+Both rules are narrow by construction and were chosen over broader alternatives.
+Banning every `/`, `:` or `@` was rejected because the producer inventory proves
+legitimate references genuinely need those characters (`workflow:123`,
+`domain:legal`, `provider/model`, `cmm.orchestration`, `events:read`), and each is
+asserted to still pass. Real path resolution and filesystem inspection were
+rejected because the frozen requirement concerns the public-safety of the token,
+not the host's filesystem, and boundary I/O would be slow and host-dependent.
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6 and V7
+reports, and the immutable V1–V7 bundles are preserved byte-identical. The exact
+Remediation V7 HEAD, tree and V8 bundle SHA-256 are reported in the remediation
 handoff rather than embedded here, for the same self-reference reason as the
 earlier evidence records.

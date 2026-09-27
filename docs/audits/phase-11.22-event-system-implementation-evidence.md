@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -14,12 +14,14 @@
 **Independent Re-audit V4:** `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable historical evidence)
 **Independent Re-audit V5:** `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable historical evidence)
 **Independent Re-audit V6:** `docs/audits/phase-11.22-event-system-independent-reaudit-v6.md` (immutable historical evidence)
+**Independent Re-audit V7:** `docs/audits/phase-11.22-event-system-independent-reaudit-v7.md` (immutable historical evidence)
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 **Remediation V6 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
+**Remediation V7 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
 
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
@@ -43,6 +45,10 @@ INDEPENDENT_REAUDIT_V6=FAIL
 V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
 PRIOR_REMEDIATION_REGRESSIONS=350_PASS
 REMEDIATION_V6=REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V7=FAIL
+V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=477_PASS
+REMEDIATION_V7=REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
@@ -53,21 +59,26 @@ that re-audit with four new majors** (`BLOCKERS=0`, `MAJORS=4`, `MINORS=0`), was
 `MAJORS=2`, `MINORS=1`) with those four V2 reproductions verified fixed
 (`4/4_VERIFIED`). It was **remediated for the third time**, **passed the three V3
 reproductions on independent Re-audit V4** (`3/3_VERIFIED`) and **failed that
-re-audit with three new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`). It has now
-been **remediated for the fourth time**, **passed the three V4 reproductions on
+re-audit with three new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`). It was
+**remediated for the fourth time**, **passed the three V4 reproductions on
 independent Re-audit V5** (`3/3_VERIFIED`) while **failing that re-audit with three
-new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`).
-It has now been **remediated for the sixth time**, **passed the three V5
-reproductions on independent Re-audit V6** (`3/3_VERIFIED`) while **failing that
-re-audit with three new majors and one new minor** (`BLOCKERS=0`, `MAJORS=3`,
-`MINORS=1`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`). It is not closed,
-independently verified or complete. `DP-122=VERIFIED_EXISTING` and
-`AT-DP-122=PASS` belong only to the independent audit of the V7 bundle.
+new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`,
+`PRIOR_REMEDIATION_REGRESSIONS=279_PASS`). It was **remediated for the fifth
+time**, **passed the three V5 reproductions on independent Re-audit V6**
+(`3/3_VERIFIED`) while **failing that re-audit with three new majors and one new
+minor** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=1`,
+`PRIOR_REMEDIATION_REGRESSIONS=350_PASS`). It has now been **remediated for the
+sixth time**, **passed all four V6 findings on independent Re-audit V7**
+(`4/4_VERIFIED`) while **failing that re-audit with two new majors and no
+minors** (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`,
+`PRIOR_REMEDIATION_REGRESSIONS=477_PASS`). It is not closed, independently
+verified or complete. `DP-122=VERIFIED_EXISTING` and `AT-DP-122=PASS` belong only
+to the independent audit of the V8 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
 V1, §11 records Remediation V2, §12 records Remediation V3, §13 records
-Remediation V4, §14 records Remediation V5 and §15 records Remediation V6; the
-earlier sections are preserved as historical record.
+Remediation V4, §14 records Remediation V5, §15 records Remediation V6 and §16
+records Remediation V7; the earlier sections are preserved as historical record.
 
 ## 1. Exact repository state
 
@@ -1629,6 +1640,342 @@ overwritten.
 Fresh independent ChatGPT re-audit of the **V7** exact-HEAD bundle
 (`phase-11.22-event-system-audit-v7.tar.gz`). The phase remains
 `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
+begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
+`DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
+
+---
+
+## 16. Remediation V7
+
+### 16.1 Verdict being remediated
+
+Independent Re-audit V7
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v7.md`, immutable,
+`BUNDLE_INTEGRITY=PASS`, `EXACT_HEAD=PASS`, `EXACT_TREE=PASS`) returned:
+
+```text
+INDEPENDENT_REAUDIT_V7=FAIL
+V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=477_PASS
+BLOCKERS=0
+MAJORS=2
+MINORS=0
+MAJOR_V7_001=RELATIVE_PATH_TRAVERSAL_AND_SENSITIVE_FILESYSTEM_REFERENCES_BYPASS_PATH_SAFETY
+MAJOR_V7_002=URI_USERINFO_CREDENTIALS_CAN_ENTER_PERSISTED_IDENTIFIER_FIELDS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V7_ONLY
+```
+
+Re-audit V7 verified all four V6 findings fixed (`4/4_VERIFIED`) and preserved
+`477` prior remediation regressions. Phase 11.22 remains open. Phase 11.23 and
+Phase 11.24 must not begin.
+
+### 16.2 Exact start state
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+PROMPT_COMMIT_HEAD=a72abf4c1022465955c5e0d3aebc0ae2d4bf02c1
+REAUDIT_V7_COMMIT=c0f4fb226f3c4a1fb7dcaf88b333ccda07144a5c
+REAUDIT_V7_TREE=f7959aacaff9ae73c5715f5900d369cca6588314
+AUDITED_V7_IMPLEMENTATION_HEAD=8caa4b922f674fd5ef4a3452c2a55ddaad13ca8d
+AUDITED_V7_IMPLEMENTATION_TREE=b3dd2d510a1f3b0daae075ae6e56652f3432c521
+TRACKED_DELTA_FROM_REAUDIT_V7=docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md
+PRODUCTION_CODE_DELTA_FROM_REAUDIT_V7=0
+TRACKED_WORKTREE=CLEAN
+GIT_DIFF_CHECK=PASS
+QUARANTINE_STASH=NOT_MUTATED (no stash entry created, applied, popped or dropped)
+HISTORICAL_BUNDLE_HASHES=EXACT (all seven re-hashed from the working tree)
+  V1=a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3
+  V2=172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04
+  V3=27517348570837df2abe9fc7f11e5cc24cefc32a198ffe3e0afefaee5df3c589
+  V4=18adf70d86f291b5585f71b746f81139ffa01e56e7c16dcbfc6b67bb794aaa0f
+  V5=105203eb4ea1d0e1b3200ee30b7130961af70283d8be9fc7b28ed65279003d10
+  V6=67b27f6effa5297757453aba3021a7211fe4ee88e194a6d65eefa353060f1008
+  V7=c388ea63ba885e415703ab771174f3413276092bf65358142b8e3a0c1c4bfe01
+```
+
+All seven bundles were re-hashed from the working tree and matched the declared
+values exactly. Preflight passed before any production mutation; no `reset`,
+`stash`, `clean`, `worktree`, `merge` or `push` operation was used, and no
+historical audit report or bundle was modified.
+
+### 16.3 TDD red evidence
+
+Before any production change,
+`tests/events/test_phase11_22_remediation_v7_regressions.py` was written to
+reproduce both findings and its red state was recorded:
+
+```text
+REMEDIATION_V7_TESTS_INITIAL_RED=89 failed, 37 passed (126 collected)
+
+  MAJOR-V7-001 relative traversal          ~44 failed
+  MAJOR-V7-002 URI userinfo credentials    ~43 failed
+  architecture guard / controls             37 passed
+```
+
+Every failure was a genuine reproducer, not a helper artefact. The audited
+behaviours were independently re-observed against the unmodified start state
+before the fix, exactly as the re-audit reported them:
+
+```text
+payload.request_id="safe/../../etc/shadow"                 ACCEPTED persisted=True count=1
+producer="safe/../../etc/shadow"                           ACCEPTED persisted=True count=1
+metadata.error_type="safe/../../etc/shadow"                ACCEPTED persisted=True count=1
+permissions=["safe/../../etc/shadow"]                      ACCEPTED persisted=True count=1
+result_reference.reference_id="safe/../../etc/shadow"      ACCEPTED persisted=True count=1
+payload.request_id="foo/../bar/../../private/var"          ACCEPTED persisted=True count=1
+
+payload.request_id="https://admin:hunter2hunter2@example.com/path"   ACCEPTED persisted=True count=1
+producer="https://admin:hunter2hunter2@example.com/path"             ACCEPTED persisted=True count=1
+payload.request_id="postgres://alice:supersecret@example.com/db"     ACCEPTED persisted=True count=1
+producer="postgres://alice:supersecret@example.com/db"               ACCEPTED persisted=True count=1
+```
+
+Legitimate controls were confirmed accepted at the same start state, so the
+red run separated the defect from the contract:
+`workflow:123`, `domain:legal`, `provider/model`, `cmm.orchestration`,
+`events:read`, `https://example.com/model`, `postgres://example.com/db`.
+
+The red run also exposed a scope boundary that the V7 record states explicitly:
+the identifier character set does not admit `%`, so a *percent-encoded* userinfo
+was already refused through the identifier channels — but for the character-set
+reason, not for the semantic reason. The V7 rule therefore decodes the userinfo
+before the colon test and a dedicated regression proves the decoded-form
+detection itself, so the semantic protection does not depend on the character
+set staying as narrow as it is today.
+
+### 16.4 Findings and remediation
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V7-001` | the V6 path classifier recognized strong *absolute* filesystem signatures but had no traversal-segment rule and no relative private-system-root signature. A producer reached a sensitive relative location merely by prefixing it with an apparently safe identifier segment: `safe/../../etc/shadow` and `foo/../bar/../../private/var` qualified as identifiers and were durably persisted through every shared identifier channel — payload identifiers, `header.producer`, `metadata.error_type`, `header.permissions[]` and nested structured references | the **existing** `_PRIVATE_FILESYSTEM_PATTERNS` classifier in the **existing** safety authority gains three patterns: a syntactic `..` traversal segment delimited by `/` or `\` (or bounding the whole token), a known sensitive system file in relative form (`etc/shadow`, `etc/passwd`, `etc/sudoers` — which also refuses the network spelling `nfs://server/etc/shadow`), and the macOS private system roots in relative form (`private/var`, `private/etc`, `private/tmp`, `private/root`). The rule matches the traversal *segment*, never a naive `".." in value` substring, so `cmm.orchestration`, `v1..2` and `provider/model` stay valid. It performs no filesystem I/O, resolves no host path and inspects no file. No second path-policy module was created |
+| `MAJOR-V7-002` | the identifier grammar deliberately admits `:`, `/` and `@` because legitimate references need them, but the composed credential scanner recognized only token formats and explicit secret markers — not URI userinfo password *structure*. `https://admin:hunter2hunter2@example.com/path` and `postgres://alice:supersecret@example.com/db` therefore qualified as safe identifiers and were durably persisted, against the frozen rule that credentials never enter event persistence | one narrow `contains_uri_userinfo_credential()` check in the **existing** authority. It requires a real scheme, a `//` authority, userinfo terminated by `@`, and a colon inside that userinfo with a non-empty password component. The userinfo is percent-decoded (`urllib.parse.unquote`) before the colon test, so an encoded `%3A` that decodes to a password separator is refused as the same credential. Credential-free URIs (`https://example.com/model`, `postgres://example.com/db`) and bare-username userinfo are preserved. The function returns a boolean and the caller's rejection message is a static literal, so the refused secret is never echoed into a log, an error or a DLQ record. No second credential policy was created |
+
+Traversal rule decision (explicit): the rule is segment-based, because a naive
+substring test would refuse legitimate dotted references such as
+`cmm.orchestration`. Both separator characters are accepted in any mix: the
+identifier grammar only admits `/`, but a Windows spelling is a filesystem path
+semantic too, and three of the audited traversal spellings are only refused by
+the character set today — the classifier now refuses the segment itself, so the
+protection does not depend on that coincidence. Real path resolution and
+filesystem inspection were rejected for the same reason as in V6: the frozen
+requirement is about the *public-safety of the token*, not about the host's
+filesystem, and performing I/O at the event boundary would be both slower and
+host-dependent.
+
+URI userinfo rule decision (explicit): the check is structural, not
+secret-guessing. The URI grammar itself names the component after the `:`;
+requiring a non-empty password component and not requiring a non-empty username
+refuses `https://:secret@example.com/db` (a password is still a password) while
+leaving `https://alice@example.com/db` and `https://alice:@example.com/db`
+valid. Percent-decoding before the colon test was chosen over raw-text matching
+because the *semantic* content is what the invariant is about.
+`urllib.parse` is used as an implementation detail inside the existing authority,
+not as a new policy surface.
+
+### 16.5 Remediation commits
+
+```text
+cec2b71 test(phase11): reproduce phase11.22 reaudit v7 findings
+        (the V7 adversarial regression module, which reproduces both findings
+         first — initial red 89 failed / 37 passed)
+06c7903 fix(events): reject traversal and uri-userinfo credentials
+        (the minimum fix, in the existing identifier/path safety authority)
+dd5b3be test(phase11): strengthen at-dp-122 for v7 identifier safety
+        (the connected V7 acceptance scenarios)
+<docs>  docs(phase11): record phase11.22 remediation v7 pending reaudit
+```
+
+Both findings share one safety authority and one dispatch point, so the
+reproduction suite and the minimum fix are committed as the prompt's suggested
+two-step sequence; the strengthened acceptance follows as its own test commit and
+the documentation is recorded last. This is the prompt's "coherent split"
+allowance. No history was rewritten, no historical audit or remediation commit
+was squashed and no bundle was overwritten. The docs commit cannot cite its own
+SHA for the same self-reference reason as the earlier evidence records.
+
+### 16.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py   +95/-9   traversal-segment, relative
+                                              sensitive-system-path and URI
+                                              userinfo credential rules in the
+                                              one existing identifier/path safety
+                                              authority
+```
+
+```text
+tests/events/test_phase11_22_remediation_v7_regressions.py  NEW  +889/-0
+tests/events/test_phase11_22_dp122_acceptance.py                 +345/-0
+```
+
+No second bus, registry, repository protocol, replayer, DLQ, event contract,
+safety-policy module, path-policy module, credential-policy module, payload
+registry, numeric-policy registry, timestamp subsystem, identity/sensitivity
+authority, application container, service locator, broker abstraction or generic
+event-schema engine was introduced, and `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`
+still holds.
+
+### 16.7 New and strengthened adversarial regressions
+
+```text
+tests/events/test_phase11_22_remediation_v7_regressions.py   NEW, 127 tests
+  MAJOR-V7-001  safe/../../etc/shadow and foo/../bar/../../private/var rejected
+                in the payload identifier, in the header producer, in an
+                identifier-classified metadata fact, in permissions, in a nested
+                structured reference, in a reference sequence and in a structured
+                reference sequence; backslash, mixed-separator, trailing and
+                relative-private-root spellings rejected; a manual event applies
+                the same rule; the durable file is never created or appended and
+                never contains ".."; the file-backed repository is not the safety
+                boundary; one enumerable test drives all thirteen shared channels
+  MAJOR-V7-001 controls  eleven legitimate public references persist with the
+                exact value, every canonical header identifier channel keeps its
+                real reference, and a bare separator (provider/model,
+                cmm/orchestration/step) is not traversal
+  MAJOR-V7-002  both audited URI userinfo credentials rejected in the payload
+                identifier, in the header producer, in an identifier-classified
+                metadata fact, in permissions, in a nested structured reference
+                and in a reference sequence; percent-encoded userinfo rejected;
+                the semantic decoded-form rule proved directly; a manual event
+                applies the same rule; the durable file is never created or
+                appended and never contains the audited passwords; the
+                file-backed repository is not the safety boundary; the rejection
+                message never echoes the secret; one enumerable test drives all
+                thirteen shared channels
+  MAJOR-V7-002 controls  credential-free URIs (https://example.com/model,
+                postgres://example.com/db, http://localhost:8080/health,
+                urn:cmm:event:message.received, mailto:ops@example.com) and the
+                legitimate references persist unchanged; bare-username userinfo is
+                not a credential
+  architecture guards  the one shared authority is the point of enforcement for
+                both rules, the public path classifier reports traversal, and no
+                event_path_policy.py / event_credential_policy.py /
+                identifier_policy.py module was added
+
+tests/events/test_phase11_22_dp122_acceptance.py    +73 connected scenarios (177 -> 250)
+  traversal and URI userinfo refused on every shared persisted identifier channel
+  (payload identifier, payload workflow_id, payload aggregate_id, payload
+  producer, header producer, header aggregate_id, header correlation_id,
+  header source, permissions, metadata error_type, nested result reference,
+  structured reference sequence, domain reference sequence); the real durable
+  store is never created or appended and no audited secret appears in it; the
+  real production PlatformOrchestrationEventSink refuses both shapes before
+  persistence; the real Orchestrator's mandatory emission fails closed with
+  ORCHESTRATION_EVENT_EMISSION_FAILED and leaves zero durable evidence rather
+  than dropping the fact silently; the refusal message never echoes the secret;
+  legitimate references and credential-free URIs still persist and reopen
+  fingerprint-equal; the frozen V6 absolute-path rules are retained alongside
+  the new relative rule
+```
+
+### 16.8 Gate evidence (Remediation V7)
+
+```text
+REMEDIATION_V7_TESTS=127 passed (initial red 89 failed / 37 passed)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=477 passed (V1-V6 preserved)
+REMEDIATION_V1_TO_V7_REGRESSIONS=604 passed
+PHASE_SUITE=tests/events/ 1471 passed
+AT_DP_122=250 passed (177 prior + 73 V7)
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=tests/domains/test_domain_events_dp033_acceptance.py 92 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed, 1 warning
+  (AT-DP-102, AT-DP-103, AT-DP-105, Phase 11.21, Phase 11.34, AT-DP-150, AT-DP-033)
+CLOSED_PHASE_SUPPORT=1077 passed
+  (validation kernel events, orchestration suite, workflow subsystem)
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+PHASE11_21_AND_11_34=106 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed (part of tests/events/)
+GLOBAL_PYTEST=23540 passed, 1 warning, 0 failed (V7 baseline 23340, +200)
+CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V7 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+ARCHITECTURE_GATES=PASS
+SECURITY_GATES=PASS
+```
+
+The V7 production tree measured `1271` in `tests/events/` and `23340` globally.
+The V7 additions are `+127` new adversarial regressions in a new module and `+73`
+strengthened `AT-DP-122` connected scenarios. Both deltas are therefore `+200` and
+they agree exactly: `tests/events/` moves `1271 -> 1471` and the global suite
+moves `23340 -> 23540`. No previously passing test was removed or weakened.
+`AT-DP-122` itself moves `177 -> 250`. The `GLOBAL_PYTEST_PASS_COUNT>=23340`
+requirement is met at `23540`, and `GLOBAL_PYTEST_FAILURES=0`.
+`PRIOR_REMEDIATION_REGRESSIONS` is exactly `477`, byte-for-byte the figure the
+independent Re-audit V7 reported.
+
+The one retained global warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`.
+
+### 16.9 Mandatory invariant evidence
+
+```text
+RELATIVE_PATH_TRAVERSAL_REJECTED_BEFORE_PERSISTENCE=PASS
+URI_USERINFO_CREDENTIALS_REJECTED_BEFORE_PERSISTENCE=PASS
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE=PASS
+CREDENTIALS_NEVER_ENTER_EVENT_PERSISTENCE=PASS
+
+ABSOLUTE_HOME_FILESYSTEM_PATH_REJECTION=PASS (preserved, V6)
+NUMERIC_LIFECYCLE_FACTS_ARE_ACTUALLY_BOUNDED=PASS (preserved, V6)
+OFFICIAL_REPOSITORY_PARITY=PASS (preserved, V6)
+ONE_CANONICAL_HEADER_FACT_AUTHORITY=PASS (preserved, V6)
+TIMESTAMP_SEMANTIC_VALIDITY=PASS (preserved, V6)
+BINARY_BUFFER_VALUES_FAIL_CLOSED=PASS (preserved, V5)
+RAW_USER_TEXT_CANNOT_BE_RELOCATED=PASS (preserved, V5)
+METADATA_IS_NOT_A_PROSE_SIDE_CHANNEL=PASS (preserved, V5)
+DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING=PASS (preserved, V5)
+RAW_EXCEPTION_MESSAGES_NEVER_ENTER_DLQ=PASS (preserved, V4)
+UNSAFE_EXCEPTION_CLASS_NAMES_NEVER_ENTER_DLQ=PASS (preserved, V4)
+CONTENT_BOUND_FINGERPRINT=PASS (preserved, V1-V3)
+SAME_ID_DIFFERENT_CONTENT_FAIL_CLOSED=PASS (preserved, V1-V3)
+TAMPER_DETECTION=PASS (preserved, V1-V3)
+UNSUPPORTED_SCHEMA_REJECTED_BEFORE_APPEND=PASS (preserved, V1-V3)
+SUPPORTED_SCHEMA_REOPEN_ROUNDTRIP=PASS (preserved, V1-V3)
+PUBLICATION_RESULT_ALIAS_ISOLATION=PASS (preserved, V1-V3)
+SUBSCRIBER_MUTATION_ISOLATION=PASS (preserved, V1-V3)
+REPOSITORY_SNAPSHOT_ISOLATION=PASS (preserved, V1-V3)
+MANUAL_SENSITIVITY_CANONICALIZATION=PASS (preserved, V1-V3)
+REPLAY_DOES_NOT_REPERSIST=PASS (preserved, V1-V3)
+REPLAY_DEFAULT_DENY=PASS (preserved, V1-V3)
+TARGETED_DLQ_REPLAY=PASS (preserved, V1-V3)
+UNRELATED_SUBSCRIBER_CANNOT_RESOLVE_DLQ=PASS (preserved, V1-V3)
+DLQ_RETAINED_UNTIL_TARGET_SUCCESS=PASS (preserved, V1-V3)
+DETACHED_DLQ_INSPECTION_SNAPSHOTS=PASS (preserved, V1-V3)
+DIRECT_BUS_NEUTRAL_FALLBACK=PASS (preserved, V1-V3)
+
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+NO_SECOND_EVENT_AUTHORITY=PASS
+NO_SECOND_PATH_POLICY_MODULE=PASS
+NO_SECOND_CREDENTIAL_POLICY=PASS
+```
+
+### 16.10 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6 and V7
+reports, and the immutable V1, V2, V3, V4, V5, V6 and V7 bundles are byte-identical
+to their audited state. All seven bundles remain untracked, as repository policy
+does not track audit bundles. The quarantine stash state was preserved; no stash
+was created, applied, popped or dropped, and no bundle was overwritten.
+
+### 16.11 Next step
+
+Fresh independent ChatGPT re-audit of the **V8** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v8.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`: not closed, not
 independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
 begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
 `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
