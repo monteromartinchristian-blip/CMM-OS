@@ -34,7 +34,7 @@ global singleton.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
@@ -500,8 +500,18 @@ class EventSystem:
         4. the same safety policy applied to **every** persisted free-form header
            fact — metadata, permissions and each identifier field — so safety does
            not depend on which persisted channel the caller chooses;
-        5. canonical normalization, which preserves the event ID, correlation,
+        5. canonicalization of the persisted sensitivity fact, so the returned
+           event carries the canonical runtime representation rather than a bare
+           accepted string;
+        6. canonical normalization, which preserves the event ID, correlation,
            causation and every other canonical header fact the caller supplied.
+
+        Step 5 is deliberately *normalization*, not validation: the one sensitivity
+        rule already accepts a canonical string and converts it to the member.  A
+        manual ``publish_event`` caller passing ``sensitivity="restricted"`` must
+        therefore end up with the same canonical :class:`EventSensitivity` member
+        that ``create_event`` and the durable repository require, instead of a
+        ``str`` that one repository tolerates and the other cannot serialize.
         """
 
         self._registry.ensure_registered(event.header.event_type)
@@ -511,6 +521,13 @@ class EventSystem:
             )
         validate_platform_payload(event.payload.data)
         validate_platform_event_facts(event)
+
+        sensitivity = canonicalize_platform_event_sensitivity(event.header.sensitivity)
+        if sensitivity is not event.header.sensitivity:
+            event = replace(
+                event, header=replace(event.header, sensitivity=sensitivity)
+            )
+
         return self._normalizer.normalize(event)
 
     def _ensure_supported_schema(self, schema_version: str) -> None:

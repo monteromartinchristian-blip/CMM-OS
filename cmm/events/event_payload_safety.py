@@ -293,8 +293,17 @@ def _check_key(key: str) -> None:
 
 
 def _is_sequence(value: object) -> bool:
+    """Return whether *value* is an ordinary descriptive sequence.
+
+    The excluded types are exactly the binary containers.  ``memoryview`` is a
+    registered :class:`collections.abc.Sequence` whose iteration yields integers,
+    so without this exclusion a binary buffer would be treated as an ordinary
+    descriptive sequence and recursively canonicalized into a plain integer list —
+    letting raw binary bytes enter persisted event content.
+    """
+
     return isinstance(value, Sequence) and not isinstance(
-        value, (str, bytes, bytearray)
+        value, (str, bytes, bytearray, memoryview)
     )
 
 
@@ -696,7 +705,12 @@ def canonicalize_platform_payload(payload: Mapping[str, object]) -> dict[str, An
 
 
 def _canonicalize_payload_value(value: object) -> Any:
-    """Return the canonical JSON-compatible ``dict``/``list``/scalar form of *value*."""
+    """Return the canonical JSON-compatible ``dict``/``list``/scalar form of *value*.
+
+    Binary containers are refused here as well, so this shape transform can never
+    turn a binary buffer into an integer list even if it is ever reached without
+    the validation half having run first.
+    """
 
     if isinstance(value, Mapping):
         return {
@@ -704,6 +718,8 @@ def _canonicalize_payload_value(value: object) -> Any:
         }
     if isinstance(value, str):
         return value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raise PlatformEventPayloadError("binary value must not be persisted")
     if _is_sequence(value):
         return [_canonicalize_payload_value(item) for item in value]
     return value
