@@ -1158,7 +1158,7 @@ CLOSED_PHASE_SUPPORT=579 passed
 ARCHITECTURE_AND_SECURITY_GATES=294 passed (part of tests/events/)
 ORCHESTRATION_VALIDATION_WORKFLOW=1077 passed
 PHASE11_21_AND_11_34=116 passed
-GLOBAL_PYTEST=23131 passed, 1 warning, 0 failed (V5 baseline 23060, +71)
+GLOBAL_PYTEST=23160 passed, 1 warning, 0 failed (V5 baseline 23060, +100)
 CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
 GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V5 baseline 810, no new debt)
 GLOBAL_RUFF_NO_NEW_DEBT=PASS
@@ -1169,10 +1169,11 @@ ARCHITECTURE_GATES=PASS
 SECURITY_GATES=PASS
 ```
 
-The V5 production tree measured `991` in `tests/events/` and `23060` globally. The
+The V4 production tree measured `991` in `tests/events/` and `23060` globally. The
 V5 additions are exactly `+71` new adversarial regressions and `+29` strengthened
-acceptance scenarios, so the global delta is `+71` (the 29 acceptance additions are
-inside `tests/events/`, which moves `991 → 1091`, `+100`).
+acceptance scenarios, so the global delta is `+100` and `tests/events/` moves
+`991 → 1091` (`+100`); the two deltas are equal because the strengthened acceptance
+scenarios live inside `tests/events/`.
 
 Four repository files unrelated to Phase 11.22
 (`cmm/agent_runtime/approval_repository.py`,

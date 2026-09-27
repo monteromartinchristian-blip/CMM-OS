@@ -833,15 +833,16 @@ Phase 9 runtime regressions        3635 passed
 Phase 10.33 Domain regressions    11824 passed
 Closed-phase acceptances            310 passed
 Closed-phase support                579 passed
-global pytest                   23131 passed, 1 warning, 0 failed
+global pytest                   23160 passed, 1 warning, 0 failed
 global Ruff                          810 (V5 baseline 810, no new debt)
 ```
 
-The V5 production tree measured `991` in `tests/events/` and `23060` globally.
+The V4 production tree measured `991` in `tests/events/` and `23060` globally.
 Both V5 deltas are accounted for exactly: the new V5 regression module adds `71`
 and the strengthened `AT-DP-122` adds `29`, so the global suite moves
-`23060 → 23131` (`+71`), `tests/events/` moves `991 → 1091` (`+100`), and
-`AT-DP-122` itself moves `95 → 124`.
+`23060 → 23160` (`+100`), `tests/events/` moves `991 → 1091` (`+100`), and
+`AT-DP-122` itself moves `95 → 124`. The two deltas are the same `+100` because
+the strengthened acceptance scenarios live inside `tests/events/`.
 
 ## 20. Global test evidence
 
@@ -852,11 +853,10 @@ Post-remediation V2: `22962 passed, 1 warning, 0 failed`. Post-remediation V3:
 adversarial regressions and 19 strengthened `AT-DP-122` connected scenarios).
 Post-remediation V4: `23060 passed, 1 warning, 0 failed` (+35 over the V3
 remediation figure: 23 new V4 adversarial regressions and 12 strengthened
-`AT-DP-122` connected scenarios). Post-remediation V5: `23131 passed, 1 warning,
-0 failed` (+71 over the V4 remediation figure: 71 new V5 adversarial regressions.
-The 29 strengthened `AT-DP-122` connected scenarios are already inside the global
-count as part of `tests/events/`). The single retained warning is the pre-existing
-unrelated `starlette` `anyio` `DeprecationWarning`.
+`AT-DP-122` connected scenarios). Post-remediation V5: `23160 passed, 1 warning,
+0 failed` (+100 over the V4 remediation figure: 71 new V5 adversarial regressions
+and 29 strengthened `AT-DP-122` connected scenarios). The single retained warning
+is the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
