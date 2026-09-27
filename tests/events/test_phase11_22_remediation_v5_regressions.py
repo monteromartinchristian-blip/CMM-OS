@@ -637,6 +637,20 @@ def test_structured_reference_list_prose_is_rejected() -> None:
 
 # ── MAJOR-V5-002 controls: legitimate lifecycle facts stay valid ───────────
 
+#: The legitimate V5 control values whose key names a canonical header fact.
+#:
+#: Remediation V6 established that a payload key naming a canonical header fact is
+#: *the same* lifecycle fact, so it is consumed into the header instead of being
+#: persisted a second time (MAJOR-V6-003).  The control below still exercises every
+#: one of these values; it asserts the one canonical header authority rather than a
+#: second payload copy.  ``event_type`` is the single exception: the platform event
+#: type is always supplied by construction, so a *different* payload value is a
+#: contradiction and fails closed instead of being accepted (proved adversarially in
+#: ``test_phase11_22_remediation_v6_regressions.py``).
+CANONICAL_HEADER_CONTROL_KEYS = frozenset(
+    {"workflow_id", "correlation_id", "schema_version", "producer"}
+)
+
 
 @pytest.mark.parametrize(
     ("key", "value"),
@@ -657,7 +671,6 @@ def test_structured_reference_list_prose_is_rejected() -> None:
         ("primary_domain", "domain:general"),
         ("error_code", "E1"),
         ("schema_version", "1.0.0"),
-        ("event_type", "goal.created"),
         ("producer", "cmm.orchestration"),
     ),
 )
@@ -674,7 +687,35 @@ def test_legitimate_identifier_and_categorical_facts_still_pass(
         event_id=f"evt-v5-control-{next(_CONTROL_IDS)}",
     )
 
-    assert result.event.payload.data[key] == value
+    if key in CANONICAL_HEADER_CONTROL_KEYS:
+        assert getattr(result.event.header, key) == value
+        assert key not in result.event.payload.data
+    else:
+        assert result.event.payload.data[key] == value
+    assert len(received) == 1
+
+
+def test_canonical_event_type_payload_fact_still_reaches_the_header() -> None:
+    """MAJOR-V5-002 control: a legitimate `event_type` value is still supported.
+
+    Remediation V6 moved this value out of the payload-key parametrization above and
+    proves the clarified contract here: when a payload `event_type` agrees with the
+    canonical event type it is consumed into the one header authority, and when it
+    disagrees it fails closed (proved adversarially in
+    ``test_phase11_22_remediation_v6_regressions.py``).  The legitimate fact is
+    therefore still fully supported, exactly once.
+    """
+
+    system, received = _watching_system()
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v5-control", "event_type": "message.received"},
+        event_id=f"evt-v5-control-{next(_CONTROL_IDS)}",
+    )
+
+    assert result.event.header.event_type == "message.received"
+    assert "event_type" not in result.event.payload.data
     assert len(received) == 1
 
 
@@ -737,7 +778,13 @@ def test_legitimate_boolean_facts_still_pass(key: str, value: bool) -> None:
 def test_legitimate_canonical_timestamp_strings_still_pass(
     key: str, value: str
 ) -> None:
-    """MAJOR-V5-002 control: the canonical timestamp string form stays valid."""
+    """MAJOR-V5-002 control: the canonical timestamp string form stays valid.
+
+    MAJOR-V6-003: a timestamp payload key names the canonical header fact, so this
+    control asserts the string reaches the one canonical header rather than being
+    persisted a second time.  ``occurred_at`` is supplied explicitly so that an
+    adopted ``emitted_at`` still satisfies the canonical chronology contract.
+    """
 
     system, received = _watching_system()
 
@@ -745,9 +792,13 @@ def test_legitimate_canonical_timestamp_strings_still_pass(
         "message.received",
         {"request_id": "req-v5-control-time", key: value},
         event_id=f"evt-v5-control-{next(_CONTROL_IDS)}",
+        occurred_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
     )
 
-    assert result.event.payload.data[key] == value
+    assert getattr(result.event.header, key) == datetime(
+        2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc
+    )
+    assert key not in result.event.payload.data
     assert len(received) == 1
 
 

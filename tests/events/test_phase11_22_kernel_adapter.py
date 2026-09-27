@@ -165,12 +165,17 @@ def test_mapping_copies_only_present_safe_facts(adapter, system) -> None:
 
     stored = system.repository.get(event_id)
     assert stored is not None
+    # Remediation V6 (MAJOR-V6-003): the translation no longer mirrors the *source*
+    # event name into a payload key that names the canonical header `event_type`
+    # fact.  The canonical header owns that fact; the one-way source→platform
+    # mapping itself stays recorded in the committed translation table.
     assert stored.payload.data == {
         "validation_id": "val-1",
         "status": "passed",
         "policy": "default",
-        "event_type": "validation.completed",
     }
+    assert stored.header.event_type == "validation.completed"
+    assert "event_type" not in stored.payload.data
 
 
 def test_missing_fact_stays_missing(adapter, system) -> None:
@@ -666,7 +671,13 @@ def test_workflow_lifecycle_facts_carry_workflow_identity(adapter, system) -> No
 
     stored = system.repository.get(event_id)
     assert stored is not None
-    assert stored.payload.data["workflow_id"] == "wf-9"
+    # Remediation V6 (MAJOR-V6-003): `workflow_id` names a canonical header fact, so
+    # the bridged identity reaches the one canonical header instead of being
+    # persisted a second time as a payload copy.  The workflow identity is still
+    # carried, and the unrelated bounded facts stay in the payload.
+    assert stored.header.workflow_id == "wf-9"
+    assert "workflow_id" not in stored.payload.data
+    assert stored.payload.data["run_id"] == "run-9"
     assert stored.payload.data["error_code"] == "E1"
 
 

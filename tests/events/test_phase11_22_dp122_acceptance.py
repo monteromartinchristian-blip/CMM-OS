@@ -2321,7 +2321,6 @@ def test_at_dp_122_numeric_field_rejects_prose(connected) -> None:
         ("channel", "conversation"),
         ("route", "conversation"),
         ("primary_domain", "domain:legal"),
-        ("event_type", "goal.created"),
         ("duration_ms", 125),
         ("count", 2),
         ("approved", True),
@@ -2330,7 +2329,14 @@ def test_at_dp_122_numeric_field_rejects_prose(connected) -> None:
 def test_at_dp_122_legitimate_lifecycle_facts_still_persist(
     connected, key: str, value: object
 ) -> None:
-    """MAJOR-V5-002 control: legitimate bounded facts still reach durable storage."""
+    """MAJOR-V5-002 control: legitimate bounded facts still reach durable storage.
+
+    Remediation V6 removed the ``event_type`` entry from this control: a payload key
+    naming a canonical header fact is that same fact, and the platform event type is
+    always supplied by construction, so a conflicting payload copy now fails closed
+    (see the V6 block at the end of this module for the connected acceptance of that
+    rule).  Every remaining bounded fact is unchanged.
+    """
 
     import uuid as _uuid
 
@@ -2499,3 +2505,548 @@ def test_at_dp_122_legacy_direct_single_attempt_bus_is_unchanged() -> None:
     assert observed, "expected the legacy delivery to be observed"
     assert observed[0].error == "legacy exploded"
     assert observed[0].metadata["attempts"] == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V6 — AT-DP-122 additions for the three V6 majors and one minor
+#
+# The real composed event system is used throughout: the file-backed canonical
+# repository, the canonical registry/bus/DLQ and the real production
+# ``PlatformOrchestrationEventSink``.  No component is replaced by a mock.  The
+# in-memory/file-backed parity scenario uses the two *official* repository
+# implementations and nothing else.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The exact unbounded integer the independent Re-audit V6 published.
+AT_DP_122_HUGE_INTEGER = 10**5000
+
+#: The exact oversized finite float the independent Re-audit V6 published.
+AT_DP_122_OVERSIZED_FLOAT = 1e308
+
+#: The exact non-public filesystem locations the independent Re-audit V6 used.
+AT_DP_122_PRIVATE_PATHS = (
+    pytest.param("file:///Users/alice/.ssh/id_rsa", id="file_uri"),
+    pytest.param("/Users/alice/.ssh/id_rsa", id="posix_users"),
+    pytest.param("/home/alice/.ssh/id_rsa", id="posix_home"),
+    pytest.param("Users/alice/.ssh/id_rsa", id="relative_users"),
+    pytest.param("C:/Users/alice/.ssh/id_rsa", id="windows_forward"),
+    pytest.param("C:\\Users\\alice\\.ssh\\id_rsa", id="windows_back"),
+)
+
+#: Legitimate public references the path classifier must not over-correct.
+AT_DP_122_LEGITIMATE_REFERENCES = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("cmm.orchestration", id="producer_dotted"),
+    pytest.param("CORR-ORIGINAL", id="correlation_token"),
+    pytest.param("events:read", id="permission_colon"),
+)
+
+
+def _at_dp_122_connected_bytes(connected) -> bytes:
+    store: Path = connected["store"]
+    return store.read_bytes() if store.exists() else b""
+
+
+def _at_dp_122_assert_nothing_persisted(connected, before: int = 0) -> None:
+    system = connected["system"]
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+
+
+# ── MAJOR-V6-001 — numeric lifecycle facts are actually bounded ────────────
+
+
+def test_at_dp_122_huge_numeric_fact_is_rejected_before_persistence(connected) -> None:
+    """MAJOR-V6-001: the durable repository is never the safety boundary."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {
+                "request_id": "req-v6-huge",
+                "count": AT_DP_122_HUGE_INTEGER,
+            },
+            event_id="evt-v6-huge",
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v6-huge") is None
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+def test_at_dp_122_huge_numeric_fact_result_is_repository_independent(
+    connected,
+) -> None:
+    """MAJOR-V6-001: both official repositories agree on the same public event."""
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+    from tests.events.test_phase11_22_event_system import build_system
+
+    durable_system = connected["system"]
+    memory_system = build_system(repository=InMemoryAgentRuntimeEventRepository())
+
+    durable_result: object
+    memory_result: object
+    for system, label in ((memory_system, "memory"), (durable_system, "durable")):
+        try:
+            system.publish(
+                "message.received",
+                {
+                    "request_id": f"req-v6-parity-{label}",
+                    "count": AT_DP_122_HUGE_INTEGER,
+                },
+                event_id="evt-v6-parity",
+            )
+            result: object = "accepted"
+        except (PlatformEventPayloadError, TypeError, ValueError) as exc:
+            result = type(exc)
+        if label == "memory":
+            memory_result = result
+        else:
+            durable_result = result
+
+    assert memory_result != "accepted"
+    assert durable_result != "accepted"
+    assert memory_result is durable_result
+    assert memory_system.repository.count() == 0
+    assert durable_system.repository.get("evt-v6-parity") is None
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        pytest.param("count", -1, id="negative_count"),
+        pytest.param("attempts", -1, id="negative_attempts"),
+        pytest.param("sequence", -1, id="negative_sequence"),
+        pytest.param("duration_ms", -5, id="negative_duration"),
+        pytest.param("duration_ms", AT_DP_122_OVERSIZED_FLOAT, id="oversized_float"),
+        pytest.param("count", AT_DP_122_HUGE_INTEGER, id="huge_count"),
+    ),
+)
+def test_at_dp_122_unbounded_numeric_facts_are_rejected(
+    connected, key: str, value: object
+) -> None:
+    """MAJOR-V6-001: negative, oversized and unbounded numbers fail closed."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": f"req-v6-bound-{key}", key: value},
+            event_id=f"evt-v6-bound-{key}",
+        )
+
+    _at_dp_122_assert_nothing_persisted(connected, before)
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+def test_at_dp_122_negative_metadata_attempt_is_rejected(connected) -> None:
+    """MAJOR-V6-001: bounded metadata numbers are bounded too."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v6-meta-attempt"},
+            event_id="evt-v6-meta-attempt",
+            metadata={"attempt": -1},
+        )
+
+    _at_dp_122_assert_nothing_persisted(connected, before)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        pytest.param("count", 0, id="count_zero"),
+        pytest.param("count", 1, id="count_one"),
+        pytest.param("attempts", 1, id="attempts_one"),
+        pytest.param("sequence", 0, id="sequence_zero"),
+        pytest.param("duration_ms", 0, id="duration_zero"),
+        pytest.param("duration_ms", 125, id="duration_125"),
+        pytest.param("version", 3, id="version_three"),
+    ),
+)
+def test_at_dp_122_legitimate_bounded_numeric_facts_still_persist(
+    connected, key: str, value: object
+) -> None:
+    """MAJOR-V6-001 control: real bounded lifecycle numbers remain supported."""
+
+    system = connected["system"]
+    event_id = f"evt-v6-ok-{key}-{value}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v6-ok", key: value},
+        event_id=event_id,
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.payload.data[key] == value
+
+
+def test_at_dp_122_normalized_metadata_numeric_facts_still_persist(
+    connected,
+) -> None:
+    """MAJOR-V6-001 control: bounded metadata counts and ratios remain supported."""
+
+    system = connected["system"]
+    event_id = "evt-v6-ok-metadata"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v6-ok-meta"},
+        event_id=event_id,
+        metadata={"attempt": 1, "ratio": 0.5, "count": 2},
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.header.metadata == {"attempt": 1, "ratio": 0.5, "count": 2}
+
+
+# ── MAJOR-V6-002 — non-public filesystem locations never enter persistence ─
+
+
+@pytest.mark.parametrize("path", AT_DP_122_PRIVATE_PATHS)
+def test_at_dp_122_private_filesystem_path_is_rejected(connected, path: str) -> None:
+    """MAJOR-V6-002: a local secret location is not a public identifier."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": path},
+            event_id="evt-v6-path",
+        )
+
+    assert system.repository.get("evt-v6-path") is None
+    _at_dp_122_assert_nothing_persisted(connected, before)
+    assert b".ssh" not in _at_dp_122_connected_bytes(connected)
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("path", AT_DP_122_PRIVATE_PATHS)
+def test_at_dp_122_private_filesystem_path_in_the_canonical_header_is_rejected(
+    connected, path: str
+) -> None:
+    """MAJOR-V6-002: the header identifier channel is not an escape hatch."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v6-path-header"},
+            event_id="evt-v6-path-header",
+            producer=path,
+        )
+
+    assert system.repository.get("evt-v6-path-header") is None
+    _at_dp_122_assert_nothing_persisted(connected, before)
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_LEGITIMATE_REFERENCES)
+def test_at_dp_122_legitimate_references_are_still_accepted(
+    connected, reference: str
+) -> None:
+    """MAJOR-V6-002 control: genuine public references survive the classifier."""
+
+    system = connected["system"]
+    event_id = f"evt-v6-ref-{reference.replace(':', '-').replace('/', '-')}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v6-ref", "domain_id": "domain:legal"},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.header.aggregate_id == reference
+    assert stored.header.producer == "cmm.orchestration"
+
+
+# ── MAJOR-V6-003 — one canonical header fact authority ────────────────────
+
+
+@pytest.mark.parametrize(
+    ("key", "payload_value", "header_facts"),
+    (
+        pytest.param(
+            "event_id",
+            "payload-event",
+            {"event_id": "header-event"},
+            id="event_id",
+        ),
+        pytest.param(
+            "correlation_id",
+            "payload-corr",
+            {"correlation_id": "header-corr"},
+            id="correlation_id",
+        ),
+        pytest.param(
+            "causation_id",
+            "payload-cause",
+            {"causation_id": "header-cause"},
+            id="causation_id",
+        ),
+        pytest.param(
+            "producer",
+            "payload-producer",
+            {"producer": "header-producer"},
+            id="producer",
+        ),
+        pytest.param(
+            "event_type",
+            "some.other.event",
+            {"event_type": "message.received"},
+            id="event_type",
+        ),
+        pytest.param(
+            "schema_version",
+            "1.1.0",
+            {"schema_version": "1.0.0"},
+            id="schema_version",
+        ),
+    ),
+)
+def test_at_dp_122_payload_header_conflict_cannot_persist(
+    connected, key: str, payload_value: object, header_facts: dict
+) -> None:
+    """MAJOR-V6-003: two contradictory versions of one event fact cannot coexist.
+
+    ``sensitivity`` is deliberately absent from this list: it is the one canonical
+    header fact with a documented non-equal resolution, so a stricter payload
+    classification is promoted into the header and a lower one never downgrades it.
+    Both directions are accepted — and asserted — by
+    ``test_at_dp_122_payload_sensitivity_cannot_downgrade_the_header``.
+    """
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v6-conflict", key: payload_value},
+            event_id="evt-v6-conflict",
+            **header_facts,
+        )
+
+    assert system.repository.get("evt-v6-conflict") is None
+    _at_dp_122_assert_nothing_persisted(connected, before)
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+def test_at_dp_122_canonical_header_facts_are_never_persisted_twice(
+    connected,
+) -> None:
+    """MAJOR-V6-003: a payload copy is consumed into the one authoritative header."""
+
+    system = connected["system"]
+    event_id = "evt-v6-authority"
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v6-authority",
+            "correlation_id": "corr-v6",
+            "causation_id": "cause-v6",
+            "producer": "producer-v6",
+            "workflow_id": "workflow:123",
+        },
+        event_id=event_id,
+        correlation_id="corr-v6",
+        causation_id="cause-v6",
+        producer="producer-v6",
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.payload.data == {"request_id": "req-v6-authority"}
+    assert stored.header.correlation_id == "corr-v6"
+    assert stored.header.causation_id == "cause-v6"
+    assert stored.header.producer == "producer-v6"
+    assert stored.header.workflow_id == "workflow:123"
+
+
+def test_at_dp_122_payload_sensitivity_cannot_downgrade_the_header(
+    connected,
+) -> None:
+    """MAJOR-V6-003: the canonical classification is never lowered by payload."""
+
+    system = connected["system"]
+    event_id = "evt-v6-sensitivity"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v6-sensitivity", "sensitivity": "confidential"},
+        event_id=event_id,
+        sensitivity="internal",
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.header.sensitivity is EventSensitivity.CONFIDENTIAL
+    assert "sensitivity" not in stored.payload.data
+
+    lowered = system.publish(
+        "message.received",
+        {"request_id": "req-v6-sensitivity-low", "sensitivity": "public"},
+        event_id="evt-v6-sensitivity-low",
+        sensitivity="restricted",
+    )
+    stored_low = system.repository.get(lowered.event.header.event_id)
+    assert stored_low is not None
+    assert stored_low.header.sensitivity is EventSensitivity.RESTRICTED
+    assert "sensitivity" not in stored_low.payload.data
+
+
+def test_at_dp_122_source_sensitivity_still_reaches_the_canonical_header(
+    connected,
+) -> None:
+    """MAJOR-V6-003 control: the real Domain bridge keeps its classification."""
+
+    from cmm.domains.event_factory import DomainEventFactory
+    from cmm.domains.event_publisher import DomainKernelEventPublisher
+    from cmm.events.kernel_adapter import PlatformKernelEventAdapter
+
+    system = connected["system"]
+    adapter = PlatformKernelEventAdapter(system)
+    publisher = DomainKernelEventPublisher(event_listener=adapter)
+
+    publisher.publish(
+        DomainEventFactory().create_event(
+            event_type="domain.execution.completed",
+            domain_id="domain:general",
+            actor="system",
+            event_id="DOM-V6-AT",
+            occurred_at=OCCURRED,
+            sensitivity="restricted",
+            correlation_id="CORR-V6-AT",
+            causation_id="CAUSE-V6-AT",
+            payload={"execution_id": "EXEC-V6-AT", "status": "completed"},
+        )
+    )
+
+    stored = system.repository.query(event_type="operation.executed")
+    assert stored, "the domain execution lifecycle fact must be bridged"
+    assert stored[-1].header.sensitivity is EventSensitivity.RESTRICTED
+    assert "sensitivity" not in stored[-1].payload.data
+
+
+# ── MINOR-V6-001 — timestamp semantics ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        pytest.param("9999-99-99T99:99Z", id="everything_invalid"),
+        pytest.param("2026-13-01T12:00:00Z", id="invalid_month"),
+        pytest.param("2026-02-31T12:00:00Z", id="invalid_day"),
+        pytest.param("2026-09-27T25:61:00Z", id="invalid_hour_minute"),
+        pytest.param("2026-09-27T12:61:00Z", id="invalid_minute"),
+    ),
+)
+def test_at_dp_122_invalid_civil_timestamps_are_rejected(
+    connected, timestamp: str
+) -> None:
+    """MINOR-V6-001: a real calendar/time value is required, not a text shape."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v6-ts", "occurred_at": timestamp},
+            event_id="evt-v6-ts",
+        )
+
+    assert system.repository.get("evt-v6-ts") is None
+    _at_dp_122_assert_nothing_persisted(connected, before)
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        pytest.param("2026-09-27T12:00", id="no_seconds_no_offset"),
+        pytest.param("2026-09-27T12:00:00", id="no_offset"),
+    ),
+)
+def test_at_dp_122_timezone_ambiguous_timestamps_are_rejected(
+    connected, timestamp: str
+) -> None:
+    """MINOR-V6-001: the canonical chronology contract is timezone-aware."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v6-ts-tz", "emitted_at": timestamp},
+            event_id="evt-v6-ts-tz",
+        )
+
+    assert system.repository.get("evt-v6-ts-tz") is None
+    _at_dp_122_assert_nothing_persisted(connected, before)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        pytest.param("2026-09-27T12:00:00Z", id="utc_z"),
+        pytest.param("2026-09-27T12:00:00+02:00", id="offset_positive"),
+        pytest.param("2024-01-01T12:00:00+00:00", id="explicit_utc_offset"),
+    ),
+)
+def test_at_dp_122_valid_timezone_aware_timestamps_are_accepted(
+    connected, timestamp: str
+) -> None:
+    """MINOR-V6-001 control: real timezone-aware timestamps stay valid."""
+
+    system = connected["system"]
+    event_id = f"evt-v6-ts-ok-{timestamp.replace(':', '').replace('+', 'p')}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v6-ts-ok", "occurred_at": timestamp},
+        event_id=event_id,
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.header.occurred_at == datetime.fromisoformat(timestamp)
+    assert "occurred_at" not in stored.payload.data
