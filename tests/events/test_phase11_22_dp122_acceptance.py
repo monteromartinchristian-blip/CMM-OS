@@ -1745,3 +1745,313 @@ def test_at_dp_122_dead_letter_inspection_snapshots_are_detached(connected) -> N
         assert entry.attempts == attempts_before
 
     assert system.dead_letter_count() == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V4 — AT-DP-122 additions for the three V4 majors
+#
+# The real composed event system is used throughout: the file-backed canonical
+# repository, the canonical registry/bus/DLQ and the real production
+# ``PlatformOrchestrationEventSink``.  No component is replaced by a mock.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The exact binary buffer the independent Re-audit V4 published.
+AT_DP_122_BINARY_BUFFER = memoryview(b"secret-binary")
+
+#: The integer array the pre-remediation bypass produced for that buffer.
+AT_DP_122_BINARY_AS_INTEGERS = list(AT_DP_122_BINARY_BUFFER.tobytes())
+
+#: The exact credential text Re-audit V4 used as a dynamic exception class name.
+AT_DP_122_CREDENTIAL_CLASS_NAME = "api_key=abcdef1234567890"
+
+#: The exact private marker Re-audit V4 used as a dynamic exception class name.
+AT_DP_122_PRIVATE_MARKER_CLASS_NAME = "system_prompt=TOP SECRET"
+
+
+def _at_dp_122_manual_event(
+    *, event_id: str, payload: dict, **header_facts
+) -> AgentRuntimeEvent:
+    """Build a canonical event object directly, as a manual publisher would."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    header = AgentRuntimeEventHeader(
+        event_id=event_id,
+        event_type="message.received",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+        **header_facts,
+    )
+    return AgentRuntimeEvent(
+        header=header, payload=AgentRuntimeEventPayload(data=payload)
+    )
+
+
+@pytest.mark.parametrize(
+    "binary",
+    [
+        pytest.param(memoryview(b"secret-binary"), id="memoryview"),
+        pytest.param(b"secret-binary", id="bytes_control"),
+        pytest.param(bytearray(b"secret-binary"), id="bytearray_control"),
+    ],
+)
+def test_at_dp_122_payload_binary_is_rejected_before_persistence(
+    connected, binary
+) -> None:
+    """MAJOR-V4-001: every binary container form fails closed in ``payload.data``."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+    before_bytes = store.read_bytes() if store.exists() else b""
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {
+                "request_id": "req-v4-binary",
+                "channel": "conversation",
+                "supporting_domains": binary,
+            },
+            event_id="evt-v4-binary",
+        )
+
+    durable = store.read_bytes() if store.exists() else b""
+    assert durable == before_bytes
+    assert b"115, 101, 99, 114, 101, 116" not in durable
+    assert system.repository.count() == before
+    assert received == []
+    assert system.dead_letter_count() == 0
+
+
+def test_at_dp_122_nested_payload_memoryview_is_rejected(connected) -> None:
+    """MAJOR-V4-001: a nested ``memoryview`` in a mapping is still binary."""
+
+    system = connected["system"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {
+                "request_id": "req-v4-nested-binary",
+                "channel": "conversation",
+                "result_reference": {"sequence": [AT_DP_122_BINARY_BUFFER]},
+            },
+            event_id="evt-v4-nested-binary",
+        )
+
+    assert system.repository.count() == before
+    assert received == []
+
+
+def test_at_dp_122_metadata_memoryview_is_rejected(connected) -> None:
+    """MAJOR-V4-001: persisted ``metadata`` classifies ``memoryview`` as binary."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = store.read_bytes() if store.exists() else b""
+
+    manual = _at_dp_122_manual_event(
+        event_id="evt-v4-meta-binary",
+        payload={"request_id": "req-v4-meta-binary", "channel": "conversation"},
+        metadata={"value": AT_DP_122_BINARY_BUFFER},
+    )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish_event(manual)
+
+    assert system.repository.count() == before
+    assert (store.read_bytes() if store.exists() else b"") == before_bytes
+
+
+def test_at_dp_122_manual_event_memoryview_never_becomes_integers(connected) -> None:
+    """MAJOR-V4-001: the audited bypass must not emit an integer array."""
+
+    system = connected["system"]
+    manual = _at_dp_122_manual_event(
+        event_id="evt-v4-meta-shape",
+        payload={"request_id": "req-v4-meta-shape", "channel": "conversation"},
+        metadata={"outer": {"inner": [AT_DP_122_BINARY_BUFFER]}},
+    )
+
+    try:
+        result = system.publish_event(manual)
+    except (PlatformEventPayloadError, TypeError, ValueError):
+        assert system.repository.get("evt-v4-meta-shape") is None
+        return
+
+    accepted = list(
+        dict(result.event.header.metadata).get("outer", {}).get("inner", [])
+    )
+    assert accepted != AT_DP_122_BINARY_AS_INTEGERS, (
+        "memoryview binary was transformed into an integer array and accepted"
+    )
+
+
+def test_at_dp_122_manual_sensitivity_string_matches_file_repository(connected) -> None:
+    """MAJOR-V4-002: the manual boundary produces one canonical representation.
+
+    This is the exact independent Re-audit V4 divergence: against the composition's
+    real file-backed repository the same call used to raise
+    ``AttributeError: 'str' object has no attribute 'value'``.
+    """
+
+    system = connected["system"]
+
+    result = system.publish_event(
+        _at_dp_122_manual_event(
+            event_id="evt-v4-sensitivity",
+            payload={"request_id": "req-v4-sensitivity", "channel": "conversation"},
+            sensitivity="restricted",
+        )
+    )
+
+    assert result.event.header.sensitivity is EventSensitivity.RESTRICTED
+    stored = system.repository.get("evt-v4-sensitivity")
+    assert stored is not None
+    assert stored.header.sensitivity is EventSensitivity.RESTRICTED
+
+
+def test_at_dp_122_manual_sensitivity_is_repository_independent(tmp_path) -> None:
+    """MAJOR-V4-002: in-memory and file-backed repositories agree exactly."""
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+
+    store = tmp_path / "data" / "events" / "runtime_events.jsonl"
+    file_system = EventSystem(
+        registry=AgentRuntimeEventRegistry(strict_mode=True),
+        repository=FileAgentRuntimeEventRepository(store),
+        bus=AgentRuntimeEventBus(max_delivery_attempts=1),
+    )
+    memory_system = EventSystem(
+        registry=AgentRuntimeEventRegistry(strict_mode=True),
+        repository=InMemoryAgentRuntimeEventRepository(),
+        bus=AgentRuntimeEventBus(max_delivery_attempts=1),
+    )
+
+    def manual() -> AgentRuntimeEvent:
+        return _at_dp_122_manual_event(
+            event_id="evt-v4-parity",
+            payload={"request_id": "req-v4-parity", "channel": "conversation"},
+            sensitivity="restricted",
+        )
+
+    file_result = file_system.publish_event(manual())
+    memory_result = memory_system.publish_event(manual())
+
+    assert (
+        file_result.event.header.sensitivity
+        is memory_result.event.header.sensitivity
+        is EventSensitivity.RESTRICTED
+    )
+    assert file_result.outcome == memory_result.outcome
+    assert event_fingerprint(file_result.event) == event_fingerprint(
+        memory_result.event
+    )
+
+
+def test_at_dp_122_manual_sensitivity_enum_control(connected) -> None:
+    """MAJOR-V4-002 control: the already-canonical enum is unchanged."""
+
+    system = connected["system"]
+
+    result = system.publish_event(
+        _at_dp_122_manual_event(
+            event_id="evt-v4-sensitivity-enum",
+            payload={
+                "request_id": "req-v4-sensitivity-enum",
+                "channel": "conversation",
+            },
+            sensitivity=EventSensitivity.RESTRICTED,
+        )
+    )
+
+    assert result.event.header.sensitivity is EventSensitivity.RESTRICTED
+    stored = system.repository.get("evt-v4-sensitivity-enum")
+    assert stored is not None
+    assert stored.header.sensitivity is EventSensitivity.RESTRICTED
+
+
+def _at_dp_122_dead_letter_with_exception(
+    connected, exception_class: type[BaseException]
+) -> str:
+    """Raise *exception_class* from a subscriber and render every DLQ field."""
+
+    import json
+
+    system = connected["system"]
+
+    def failing(event: AgentRuntimeEvent) -> None:
+        raise exception_class("subscriber exploded")
+
+    system.subscribe(failing, ["message.received"])
+    system.publish(
+        "message.received",
+        {"request_id": "req-v4-dlq", "channel": "conversation"},
+        event_id="evt-v4-dlq",
+        occurred_at=OCCURRED,
+        emitted_at=OCCURRED,
+    )
+
+    entries = system.list_dead_letters()
+    assert entries, "expected a canonical dead letter to be recorded"
+    return json.dumps(
+        [
+            {
+                "error": entry.error,
+                "error_type": entry.error_type,
+                "handler_name": entry.handler_name,
+                "subscription_id": entry.subscription_id,
+                "metadata": dict(entry.metadata),
+            }
+            for entry in entries
+        ]
+    )
+
+
+def test_at_dp_122_credential_exception_class_name_never_reaches_dlq(
+    connected,
+) -> None:
+    """MAJOR-V4-003: the exact audited credential leak must be closed."""
+
+    credential_exception = type(AT_DP_122_CREDENTIAL_CLASS_NAME, (Exception,), {})
+
+    rendered = _at_dp_122_dead_letter_with_exception(connected, credential_exception)
+
+    assert "abcdef1234567890" not in rendered
+    assert "api_key" not in rendered
+    assert AT_DP_122_CREDENTIAL_CLASS_NAME not in rendered
+
+
+def test_at_dp_122_private_marker_exception_class_name_never_reaches_dlq(
+    connected,
+) -> None:
+    """MAJOR-V4-003: a private-marker class name is refused as well."""
+
+    private_exception = type(AT_DP_122_PRIVATE_MARKER_CLASS_NAME, (Exception,), {})
+
+    rendered = _at_dp_122_dead_letter_with_exception(connected, private_exception)
+
+    assert "TOP SECRET" not in rendered
+    assert "system_prompt" not in rendered
+
+
+def test_at_dp_122_ordinary_exception_class_name_stays_useful(connected) -> None:
+    """MAJOR-V4-003 control: an ordinary exception keeps a useful category."""
+
+    rendered = _at_dp_122_dead_letter_with_exception(connected, RuntimeError)
+
+    assert '"error_type": "RuntimeError"' in rendered
+    assert "subscriber exploded" not in rendered
+    assert "Traceback" not in rendered
