@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -12,10 +12,12 @@
 **Independent Re-audit V2:** `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable historical evidence)
 **Independent Re-audit V3:** `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable historical evidence)
 **Independent Re-audit V4:** `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable historical evidence)
+**Independent Re-audit V5:** `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable historical evidence)
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
+**Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
@@ -31,6 +33,10 @@ REMEDIATION_V3=REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V4=FAIL
 REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED
 REMEDIATION_V4=REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V5=FAIL
+V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=279_PASS
+REMEDIATION_V5=REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
@@ -42,13 +48,17 @@ that re-audit with four new majors** (`BLOCKERS=0`, `MAJORS=4`, `MINORS=0`), was
 (`4/4_VERIFIED`). It was **remediated for the third time**, **passed the three V3
 reproductions on independent Re-audit V4** (`3/3_VERIFIED`) and **failed that
 re-audit with three new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`). It has now
-been **remediated for the fourth time**. It is not closed, independently verified
-or complete. `DP-122=VERIFIED_EXISTING` and `AT-DP-122=PASS` belong only to the
-independent audit of the V5 bundle.
+been **remediated for the fourth time**, **passed the three V4 reproductions on
+independent Re-audit V5** (`3/3_VERIFIED`) while **failing that re-audit with three
+new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`).
+It has now been **remediated for the fifth time**. It is not closed, independently
+verified or complete. `DP-122=VERIFIED_EXISTING` and `AT-DP-122=PASS` belong only
+to the independent audit of the V6 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
-V1, §11 records Remediation V2, §12 records Remediation V3 and §13 records
-Remediation V4; the earlier sections are preserved as historical record.
+V1, §11 records Remediation V2, §12 records Remediation V3, §13 records
+Remediation V4 and §14 records Remediation V5; the earlier sections are preserved
+as historical record.
 
 ## 1. Exact repository state
 
@@ -906,11 +916,325 @@ Re-audit V3 report, the immutable Re-audit V4 report and the immutable V1, V2, V
 and V4 bundles are byte-identical to their audited state. All four bundles remain
 untracked, as repository policy does not track audit bundles.
 
-### 13.10 Next step
+### 13.10 Next step (historical — superseded by §14.11)
 
 Fresh independent ChatGPT re-audit of the **V5** exact-HEAD bundle
-(`phase-11.22-event-system-audit-v5.tar.gz`). The phase remains
+(`phase-11.22-event-system-audit-v5.tar.gz`). The phase then stood at
 `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete. Only that re-audit may write
+`BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`,
+`CLOSURE_ELIGIBLE=YES`. That re-audit ran (Re-audit V5) and its result is
+recorded in §14.
+
+## 14. Remediation V5
+
+### 14.1 Verdict being remediated
+
+Independent Re-audit V5
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v5.md`, immutable,
+`BUNDLE_INTEGRITY=PASS`, `EXACT_HEAD=PASS`, `EXACT_TREE=PASS`) returned:
+
+```text
+INDEPENDENT_REAUDIT_V5=FAIL
+V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=279_PASS
+BLOCKERS=0
+MAJORS=3
+MINORS=0
+MAJOR_V5_001=ARRAY_BUFFER_BINARY_BYPASSES_CANONICAL_EVENT_SAFETY
+MAJOR_V5_002=BOUNDED_PAYLOAD_SEMANTICS_DO_NOT_PREVENT_RAW_CONTENT_MIRRORING
+MAJOR_V5_003=CANONICAL_BUS_DLQ_SECRET_SAFETY_DEPENDS_ON_EXTERNAL_CATEGORIZER_BINDING
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V5_ONLY
+```
+
+### 14.2 Exact start state
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+PROMPT_COMMIT_HEAD=3a73e3a48d0e5daf420239486a06f5f5f79e4c6b
+REAUDIT_V5_COMMIT=5a7a5ddc5486502f46e48dc9020045547021a238
+REAUDIT_V5_TREE=74934b505fe24dd30076052630505fbc3a026b1b
+AUDITED_V5_IMPLEMENTATION_HEAD=8187ec9064247ca3a26d764fa7386c241b21f302
+AUDITED_V5_IMPLEMENTATION_TREE=1268d3f066e49632d25f5e0bce6ff76f2b97bcad
+TRACKED_DELTA_FROM_REAUDIT_V5=docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md
+PRODUCTION_CODE_DELTA_FROM_REAUDIT_V5=0
+TRACKED_WORKTREE=CLEAN
+GIT_DIFF_CHECK=PASS
+QUARANTINE_STASH=NOT_MUTATED (inspected only; no stash entry created, applied or dropped)
+HISTORICAL_BUNDLE_HASHES=EXACT
+  V1=a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3
+  V2=172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04
+  V3=27517348570837df2abe9fc7f11e5cc24cefc32a198ffe3e0afefaee5df3c589
+  V4=18adf70d86f291b5585f71b746f81139ffa01e56e7c16dcbfc6b67bb794aaa0f
+  V5=105203eb4ea1d0e1b3200ee30b7130961af70283d8be9fc7b28ed65279003d10
+```
+
+Preflight passed before any production mutation; no `reset`, `stash`, `clean`,
+`worktree`, `merge` or `push` operation was used.
+
+### 14.3 TDD red evidence
+
+Before any production change, `tests/events/test_phase11_22_remediation_v5_regressions.py`
+was written to reproduce all three findings and its red state was recorded:
+
+```text
+REMEDIATION_V5_TESTS_INITIAL_RED=30 failed, 41 passed
+```
+
+Every failure was a genuine reproducer, not a helper artefact:
+
+```text
+array.array payload value accepted and canonicalized to [115, 101, 99, ...]
+nested array.array in payload accepted
+array.array in metadata accepted
+manual publish_event with array.array accepted
+durable file-backed publication of array.array succeeded
+  -> ARRAY_BUFFER_ACCEPTED=True / ARRAY_BUFFER_PERSISTED=True
+
+status="<raw user sentence>" accepted and durably persisted
+request_id="<raw user sentence>" accepted and durably persisted
+metadata={"note": "<raw user sentence>"} accepted and durably persisted
+unknown metadata key accepted
+nested metadata prose accepted
+approved/duration_ms/count = "<raw sentence>" accepted
+
+direct canonical bus + DLQ + bounded retry + no categorizer:
+  error_type = "api_key_abcdef1234567890", error = "api_key_abcdef1234567890"
+```
+
+### 14.4 Findings and remediation
+
+| Finding | Remediation |
+| --- | --- |
+| `MAJOR-V5-001` | binary/buffer classification is now semantic. `_is_binary_buffer()` performs one bounded buffer-protocol probe (a C-contiguous unsigned-byte view exists) and permanently rejects `bytes`, `bytearray`, `memoryview` and every `array.array` typecode. It is consulted before all generic sequence handling in `_is_sequence()`, `_reject_non_descriptive_value()`, `_canonicalize_payload_value()`, `_freeze()` and `validate_platform_permissions()`. `str`/`bool`/`int`/`float`/`None` are fast-pathed and never probed; the probe never reads, copies, resizes or exposes the buffer |
+| `MAJOR-V5-002` | one canonical `PAYLOAD_KEY_CLASSES` specification assigns every allowed payload key exactly one explicit lifecycle value class, dispatched through `_validate_class()`. Identifiers are bounded single tokens, categories are bounded tokens narrower than identifiers, booleans require real booleans, numbers require real finite numbers, versions accept a bounded number or token, timestamps require the canonical ISO-8601 string form, and structured references are validated recursively against `STRUCTURED_REFERENCE_KEYS`. `METADATA_KEY_CLASSES` admits only bounded lifecycle metadata keys actually used by current producers/adapters/closed-phase contracts, with `METADATA_CONTAINER_KEYS` for the bounded container; an unknown metadata key fails closed. A `None` optional identifier remains accepted, matching the persisted header gate |
+| `MAJOR-V5-003` | `safe_delivery_error_type()` returns the neutral bounded category `SubscriberDeliveryError` whenever no external categorizer is bound, so the canonical transport retains no attacker-influenced class name. The transport-local bounded-name predicate is still applied when a categorizer is bound, the composed `EventSystem` still binds the canonical credential/private-marker categorizer, and `cmm.agent_runtime` still imports `cmm.domains` zero times |
+
+Binary/buffer classification decision (explicit): the **semantic buffer-protocol
+rule** was chosen over extending the exact-class list, because the frozen invariant
+is semantic and a longer list would leave the same defect class open for the next
+standard buffer type. The RED suite proves rejection of `B`, `b`, `h`, `i`, `f` and
+`d` typecodes while preserving ordinary `list`/`tuple` identifier containers and an
+explicit `list[int]` structured reference. Banning all sequences was explicitly
+rejected.
+
+Lifecycle-fact semantic key/value classes (explicit):
+
+```text
+identifier/ reference : request_id session_id workflow_id run_id goal_id
+                        operation_id approval_id domain_id agent_id task_id
+                        validation_id event_id execution_id correlation_id
+                        causation_id aggregate_id producer parent_run_id
+                        root_run_id node_id plan_node_id decision_id
+                        primary_domain capability_id reference_id
+category / token      : status state intent route channel policy
+                        policy_disposition error_category error_code
+                        reason_code sensitivity event_type
+boolean               : needs_clarification approved is_success
+number                : duration_ms count attempts sequence
+version               : version schema_version
+timestamp             : occurred_at emitted_at
+structured reference  : result_reference (recursive documented shape)
+                        approval_refs (bounded sequence of documented shapes)
+reference sequence    : supporting_domains related_domain_ids reason_codes
+```
+
+Metadata policy (explicit):
+
+```text
+status_code -> category        attempt -> number      origin -> category
+reason      -> category        error_type -> identifier
+category    -> category        replay -> boolean     flag -> boolean
+label       -> category        ratio -> number       count -> number
+detail      -> bounded metadata container {inner: bounded sequence,
+                                           count: number,
+                                           reference_id: identifier}
+unknown key -> FAIL CLOSED
+```
+
+Direct-bus DLQ fail-safe rule (explicit): no categorizer bound → neutral bounded
+category. The alternative "DLQ-enabled bounded retry cannot be activated without a
+categorizer" was rejected because it would change canonical composition and
+historical compatibility behaviour; the neutral default is fail-safe and minimally
+invasive and preserves the legacy direct single-attempt shape exactly.
+
+### 14.5 Remediation commits
+
+```text
+675802a test(phase11): reproduce phase11.22 reaudit v5 findings
+40e0feb fix(events): close binary-buffer and lifecycle-fact semantic gaps
+557313f fix(events): make canonical dlq categorization fail safe
+0b7f151 test(phase11): strengthen at-dp-122 for the v5 lifecycle-fact contract
+```
+
+No history was rewritten, no historical audit or remediation commit was squashed,
+and no bundle was overwritten.
+
+### 14.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py        +602/-…  semantic buffer classifier,
+                                                   payload value classes,
+                                                   metadata value classes,
+                                                   recursive structured shapes
+cmm/agent_runtime/runtime_event_bus.py     +33/-…  fail-safe DLQ categorization
+                                                   when no categorizer is bound
+```
+
+No second bus, registry, repository protocol, replayer, DLQ, event contract,
+safety-policy module, payload registry, application container, service locator,
+broker abstraction or generic event-schema engine was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` still holds.
+
+### 14.7 New and strengthened adversarial regressions
+
+```text
+tests/events/test_phase11_22_remediation_v5_regressions.py   NEW, 71 tests
+  MAJOR-V5-001  array/b/c/h/i/f/d payload rejection, never becomes an integer
+                array, public create_event path, nested array in payload,
+                array inside a payload list, metadata array, nested metadata
+                array, manual publish_event array, durable-file unchanged,
+                signed/float typecodes
+  MAJOR-V5-001 controls  ordinary list/tuple of safe identifiers, explicit
+                list[int] inside a structured reference
+  MAJOR-V5-002  raw sentence into status, into request_id, into metadata, into
+                an unknown metadata key, into nested metadata, into boolean
+                fields, into numeric fields, into categorical fields, unbounded
+                10,000-character status, durable file unchanged, manual
+                publish_event, structured-reference prose, reference-list prose
+  MAJOR-V5-002 controls  every legitimate identifier/categorical/numeric/
+                boolean/canonical-timestamp/structured fact, the documented safe
+                metadata examples, bounded numeric metadata with safe nesting,
+                every allowed key has a declared value class, identifier pattern
+                narrowness
+  MAJOR-V5-003  direct canonical bus + DLQ + retries with no categorizer:
+                credential-shaped class name, private-marker class name, neutral
+                category recorded, ordinary name neutralized, no DLQ-facing field
+                carries the secret, shared helper fail-safe
+  MAJOR-V5-003 controls  composed EventSystem RuntimeError stays useful,
+                composed EventSystem still neutralizes a credential class name,
+                legacy direct single-attempt bus shape unchanged
+
+tests/events/test_phase11_22_dp122_acceptance.py    +29 connected scenarios (95 -> 124)
+  array.array payload/nested/metadata/manual rejection, never durable as
+  integers, raw text cannot relocate into request_id/status/metadata, boolean and
+  numeric prose rejection, legitimate identifier/categorical/boolean/numeric
+  facts persist, legitimate metadata persists, direct canonical bus + DLQ without
+  categorizer has no credential and no private marker, composed RuntimeError
+  stays useful, legacy direct single-attempt bus unchanged
+
+tests/events/test_phase11_22_remediation_v3_regressions.py   3 controls updated
+tests/events/test_phase11_22_security.py                     1 control updated
+  The invented metadata key names in these two prior-regression controls are now
+  carried by the declared bounded metadata vocabulary, so the same original
+  invariants (finite scalars and safe JSON-compatible nesting; caller-alias
+  isolation with nested metadata; event metadata never becomes an executable
+  grant) are still proven on the clarified lifecycle-fact contract.
+```
+
+### 14.8 Gate evidence (Remediation V5)
+
+```text
+REMEDIATION_V5_TESTS=71 passed (initial red 30 failed / 41 passed)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=279 passed (V1-V4 preserved)
+REMEDIATION_V1_TO_V5_REGRESSIONS=350 passed
+PHASE_SUITE=tests/events/ 1091 passed
+AT_DP_122=124 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=tests/domains/test_domain_events_dp033_acceptance.py 92 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed
+  (AT-DP-102, AT-DP-103, AT-DP-105, Phase 11.21, Phase 11.34, AT-DP-150, AT-DP-033)
+CLOSED_PHASE_SUPPORT=579 passed
+  (validation kernel events, orchestration suite, workflow subsystem)
+ARCHITECTURE_AND_SECURITY_GATES=294 passed (part of tests/events/)
+ORCHESTRATION_VALIDATION_WORKFLOW=1077 passed
+PHASE11_21_AND_11_34=116 passed
+GLOBAL_PYTEST=23131 passed, 1 warning, 0 failed (V5 baseline 23060, +71)
+CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V5 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS (ruff format --check, changed-file delta)
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+ARCHITECTURE_GATES=PASS
+SECURITY_GATES=PASS
+```
+
+The V5 production tree measured `991` in `tests/events/` and `23060` globally. The
+V5 additions are exactly `+71` new adversarial regressions and `+29` strengthened
+acceptance scenarios, so the global delta is `+71` (the 29 acceptance additions are
+inside `tests/events/`, which moves `991 → 1091`, `+100`).
+
+Four repository files unrelated to Phase 11.22
+(`cmm/agent_runtime/approval_repository.py`,
+`cmm/agent_runtime/domain_permission_contracts.py`,
+`cmm/agent_runtime/operation_registry.py`,
+`cmm/agent_runtime/permission_restriction_contracts.py`) were already unformatted
+under `ruff format --check` at the audited V4 HEAD and were left untouched; no
+unrelated formatting churn was introduced. The one retained global warning is the
+pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
+
+### 14.9 Mandatory invariant evidence
+
+```text
+BINARY_BUFFER_VALUES_FAIL_CLOSED=PASS
+BINARY_BUFFER_VALUES_NEVER_BECOME_INTEGER_ARRAYS=PASS
+BINARY_BUFFER_VALUES_NEVER_ENTER_PERSISTENCE=PASS
+RAW_USER_TEXT_CANNOT_BE_RELOCATED_INTO_LIFECYCLE_FIELDS=PASS
+METADATA_IS_NOT_A_PROSE_SIDE_CHANNEL=PASS
+IDENTIFIER_FIELDS_ARE_SEMANTICALLY_BOUNDED=PASS
+CATEGORICAL_FIELDS_ARE_SEMANTICALLY_BOUNDED=PASS
+BOOLEAN_FIELDS_REQUIRE_BOOLEAN_VALUES=PASS
+NUMERIC_FIELDS_REQUIRE_NUMERIC_VALUES=PASS
+DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING=PASS
+RAW_EXCEPTION_MESSAGES_NEVER_ENTER_DLQ=PASS
+UNSAFE_EXCEPTION_CLASS_NAMES_NEVER_ENTER_DLQ=PASS
+FULL_CANONICAL_EVENT_SECURITY=PASS
+LIFECYCLE_FACT_ONLY_POLICY=PASS
+
+CONTENT_BOUND_FINGERPRINT=PASS
+SAME_ID_DIFFERENT_CONTENT_FAIL_CLOSED=PASS
+TAMPER_DETECTION=PASS
+UNSUPPORTED_SCHEMA_REJECTED_BEFORE_APPEND=PASS
+SUPPORTED_SCHEMA_REOPEN_ROUNDTRIP=PASS
+SAFE_NESTED_MAPPING_PUBLICATION=PASS
+SAFE_NESTED_SEQUENCE_PUBLICATION=PASS
+FILE_LIVE_AND_REOPENED_FACTS_MATCH=PASS
+PUBLICATION_RESULT_ALIAS_ISOLATION=PASS
+SUBSCRIBER_MUTATION_ISOLATION=PASS
+REPOSITORY_SNAPSHOT_ISOLATION=PASS
+MANUAL_SENSITIVITY_CANONICALIZATION=PASS
+IN_MEMORY_AND_FILE_REPOSITORY_PARITY=PASS
+
+BINARY_MEMORYVIEW_REJECTED_EVERYWHERE=PASS
+MANUAL_PUBLISH_EVENT_SENSITIVITY_CANONICAL=PASS
+RAW_EXCEPTION_MESSAGE_NOT_STORED=PASS
+UNSAFE_EXCEPTION_CLASS_NAME_NOT_STORED=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+### 14.10 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2 report, the immutable
+Re-audit V3 report, the immutable Re-audit V4 report, the immutable Re-audit V5
+report and the immutable V1, V2, V3, V4 and V5 bundles are byte-identical to their
+audited state. All five bundles remain untracked, as repository policy does not
+track audit bundles. No stash was created, applied or dropped.
+
+### 14.11 Next step
+
+Fresh independent ChatGPT re-audit of the **V6** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v6.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`: not closed, not
 independently verified, not complete. Only that re-audit may write
 `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`,
 `CLOSURE_ELIGIBLE=YES`.

@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -18,10 +18,11 @@
 `AT-DP-122=PASS_REPORTED`
 
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
-Re-audit V2, failed independent Re-audit V3 and has been **remediated** after
-each. It is not closed, not independently verified and not complete: the
-`VERIFIED_EXISTING` marker may only be written by the independent re-audit of the
-V5 bundle. See §27 for the Remediation V4 record.
+Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
+failed independent Re-audit V5 and has been **remediated** after each. It is not
+closed, not independently verified and not complete: the `VERIFIED_EXISTING`
+marker may only be written by the independent re-audit of the V6 bundle. See §27
+for the Remediation V4 record and §28 for the Remediation V5 record.
 
 ### Provenance note (recorded deviation)
 
@@ -462,13 +463,52 @@ and forbidden private-marker vocabulary) plus a Phase 11.22 structural allowlist
 No third competing policy exists.
 
 Allowed: IDs and references, categorical states, bounded counts/durations,
-versions, and boolean lifecycle facts.
+versions, timestamps in their canonical string form, and boolean lifecycle facts.
 
 Rejected **before** durable persistence: prompts, system/developer prompts, raw
 user text, chain-of-thought, hidden/raw reasoning, provider request/response
 payloads, credentials, API keys, passwords, tokens, bearer-shaped values,
 authorization headers, cookies, raw tracebacks, opaque runtime objects, arbitrary
 binary payloads, non-finite floats and any unrecognised payload key.
+
+The allowlist carries the **value semantics** of every approved key, not only its
+name. One canonical `PAYLOAD_KEY_CLASSES` specification in the existing safety
+module assigns each allowed key exactly one explicit lifecycle value class, and a
+regression asserts that the union of those classes equals the allowlist, so no
+approved key can fall through to unrestricted arbitrary prose:
+
+| Class | Meaning |
+| --- | --- |
+| identifier / reference | a bounded single-token value (`request_id`, `execution_id`, `domain_id`, `producer`, …) |
+| category / token | a bounded token form, narrower than an identifier (`status`, `state`, `intent`, `route`, `channel`, `policy`, `error_code`, `sensitivity`, `event_type`, …) |
+| boolean | a real `bool` (`approved`, `needs_clarification`, `is_success`) |
+| integer / count / duration | a real finite number (`duration_ms`, `count`, `attempts`, `sequence`) |
+| version | a bounded number or bounded version token (`version`, `schema_version`) |
+| timestamp | the canonical ISO-8601 string form only (`occurred_at`, `emitted_at`) |
+| structured reference | a documented nested shape (`result_reference`, `approval_refs`) |
+| reference sequence | a bounded sequence of domain/capability references (`supporting_domains`, `related_domain_ids`, `reason_codes`) |
+
+An approved key name is therefore never a substitute for the fact it claims to
+represent: raw user text cannot be relocated into `request_id`, `status`,
+`approved`, `duration_ms` or any other approved key merely because the key is on
+the list. The identifier rule and the categorical rule are both narrow enough to
+exclude prose — any value containing whitespace cannot qualify — and unsafe values
+are rejected rather than truncated.
+
+Metadata is likewise not a prose side channel. `METADATA_KEY_CLASSES` admits only
+the bounded lifecycle metadata keys current Phase 11.22 producers, adapters and
+closed-phase contracts actually use (`status_code`, `attempt`, `origin`, `reason`,
+`error_type`, `category`, `replay`, `flag`, `label`, `ratio`, `count`, `detail`),
+each with its own bounded value class, and an unknown metadata key fails closed
+instead of becoming a new mirroring path. A bounded metadata container is itself
+validated recursively against its documented nested shape.
+
+Binary/buffer classification is **semantic**, not a hand-written list of a few
+Python classes. A value is binary when the interpreter can expose its raw bytes as
+an unsigned byte view, so `bytes`, `bytearray`, `memoryview` and every
+`array.array` typecode fail closed before any generic sequence handling. A binary
+buffer can therefore never be canonicalized into an integer array, in any payload
+or metadata position, including nested inside a structured reference.
 
 The structural half of that policy applies to **every persisted container**, not
 only `payload.data`. `metadata` is recursively judged by the same descriptive
@@ -498,7 +538,17 @@ CREDENTIALS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
 RAW_PROVIDER_PAYLOADS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
 OPAQUE_VALUES_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
 BINARY_VALUES_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+BINARY_BUFFER_VALUES_FAIL_CLOSED
+BINARY_BUFFER_VALUES_NEVER_BECOME_INTEGER_ARRAYS
 NONFINITE_NUMBERS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+RAW_USER_TEXT_CANNOT_BE_RELOCATED_INTO_LIFECYCLE_FIELDS
+METADATA_IS_NOT_A_PROSE_SIDE_CHANNEL
+IDENTIFIER_FIELDS_ARE_SEMANTICALLY_BOUNDED
+CATEGORICAL_FIELDS_ARE_SEMANTICALLY_BOUNDED
+BOOLEAN_FIELDS_REQUIRE_BOOLEAN_VALUES
+NUMERIC_FIELDS_REQUIRE_NUMERIC_VALUES
+LIFECYCLE_FACT_ONLY_POLICY
+DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING
 CANONICAL_SENSITIVITY_TYPE_ENFORCED
 INVALID_PERMISSION_CONTAINER_FAILS_CLOSED
 SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED
@@ -752,20 +802,12 @@ adds `44` and the strengthened `AT-DP-122` adds `19`, so the global suite moves
 below its own per-file total; that clerical discrepancy is preserved here as
 historical record rather than silently corrected.
 
-### 19.5 Remediation V4 measurements (current)
+### 19.5 Remediation V4 measurements (historical)
 
 ```text
 tests/events/                       991 passed
 AT-DP-122                            95 passed
 Remediation V4 regressions           23 passed
-Remediation V3 regressions           44 passed (preserved)
-Remediation V2 regressions          126 passed (preserved)
-Remediation V1 regressions           86 passed (preserved)
-event inventory                    1270 passed
-Phase 9 runtime regressions        3635 passed
-Phase 10.33 Domain regressions    11824 passed
-Closed-phase acceptances            218 passed
-Closed-phase support                112 passed
 global pytest                   23060 passed, 1 warning, 0 failed
 global Ruff                          810 (V4 baseline 810, no new debt)
 ```
@@ -776,6 +818,31 @@ and the strengthened `AT-DP-122` adds `12`, so the global suite moves
 `23025 → 23060` (`+35`), `tests/events/` moves `956 → 991` (`+35`), and
 `AT-DP-122` itself moves `83 → 95`.
 
+### 19.6 Remediation V5 measurements (current)
+
+```text
+tests/events/                      1091 passed
+AT-DP-122                           124 passed
+Remediation V5 regressions           71 passed
+Remediation V4 regressions           23 passed (preserved)
+Remediation V3 regressions           44 passed (preserved)
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+event inventory                    1270 passed
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+Closed-phase acceptances            310 passed
+Closed-phase support                579 passed
+global pytest                   23131 passed, 1 warning, 0 failed
+global Ruff                          810 (V5 baseline 810, no new debt)
+```
+
+The V5 production tree measured `991` in `tests/events/` and `23060` globally.
+Both V5 deltas are accounted for exactly: the new V5 regression module adds `71`
+and the strengthened `AT-DP-122` adds `29`, so the global suite moves
+`23060 → 23131` (`+71`), `tests/events/` moves `991 → 1091` (`+100`), and
+`AT-DP-122` itself moves `95 → 124`.
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
@@ -785,7 +852,10 @@ Post-remediation V2: `22962 passed, 1 warning, 0 failed`. Post-remediation V3:
 adversarial regressions and 19 strengthened `AT-DP-122` connected scenarios).
 Post-remediation V4: `23060 passed, 1 warning, 0 failed` (+35 over the V3
 remediation figure: 23 new V4 adversarial regressions and 12 strengthened
-`AT-DP-122` connected scenarios). The single retained warning is the pre-existing
+`AT-DP-122` connected scenarios). Post-remediation V5: `23131 passed, 1 warning,
+0 failed` (+71 over the V4 remediation figure: 71 new V5 adversarial regressions.
+The 29 strengthened `AT-DP-122` connected scenarios are already inside the global
+count as part of `tests/events/`). The single retained warning is the pre-existing
 unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
@@ -840,10 +910,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V5** bundle
-(`phase-11.22-event-system-audit-v5.tar.gz`, produced with `git archive` from the
-final Remediation V4 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V6** bundle
+(`phase-11.22-event-system-audit-v6.tar.gz`, produced with `git archive` from the
+final Remediation V5 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 Phase 11.23 has not begun.
 
@@ -1057,3 +1127,67 @@ Re-audit V3 report, the immutable Re-audit V4 report and the immutable V1–V4
 bundles are preserved byte-identical. The exact Remediation V4 HEAD, tree and V5
 bundle SHA-256 are reported in the remediation handoff rather than embedded here,
 for the same self-reference reason as the earlier evidence records.
+
+## 28. Remediation V5 record
+
+Independent Re-audit V5
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v5.md`, immutable)
+verified all three V4 reproductions fixed (`3/3_VERIFIED`), preserved `279`
+prior remediation regressions, and returned three new findings:
+
+```text
+INDEPENDENT_REAUDIT_V5=FAIL
+BLOCKERS=0
+MAJORS=3
+MINORS=0
+V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=279_PASS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V5_ONLY
+```
+
+Remediation V5 fixed exactly those three findings under strict TDD — a red
+adversarial regression first (initial red `30 failed / 41 passed`), then the
+minimum fix, then the nearest regressions — inside the existing safety authority
+and canonical contracts, with no new bus, registry, repository protocol, replayer,
+DLQ, safety module, payload registry or event contract:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V5-001` | the V4 binary rejection enumerated `bytes`, `bytearray` and `memoryview` by exact class. `array.array` is a compact binary buffer **and** a registered `collections.abc.Sequence`, so it was treated as a descriptive integer sequence and canonicalized into a plain integer list — byte values entered persisted `payload.data`, nested payload data and persisted header containers | classification is now **semantic**: one bounded buffer-protocol probe asks whether the interpreter can expose the value's raw bytes as an unsigned byte view, so `bytes`, `bytearray`, `memoryview` and every `array.array` typecode fail closed. The probe runs before all generic sequence handling in the sequence predicate, the structural scalar rejection, the canonical shape transform, the freeze path and the permissions gate, so binary rejection is unreachable by no standard supported buffer container while `str` and the descriptive containers stay valid |
+| `MAJOR-V5-002` | the boundary bounded the payload **vocabulary** but not the value semantics implied by an approved key. `request_id`, `status`, `approved`, `duration_ms` and every other allowed key accepted arbitrary prose, and `metadata` was an unrestricted side channel, so the exact raw user sentence was durably persisted under `status` and `metadata["note"]` | one canonical `PAYLOAD_KEY_CLASSES` specification in the existing safety module assigns every allowed key exactly one explicit value class (identifier, category, boolean, number, version, timestamp, structured reference, reference sequence), with a regression asserting the union equals the allowlist so nothing falls through to prose. Structured reference containers are validated recursively against their documented nested shape. `METADATA_KEY_CLASSES` admits only bounded lifecycle metadata keys actually used by current producers/adapters/closed-phase contracts, and an unknown metadata key fails closed. A `None` optional identifier remains accepted, matching the persisted header gate |
+| `MAJOR-V5-003` | the V4 DLQ fix split the safe-category rule, and the credential/private-marker half was only bound when the composed `EventSystem` injected it. `AgentRuntimeEventBus` is the sole canonical transport authority, so direct canonical use of bus + DLQ + bounded retry wrote an identifier-shaped credential class name such as `api_key_abcdef1234567890` straight into DLQ `error_type`/`error` | `safe_delivery_error_type()` now returns the neutral bounded category `SubscriberDeliveryError` whenever **no** external categorizer is bound. The transport can only prove a class name's *shape*, never that it is free of a credential or private marker, so an unbound categorizer retains no attacker-influenced name at all. The composed `EventSystem` still binds the canonical categorizer, so ordinary `RuntimeError` stays useful there, and `cmm.agent_runtime` still imports `cmm.domains` zero times |
+
+Binary/buffer classification decision (explicit): the **semantic buffer-protocol
+rule** was chosen over extending the exact-class list. Extending the list would
+have left the same defect class open for the next standard buffer type; the
+protocol probe is bounded (it never reads, copies, resizes or exposes the buffer,
+and it fast-paths `str`/`bool`/`int`/`float`/`None` so no scalar is ever probed),
+and the RED suite proves it rejects every tested typecode while preserving
+descriptive `list`/`tuple` identifier containers and explicit `list[int]`
+references. Banning all sequences was rejected because it would break legitimate
+structured reference containers.
+
+Metadata policy (explicit): metadata is lifecycle metadata, not a content mirror.
+Only keys actually used by current Phase 11.22 producers, adapters and
+closed-phase contracts are admitted, each with a bounded value class; an unknown
+key fails closed rather than being preserved for convenience. The documented safe
+examples `{"status_code": "ok", "attempt": 1}` and `{"origin": "original"}` remain
+valid, bounded numeric metadata and safe JSON-compatible nesting remain valid, and
+the three prior remediation modules that used invented metadata key names now
+carry the same facts under the declared vocabulary so their original invariants
+are still proven.
+
+Direct-bus DLQ fail-safe rule (explicit): no categorizer bound → neutral bounded
+category. The alternative of forbidding DLQ activation without a categorizer was
+rejected because it changes canonical composition and historical compatibility
+behaviour; the neutral-default rule is fail-safe and minimally invasive, and it
+preserves the legacy direct single-attempt bus shape exactly.
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4 and V5 reports,
+and the immutable V1–V5 bundles are preserved byte-identical. The exact
+Remediation V5 HEAD, tree and V6 bundle SHA-256 are reported in the remediation
+handoff rather than embedded here, for the same self-reference reason as the
+earlier evidence records.

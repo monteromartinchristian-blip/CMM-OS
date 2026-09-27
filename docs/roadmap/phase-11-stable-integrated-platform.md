@@ -2882,11 +2882,12 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
 **Independent Re-audit V4:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable)
+**Independent Re-audit V5:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2896,6 +2897,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
+**Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2930,6 +2932,10 @@ REMEDIATION_V3=REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V4=FAIL
 REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED
 REMEDIATION_V4=REMEDIATED_AFTER_REAUDIT_V4_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V5=FAIL
+V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=279_PASS
+REMEDIATION_V5=REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -3121,8 +3127,35 @@ abstraction or event contract was added. The immutable Audit V1 report, the
 immutable Re-audit V2 report, the immutable Re-audit V3 report, the immutable
 Re-audit V4 report and the immutable V1-V4 bundles are preserved byte-identical.
 
+The phase remained open, not independently verified and not complete until the
+fresh independent re-audit of the exact-HEAD **V5** bundle passed.
+
+## Remediation V5 record
+
+Independent Re-audit V5 verified all three Re-audit V4 reproductions fixed
+(`V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`) with `279` prior remediation
+regressions preserved, and returned `FAIL` with three new majors (`BLOCKERS=0`,
+`MAJORS=3`, `MINORS=0`). Remediation V5 fixed exactly those three under strict TDD
+— a red adversarial regression first (initial red `30 failed / 41 passed`), then
+the minimum fix, then the nearest regressions:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V5-001` | the V4 binary rejection enumerated `bytes`, `bytearray` and `memoryview` by exact class, but `array.array` is both a compact binary buffer and a registered `collections.abc.Sequence`, so its byte values were canonicalized into a plain integer list and persisted through `payload.data`, nested payload data and metadata | binary/buffer classification is now **semantic**: one bounded buffer-protocol probe asks whether the interpreter can expose the value's raw bytes as an unsigned byte view, so `bytes`, `bytearray`, `memoryview` and every `array.array` typecode fail closed before all generic sequence handling. `str` and the descriptive containers support no buffer protocol and stay valid, and banning all sequences was explicitly rejected because a `list`/`tuple` of identifiers and an explicit `list[int]` reference must remain valid |
+| `MAJOR-V5-002` | the boundary bounded the payload vocabulary but not the value semantics implied by an approved key, so raw user text was durably persisted under `status`, `request_id` and `metadata["note"]` | one canonical `PAYLOAD_KEY_CLASSES` specification gives every allowed payload key exactly one explicit lifecycle value class (identifier, category, boolean, number, version, timestamp, structured reference, reference sequence), with a regression asserting the union equals the allowlist so nothing falls through to prose; structured references are validated recursively against their documented nested shape; `METADATA_KEY_CLASSES` admits only bounded lifecycle metadata keys actually used by current producers, adapters and closed-phase contracts, and an unknown metadata key fails closed |
+| `MAJOR-V5-003` | the V4 DLQ fix was only secret-safe once the composed `EventSystem` had injected the credential/private-marker categorizer, so direct canonical use of `AgentRuntimeEventBus` + DLQ + bounded retry wrote an identifier-shaped credential class name into DLQ `error_type`/`error` | `safe_delivery_error_type()` now records the neutral bounded category `SubscriberDeliveryError` whenever no external categorizer is bound. The transport can only prove a class name's shape, never that it is free of a credential or private marker, so an unbound categorizer retains no attacker-influenced name. The composed `EventSystem` still binds the canonical categorizer, so ordinary `RuntimeError` stays useful, and the legacy direct single-attempt bus shape is unchanged |
+
+The accepted one-authority architecture was preserved: no second bus, registry,
+repository protocol, replay engine, DLQ, safety module, payload registry,
+container, broker abstraction or event contract was added, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still enforced. All nine Audit V1 fixes, all
+four Re-audit V2 reproductions, all three Re-audit V3 reproductions and all three
+Re-audit V4 reproductions remain green (`PRIOR_REMEDIATION_REGRESSIONS=279_PASS`).
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4 and V5 reports,
+and the immutable V1-V5 bundles are preserved byte-identical.
+
 The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V5** bundle passes. Only that re-audit may
+independent re-audit of the exact-HEAD **V6** bundle passes. Only that re-audit may
 write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
 `CLOSURE_ELIGIBLE=YES`.
 
