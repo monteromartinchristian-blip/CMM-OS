@@ -31,6 +31,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import unquote
 
 from cmm.domains.credential_policy import contains_high_confidence_credential
 from cmm.domains.event_contracts import _contains_private_marker
@@ -51,6 +52,7 @@ __all__ = [
     "canonicalize_platform_event_sensitivity",
     "canonicalize_platform_payload",
     "category_for_delivery_error",
+    "contains_uri_userinfo_credential",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
     "is_forbidden_source_content_key",
@@ -309,6 +311,13 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: persisted — including in the canonical header ``producer`` fact — although the
 #: frozen design prohibits "filesystem secrets/paths where not public-safe".
 #:
+#: Independent Re-audit V7 then showed that absolute-path classification alone is
+#: incomplete: a *relative* traversal prefixed with an apparently safe identifier
+#: segment (``safe/../../etc/shadow``, ``foo/../bar/../../private/var``) matched no
+#: pattern and was durably persisted through every shared identifier channel.  The
+#: ``..`` traversal segment and the relative spellings of a private system root are
+#: therefore part of this same classifier, not of a second path policy.
+#:
 #: This is purely *syntactic* safety classification.  It performs no I/O, resolves
 #: no path and inspects no file; it only refuses the shapes that can denote a local
 #: user/system location or a known secret-bearing path segment.  A legitimate
@@ -323,6 +332,24 @@ _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\\\\"),
     # An absolute POSIX path or the ``~`` home shorthand.
     re.compile(r"^[/~]"),
+    # A syntactic ``..`` traversal segment, delimited by a path separator or
+    # bounding the whole token.  ``..`` is a filesystem path semantic, never a
+    # legitimate platform reference separator: without this rule a producer reaches
+    # a sensitive relative location merely by prefixing it with a safe-looking
+    # identifier segment.  Both separators are accepted, in any mix, because a
+    # Windows spelling is a filesystem path semantic too.  The rule matches the
+    # *segment* rather than a naive ``".." in value`` substring, so ``cmm.orchestration``
+    # and ``v1..2`` remain ordinary references.
+    re.compile(r"(?:^|[\\/])\.\.(?:[\\/]|$)"),
+    # A well-known sensitive system file in relative form (``etc/shadow``).  A
+    # network URI names the same file, so this also refuses ``nfs://server/etc/shadow``.
+    re.compile(
+        r"(?:^|[\\/])etc[\\/](?:shadow|passwd|sudoers)(?:$|[\\/])", re.IGNORECASE
+    ),
+    # The macOS private system roots in relative form (``private/var/db/keychains``).
+    re.compile(
+        r"(?:^|[\\/])private[\\/](?:var|etc|tmp|root)(?:[\\/]|$)", re.IGNORECASE
+    ),
     # A user-home directory, on macOS (``Users``), Linux (``home``) or Windows.
     re.compile(r"(?:^|[\\/])(?:Users|home|Documents and Settings)[\\/]", re.IGNORECASE),
     # A known secret-bearing private directory segment.
@@ -874,9 +901,10 @@ def is_private_filesystem_reference(value: str) -> bool:
 
     The classifier is narrow and fail-closed: it answers ``True`` only for strong
     filesystem signatures (a ``file:`` URI, an absolute POSIX path, a Windows
-    drive-root path, a UNC share, a user-home directory, a known secret-bearing
-    path segment or a private key file name) and ``False`` for every legitimate
-    reference shape current producers publish.
+    drive-root path, a UNC share, a ``..`` traversal segment, a relative private
+    system root, a user-home directory, a known secret-bearing path segment or a
+    private key file name) and ``False`` for every legitimate reference shape
+    current producers publish.
     """
 
     if not isinstance(value, str) or not value:
@@ -884,15 +912,66 @@ def is_private_filesystem_reference(value: str) -> bool:
     return any(pattern.search(value) for pattern in _PRIVATE_FILESYSTEM_PATTERNS)
 
 
+#: A URI carrying an authority component (``scheme://…``) with userinfo before the
+#: ``@``.  The identifier grammar deliberately admits ``:``, ``/`` and ``@``
+#: because legitimate references need them, so a URI authority has to be
+#: classified *semantically* rather than character by character.  The userinfo is
+#: captured up to the first ``/``, ``?`` or ``#``, which is where RFC 3986 ends it.
+_URI_USERINFO_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z0-9+.\-]*://(?P<userinfo>[^/?#]*)@"
+)
+
+
+def contains_uri_userinfo_credential(value: str) -> bool:
+    """Return whether *value* is a URI whose userinfo carries a password.
+
+    Independent Re-audit V7 showed that the composed Phase 10.33 credential
+    detector recognizes token formats and explicit secret markers but not the
+    structural signal ``<scheme>://<name>:<secret>@<authority>``.  That shape is
+    not a guess about a secret: the URI grammar itself names the component after
+    the ``:`` a password, and persisting it contradicts the frozen rule that
+    credentials never enter event persistence.
+
+    The check is deliberately narrow so credential-free URIs survive:
+
+    * it requires a real scheme and a ``//`` authority;
+    * it requires userinfo terminated by ``@``;
+    * it requires a colon inside that userinfo with a non-empty password component.
+
+    ``https://example.com/model`` and ``postgres://example.com/db`` therefore stay
+    valid identifiers, while ``https://admin:hunter2hunter2@example.com/path`` does
+    not.  The userinfo is percent-decoded before the colon test, so an encoded
+    ``%3A`` that decodes to a password separator is refused as the same credential
+    rather than being trusted because the raw text has no literal colon.
+
+    The answer is a boolean.  The refused value is never returned, logged or
+    echoed by the caller, so the password cannot leak through a rejection message.
+    """
+
+    if not isinstance(value, str) or not value:
+        return False
+    match = _URI_USERINFO_PATTERN.match(value)
+    if match is None:
+        return False
+    _name, separator, secret = unquote(match.group("userinfo")).partition(":")
+    return bool(separator) and bool(secret)
+
+
 def validate_platform_identifier(value: object, *, field: str) -> str:
     """Validate one persisted platform identifier fact, failing closed.
 
     An identifier is a bounded, single-token value drawn from an explicit safe
     character set, and it additionally has to survive the canonical
-    credential/private-marker scan.  Legitimate references such as
+    credential/private-marker scan, the URI-userinfo credential rule and the
+    non-public filesystem classifier.  Legitimate references such as
     ``workflow:123``, ``domain.execution.completed`` or ``CORR-ORIGINAL`` pass;
-    assignments, prose, credential-shaped values and non-public local filesystem
-    locations do not.
+    assignments, prose, credential-shaped values, URI userinfo credentials and
+    non-public local filesystem locations do not.
+
+    This function is the single shared authority every persisted identifier channel
+    routes through — payload identifier fields, the canonical header facts,
+    ``permissions``, identifier-classified metadata facts and nested structured
+    references — so each rule below is enforced once, everywhere.
     """
 
     if not isinstance(value, str) or not value:
@@ -905,12 +984,19 @@ def validate_platform_identifier(value: object, *, field: str) -> str:
         )
     if contains_high_confidence_credential(value):
         raise PlatformEventPayloadError("credential-like value", key=field)
+    if contains_uri_userinfo_credential(value):
+        # A URI userinfo password is explicit credential material.  The message is
+        # static, so the refused secret is never echoed into a log or a DLQ record.
+        raise PlatformEventPayloadError(
+            "identifier fact must not carry URI userinfo credentials", key=field
+        )
     if _contains_private_marker(value):
         raise PlatformEventPayloadError("forbidden private marker", key=field)
     if is_private_filesystem_reference(value):
-        # A local filesystem location is not a public platform reference.  This is
-        # the frozen design's "filesystem secrets/paths where not public-safe" rule,
-        # applied on every persisted identifier channel.
+        # A local filesystem location — absolute or reached by relative traversal —
+        # is not a public platform reference.  This is the frozen design's
+        # "filesystem secrets/paths where not public-safe" rule, applied on every
+        # persisted identifier channel.
         raise PlatformEventPayloadError(
             "identifier fact must not be a private filesystem location", key=field
         )
