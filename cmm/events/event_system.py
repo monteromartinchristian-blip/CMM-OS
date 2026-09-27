@@ -41,6 +41,7 @@ from typing import Any
 from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEvent,
     AgentRuntimeEventBusStats,
+    AgentRuntimeEventPayload,
     AgentRuntimeEventReplayRequest,
     AgentRuntimeEventReplayResult,
     EventSensitivity,
@@ -60,9 +61,12 @@ from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
 from cmm.events.event_payload_safety import (
     PlatformEventPayloadError,
+    canonical_header_fact_values,
     canonicalize_platform_event_sensitivity,
     canonicalize_platform_payload,
     category_for_delivery_error,
+    reconcile_canonical_header_fact,
+    split_canonical_header_facts,
     validate_platform_event_facts,
     validate_platform_payload,
     validate_platform_permissions,
@@ -242,14 +246,38 @@ class EventSystem:
         The payload is normalized to the one canonical JSON-compatible shape first,
         so the canonical factory never receives a frozen view and no nested caller
         container is aliased into the created event.
+
+        A payload key that names a canonical header fact is not a second lifecycle
+        fact: it is consumed into the header here, before the payload is persisted.
+        An unset header fact takes the payload value, an equal one is left alone, and
+        a contradictory one fails closed, so one event fact can never be persisted
+        twice with two different values.
         """
 
-        safe_payload = canonicalize_platform_payload(
+        canonical_payload, canonical_facts = split_canonical_header_facts(
             payload if payload is not None else {}
         )
+        safe_payload = canonicalize_platform_payload(canonical_payload)
         self._registry.ensure_registered(event_type)
 
         optional = dict(facts)
+        for key, value in canonical_facts.items():
+            if key == "event_type":
+                # The platform event type is always supplied by construction, so a
+                # payload copy may only agree with it.
+                reconcile_canonical_header_fact(key, value, event_type)
+                continue
+            if key == "sensitivity":
+                # The canonical default classification is itself an authority, so a
+                # payload classification can only raise it, never lower it.
+                optional[key] = reconcile_canonical_header_fact(
+                    key, value, optional.get(key, EventSensitivity.INTERNAL)
+                )
+                continue
+            optional[key] = reconcile_canonical_header_fact(
+                key, value, optional.get(key)
+            )
+
         event_id = optional.pop("event_id", None)
         schema_version = optional.pop("schema_version", "1.0.0")
         occurred_at = optional.pop("occurred_at", None)
@@ -514,6 +542,13 @@ class EventSystem:
         6. canonical normalization, which preserves the event ID, correlation,
            causation and every other canonical header fact the caller supplied.
 
+        A canonical header fact that the manual event *also* carries in its payload is
+        folded into the one canonical header before persistence: an unset header fact
+        takes the payload value, an equal one is left alone, a contradictory one fails
+        closed, and a stricter payload classification is promoted into the header.
+        The returned event therefore has exactly one authoritative copy of each header
+        fact, whichever channel the caller used.
+
         Step 5 is deliberately *normalization*, not validation: the one sensitivity
         rule already accepts a canonical string and converts it to the member.  A
         manual ``publish_event`` caller passing ``sensitivity="restricted"`` must
@@ -528,6 +563,7 @@ class EventSystem:
                 "platform events must not carry raw payload content"
             )
         validate_platform_payload(event.payload.data)
+        event = self._consume_canonical_payload_facts(event)
         validate_platform_event_facts(event)
 
         sensitivity = canonicalize_platform_event_sensitivity(event.header.sensitivity)
@@ -537,6 +573,38 @@ class EventSystem:
             )
 
         return self._normalizer.normalize(event)
+
+    def _consume_canonical_payload_facts(
+        self, event: AgentRuntimeEvent
+    ) -> AgentRuntimeEvent:
+        """Fold canonical header facts out of a manual event's payload.
+
+        This is the manual-publication half of the one canonical header authority.
+        It never invents a header fact and never overwrites one the caller supplied:
+        it adopts a payload value only into an unset header field, and it fails closed
+        when the two channels disagree.
+        """
+
+        remaining, canonical = split_canonical_header_facts(event.payload.data)
+        if not canonical:
+            return event
+
+        header = event.header
+        header_facts = canonical_header_fact_values(header)
+        overrides: dict[str, Any] = {}
+        for key, value in canonical.items():
+            current = header_facts.get(key)
+            reconciled = reconcile_canonical_header_fact(key, value, current)
+            if reconciled != current:
+                overrides[key] = reconciled
+
+        if overrides:
+            header = replace(header, **overrides)
+        return replace(
+            event,
+            header=header,
+            payload=AgentRuntimeEventPayload(data=remaining),
+        )
 
     def _ensure_supported_schema(self, schema_version: str) -> None:
         """Fail closed on a schema this build's canonical deserializer cannot read.

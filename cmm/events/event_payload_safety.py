@@ -37,20 +37,29 @@ from cmm.domains.event_contracts import _contains_private_marker
 
 __all__ = [
     "ALLOWED_PAYLOAD_KEYS",
+    "CANONICAL_HEADER_FACT_KEYS",
+    "CANONICAL_HEADER_PAYLOAD_KEYS",
     "FORBIDDEN_PAYLOAD_KEYS",
     "FORBIDDEN_PAYLOAD_KEY_TOKENS",
     "MAX_PLATFORM_IDENTIFIER_LENGTH",
+    "MAX_PLATFORM_NUMERIC_FACT",
+    "NUMERIC_FACT_SEMANTICS",
     "PLATFORM_CONTAINER_HEADER_FIELDS",
     "PLATFORM_IDENTIFIER_HEADER_FIELDS",
     "PlatformEventPayloadError",
+    "canonical_header_fact_values",
     "canonicalize_platform_event_sensitivity",
     "canonicalize_platform_payload",
     "category_for_delivery_error",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
     "is_forbidden_source_content_key",
+    "is_private_filesystem_reference",
+    "reconcile_canonical_header_fact",
     "scan_for_forbidden_event_facts",
     "scan_for_forbidden_platform_content",
+    "split_canonical_header_facts",
+    "strictest_platform_sensitivity",
     "thaw_platform_payload",
     "validate_platform_event_facts",
     "validate_platform_identifier",
@@ -216,11 +225,115 @@ PLATFORM_IDENTIFIER_HEADER_FIELDS: tuple[str, ...] = (
 #: private markers by :func:`scan_for_forbidden_event_facts`.
 PLATFORM_CONTAINER_HEADER_FIELDS: tuple[str, ...] = ("metadata", "permissions")
 
+#: Every persisted canonical header fact name.
+#:
+#: The header is the *one* authority for these facts.  A payload key with the same
+#: name is not a second, independently validated copy of the same lifecycle fact;
+#: it is the same fact, and it may only ever be consumed into the header.
+CANONICAL_HEADER_FACT_KEYS: frozenset[str] = frozenset(
+    {
+        "event_id",
+        "event_type",
+        "schema_version",
+        "occurred_at",
+        "emitted_at",
+        "agent_id",
+        "agent_run_id",
+        "goal_id",
+        "workflow_id",
+        "task_id",
+        "iteration_id",
+        "correlation_id",
+        "causation_id",
+        "actor_id",
+        "source",
+        "sensitivity",
+        "permissions",
+        "metadata",
+        "producer",
+        "aggregate_id",
+    }
+)
+
+#: The payload keys that name a canonical header fact and are therefore consumed
+#: into the header instead of being persisted a second time.
+#:
+#: Independent Re-audit V6 persisted both copies of every one of these facts at
+#: once: ``payload.event_id = payload-event`` alongside ``header.event_id =
+#: header-event``, and crucially ``payload.sensitivity = restricted`` alongside
+#: ``header.sensitivity = internal`` — a stricter classification hidden where the
+#: canonical header authority would never see it.  The audited key list is exactly
+#: this intersection, and it is deliberately the *intersection* with the bounded
+#: payload vocabulary: a payload key outside that vocabulary stays rejected rather
+#: than becoming a new header channel.
+CANONICAL_HEADER_PAYLOAD_KEYS: frozenset[str] = frozenset(
+    {
+        "event_id",
+        "event_type",
+        "schema_version",
+        "occurred_at",
+        "emitted_at",
+        "agent_id",
+        "goal_id",
+        "workflow_id",
+        "task_id",
+        "correlation_id",
+        "causation_id",
+        "aggregate_id",
+        "producer",
+        "sensitivity",
+    }
+)
+
+assert CANONICAL_HEADER_PAYLOAD_KEYS == (
+    ALLOWED_PAYLOAD_KEYS & CANONICAL_HEADER_FACT_KEYS
+), "the consumed canonical payload keys must be exactly the header-named vocabulary"
+
+#: The canonical header facts that are timestamps rather than identifier tokens.
+_TIMESTAMP_HEADER_FACT_KEYS: frozenset[str] = frozenset({"occurred_at", "emitted_at"})
+
 #: A persisted identifier is a single bounded token drawn from an explicit safe
 #: character set.  Assignments, whitespace, quotes and free prose — the shapes a
 #: leaked prompt or credential would arrive in — are refused outright, on top of
 #: the credential/private-marker scan.
 _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
+
+#: Strong syntactic signatures of a **non-public local filesystem location**.
+#:
+#: The identifier character set above deliberately keeps ``:``, ``/`` and ``.``
+#: because legitimate platform references need them (``workflow:123``,
+#: ``domain:legal``, ``provider/model``).  Safe characters are not path safety.
+#: Independent Re-audit V6 showed that the missing piece was exactly this
+#: classification: ``file:///Users/alice/.ssh/id_rsa``, ``Users/alice/.ssh/id_rsa``
+#: and ``C:/Users/alice/.ssh/id_rsa`` all qualified as identifiers and were durably
+#: persisted — including in the canonical header ``producer`` fact — although the
+#: frozen design prohibits "filesystem secrets/paths where not public-safe".
+#:
+#: This is purely *syntactic* safety classification.  It performs no I/O, resolves
+#: no path and inspects no file; it only refuses the shapes that can denote a local
+#: user/system location or a known secret-bearing path segment.  A legitimate
+#: reference such as ``workflow:123``, ``domain:legal`` or ``provider/model``
+#: matches none of them.
+_PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # A file: URI — the explicit spelling of one local filesystem location.
+    re.compile(r"^file:", re.IGNORECASE),
+    # A Windows drive-root path (``C:/…``, ``C:\…``).
+    re.compile(r"^[A-Za-z]:[\\/]"),
+    # A Windows UNC share (``\\server\share``).
+    re.compile(r"^\\\\"),
+    # An absolute POSIX path or the ``~`` home shorthand.
+    re.compile(r"^[/~]"),
+    # A user-home directory, on macOS (``Users``), Linux (``home``) or Windows.
+    re.compile(r"(?:^|[\\/])(?:Users|home|Documents and Settings)[\\/]", re.IGNORECASE),
+    # A known secret-bearing private directory segment.
+    re.compile(
+        r"(?:^|[\\/])(?:\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.netrc"
+        r"|\.pgpass|\.npmrc|\.git-credentials)(?:[\\/]|$)",
+        re.IGNORECASE,
+    ),
+    # A well-known private key material file name.
+    re.compile(r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|\.)"),
+)
 
 #: Upper bound for one persisted identifier fact.
 MAX_PLATFORM_IDENTIFIER_LENGTH = 256
@@ -251,6 +364,43 @@ _SAFE_TIMESTAMP_PATTERN = re.compile(
 #: Upper bound for a structured reference sequence.  Bounded containers are part of
 #: the approved vocabulary; unbounded ones are not.
 MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH = 256
+
+#: The canonical upper bound for one persisted numeric lifecycle fact.
+#:
+#: Independent Re-audit V6 showed that a semantic class called "bounded number"
+#: which accepted *any* finite Python number was not bounded at all: the same public
+#: event carrying ``count = 10 ** 5000`` was accepted by the official in-memory
+#: repository and raised ``ValueError`` inside the official file-backed repository,
+#: because the interpreter's integer-to-string limit — not the Phase 11.22 boundary —
+#: was the only thing standing in the way.  ``1e308`` and negative counts, durations,
+#: attempts and sequences were accepted too.
+#:
+#: The bound is the signed 64-bit machine-integer range: nineteen decimal digits, far
+#: below every serializer and interpreter conversion limit, and far above every
+#: legitimate count, attempt, sequence, millisecond duration or version this platform
+#: produces.  It is one explicit constant, not a second numeric-policy registry.
+MAX_PLATFORM_NUMERIC_FACT = 9_223_372_036_854_775_807  # 2**63 - 1
+
+#: The one semantic numeric-fact table: which bounded *kind of number* each numeric
+#: lifecycle key may carry.
+#:
+#: A key name alone is not a contract.  ``count``, ``attempt``/``attempts`` and
+#: ``sequence`` are non-negative integer counts; ``duration_ms`` is a non-negative
+#: bounded duration; ``ratio`` is the normalized ratio current producers publish
+#: (``0.0 <= ratio <= 1.0``).  A numeric fact whose key is absent from this table —
+#: for example an anonymous list item — is still bounded by
+#: :data:`MAX_PLATFORM_NUMERIC_FACT`, but no lifecycle name implies its sign, so the
+#: generic class admits the whole bounded signed range.
+NUMERIC_FACT_SEMANTICS: Mapping[str, str] = MappingProxyType(
+    {
+        "count": "count",
+        "attempt": "count",
+        "attempts": "count",
+        "sequence": "count",
+        "duration_ms": "duration",
+        "ratio": "ratio",
+    }
+)
 
 #: The one canonical payload-key → value-class specification.
 #:
@@ -719,6 +869,21 @@ def _scan_forbidden_content(
     _reject_non_descriptive_value(value, key)
 
 
+def is_private_filesystem_reference(value: str) -> bool:
+    """Return whether *value* syntactically denotes a non-public local path.
+
+    The classifier is narrow and fail-closed: it answers ``True`` only for strong
+    filesystem signatures (a ``file:`` URI, an absolute POSIX path, a Windows
+    drive-root path, a UNC share, a user-home directory, a known secret-bearing
+    path segment or a private key file name) and ``False`` for every legitimate
+    reference shape current producers publish.
+    """
+
+    if not isinstance(value, str) or not value:
+        return False
+    return any(pattern.search(value) for pattern in _PRIVATE_FILESYSTEM_PATTERNS)
+
+
 def validate_platform_identifier(value: object, *, field: str) -> str:
     """Validate one persisted platform identifier fact, failing closed.
 
@@ -726,7 +891,8 @@ def validate_platform_identifier(value: object, *, field: str) -> str:
     character set, and it additionally has to survive the canonical
     credential/private-marker scan.  Legitimate references such as
     ``workflow:123``, ``domain.execution.completed`` or ``CORR-ORIGINAL`` pass;
-    assignments, prose and credential-shaped values do not.
+    assignments, prose, credential-shaped values and non-public local filesystem
+    locations do not.
     """
 
     if not isinstance(value, str) or not value:
@@ -741,6 +907,13 @@ def validate_platform_identifier(value: object, *, field: str) -> str:
         raise PlatformEventPayloadError("credential-like value", key=field)
     if _contains_private_marker(value):
         raise PlatformEventPayloadError("forbidden private marker", key=field)
+    if is_private_filesystem_reference(value):
+        # A local filesystem location is not a public platform reference.  This is
+        # the frozen design's "filesystem secrets/paths where not public-safe" rule,
+        # applied on every persisted identifier channel.
+        raise PlatformEventPayloadError(
+            "identifier fact must not be a private filesystem location", key=field
+        )
     if not _SAFE_IDENTIFIER_PATTERN.match(value):
         raise PlatformEventPayloadError(
             "identifier fact is not a safe single-token identifier", key=field
@@ -776,8 +949,35 @@ def _validate_bounded_category(value: object, *, field: str) -> str:
     return value
 
 
+def _numeric_semantics_for(field: str) -> str:
+    """Return the bounded numeric kind *field* names, or the generic kind.
+
+    The lookup is by the *key name* rather than by position, so a numeric fact
+    cannot escape its semantic bound by being nested one container deeper.  A
+    sequence item is addressed as ``field[index]``; the index is stripped so the
+    item inherits the bound of the key that holds it.
+    """
+
+    base = field.split("[", 1)[0]
+    return NUMERIC_FACT_SEMANTICS.get(base, "bounded_number")
+
+
 def _validate_bounded_number(value: object, *, field: str) -> int | float:
-    """Validate one bounded numeric lifecycle fact, failing closed."""
+    """Validate one *actually bounded* numeric lifecycle fact, failing closed.
+
+    Independent Re-audit V6 reproduced the V5 class accepting any finite Python
+    number.  The audited behaviours are all refused here, before any repository is
+    reached:
+
+    * ``count = 10 ** 5000`` (and every other oversized integer) — the interpreter's
+      integer-to-string limit is not a safety boundary and cannot make the two
+      official repositories disagree;
+    * ``count = -1``, ``attempts = -1``, ``sequence = -1`` and ``duration_ms = -5`` —
+      a count, attempt, sequence or duration the current contract defines as
+      non-negative;
+    * ``duration_ms = 1e308`` and every other absurd finite float;
+    * a float where the lifecycle name requires a real integer count.
+    """
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PlatformEventPayloadError(
@@ -785,6 +985,48 @@ def _validate_bounded_number(value: object, *, field: str) -> int | float:
         )
     if isinstance(value, float) and not math.isfinite(value):
         raise PlatformEventPayloadError("numeric fact must be finite", key=field)
+
+    semantics = _numeric_semantics_for(field)
+    if semantics == "count":
+        if not isinstance(value, int):
+            raise PlatformEventPayloadError(
+                "count-like numeric fact must be an integer", key=field
+            )
+        if value < 0:
+            raise PlatformEventPayloadError(
+                "count-like numeric fact must not be negative", key=field
+            )
+        if value > MAX_PLATFORM_NUMERIC_FACT:
+            raise PlatformEventPayloadError(
+                "count-like numeric fact exceeds the platform bound", key=field
+            )
+        return value
+
+    if semantics == "duration":
+        if value < 0:
+            raise PlatformEventPayloadError(
+                "duration fact must not be negative", key=field
+            )
+        if value > MAX_PLATFORM_NUMERIC_FACT:
+            raise PlatformEventPayloadError(
+                "duration fact exceeds the platform bound", key=field
+            )
+        return value
+
+    if semantics == "ratio":
+        if value < 0.0 or value > 1.0:
+            raise PlatformEventPayloadError(
+                "ratio fact must be a normalized ratio between 0.0 and 1.0",
+                key=field,
+            )
+        return value
+
+    # The generic bounded number: no lifecycle name implies a sign, so the whole
+    # signed 64-bit range is admitted and nothing larger is.
+    if value < -MAX_PLATFORM_NUMERIC_FACT or value > MAX_PLATFORM_NUMERIC_FACT:
+        raise PlatformEventPayloadError(
+            "numeric fact exceeds the platform bound", key=field
+        )
     return value
 
 
@@ -803,27 +1045,47 @@ def _validate_bounded_boolean(value: object, *, field: str) -> bool:
 
 
 def _validate_version(value: object, *, field: str) -> object:
-    """Validate one version fact: a bounded number or a bounded version token."""
+    """Validate one version fact: a bounded number or a bounded version token.
+
+    A numeric version participates in the same one numeric bound as every other
+    persisted numeric lifecycle fact, so ``version = 1e308`` cannot enter durable
+    evidence merely because a version may also be spelled as a token.
+    """
 
     if isinstance(value, bool):
         raise PlatformEventPayloadError(
             "version fact must be a number or version token", key=field
         )
     if isinstance(value, int):
+        if value < 0 or value > MAX_PLATFORM_NUMERIC_FACT:
+            raise PlatformEventPayloadError(
+                "numeric version fact is outside the platform bound", key=field
+            )
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
             raise PlatformEventPayloadError("version fact must be finite", key=field)
+        if value < 0 or value > MAX_PLATFORM_NUMERIC_FACT:
+            raise PlatformEventPayloadError(
+                "numeric version fact is outside the platform bound", key=field
+            )
         return value
     return _validate_bounded_category(value, field=field)
 
 
-def _validate_canonical_timestamp(value: object, *, field: str) -> str:
-    """Validate one timestamp fact in the canonical persisted ISO-8601 string form.
+def _parse_canonical_timestamp(value: object, *, field: str) -> datetime:
+    """Parse one canonical persisted timestamp into a real timezone-aware instant.
 
-    The durable record stores a timestamp as a string, so a live ``datetime`` would
-    reopen as a ``str`` and the live and persisted shapes of the same fact would
-    differ.  Only the canonical string form is accepted here.
+    Independent Re-audit V6 showed that the "canonical ISO-8601" class validated
+    text shape rather than civil time, so ``9999-99-99T99:99Z``,
+    ``2026-02-31T12:00Z`` and ``2026-09-27T25:61Z`` all reached durable evidence,
+    as did a timezone-less ``2026-09-27T12:00`` even though the canonical chronology
+    contract is timezone-aware.
+
+    The shape rule remains the existing one, but the value must additionally parse
+    as a real calendar/time value *and* carry an explicit UTC offset.  Nothing is
+    reinterpreted or normalized here: an invalid value fails closed instead of being
+    silently repaired, and the caller keeps the documented canonical serialization.
     """
 
     if not isinstance(value, str) or not value:
@@ -838,6 +1100,29 @@ def _validate_canonical_timestamp(value: object, *, field: str) -> str:
         raise PlatformEventPayloadError(
             "timestamp fact must be canonical ISO-8601", key=field
         )
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise PlatformEventPayloadError(
+            "timestamp fact is not a real calendar/time value", key=field
+        ) from exc
+    if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+        raise PlatformEventPayloadError(
+            "timestamp fact must be timezone-aware", key=field
+        )
+    return parsed
+
+
+def _validate_canonical_timestamp(value: object, *, field: str) -> str:
+    """Validate one timestamp fact in the canonical persisted ISO-8601 string form.
+
+    The durable record stores a timestamp as a string, so a live ``datetime`` would
+    reopen as a ``str`` and the live and persisted shapes of the same fact would
+    differ.  Only the canonical string form is accepted here, and it must be a real
+    timezone-aware civil timestamp rather than merely timestamp-shaped text.
+    """
+
+    _parse_canonical_timestamp(value, field=field)
     return value
 
 
@@ -1180,6 +1465,32 @@ def canonicalize_platform_event_sensitivity(value: object) -> Any:
     )
 
 
+def strictest_platform_sensitivity(first: object, second: object) -> Any:
+    """Return the stricter of two canonical sensitivity facts.
+
+    This is the one classification rule behind "a stricter source sensitivity must be
+    promoted to the canonical header, and a lower payload value must never downgrade
+    it".  Both inputs are canonicalized first, so an arbitrary string cannot be
+    smuggled in as a classification.  The canonical enum is imported lazily for the
+    same dependency-direction reason as
+    :func:`canonicalize_platform_event_sensitivity`.
+    """
+
+    from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
+
+    strictness = (
+        EventSensitivity.PUBLIC,
+        EventSensitivity.INTERNAL,
+        EventSensitivity.CONFIDENTIAL,
+        EventSensitivity.RESTRICTED,
+    )
+    first_canonical = canonicalize_platform_event_sensitivity(first)
+    second_canonical = canonicalize_platform_event_sensitivity(second)
+    if strictness.index(first_canonical) >= strictness.index(second_canonical):
+        return first_canonical
+    return second_canonical
+
+
 def validate_platform_permissions(permissions: object) -> None:
     """Validate the structural shape of a persisted permissions fact.
 
@@ -1200,6 +1511,118 @@ def validate_platform_permissions(permissions: object) -> None:
         )
     for index, entry in enumerate(permissions):
         validate_platform_identifier(entry, field=f"permissions[{index}]")
+
+
+def split_canonical_header_facts(
+    payload: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Split *payload* into ordinary payload facts and canonical header facts.
+
+    Returns ``(remaining_payload, canonical_header_facts)``.  Only keys inside the
+    bounded payload vocabulary that also name a canonical header fact are moved, so
+    the closed payload vocabulary is preserved exactly and a key outside it is still
+    rejected by the ordinary gate rather than becoming a header channel.
+    """
+
+    if not isinstance(payload, Mapping):
+        raise PlatformEventPayloadError("payload must be a mapping")
+
+    remaining: dict[str, object] = {}
+    canonical: dict[str, object] = {}
+    for key, value in payload.items():
+        if isinstance(key, str) and key in CANONICAL_HEADER_PAYLOAD_KEYS:
+            canonical[key] = value
+        else:
+            remaining[key] = value
+    return remaining, canonical
+
+
+def reconcile_canonical_header_fact(
+    key: str,
+    payload_value: object,
+    header_value: object,
+) -> object:
+    """Return the one authoritative value of a canonical header fact.
+
+    ``header_value`` is the value the canonical header already carries, or ``None``
+    when the caller supplied nothing for that fact.  The rule is total and has one
+    exception:
+
+    * an unset header fact takes the payload value, so the payload copy becomes the
+      single canonical header fact instead of a second persisted representation;
+    * a header fact equal to the payload value stays as it is;
+    * a header fact that contradicts the payload value fails closed, so two
+      contradictory versions of one event fact can never both persist;
+    * **sensitivity** is the exception: the canonical header keeps the *stricter*
+      classification, so a stricter source value is promoted into the header and a
+      lower payload value can never downgrade it.
+    """
+
+    if key not in CANONICAL_HEADER_PAYLOAD_KEYS:
+        raise PlatformEventPayloadError("not a canonical header payload fact", key=key)
+
+    if key == "sensitivity":
+        if header_value is None:
+            return canonicalize_platform_event_sensitivity(payload_value)
+        return strictest_platform_sensitivity(header_value, payload_value)
+
+    if key in _TIMESTAMP_HEADER_FACT_KEYS:
+        parsed = _parse_canonical_timestamp(payload_value, field=key)
+        if header_value is None:
+            return parsed
+        if isinstance(header_value, datetime) and parsed == header_value:
+            return header_value
+        raise PlatformEventPayloadError(
+            "payload fact conflicts with the canonical header fact", key=key
+        )
+
+    if not isinstance(payload_value, str):
+        # An explicit ``None`` for an optional reference is not a reference *value*:
+        # closed-phase sources legitimately publish ``workflow_id=None``, and the
+        # identifier class accepts exactly that meaning.  There is nothing to adopt
+        # and nothing to contradict, so the header keeps what it already carries.
+        if payload_value is None:
+            return header_value
+        raise PlatformEventPayloadError(
+            "canonical header fact must be its canonical string form", key=key
+        )
+    if header_value is None:
+        return payload_value
+    if payload_value == header_value:
+        return header_value
+    raise PlatformEventPayloadError(
+        "payload fact conflicts with the canonical header fact", key=key
+    )
+
+
+def canonical_header_fact_values(header: Any) -> Mapping[str, object]:
+    """Return the canonical header facts a payload key could duplicate.
+
+    Every field is read by explicit attribute access rather than resolved by name,
+    so this can never become dispatch driven by event data — the same rule the
+    persisted-identifier reader follows.  The result is the header side of the one
+    canonical header authority: it is what a payload copy must be reconciled
+    against, never a second source of truth.
+    """
+
+    return MappingProxyType(
+        {
+            "event_id": header.event_id,
+            "event_type": header.event_type,
+            "schema_version": header.schema_version,
+            "occurred_at": header.occurred_at,
+            "emitted_at": header.emitted_at,
+            "agent_id": header.agent_id,
+            "goal_id": header.goal_id,
+            "workflow_id": header.workflow_id,
+            "task_id": header.task_id,
+            "correlation_id": header.correlation_id,
+            "causation_id": header.causation_id,
+            "aggregate_id": header.aggregate_id,
+            "producer": header.producer,
+            "sensitivity": header.sensitivity,
+        }
+    )
 
 
 def validate_platform_event_facts(event: Any) -> None:

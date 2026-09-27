@@ -171,7 +171,6 @@ class PlatformKernelEventAdapter:
             return None
 
         projected = self._project(translation, payload, nested_payload)
-        projected.setdefault("event_type", source_name)
 
         facts: dict[str, Any] = {
             "correlation_id": self._correlation(payload),
