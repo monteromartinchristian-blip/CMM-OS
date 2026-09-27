@@ -3050,3 +3050,348 @@ def test_at_dp_122_valid_timezone_aware_timestamps_are_accepted(
     assert stored is not None
     assert stored.header.occurred_at == datetime.fromisoformat(timestamp)
     assert "occurred_at" not in stored.payload.data
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V7 — AT-DP-122 additions for the two V7 majors
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# Both V7 findings are re-derived here through that composition, on every shared
+# persisted identifier channel, and the real orchestration path is exercised end
+# to end so "rejected before persistence" is proven by the durable store itself.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The exact relative traversals the independent Re-audit V7 published.
+AT_DP_122_V7_TRAVERSALS = (
+    pytest.param("safe/../../etc/shadow", id="etc_shadow"),
+    pytest.param("foo/../bar/../../private/var", id="private_var"),
+)
+
+#: The exact URI userinfo credentials the independent Re-audit V7 published.
+AT_DP_122_V7_URI_USERINFO = (
+    pytest.param("https://admin:hunter2hunter2@example.com/path", id="https_password"),
+    pytest.param("postgres://alice:supersecret@example.com/db", id="postgres_password"),
+)
+
+#: Every V7 adversarial value, with the plain-text secret it would leak.
+AT_DP_122_V7_ADVERSARIAL = (
+    pytest.param("safe/../../etc/shadow", "safe/../../etc/shadow", id="traversal_etc"),
+    pytest.param(
+        "foo/../bar/../../private/var",
+        "foo/../bar/../../private/var",
+        id="traversal_private",
+    ),
+    pytest.param(
+        "https://admin:hunter2hunter2@example.com/path",
+        "hunter2hunter2",
+        id="uri_userinfo_https",
+    ),
+    pytest.param(
+        "postgres://alice:supersecret@example.com/db",
+        "supersecret",
+        id="uri_userinfo_postgres",
+    ),
+)
+
+#: Legitimate public references and credential-free URIs both V7 rules must keep.
+AT_DP_122_V7_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("cmm.orchestration", id="producer_dotted"),
+    pytest.param("events:read", id="permission_colon"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("postgres://example.com/db", id="credential_free_postgres"),
+)
+
+#: Every shared persisted identifier channel, as ``(label, builder)`` where the
+#: builder places one audited value into that channel and returns
+#: ``(payload, header_facts)``.  Enumerating the channels is what makes "not a
+#: ``request_id``-only patch" an executable claim in the connected acceptance.
+AT_DP_122_V7_SHARED_CHANNELS = (
+    ("payload_request_id", lambda r: ({"request_id": r}, {})),
+    (
+        "payload_workflow_id",
+        lambda r: ({"request_id": "req-v7-at", "workflow_id": r}, {}),
+    ),
+    (
+        "payload_aggregate_id",
+        lambda r: ({"request_id": "req-v7-at", "aggregate_id": r}, {}),
+    ),
+    (
+        "payload_producer",
+        lambda r: ({"request_id": "req-v7-at", "producer": r}, {}),
+    ),
+    ("header_producer", lambda r: ({"request_id": "req-v7-at"}, {"producer": r})),
+    (
+        "header_aggregate_id",
+        lambda r: ({"request_id": "req-v7-at"}, {"aggregate_id": r}),
+    ),
+    (
+        "header_correlation_id",
+        lambda r: ({"request_id": "req-v7-at"}, {"correlation_id": r}),
+    ),
+    ("header_source", lambda r: ({"request_id": "req-v7-at"}, {"source": r})),
+    (
+        "permissions",
+        lambda r: ({"request_id": "req-v7-at"}, {"permissions": [r]}),
+    ),
+    (
+        "metadata_error_type",
+        lambda r: ({"request_id": "req-v7-at"}, {"metadata": {"error_type": r}}),
+    ),
+    (
+        "nested_result_reference",
+        lambda r: (
+            {"request_id": "req-v7-at", "result_reference": {"reference_id": r}},
+            {},
+        ),
+    ),
+    (
+        "structured_reference_sequence",
+        lambda r: (
+            {"request_id": "req-v7-at", "approval_refs": [{"reference_id": r}]},
+            {},
+        ),
+    ),
+    (
+        "domain_reference_sequence",
+        lambda r: ({"request_id": "req-v7-at", "supporting_domains": [r]}, {}),
+    ),
+)
+
+
+def _at_dp_122_v7_assert_refused(connected, event_id: str, before_bytes: bytes) -> None:
+    """Assert one refused publication left the real durable store untouched."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    assert system.repository.get(event_id) is None
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert not store.exists() or store.read_bytes() == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V7_TRAVERSALS)
+def test_at_dp_122_v7_traversal_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V7-001: relative traversal fails closed on every persisted channel."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v7-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V7_URI_USERINFO)
+def test_at_dp_122_v7_uri_userinfo_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V7-002: URI userinfo credentials fail closed on every channel."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v7-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("reference", "secret"),
+    AT_DP_122_V7_ADVERSARIAL,
+    ids=[case.id for case in AT_DP_122_V7_ADVERSARIAL],
+)
+def test_at_dp_122_v7_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, secret: str
+) -> None:
+    """MAJOR-V7-001/002: the real durable store never receives either shape."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v7-at-durable", "workflow_id": reference},
+            event_id="evt-v7-at-durable",
+            permissions=[reference],
+            metadata={"error_type": reference},
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v7-at-durable") is None
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert secret.encode() not in store.read_bytes()
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V7_LEGITIMATE)
+def test_at_dp_122_v7_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V7-001/002 control: the two rules do not over-correct."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v7-at-ok-{reference.replace(':', '-').replace('/', '-')}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v7-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference", AT_DP_122_V7_TRAVERSALS + AT_DP_122_V7_URI_USERINFO
+)
+def test_at_dp_122_v7_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V7-001/002: the real production adapter cannot persist either shape."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v7-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "secret"),
+    AT_DP_122_V7_ADVERSARIAL,
+    ids=[case.id for case in AT_DP_122_V7_ADVERSARIAL],
+)
+def test_at_dp_122_v7_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, secret: str
+) -> None:
+    """MAJOR-V7-001/002: the real Orchestrator's mandatory emission refuses them.
+
+    The Orchestrator owns the mandatory ``orchestration.request_received`` fact, so
+    an identifier the platform boundary refuses makes the emission fail rather than
+    being silently dropped.  The observable result is a failed orchestration with
+    no durable event evidence at all — and no secret in the store.
+    """
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert secret.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v7_the_refusal_message_never_echoes_the_secret(connected) -> None:
+    """MAJOR-V7-002: the boundary refuses the credential without repeating it."""
+
+    system = connected["system"]
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received",
+            {"request_id": "postgres://alice:supersecret@example.com/db"},
+            event_id="evt-v7-at-echo",
+        )
+
+    assert "supersecret" not in str(captured.value)
+    assert "hunter2hunter2" not in str(captured.value)
+
+
+def test_at_dp_122_v7_retains_the_two_v6_controls_it_builds_on(connected) -> None:
+    """MAJOR-V7-001 control: the frozen V6 path rules are still enforced."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    # The V6 absolute-path rule still refuses its exact reproductions...
+    for path in ("file:///Users/alice/.ssh/id_rsa", "C:/Users/alice/.ssh/id_rsa"):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": path},
+                event_id="evt-v7-at-v6-regression",
+            )
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+    # ...and the new relative rule does not refuse a bare separator or a version.
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v7-at-v6-control", "workflow_id": "provider/model"},
+        event_id="evt-v7-at-v6-control",
+        aggregate_id="cmm/orchestration/step",
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v7-at-v6-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/orchestration/step"
