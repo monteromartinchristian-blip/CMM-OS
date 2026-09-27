@@ -23,6 +23,7 @@ Only the independent audit may promote these to ``VERIFIED_EXISTING`` / ``PASS``
 
 from __future__ import annotations
 
+import array
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,7 @@ from cmm.agent_runtime.runtime_event_bus import AgentRuntimeEventBus
 from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEvent,
     AgentRuntimeEventBusStats,
+    AgentRuntimeEventDelivery,
     AgentRuntimeEventReplayRequest,
     EventSensitivity,
 )
@@ -43,7 +45,10 @@ from cmm.agent_runtime.runtime_event_errors import (
     AgentRuntimeEventIdentityConflictError,
     AgentRuntimeEventSerializationError,
 )
-from cmm.agent_runtime.runtime_event_factory import event_fingerprint
+from cmm.agent_runtime.runtime_event_factory import (
+    AgentRuntimeEventFactory,
+    event_fingerprint,
+)
 from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
 from cmm.agent_runtime.runtime_event_repository import (
@@ -2055,3 +2060,442 @@ def test_at_dp_122_ordinary_exception_class_name_stays_useful(connected) -> None
     assert '"error_type": "RuntimeError"' in rendered
     assert "subscriber exploded" not in rendered
     assert "Traceback" not in rendered
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V5 — AT-DP-122 additions for the three V5 majors
+#
+# The real composed event system is used throughout: the file-backed canonical
+# repository, the canonical registry/bus/DLQ and the real production
+# ``PlatformOrchestrationEventSink``.  No component is replaced by a mock.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The exact ``array.array`` binary buffer the independent Re-audit V5 published.
+AT_DP_122_ARRAY_BUFFER = array.array("B", b"secret-binary")
+
+#: The integer list the pre-remediation bypass produced for that buffer.
+AT_DP_122_ARRAY_AS_INTEGERS = list(b"secret-binary")
+
+#: The exact raw user sentence the independent Re-audit V5 persisted under an
+#: allowed key and under ordinary metadata.
+AT_DP_122_RAW_USER_TEXT = (
+    "My landlord entered my flat without permission yesterday and I need legal advice."
+)
+
+#: The exact credential-shaped dynamic exception class name Re-audit V5 used
+#: against the direct canonical bus.
+AT_DP_122_CREDENTIAL_IDENTIFIER_NAME = "api_key_abcdef1234567890"
+
+#: A valid-identifier, private-marker-bearing dynamic exception class name.
+AT_DP_122_PRIVATE_MARKER_IDENTIFIER_NAME = "system_prompt_TOP_SECRET"
+
+#: The neutral bounded DLQ category the canonical transport falls back to when no
+#: external error categorizer is bound.
+AT_DP_122_NEUTRAL_ERROR_CATEGORY = "SubscriberDeliveryError"
+
+
+def _at_dp_122_array_buffer() -> array.array:
+    """Return a fresh ``array.array`` buffer for one scenario."""
+
+    return array.array("B", b"secret-binary")
+
+
+@pytest.mark.parametrize(
+    "binary",
+    [
+        pytest.param(array.array("B", b"secret-binary"), id="array_b"),
+        pytest.param(array.array("i", [1, 2, 3]), id="array_i"),
+        pytest.param(array.array("d", [1.5, 2.5]), id="array_d"),
+    ],
+)
+def test_at_dp_122_array_buffer_payload_is_rejected_before_persistence(
+    connected, binary
+) -> None:
+    """MAJOR-V5-001: every ``array.array`` typecode fails closed in ``payload.data``."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {
+                "request_id": "req-v5-array",
+                "channel": "conversation",
+                "supporting_domains": binary,
+            },
+            event_id="evt-v5-array",
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v5-array") is None
+    assert received == []
+    assert system.dead_letter_count() == 0
+    durable = store.read_bytes() if store.exists() else b""
+    assert AT_DP_122_ARRAY_AS_INTEGERS[0:4] != [] and durable == b""
+
+
+def test_at_dp_122_array_buffer_never_becomes_a_durable_integer_array(
+    connected,
+) -> None:
+    """MAJOR-V5-001: the bypass integer array never reaches durable content."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    accepted: object = None
+    try:
+        accepted = system.publish(
+            "message.received",
+            {"request_id": "req-v5-array-int", "sequence": _at_dp_122_array_buffer()},
+            event_id="evt-v5-array-int",
+        ).event.payload.data.get("sequence")
+    except (PlatformEventPayloadError, TypeError, ValueError):
+        accepted = None
+
+    assert accepted != AT_DP_122_ARRAY_AS_INTEGERS
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v5-array-int") is None
+
+
+def test_at_dp_122_nested_array_buffer_in_payload_is_rejected(connected) -> None:
+    """MAJOR-V5-001: an ``array.array`` nested in a reference fails closed."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {
+                "request_id": "req-v5-array-nested",
+                "result_reference": {"sequence": _at_dp_122_array_buffer()},
+            },
+            event_id="evt-v5-array-nested",
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v5-array-nested") is None
+
+
+def test_at_dp_122_array_buffer_in_metadata_is_rejected(connected) -> None:
+    """MAJOR-V5-001: an ``array.array`` in ``metadata`` fails closed."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v5-array-meta", "channel": "conversation"},
+            event_id="evt-v5-array-meta",
+            metadata={"detail": {"inner": [_at_dp_122_array_buffer()]}},
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v5-array-meta") is None
+
+
+def test_at_dp_122_manual_array_buffer_event_is_rejected(connected) -> None:
+    """MAJOR-V5-001: the manual publication boundary applies the same gate."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    event = _at_dp_122_manual_event(
+        event_id="evt-v5-array-manual",
+        payload={
+            "request_id": "req-v5-array-manual",
+            "sequence": _at_dp_122_array_buffer(),
+        },
+    )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish_event(event)
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v5-array-manual") is None
+
+
+def test_at_dp_122_raw_user_text_cannot_relocate_into_request_id(
+    connected,
+) -> None:
+    """MAJOR-V5-002: the exact V5 identity-key reproduction fails closed."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": AT_DP_122_RAW_USER_TEXT, "channel": "conversation"},
+            event_id="evt-v5-raw-id",
+        )
+
+    assert system.repository.count() == before
+    durable = store.read_bytes() if store.exists() else b""
+    assert b"landlord" not in durable
+
+
+def test_at_dp_122_raw_user_text_cannot_relocate_into_status(connected) -> None:
+    """MAJOR-V5-002: the exact V5 categorical reproduction fails closed."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v5-raw-status", "status": AT_DP_122_RAW_USER_TEXT},
+            event_id="evt-v5-raw-status",
+        )
+
+    assert system.repository.count() == before
+    durable = store.read_bytes() if store.exists() else b""
+    assert b"landlord" not in durable
+
+
+def test_at_dp_122_raw_user_text_cannot_relocate_into_metadata(connected) -> None:
+    """MAJOR-V5-002: the exact V5 metadata reproduction fails closed."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v5-raw-meta", "channel": "conversation"},
+            event_id="evt-v5-raw-meta",
+            metadata={"origin": AT_DP_122_RAW_USER_TEXT},
+        )
+
+    assert system.repository.count() == before
+    durable = store.read_bytes() if store.exists() else b""
+    assert b"landlord" not in durable
+
+
+def test_at_dp_122_boolean_field_rejects_prose(connected) -> None:
+    """MAJOR-V5-002: a boolean lifecycle fact requires a real boolean."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v5-raw-bool", "approved": AT_DP_122_RAW_USER_TEXT},
+            event_id="evt-v5-raw-bool",
+        )
+
+    assert system.repository.count() == before
+
+
+def test_at_dp_122_numeric_field_rejects_prose(connected) -> None:
+    """MAJOR-V5-002: a numeric lifecycle fact requires a real number."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v5-raw-num", "duration_ms": AT_DP_122_RAW_USER_TEXT},
+            event_id="evt-v5-raw-num",
+        )
+
+    assert system.repository.count() == before
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        ("request_id", "req-v5-ok"),
+        ("execution_id", "EXEC-1"),
+        ("approval_id", "APP-1"),
+        ("status", "completed"),
+        ("channel", "conversation"),
+        ("route", "conversation"),
+        ("primary_domain", "domain:legal"),
+        ("event_type", "goal.created"),
+        ("duration_ms", 125),
+        ("count", 2),
+        ("approved", True),
+    ),
+)
+def test_at_dp_122_legitimate_lifecycle_facts_still_persist(
+    connected, key: str, value: object
+) -> None:
+    """MAJOR-V5-002 control: legitimate bounded facts still reach durable storage."""
+
+    import uuid as _uuid
+
+    system = connected["system"]
+    event_id = f"evt-v5-ok-{_uuid.uuid4().hex[:8]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v5-ok", key: value},
+        event_id=event_id,
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get(event_id)
+    assert stored is not None
+    assert stored.payload.data[key] == value
+
+
+def test_at_dp_122_legitimate_metadata_still_persists(connected) -> None:
+    """MAJOR-V5-002 control: the documented safe metadata examples still persist."""
+
+    system = connected["system"]
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v5-meta-ok", "channel": "conversation"},
+        event_id="evt-v5-meta-ok",
+        metadata={"status_code": "ok", "attempt": 1},
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get("evt-v5-meta-ok")
+    assert stored is not None
+    assert stored.header.metadata == {"status_code": "ok", "attempt": 1}
+
+
+def test_at_dp_122_legitimate_origin_metadata_still_persists(connected) -> None:
+    """MAJOR-V5-002 control: the second documented metadata example still persists."""
+
+    system = connected["system"]
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v5-origin-ok", "channel": "conversation"},
+        event_id="evt-v5-origin-ok",
+        metadata={"origin": "original"},
+    )
+
+    assert result.persisted is True
+    stored = system.repository.get("evt-v5-origin-ok")
+    assert stored is not None
+    assert stored.header.metadata == {"origin": "original"}
+
+
+def _at_dp_122_direct_bus_dlq_rendering(
+    exception_class: type[BaseException],
+) -> str:
+    """Drive the canonical bus + DLQ with **no** external categorizer bound.
+
+    This uses the canonical components directly — the real
+    ``AgentRuntimeEventBus``, the real canonical in-memory dead-letter queue and
+    the real canonical event factory — exactly as the independent Re-audit V5 did.
+    """
+
+    import json
+
+    bus = AgentRuntimeEventBus(max_delivery_attempts=2)
+    dlq = InMemoryAgentRuntimeDeadLetterQueue()
+    bus.bind_dead_letter_queue(dlq)
+
+    def failing(event: AgentRuntimeEvent) -> None:
+        raise exception_class("subscriber exploded")
+
+    bus.subscribe(failing, ["message.received"])
+    bus.publish(
+        AgentRuntimeEventFactory().create_event(
+            "message.received",
+            {"request_id": "req-v5-direct-dlq", "channel": "conversation"},
+            event_id="evt-v5-direct-dlq",
+        )
+    )
+
+    entries = dlq.list()
+    assert entries, "expected a canonical dead letter to be recorded"
+    return json.dumps(
+        [
+            {
+                "error": entry.error,
+                "error_type": entry.error_type,
+                "handler_name": entry.handler_name,
+                "subscription_id": entry.subscription_id,
+                "metadata": dict(entry.metadata),
+            }
+            for entry in entries
+        ]
+    )
+
+
+def test_at_dp_122_direct_canonical_bus_dlq_without_categorizer_has_no_credential() -> (
+    None
+):
+    """MAJOR-V5-003: the direct canonical bus DLQ cannot retain a credential."""
+
+    credential_exception = type(AT_DP_122_CREDENTIAL_IDENTIFIER_NAME, (Exception,), {})
+
+    rendered = _at_dp_122_direct_bus_dlq_rendering(credential_exception)
+
+    assert "api_key" not in rendered
+    assert "abcdef1234567890" not in rendered
+    assert AT_DP_122_CREDENTIAL_IDENTIFIER_NAME not in rendered
+    assert AT_DP_122_NEUTRAL_ERROR_CATEGORY in rendered
+
+
+def test_at_dp_122_direct_canonical_bus_dlq_without_categorizer_has_no_private_marker() -> (
+    None
+):
+    """MAJOR-V5-003: no private marker survives the direct canonical bus DLQ."""
+
+    private_exception = type(AT_DP_122_PRIVATE_MARKER_IDENTIFIER_NAME, (Exception,), {})
+
+    rendered = _at_dp_122_direct_bus_dlq_rendering(private_exception)
+
+    assert "TOP_SECRET" not in rendered
+    assert "TOP SECRET" not in rendered
+    assert "system_prompt" not in rendered
+    assert AT_DP_122_PRIVATE_MARKER_IDENTIFIER_NAME not in rendered
+    assert AT_DP_122_NEUTRAL_ERROR_CATEGORY in rendered
+
+
+def test_at_dp_122_composed_event_system_runtime_error_stays_useful(
+    connected,
+) -> None:
+    """MAJOR-V5-003 control: the composed facade keeps ordinary categories useful."""
+
+    rendered = _at_dp_122_dead_letter_with_exception(connected, RuntimeError)
+
+    assert '"error_type": "RuntimeError"' in rendered
+
+
+def test_at_dp_122_legacy_direct_single_attempt_bus_is_unchanged() -> None:
+    """MAJOR-V5-003 control: historical direct single-attempt behaviour is intact."""
+
+    bus = AgentRuntimeEventBus(max_delivery_attempts=1)
+    observed: list[AgentRuntimeEventDelivery] = []
+
+    def failing(event: AgentRuntimeEvent) -> None:
+        raise RuntimeError("legacy exploded")
+
+    bus.subscribe(failing, ["message.received"])
+    original = bus._deliver_to_subscriber
+
+    def spy(event: AgentRuntimeEvent, record) -> AgentRuntimeEventDelivery:
+        delivery = original(event, record)
+        observed.append(delivery)
+        return delivery
+
+    bus._deliver_to_subscriber = spy  # type: ignore[method-assign]
+    bus.publish(
+        AgentRuntimeEventFactory().create_event(
+            "message.received",
+            {"request_id": "req-v5-legacy", "channel": "conversation"},
+            event_id="evt-v5-legacy",
+        )
+    )
+
+    assert observed, "expected the legacy delivery to be observed"
+    assert observed[0].error == "legacy exploded"
+    assert observed[0].metadata["attempts"] == 1

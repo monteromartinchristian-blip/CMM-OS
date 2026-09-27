@@ -403,7 +403,13 @@ def test_direct_publish_event_rejects_non_canonical_sensitivity() -> None:
 
 
 def test_finite_metadata_numbers_and_nesting_still_publish() -> None:
-    """MAJOR-V3-001 control: finite scalars and safe nesting remain valid."""
+    """MAJOR-V3-001 control: finite scalars and safe nesting remain valid.
+
+    Remediation V5 clarifies the stable half of this control: finite scalars and
+    safe JSON-compatible nesting are still valid, but they are carried by the
+    declared bounded lifecycle metadata vocabulary rather than by an arbitrary
+    invented key.  The bounded container is the documented ``detail`` fact.
+    """
 
     system, received, _repository = _watching_system()
 
@@ -416,11 +422,11 @@ def test_finite_metadata_numbers_and_nesting_still_publish() -> None:
             "ratio": 0.5,
             "flag": True,
             "label": "ok",
-            "nested": {"inner": ["a", 1, None]},
+            "detail": {"inner": ["a", 1, None]},
         },
     )
 
-    assert result.event.header.metadata["nested"] == {"inner": ["a", 1, None]}
+    assert result.event.header.metadata["detail"] == {"inner": ["a", 1, None]}
     assert math.isfinite(result.event.header.metadata["ratio"])
     assert received[0].header.metadata["attempt"] == 2
 
@@ -536,7 +542,7 @@ def test_live_and_reopened_header_facts_match(tmp_path: Path) -> None:
             "result_reference": {"reference_id": "ref-1"},
         },
         event_id="evt-v3-live-reopen",
-        metadata={"nested": {"inner": [1, "two"]}},
+        metadata={"detail": {"inner": [1, "two"]}},
         permissions=["events:read"],
     )
 
@@ -589,7 +595,7 @@ def test_nested_caller_mutation_cannot_change_publication_result() -> None:
     system, _received, repository = _watching_system()
     caller_list = ["domain:a"]
     caller_nested = {"reference_id": "ref-1"}
-    caller_meta = {"inner": ["x"]}
+    caller_meta = {"detail": {"inner": ["x"]}}
 
     event = manual_event(
         "message.received",
@@ -606,11 +612,11 @@ def test_nested_caller_mutation_cannot_change_publication_result() -> None:
 
     caller_list.append("domain:b")
     caller_nested["reference_id"] = "mutated"
-    caller_meta["inner"].append("y")
+    caller_meta["detail"]["inner"].append("y")
 
     assert result.event.payload.data["supporting_domains"] == ["domain:a"]
     assert result.event.payload.data["result_reference"] == {"reference_id": "ref-1"}
-    assert result.event.header.metadata == {"inner": ["x"]}
+    assert result.event.header.metadata == {"detail": {"inner": ["x"]}}
     stored = repository.get("evt-v3-alias")
     assert stored is not None
     assert stored.payload.data["supporting_domains"] == ["domain:a"]

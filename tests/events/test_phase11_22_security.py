@@ -487,7 +487,7 @@ def test_events_and_replay_grant_no_authority_on_the_direct_route() -> None:
             {"goal_id": "g1"},
             event_id="evt-direct-authority",
             permissions=["not-a-real-grant"],
-            metadata={"attempted_authority": "model-selection"},
+            metadata={"label": "model-selection"},
         )
     )
 
@@ -495,7 +495,7 @@ def test_events_and_replay_grant_no_authority_on_the_direct_route() -> None:
     stored = system.repository.get("evt-direct-authority")
     assert stored is not None
     # Event metadata carries facts; it never becomes an executable grant.
-    assert stored.header.metadata == {"attempted_authority": "model-selection"}
+    assert stored.header.metadata == {"label": "model-selection"}
     received.clear()
 
     system.replay(AgentRuntimeEventReplayRequest(event_id="evt-direct-authority"))
