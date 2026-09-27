@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -11,6 +11,8 @@
 **Remediation V2 agent prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
+**Remediation V5 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
+**Remediation V6 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -19,10 +21,11 @@
 
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
 Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
-failed independent Re-audit V5 and has been **remediated** after each. It is not
-closed, not independently verified and not complete: the `VERIFIED_EXISTING`
-marker may only be written by the independent re-audit of the V6 bundle. See §27
-for the Remediation V4 record and §28 for the Remediation V5 record.
+failed independent Re-audit V5, failed independent Re-audit V6 and has been
+**remediated** after each. It is not closed, not independently verified and not
+complete: the `VERIFIED_EXISTING` marker may only be written by the independent
+re-audit of the V7 bundle. See §27 for the Remediation V4 record, §28 for the
+Remediation V5 record and §29 for the Remediation V6 record.
 
 ### Provenance note (recorded deviation)
 
@@ -482,9 +485,9 @@ approved key can fall through to unrestricted arbitrary prose:
 | identifier / reference | a bounded single-token value (`request_id`, `execution_id`, `domain_id`, `producer`, …) |
 | category / token | a bounded token form, narrower than an identifier (`status`, `state`, `intent`, `route`, `channel`, `policy`, `error_code`, `sensitivity`, `event_type`, …) |
 | boolean | a real `bool` (`approved`, `needs_clarification`, `is_success`) |
-| integer / count / duration | a real finite number (`duration_ms`, `count`, `attempts`, `sequence`) |
+| integer / count / duration | a real integer count, or a real finite integer/float duration, inside an explicit bound (`duration_ms`, `count`, `attempts`, `sequence`) |
 | version | a bounded number or bounded version token (`version`, `schema_version`) |
-| timestamp | the canonical ISO-8601 string form only (`occurred_at`, `emitted_at`) |
+| timestamp | the canonical ISO-8601 string form only, and a real calendar/time value (`occurred_at`, `emitted_at`) |
 | structured reference | a documented nested shape (`result_reference`, `approval_refs`) |
 | reference sequence | a bounded sequence of domain/capability references (`supporting_domains`, `related_domain_ids`, `reason_codes`) |
 
@@ -519,6 +522,122 @@ a serializer. The canonical serialization deliberately does **not** use
 `json.dumps(default=str)`, so a value that is not canonically serializable fails
 closed instead of being stringified.
 
+### 15.1 Bounded numeric lifecycle facts (Remediation V6)
+
+A numeric lifecycle class called "bounded" must actually be bounded. Remediation
+V6 replaced the V5 rule ("is a finite Python number") with one explicit semantic
+bound, because the V5 rule left the *interpreter's* integer-to-string limit as the
+only obstacle: the same public event carrying `count = 10 ** 5000` was accepted by
+the official in-memory repository and raised `ValueError` inside the official
+file-backed repository while serializing.
+
+One constant and one small table in the existing safety module define the policy:
+
+```text
+MAX_PLATFORM_NUMERIC_FACT = 2 ** 63 - 1   (signed 64-bit machine-integer range)
+
+NUMERIC_FACT_SEMANTICS
+  count | attempt | attempts | sequence -> count     integer, 0 <= v <= bound
+  duration_ms                          -> duration  integer|float, finite, 0 <= v <= bound
+  ratio                                -> ratio     integer|float, finite, 0.0 <= v <= 1.0
+  (any other numeric fact)             -> bounded   integer|float, finite, |v| <= bound
+```
+
+Nineteen decimal digits is far below every serializer and interpreter conversion
+limit and far above every legitimate count, attempt, sequence, millisecond duration
+or version this platform produces. `1e308` and every other absurd finite float is
+refused; a count-like fact must be a real integer rather than a float; a negative
+count, attempt, sequence or duration is refused wherever the current contract
+defines it as non-negative. The bound is enforced **before** any repository is
+reached, so no repository is responsible for discovering an invalid platform number
+and the two official repositories cannot diverge. `ratio` follows the normalized
+`0.0 <= ratio <= 1.0` contract current producers actually publish.
+
+### 15.2 Non-public filesystem locations (Remediation V6)
+
+The identifier character set deliberately keeps `:`, `/` and `.` because
+legitimate platform references need them (`workflow:123`, `domain:legal`,
+`provider/model`). Safe characters are not path safety: Remediation V6 added a
+narrow, purely **syntactic** path-safety classification inside the existing
+identifier/header safety authority, because `file:///Users/alice/.ssh/id_rsa`,
+`Users/alice/.ssh/id_rsa` and `C:/Users/alice/.ssh/id_rsa` all qualified as
+identifiers and were durably persisted — including in the canonical header
+`producer` fact — although the frozen design prohibits "filesystem secrets/paths
+where not public-safe".
+
+The classifier fails closed on strong filesystem signatures only:
+
+```text
+file: URI scheme
+Windows drive-root path (C:/…, C:\…) and UNC share (\\server\share)
+absolute POSIX path and the ~ home shorthand
+a user-home directory segment (Users/, home/, Documents and Settings/)
+a known secret-bearing private directory segment (.ssh, .aws, .gnupg, .kube,
+  .docker, .azure, .netrc, .pgpass, .npmrc, .git-credentials)
+a private key material file name (id_rsa, id_dsa, id_ecdsa, id_ed25519, known_hosts)
+```
+
+It performs no content inspection, resolves no path and performs no I/O. The rule
+applies on every persisted identifier channel — `payload.data` identifiers,
+canonical header identifier facts, `permissions` entries and identifier-classified
+metadata facts — while `workflow:123`, `domain:legal`, `provider/model`,
+`cmm.orchestration`, `CORR-ORIGINAL` and every other genuine public reference stay
+valid.
+
+### 15.3 One canonical header fact authority (Remediation V6)
+
+A canonical header fact has exactly one authority. Remediation V6 closed the case
+where a payload key with the same name was validated independently and persisted
+alongside the header, so `header.event_id=header-event` and
+`payload.event_id=payload-event` — and, critically,
+`header.sensitivity=internal` alongside `payload.sensitivity=restricted` — were
+durably stored together.
+
+```text
+CANONICAL_HEADER_PAYLOAD_KEYS =
+    ALLOWED_PAYLOAD_KEYS ∩ CANONICAL_HEADER_FACT_KEYS
+  = event_id, event_type, schema_version, occurred_at, emitted_at, agent_id,
+    goal_id, workflow_id, task_id, correlation_id, causation_id, aggregate_id,
+    producer, sensitivity
+```
+
+Every one of those payload keys is consumed into the canonical header before
+persistence and is **not** persisted as a second platform payload fact:
+
+* an unset header fact takes the payload value, so a source dictionary that carries
+  the fact reaches the one canonical authority instead of a duplicate;
+* a header fact equal to the payload value is left exactly as it is;
+* a contradictory header fact and payload value fail closed before anything is
+  persisted;
+* `sensitivity` is the one documented non-equal resolution: the canonical header
+  keeps the **stricter** classification, so a stricter source value is promoted into
+  the header and a lower payload classification can never downgrade it;
+* an explicit `None` for an optional reference (`workflow_id=None`) is not a
+  reference value: there is nothing to adopt and nothing to contradict.
+
+The intersection is deliberate: a payload key outside the bounded payload
+vocabulary is still rejected by the ordinary gate rather than becoming a new header
+channel, so the closed vocabulary stays closed. The Domain/Kernel bridge keeps its
+canonical class mapping; `domain.execution.completed` with `sensitivity=restricted`
+still reaches `header.sensitivity=RESTRICTED`. The kernel adapter no longer mirrors
+the *source* event name into a payload `event_type` key — the canonical header owns
+that fact, and the one-way source→platform mapping stays recorded in the committed
+translation table.
+
+### 15.4 Timestamp semantics (Remediation V6)
+
+The "canonical ISO-8601" timestamp class validated text shape rather than civil
+time, so `9999-99-99T99:99Z`, `2026-02-31T12:00Z` and `2026-09-27T25:61Z` reached
+durable evidence, as did a timezone-less `2026-09-27T12:00` even though the
+canonical chronology contract is timezone-aware.
+
+The existing shape rule is retained, and the value must additionally parse as a
+real calendar/time value and carry an explicit UTC offset. No second timestamp
+subsystem was introduced and the existing canonical serialization is reused: an
+invalid value fails closed instead of being silently reinterpreted or normalized,
+and a valid timezone-aware value (`2026-09-27T12:00:00Z`,
+`2026-09-27T12:00:00+02:00`) keeps its documented canonical string form.
+
 `sensitivity` is a real runtime-enforced classification: the persisted fact is an
 `EventSensitivity` member, and the single supported string spelling of a canonical
 member is normalized to that enum before the event is constructed. A number,
@@ -547,6 +666,11 @@ IDENTIFIER_FIELDS_ARE_SEMANTICALLY_BOUNDED
 CATEGORICAL_FIELDS_ARE_SEMANTICALLY_BOUNDED
 BOOLEAN_FIELDS_REQUIRE_BOOLEAN_VALUES
 NUMERIC_FIELDS_REQUIRE_NUMERIC_VALUES
+NUMERIC_LIFECYCLE_FACTS_ARE_ACTUALLY_BOUNDED
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+ONE_CANONICAL_HEADER_FACT_AUTHORITY
+NO_HEADER_PAYLOAD_SENSITIVITY_CONFLICT
+TIMESTAMP_SEMANTIC_VALIDITY
 LIFECYCLE_FACT_ONLY_POLICY
 DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING
 CANONICAL_SENSITIVITY_TYPE_ENFORCED
@@ -818,7 +942,7 @@ and the strengthened `AT-DP-122` adds `12`, so the global suite moves
 `23025 → 23060` (`+35`), `tests/events/` moves `956 → 991` (`+35`), and
 `AT-DP-122` itself moves `83 → 95`.
 
-### 19.6 Remediation V5 measurements (current)
+### 19.6 Remediation V5 measurements (historical)
 
 ```text
 tests/events/                      1091 passed
@@ -844,6 +968,37 @@ and the strengthened `AT-DP-122` adds `29`, so the global suite moves
 `AT-DP-122` itself moves `95 → 124`. The two deltas are the same `+100` because
 the strengthened acceptance scenarios live inside `tests/events/`.
 
+### 19.7 Remediation V6 measurements (current)
+
+```text
+tests/events/                      1271 passed
+AT-DP-122                           177 passed
+Remediation V6 regressions          127 passed (initial red 90 failed / 37 passed)
+Remediation V5 regressions           71 passed (preserved)
+Remediation V4 regressions           23 passed (preserved)
+Remediation V3 regressions           44 passed (preserved)
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+prior remediation regressions      350 passed (V1-V5, exactly the re-audit figure)
+Remediation V1-V6 regressions      477 passed
+event inventory                    1270 passed
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+Closed-phase acceptances            310 passed
+Closed-phase support               1077 passed
+Phase 11.21 + 11.34                 106 passed
+architecture + security gates       294 passed
+global pytest                   23340 passed, 1 warning, 0 failed
+global Ruff                          810 (V6 baseline 810, no new debt)
+```
+
+The V6 additions are `+127` new adversarial regressions in a new module and `+53`
+strengthened `AT-DP-122` connected scenarios; one V5 control case was relocated
+rather than removed, so the V5 module still collects `71` tests and no previously
+passing test was deleted. Both deltas are therefore `+180` and they agree exactly:
+`tests/events/` moves `1091 → 1271` and the global suite moves `23160 → 23340`.
+`AT-DP-122` itself moves `124 → 177`.
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
@@ -855,8 +1010,13 @@ Post-remediation V4: `23060 passed, 1 warning, 0 failed` (+35 over the V3
 remediation figure: 23 new V4 adversarial regressions and 12 strengthened
 `AT-DP-122` connected scenarios). Post-remediation V5: `23160 passed, 1 warning,
 0 failed` (+100 over the V4 remediation figure: 71 new V5 adversarial regressions
-and 29 strengthened `AT-DP-122` connected scenarios). The single retained warning
-is the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
+and 29 strengthened `AT-DP-122` connected scenarios). Post-remediation V6:
+`23340 passed, 1 warning, 0 failed` (+180 over the V5 remediation figure: 127 new
+V6 adversarial regressions and 53 strengthened `AT-DP-122` connected scenarios;
+one superseded V5 *control* case was relocated into a dedicated named control, so
+the V5 module still collects `71` tests and no previously passing global test was
+removed). The single retained warning is the pre-existing unrelated `starlette`
+`anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -873,12 +1033,15 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1 change, is Ruff-clean. The global count after remediation is `810`:
-identical to the audited V1 HEAD and one below the frozen baseline. The only delta
-against the baseline is one pre-existing violation removed while editing
-`tests/conftest.py` to add the test data-directory isolation fixture. No unrelated
-violation was fixed, no global auto-fix was run, and no file outside the Phase 11.22
-delta was touched.
+Remediation V1, V2, V3, V4, V5 and V6 change, is Ruff-clean. The global count after
+Remediation V6 is `810`: identical to the audited V1 HEAD, to the V5 figure, and one
+below the frozen baseline. The only delta against the baseline is one pre-existing
+violation removed while editing `tests/conftest.py` to add the test data-directory
+isolation fixture. No unrelated violation was fixed, no global auto-fix was run, and
+no file outside the Phase 11.22 delta was touched. Every changed and created V6 file
+is also `ruff format --check`-clean; the six pre-existing changed files were
+format-clean at the audited HEAD, so the V6 formatting pass introduced no unrelated
+churn.
 
 ## 22. Known non-goals and limitations
 
@@ -910,12 +1073,12 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V6** bundle
-(`phase-11.22-event-system-audit-v6.tar.gz`, produced with `git archive` from the
-final Remediation V5 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V7** bundle
+(`phase-11.22-event-system-audit-v7.tar.gz`, produced with `git archive` from the
+final Remediation V6 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
-Phase 11.23 has not begun.
+neither Phase 11.23 nor Phase 11.24 has begun.
 
 ## 24. Remediation V1 record
 
@@ -1189,5 +1352,81 @@ preserves the legacy direct single-attempt bus shape exactly.
 The immutable Audit V1 report, the immutable Re-audit V2, V3, V4 and V5 reports,
 and the immutable V1–V5 bundles are preserved byte-identical. The exact
 Remediation V5 HEAD, tree and V6 bundle SHA-256 are reported in the remediation
+handoff rather than embedded here, for the same self-reference reason as the
+earlier evidence records.
+
+## 29. Remediation V6 record
+
+Independent Re-audit V6
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v6.md`, immutable)
+verified all three V5 reproductions fixed (`3/3_VERIFIED`), preserved `350` prior
+remediation regressions, and returned three new majors and one new minor:
+
+```text
+INDEPENDENT_REAUDIT_V6=FAIL
+BLOCKERS=0
+MAJORS=3
+MINORS=1
+V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=350_PASS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V6_ONLY
+```
+
+Remediation V6 fixed exactly those four findings under strict TDD — a red
+adversarial regression first (initial red `90 failed / 37 passed`), then the
+minimum fix, then the nearest regressions — inside the existing safety authority
+and canonical contracts, with no new bus, registry, repository protocol, replayer,
+DLQ, safety module, payload registry, numeric-policy registry, timestamp subsystem
+or event contract:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V6-001` | the V5 numeric class was called bounded but accepted any finite Python number. `count = 10 ** 5000` was accepted by the official in-memory repository and raised `ValueError` inside the official file-backed repository while serializing, so the same public event diverged across the two official repositories; `count=-1`, `duration_ms=-5`, `attempts=-1`, `sequence=-1` and `duration_ms=1e308` were accepted too | `MAX_PLATFORM_NUMERIC_FACT = 2**63 - 1` plus one small `NUMERIC_FACT_SEMANTICS` table in the existing safety authority: count/attempt/attempts/sequence are real integers in `[0, bound]`, `duration_ms` is a finite integer/float in `[0, bound]`, `ratio` is the normalized `[0.0, 1.0]` ratio current producers publish, and every other numeric fact is finite and inside `[-bound, bound]`. Enforced before any repository interaction, so no repository is the safety boundary and the two official repositories cannot diverge |
+| `MAJOR-V6-002` | the identifier character set kept `:`/`/`/`.` with no path-safety classification, so `file:///Users/alice/.ssh/id_rsa`, `Users/alice/.ssh/id_rsa` and `C:/Users/alice/.ssh/id_rsa` qualified as identifiers and were durably persisted — including in the canonical header `producer` fact — against the frozen design's "filesystem secrets/paths where not public-safe" rule | one narrow, purely syntactic classifier in the existing identifier/header safety authority (a `file:` URI scheme, a Windows drive-root path, a UNC share, an absolute POSIX path or `~` shorthand, a user-home directory segment, a known secret-bearing private directory segment, or a private key material file name). No I/O, no path resolution, no content inspection. Applied on every persisted identifier channel: payload identifiers, header identifier facts, `permissions` entries and identifier-classified metadata facts |
+| `MAJOR-V6-003` | payload keys equivalent to canonical header facts were validated independently and persisted alongside the header, so `header.event_id=header-event` and `payload.event_id=payload-event` coexisted — and, critically, `header.sensitivity=internal` alongside `payload.sensitivity=restricted`, a stricter classification hidden from the canonical authority | `CANONICAL_HEADER_PAYLOAD_KEYS` is declared once, as the exact intersection of the bounded payload vocabulary with the canonical header fact names. Those payload keys are consumed into the canonical header before persistence instead of being persisted twice: an unset header fact takes the payload value, an equal one is left alone, a contradictory one fails closed, and an explicit `None` optional reference is not a value. `sensitivity` is the one non-equal resolution — the header keeps the stricter class, so a stricter source value is promoted and a lower payload value can never downgrade it. Both the factory path and the manual `publish_event` path apply the same rule, and the kernel adapter no longer mirrors the *source* event name into a payload `event_type` key |
+| `MINOR-V6-001` | the "canonical ISO-8601" class validated text shape rather than civil time, so `9999-99-99T99:99Z`, `2026-02-31T12:00Z` and `2026-09-27T25:61Z` reached durable evidence, and a timezone-less `2026-09-27T12:00` was accepted despite the timezone-aware chronology contract | the existing shape rule is retained and the value must additionally parse as a real calendar/time value and carry an explicit UTC offset. The existing `datetime` and canonical serialization approach is reused, nothing is silently reinterpreted or normalized, and an invalid value fails closed |
+
+Bounded-numeric decision (explicit): one constant — the signed 64-bit
+machine-integer range — rather than invented per-field maxima. Nineteen decimal
+digits is far below every serializer and interpreter conversion limit and far above
+every legitimate count, attempt, sequence, millisecond duration or version this
+platform produces. Per-key semantics were needed because `ratio` is a normalized
+ratio in current usage while `duration_ms` is a duration; per-field maxima were
+rejected because one machine-integer bound is easier to audit and cannot drift per
+key.
+
+Filesystem classifier decision (explicit): a bounded syntactic signature list, not
+a ban on `/` or `:`. The audited reproduction proves the classification was
+missing; the producer inventory proves legitimate references genuinely need those
+characters (`workflow:123`, `domain:legal`, `provider/model`, `cmm.orchestration`,
+`CORR-ORIGINAL`, `events:read`), and every one of them is asserted to still pass.
+Real path resolution or filesystem inspection was rejected because the frozen
+requirement is about the public-safety of the token, not about the host's
+filesystem.
+
+Canonical header authority decision (explicit): the preferred design — one
+authoritative representation — was implemented, not the equality-only
+compatibility alternative. The consumed key set is the intersection with the
+bounded payload vocabulary, so a payload key outside that vocabulary is still
+rejected by the ordinary gate and the closed vocabulary stays closed. The
+alternative of simply deleting every header-named payload key was rejected because
+it would silently discard a legitimate identity fact; adopting an unset header field
+preserves the fact while keeping one authority. Timestamps require an explicit UTC
+offset: no current producer publishes a legitimate timezone-less platform timestamp,
+so no compatibility exception was needed and none was added.
+
+Four superseded V5 *control* expectations (a payload copy of a canonical header
+fact) were updated rather than preserved verbatim: the same legitimate values are
+still exercised, the assertions now name the canonical header they reach, and the
+conflicting cases are proved to fail closed by the V6 adversarial suite. No V5
+finding, fix or invariant was weakened, and `PRIOR_REMEDIATION_REGRESSIONS=350`
+matches the figure the independent Re-audit V6 reported exactly.
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5 and V6
+reports, and the immutable V1–V6 bundles are preserved byte-identical. The exact
+Remediation V6 HEAD, tree and V7 bundle SHA-256 are reported in the remediation
 handoff rather than embedded here, for the same self-reference reason as the
 earlier evidence records.

@@ -2882,12 +2882,13 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
 **Independent Re-audit V4:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable)
 **Independent Re-audit V5:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable)
+**Independent Re-audit V6:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=1`; `V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v6.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2898,6 +2899,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
+**Remediation V6 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2936,6 +2938,10 @@ INDEPENDENT_REAUDIT_V5=FAIL
 V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
 PRIOR_REMEDIATION_REGRESSIONS=279_PASS
 REMEDIATION_V5=REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V6=FAIL
+V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=350_PASS
+REMEDIATION_V6=REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -3154,8 +3160,42 @@ Re-audit V4 reproductions remain green (`PRIOR_REMEDIATION_REGRESSIONS=279_PASS`
 The immutable Audit V1 report, the immutable Re-audit V2, V3, V4 and V5 reports,
 and the immutable V1-V5 bundles are preserved byte-identical.
 
+The phase remained open, not independently verified and not complete until the
+fresh independent re-audit of the exact-HEAD **V6** bundle passed.
+
+## Remediation V6 record
+
+Independent Re-audit V6 verified all three Re-audit V5 reproductions fixed
+(`V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`) with `350` prior remediation
+regressions preserved, and returned `FAIL` with three new majors and one new minor
+(`BLOCKERS=0`, `MAJORS=3`, `MINORS=1`). Remediation V6 fixed exactly those four
+under strict TDD — a red adversarial regression first (initial red
+`90 failed / 37 passed`), then the minimum fix, then the nearest regressions:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V6-001` | the V5 numeric class was called bounded but accepted any finite Python number, so `count = 10 ** 5000` was accepted by the official in-memory repository and raised `ValueError` inside the official file-backed repository while serializing — the same public event diverged across the two official repositories — and negative counts/durations/attempts/sequences plus `1e308` were accepted too | one explicit bound `MAX_PLATFORM_NUMERIC_FACT = 2**63 - 1` and one small `NUMERIC_FACT_SEMANTICS` table in the existing safety authority: count/attempt/attempts/sequence are real integers in `[0, bound]`, `duration_ms` is a finite integer/float in `[0, bound]`, `ratio` is the normalized `[0.0, 1.0]` ratio current producers publish, and every other numeric fact is finite and inside `[-bound, bound]`. Enforced before any repository interaction, so no repository is the safety boundary and the two official repositories cannot diverge |
+| `MAJOR-V6-002` | the identifier character set kept `:`/`/`/`.` with no path-safety classification, so `file:///Users/alice/.ssh/id_rsa`, `Users/alice/.ssh/id_rsa` and `C:/Users/alice/.ssh/id_rsa` qualified as identifiers and were durably persisted — including in the canonical header `producer` fact — against the frozen design's "filesystem secrets/paths where not public-safe" rule | one narrow, purely syntactic classifier in the existing identifier/header safety authority: a `file:` URI scheme, a Windows drive-root path, a UNC share, an absolute POSIX path or `~` shorthand, a user-home directory segment, a known secret-bearing private directory segment (`.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.azure`, `.netrc`, `.pgpass`, `.npmrc`, `.git-credentials`) or a private key material file name. No I/O, no path resolution, no content inspection. Applied on every persisted identifier channel, while `workflow:123`, `domain:legal` and `provider/model` stay valid |
+| `MAJOR-V6-003` | payload keys equivalent to canonical header facts were validated independently and persisted alongside the header, so `header.event_id=header-event` and `payload.event_id=payload-event` coexisted — and, critically, `header.sensitivity=internal` alongside `payload.sensitivity=restricted`, a stricter classification hidden from the canonical authority | `CANONICAL_HEADER_PAYLOAD_KEYS` is declared once as the exact intersection of the bounded payload vocabulary with the canonical header fact names, and those payload keys are consumed into the canonical header before persistence instead of being persisted twice: an unset header fact takes the payload value, an equal one is left alone, a contradictory one fails closed, and an explicit `None` optional reference is not a value. `sensitivity` is the one non-equal resolution — the header keeps the stricter class, so a stricter source value is promoted and a lower payload value can never downgrade it. Both the factory path and the manual `publish_event` path apply the rule, and the kernel adapter no longer mirrors the source event name into a payload `event_type` key |
+| `MINOR-V6-001` | the "canonical ISO-8601" class validated text shape rather than civil time, so `9999-99-99T99:99Z`, `2026-02-31T12:00Z` and `2026-09-27T25:61Z` reached durable evidence, and a timezone-less `2026-09-27T12:00` was accepted despite the timezone-aware chronology contract | the existing shape rule is retained and the value must additionally parse as a real calendar/time value and carry an explicit UTC offset; the existing `datetime` and canonical serialization approach is reused, nothing is silently reinterpreted or normalized, and an invalid value fails closed |
+
+The accepted one-authority architecture was preserved: no second bus, registry,
+repository protocol, replay engine, DLQ, safety module, payload registry,
+numeric-policy registry, timestamp subsystem, container, broker abstraction or
+event contract was added, and `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still
+enforced. All nine Audit V1 fixes, all four Re-audit V2 reproductions, all three
+Re-audit V3 reproductions, all three Re-audit V4 reproductions and all three
+Re-audit V5 reproductions remain green
+(`PRIOR_REMEDIATION_REGRESSIONS=350_PASS`). Four superseded V5 *control*
+expectations were updated rather than preserved verbatim — the same legitimate
+values are still exercised, the assertions now name the canonical header they
+reach, and the conflicting cases are proved to fail closed by the V6 adversarial
+suite; no V5 finding, fix or invariant was weakened. The immutable Audit V1 report,
+the immutable Re-audit V2, V3, V4, V5 and V6 reports, and the immutable V1-V6
+bundles are preserved byte-identical.
+
 The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V6** bundle passes. Only that re-audit may
+independent re-audit of the exact-HEAD **V7** bundle passes. Only that re-audit may
 write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
 `CLOSURE_ELIGIBLE=YES`.
 

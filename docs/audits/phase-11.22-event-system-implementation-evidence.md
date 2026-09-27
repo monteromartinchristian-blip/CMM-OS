@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -13,11 +13,13 @@
 **Independent Re-audit V3:** `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable historical evidence)
 **Independent Re-audit V4:** `docs/audits/phase-11.22-event-system-independent-reaudit-v4.md` (immutable historical evidence)
 **Independent Re-audit V5:** `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable historical evidence)
+**Independent Re-audit V6:** `docs/audits/phase-11.22-event-system-independent-reaudit-v6.md` (immutable historical evidence)
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 **Remediation V4 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v4-agent-prompt.md`
 **Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
+**Remediation V6 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
 
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
@@ -37,6 +39,10 @@ INDEPENDENT_REAUDIT_V5=FAIL
 V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
 PRIOR_REMEDIATION_REGRESSIONS=279_PASS
 REMEDIATION_V5=REMEDIATED_AFTER_REAUDIT_V5_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V6=FAIL
+V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=350_PASS
+REMEDIATION_V6=REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
@@ -51,14 +57,17 @@ re-audit with three new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`). It has 
 been **remediated for the fourth time**, **passed the three V4 reproductions on
 independent Re-audit V5** (`3/3_VERIFIED`) while **failing that re-audit with three
 new majors** (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`).
-It has now been **remediated for the fifth time**. It is not closed, independently
-verified or complete. `DP-122=VERIFIED_EXISTING` and `AT-DP-122=PASS` belong only
-to the independent audit of the V6 bundle.
+It has now been **remediated for the sixth time**, **passed the three V5
+reproductions on independent Re-audit V6** (`3/3_VERIFIED`) while **failing that
+re-audit with three new majors and one new minor** (`BLOCKERS=0`, `MAJORS=3`,
+`MINORS=1`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`). It is not closed,
+independently verified or complete. `DP-122=VERIFIED_EXISTING` and
+`AT-DP-122=PASS` belong only to the independent audit of the V7 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
 V1, §11 records Remediation V2, §12 records Remediation V3, §13 records
-Remediation V4 and §14 records Remediation V5; the earlier sections are preserved
-as historical record.
+Remediation V4, §14 records Remediation V5 and §15 records Remediation V6; the
+earlier sections are preserved as historical record.
 
 ## 1. Exact repository state
 
@@ -1231,7 +1240,7 @@ report and the immutable V1, V2, V3, V4 and V5 bundles are byte-identical to the
 audited state. All five bundles remain untracked, as repository policy does not
 track audit bundles. No stash was created, applied or dropped.
 
-### 14.11 Next step
+### 14.11 Next step (historical — superseded by §15.11)
 
 Fresh independent ChatGPT re-audit of the **V6** exact-HEAD bundle
 (`phase-11.22-event-system-audit-v6.tar.gz`). The phase remains
@@ -1239,3 +1248,387 @@ Fresh independent ChatGPT re-audit of the **V6** exact-HEAD bundle
 independently verified, not complete. Only that re-audit may write
 `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`,
 `CLOSURE_ELIGIBLE=YES`.
+
+## 15. Remediation V6
+
+### 15.1 Verdict being remediated
+
+Independent Re-audit V6
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v6.md`, immutable,
+`BUNDLE_INTEGRITY=PASS`, `EXACT_HEAD=PASS`, `EXACT_TREE=PASS`) returned:
+
+```text
+INDEPENDENT_REAUDIT_V6=FAIL
+V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=350_PASS
+BLOCKERS=0
+MAJORS=3
+MINORS=1
+MAJOR_V6_001=NUMERIC_LIFECYCLE_FACTS_ARE_NOT_ACTUALLY_BOUNDED_AND_REPOSITORY_PARITY_BREAKS
+MAJOR_V6_002=FILESYSTEM_SECRET_PATHS_CAN_ENTER_PERSISTED_IDENTIFIER_FIELDS
+MAJOR_V6_003=PAYLOAD_CAN_SHADOW_CANONICAL_HEADER_IDENTITY_AND_SENSITIVITY_FACTS
+MINOR_V6_001=CANONICAL_TIMESTAMP_VALIDATION_ACCEPTS_INVALID_OR_AMBIGUOUS_TIMESTAMPS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V6_ONLY
+```
+
+### 15.2 Exact start state
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+PROMPT_COMMIT_HEAD=8f1ed9789f78513cd2340f9a713bc319ca0c585c
+REAUDIT_V6_COMMIT=08776a640d7239d7cd3020defe22fd95232e0399
+REAUDIT_V6_TREE=aad44263c27764a3b293ea576569d7a21baac015
+AUDITED_V6_IMPLEMENTATION_HEAD=2b45244a0f1b73a46e4cf2b93db40b3fcf88b552
+AUDITED_V6_IMPLEMENTATION_TREE=f28f95ed7ae2a4a2e37de03a618688bbdf343b3b
+TRACKED_DELTA_FROM_REAUDIT_V6=docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md
+PRODUCTION_CODE_DELTA_FROM_REAUDIT_V6=0
+TRACKED_WORKTREE=CLEAN
+GIT_DIFF_CHECK=PASS
+QUARANTINE_STASH=NOT_MUTATED (no stash entry created, applied, popped or dropped)
+HISTORICAL_BUNDLE_HASHES=EXACT
+  V1=a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3
+  V2=172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04
+  V3=27517348570837df2abe9fc7f11e5cc24cefc32a198ffe3e0afefaee5df3c589
+  V4=18adf70d86f291b5585f71b746f81139ffa01e56e7c16dcbfc6b67bb794aaa0f
+  V5=105203eb4ea1d0e1b3200ee30b7130961af70283d8be9fc7b28ed65279003d10
+  V6=67b27f6effa5297757453aba3021a7211fe4ee88e194a6d65eefa353060f1008
+```
+
+All six bundles were re-hashed from the working tree and matched the declared
+values exactly. Preflight passed before any production mutation; no `reset`,
+`stash`, `clean`, `worktree`, `merge` or `push` operation was used.
+
+### 15.3 TDD red evidence
+
+Before any production change, `tests/events/test_phase11_22_remediation_v6_regressions.py`
+was written to reproduce all four findings and its red state was recorded:
+
+```text
+REMEDIATION_V6_TESTS_INITIAL_RED=90 failed, 37 passed (127 collected)
+
+  MAJOR-V6-001 numeric bounds                30 failed /  50
+  MAJOR-V6-002 filesystem path safety        25 failed /  38
+  MAJOR-V6-003 canonical header authority    21 failed /  28
+  MINOR-V6-001 timestamp semantics           17 failed /  18
+```
+
+Every failure was a genuine reproducer, not a helper artefact. The audited
+behaviours were independently re-observed against the unmodified start state
+before the fix, exactly as the re-audit reported them:
+
+```text
+count = 10 ** 5000, official in-memory repository -> PUBLISHED, repository count 1
+count = 10 ** 5000, official file repository      -> ValueError
+  "Exceeds the limit (4300 digits) for integer string conversion", repository count 0
+count=-1 / duration_ms=-5 / attempts=-1 / sequence=-1 / duration_ms=1e308 all ACCEPTED
+metadata attempt=-1 ACCEPTED
+
+request_id="file:///Users/alice/.ssh/id_rsa"  ACCEPTED, ".ssh" present in durable JSON
+request_id="Users/alice/.ssh/id_rsa"         ACCEPTED
+request_id="C:/Users/alice/.ssh/id_rsa"      ACCEPTED
+producer="Users/alice/.ssh/id_rsa"           ACCEPTED and persisted
+  (the three forms beginning with "/" or "\" were already refused by the
+   single-token shape rule; the audited class as a whole was not)
+
+header.event_id=header-event + payload.event_id=payload-event -> BOTH persisted
+header.correlation_id/causation_id/producer likewise BOTH persisted
+header.sensitivity=internal + payload.sensitivity=restricted -> BOTH persisted
+payload.event_type="some.other.event" + header event_type="message.received" -> BOTH persisted
+
+9999-99-99T99:99Z / 2026-02-31T12:00Z / 2026-09-27T25:61Z / 2026-09-27T12:00 all ACCEPTED
+```
+
+The red run also exposed that the audited huge integer cannot even be rendered as
+a pytest parameter id — `pytest` itself raises the interpreter's 4300-digit
+conversion error while collecting a `10 ** 5000` parameter — which is a second,
+independent demonstration that the interpreter limit was the only boundary in
+place.
+
+### 15.4 Findings and remediation
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V6-001` | the V5 semantic numeric class checked only "is a finite Python number". It enforced no upper bound and none of the non-negative semantics its key names imply, so `count = 10 ** 5000` was accepted by the in-memory repository and crashed the file-backed repository during serialization — the same public event diverged across the two official repositories — while `count=-1`, `duration_ms=-5`, `attempts=-1`, `sequence=-1` and `duration_ms=1e308` were all accepted | one explicit bound `MAX_PLATFORM_NUMERIC_FACT = 2**63 - 1` plus one small semantic table `NUMERIC_FACT_SEMANTICS` in the **existing** safety authority. `count`/`attempt`/`attempts`/`sequence` are real integers in `[0, bound]`; `duration_ms` is a finite integer/float in `[0, bound]`; `ratio` is the normalized `[0.0, 1.0]` ratio current producers publish; every other numeric fact is finite and inside `[-bound, bound]`. Numeric versions are bounded by the same constant. The bound is enforced before any repository interaction, so no repository discovers an invalid platform number and the two official repositories cannot diverge |
+| `MAJOR-V6-002` | the identifier character set kept `:`/`/`/`.` with no path-safety classification, so non-public local filesystem locations qualified as identifiers and were durably persisted, including in the canonical header `producer` fact — a direct violation of the frozen design's "filesystem secrets/paths where not public-safe" rule | one narrow, purely syntactic classifier in the **existing** identifier/header safety authority: a `file:` URI scheme, a Windows drive-root path, a UNC share, an absolute POSIX path or `~` shorthand, a user-home directory segment (`Users`/`home`/`Documents and Settings`), a known secret-bearing private directory segment (`.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.azure`, `.netrc`, `.pgpass`, `.npmrc`, `.git-credentials`) or a private key material file name. No I/O, no path resolution, no content inspection. The rule runs on every persisted identifier channel: `payload.data` identifiers, header identifier facts, `permissions` entries and identifier-classified metadata facts |
+| `MAJOR-V6-003` | payload keys equivalent to canonical header facts were validated independently and persisted alongside the header, so two contradictory versions of one event fact coexisted — including `header.sensitivity=internal` next to `payload.sensitivity=restricted`, a stricter classification hidden where the canonical authority would never see it | the payload keys that name a canonical header fact are declared once, as `CANONICAL_HEADER_PAYLOAD_KEYS` (the exact intersection of the bounded payload vocabulary with the canonical header fact names), and are consumed into the canonical header before persistence instead of being persisted twice. An unset header fact takes the payload value, an equal one is left alone, a contradictory one fails closed, and an explicit `None` optional reference is not a value. `sensitivity` is the one documented non-equal resolution: the header keeps the **stricter** class, so a stricter source value is promoted and a lower payload value can never downgrade it. Both the factory path (`create_event`/`publish`) and the manual `publish_event` path apply the same rule. The kernel adapter no longer mirrors the *source* event name into a payload `event_type` key |
+| `MINOR-V6-001` | the "canonical ISO-8601" class validated text shape rather than civil time, so impossible months, days, hours and minutes (`9999-99-99T99:99Z`, `2026-02-31T12:00Z`, `2026-09-27T25:61Z`) reached durable evidence, as did a timezone-less `2026-09-27T12:00` despite the timezone-aware chronology contract | the existing shape rule is retained and the value must additionally parse as a real calendar/time value and carry an explicit UTC offset. The existing `datetime` and canonical serialization approach is reused — no second timestamp subsystem — and nothing is silently reinterpreted or normalized; an invalid value fails closed |
+
+Numeric bound decision (explicit): one constant, the signed 64-bit
+machine-integer range, rather than a per-field set of invented maxima. It is
+nineteen decimal digits — far below every serializer and interpreter conversion
+limit and far above every legitimate count, attempt, sequence, millisecond
+duration or version this platform produces — so it is genuinely bounded without
+being arbitrary. The per-key semantics table was chosen over a single "non-negative
+number" rule because `ratio` is a normalized ratio in current usage while
+`duration_ms` is an unbounded-in-principle (but now bounded) duration, and over
+per-field maxima because a single machine-integer bound is easier to audit and
+cannot drift per key.
+
+Filesystem classifier decision (explicit): a bounded syntactic signature list, not
+a ban on `/` or `:`. The audited reproduction proves the classification was
+missing; the producer inventory proves legitimate references genuinely need those
+characters (`workflow:123`, `domain:legal`, `provider/model`, `cmm.orchestration`,
+`CORR-ORIGINAL`, `events:read`), and every one of them is asserted to still pass.
+Banning every slash or colon was rejected as over-correction; performing real path
+resolution or filesystem inspection was rejected because the frozen requirement is
+about *public-safety of the token*, not about the host's filesystem.
+
+Canonical header authority decision (explicit): the prompt's preferred design —
+one authoritative representation — was implemented, not the equality-only
+compatibility alternative. The consumed key set is the **intersection** with the
+bounded payload vocabulary, so a payload key outside that vocabulary is still
+rejected by the ordinary gate rather than becoming a new header channel and the
+closed vocabulary stays closed. A non-equal `sensitivity` is the single documented
+exception, because the frozen classification rule requires promotion of a stricter
+source class rather than rejection. The alternative of simply deleting every
+header-named payload key was rejected because it would silently discard a
+legitimate identity fact; adopting an unset header field preserves the fact while
+keeping one authority.
+
+Timestamp decision (explicit): timezone-aware timestamps are **required** for
+persisted platform lifecycle facts. No current producer publishes a legitimate
+timezone-less platform timestamp, so no compatibility exception was needed and
+none was added.
+
+### 15.5 Remediation commits
+
+```text
+b18ca7b fix(events): bound numeric lifecycle facts and reject private filesystem paths
+        (the V6 adversarial regression module, which reproduces all four findings
+         first — initial red 90 failed / 37 passed — and the minimum fix)
+89e7eba test(phase11): strengthen at-dp-122 for the v6 contract
+        (the connected V6 acceptance scenarios and the four superseded V5 controls)
+384454c docs(phase11): record phase11.22 remediation v6 pending reaudit
+```
+
+The four findings share one safety authority, one dispatch point and one
+reconciliation path, so the reproduction suite and the minimum fix are committed
+together rather than split into four artificially separated changes; the
+strengthened acceptance and the superseded-control alignment follow as their own
+test commit, and the documentation is recorded last. This is the prompt's
+"coherent split" allowance.
+
+No history was rewritten, no historical audit or remediation commit was squashed
+and no bundle was overwritten. The three commits above are the complete
+Remediation V6 delta from the committed prompt HEAD `8f1ed97`; the docs commit
+cannot cite its own SHA for the same self-reference reason as the earlier
+evidence records.
+
+### 15.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py   +431/-8  explicit numeric bound and semantic
+                                              table, syntactic private-filesystem
+                                              classifier, canonical header fact
+                                              vocabulary and reconciliation, and
+                                              real civil-time validation
+cmm/events/event_system.py            +69/-1  consumes canonical header facts on
+                                              both the factory path and the manual
+                                              publish_event path
+cmm/events/kernel_adapter.py           +0/-1  stops mirroring the source event name
+                                              into the payload `event_type` key
+```
+
+```text
+tests/events/test_phase11_22_remediation_v6_regressions.py  NEW  +1157/-0
+tests/events/test_phase11_22_dp122_acceptance.py                 +553/-2
+tests/events/test_phase11_22_kernel_adapter.py                    +13/-2
+tests/events/test_phase11_22_remediation_v5_regressions.py        +55/-4
+
+ROADMAP.md                                                         +3/-3
+docs/audits/phase-11.22-event-system-implementation-evidence.md  +376/-7
+docs/reference/phase-11-event-system.md                          +260/-21
+docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md  +16/-7
+docs/roadmap/phase-11-stable-integrated-platform.md                +42/-2
+```
+
+No second bus, registry, repository protocol, replayer, DLQ, event contract,
+safety-policy module, payload registry, numeric-policy registry, timestamp
+subsystem, identity/sensitivity authority, application container, service locator,
+broker abstraction or generic event-schema engine was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` still holds.
+
+### 15.7 New and strengthened adversarial regressions
+
+```text
+tests/events/test_phase11_22_remediation_v6_regressions.py   NEW, 127 tests
+  MAJOR-V6-001  huge integer rejected by the official in-memory repository and by
+                the official file-backed repository, repository-independent
+                outcome for the same public event, negative count/attempts/
+                sequence/duration in payload, structured reference and metadata,
+                oversized finite float, oversized integer in metadata and nested
+                metadata, count-like facts must be real integers, ratio outside
+                [0,1], durable file untouched, retry_after_ms outside the bounded
+                vocabulary, every numeric key has an explicit semantic bound
+  MAJOR-V6-001 controls  count 0/1/bound, attempts, sequence, duration 0/125/1000/
+                125.5, version 1/3, bounded metadata attempt/ratio/count
+  MAJOR-V6-002  all six audited private locations rejected in payload identifiers,
+                in a canonical header fact, in identifier-classified metadata, in
+                permissions and in a manual event; durable bytes never contain
+                ".ssh"
+  MAJOR-V6-002 controls  eleven legitimate public references, every canonical
+                header identifier channel
+  MAJOR-V6-003  conflicting event_id/correlation_id/causation_id/producer/
+                event_type/schema_version/occurred_at cannot persist, the exact
+                audited five-fact conflict cannot persist, durable file untouched,
+                no canonical header fact is persisted as a payload fact, an unset
+                header fact is adopted once, stricter payload sensitivity is
+                promoted, a lower payload sensitivity cannot downgrade the header,
+                an equal duplicate is not persisted twice, manual `publish_event`
+                conflict rejection and fold-in, durable reopen keeps one authority
+  MAJOR-V6-003 controls  the consumed key set is exactly the header-named payload
+                vocabulary, the real Domain bridge still maps source sensitivity to
+                the canonical header
+  MINOR-V6-001  invalid month/day/hour/minute/second rejected, timezone-ambiguous
+                and date-only timestamps rejected, durable file untouched
+  MINOR-V6-001 controls  UTC `Z`, `+02:00`, explicit `+00:00`, microseconds and a
+                real leap day accepted
+
+tests/events/test_phase11_22_dp122_acceptance.py    +53 connected scenarios (124 -> 177)
+  huge numeric fact rejected before persistence, huge numeric fact identical across
+  the two official repositories, negative/oversized numeric facts rejected with the
+  durable file unchanged, negative metadata attempt rejected, legitimate bounded
+  numeric and metadata facts persist, all six private locations rejected in payload
+  and in the canonical header, legitimate references still accepted, payload/header
+  conflict rejection for event_id/correlation_id/causation_id/producer/event_type/
+  schema_version, canonical header facts never persisted twice, sensitivity never
+  downgraded, real Domain bridge sensitivity still reaches the header, invalid civil
+  timestamps rejected, timezone ambiguity rejected, valid timezone-aware timestamps
+  accepted
+
+tests/events/test_phase11_22_remediation_v5_regressions.py   1 control updated
+tests/events/test_phase11_22_kernel_adapter.py               2 expectations updated
+tests/events/test_phase11_22_dp122_acceptance.py             1 V5 control entry moved
+  The V6 canonical-header authority rule supersedes four V5 *control* expectations
+  that asserted a payload copy of a canonical header fact.  Each superseded
+  expectation is preserved in stronger form: the same legitimate value is still
+  exercised, the assertion now names the canonical header it reaches, and the
+  conflicting case is proved to fail closed by the V6 adversarial suite.  The V5
+  module count is unchanged at 71 (one parametrized control case relocated into a
+  dedicated named control, so the module's gate count is preserved), and the fix
+  each V5 finding proves — semantic buffer classification, lifecycle-fact value
+  semantics, and fail-safe DLQ categorization — is untouched.
+```
+
+### 15.8 Gate evidence (Remediation V6)
+
+```text
+REMEDIATION_V6_TESTS=127 passed (initial red 90 failed / 37 passed)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=350 passed (V1-V5 preserved)
+REMEDIATION_V1_TO_V6_REGRESSIONS=477 passed
+PHASE_SUITE=tests/events/ 1271 passed
+AT_DP_122=177 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=tests/domains/test_domain_events_dp033_acceptance.py 92 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed
+  (AT-DP-102, AT-DP-103, AT-DP-105, Phase 11.21, Phase 11.34, AT-DP-150, AT-DP-033)
+CLOSED_PHASE_SUPPORT=1077 passed
+  (validation kernel events, orchestration suite, workflow subsystem)
+ARCHITECTURE_AND_SECURITY_GATES=294 passed (part of tests/events/)
+PHASE11_21_AND_11_34=106 passed
+FOCUSED_COMBINED=17413 passed, 1 warning, 0 failed
+  (tests/events + tests/orchestration + tests/domains + tests/agent_runtime +
+   closed-phase acceptances)
+GLOBAL_PYTEST=23340 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V6 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS (changed and created files `ruff format --check`-clean; the six
+  pre-existing changed files were format-clean at the audited HEAD, so no
+  unrelated formatting churn was introduced)
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+ARCHITECTURE_GATES=PASS
+SECURITY_GATES=PASS
+```
+
+The V5 production tree measured `1091` in `tests/events/` and `23160` globally. The
+V6 additions are `+127` new adversarial regressions in a new module, `+53`
+strengthened `AT-DP-122` connected scenarios and one relocated V5 control case
+(which keeps the V5 module at `71` collected tests and removes no test). Both
+deltas are therefore `+180` and they agree exactly: `tests/events/` moves
+`1091 → 1271` and the global suite moves `23160 → 23340`. No previously passing
+test was removed or weakened. `AT-DP-122` itself moves `124 → 177`. The
+`GLOBAL_PYTEST_PASS_COUNT>=23160` requirement is met at `23340`.
+`PRIOR_REMEDIATION_REGRESSIONS` is exactly `350`, byte-for-byte the figure the
+independent Re-audit V6 reported.
+
+The one retained global warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`.
+
+### 15.9 Mandatory invariant evidence
+
+```text
+NUMERIC_LIFECYCLE_FACTS_ARE_ACTUALLY_BOUNDED=PASS
+NUMERIC_FACTS_REJECT_BEFORE_REPOSITORY_INTERACTION=PASS
+IN_MEMORY_AND_FILE_REPOSITORY_PARITY=PASS
+BOUND_MEANS_ACTUALLY_BOUNDED=PASS
+OFFICIAL_REPOSITORY_PARITY=PASS
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE=PASS
+ONE_CANONICAL_HEADER_FACT_AUTHORITY=PASS
+NO_CONFLICTING_HEADER_EQUIVALENT_PAYLOAD_FACTS=PASS
+NO_HEADER_PAYLOAD_SENSITIVITY_CONFLICT=PASS
+TIMESTAMP_SEMANTIC_VALIDITY=PASS
+INVALID_CALENDAR_VALUES_REJECTED=PASS
+
+BINARY_BUFFER_VALUES_FAIL_CLOSED=PASS (preserved)
+RAW_USER_TEXT_CANNOT_BE_RELOCATED=PASS (preserved)
+METADATA_IS_NOT_A_PROSE_SIDE_CHANNEL=PASS (preserved)
+DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING=PASS (preserved)
+RAW_EXCEPTION_MESSAGES_NEVER_ENTER_DLQ=PASS (preserved)
+UNSAFE_EXCEPTION_CLASS_NAMES_NEVER_ENTER_DLQ=PASS (preserved)
+
+CONTENT_BOUND_FINGERPRINT=PASS
+SAME_ID_DIFFERENT_CONTENT_FAIL_CLOSED=PASS
+TAMPER_DETECTION=PASS
+UNSUPPORTED_SCHEMA_REJECTED_BEFORE_APPEND=PASS
+SUPPORTED_SCHEMA_REOPEN_ROUNDTRIP=PASS
+SAFE_NESTED_MAPPING_PUBLICATION=PASS
+SAFE_NESTED_SEQUENCE_PUBLICATION=PASS
+FILE_LIVE_AND_REOPENED_FACTS_MATCH=PASS
+PUBLICATION_RESULT_ALIAS_ISOLATION=PASS
+SUBSCRIBER_MUTATION_ISOLATION=PASS
+REPOSITORY_SNAPSHOT_ISOLATION=PASS
+MANUAL_SENSITIVITY_CANONICALIZATION=PASS
+IN_MEMORY_AND_FILE_REPOSITORY_PARITY=PASS
+
+REPLAY_DOES_NOT_REPERSIST=PASS
+REPLAY_DEFAULT_DENY=PASS
+TARGETED_DLQ_REPLAY=PASS
+UNRELATED_SUBSCRIBER_CANNOT_RESOLVE_DLQ=PASS
+DLQ_RETAINED_UNTIL_TARGET_SUCCESS=PASS
+DETACHED_DLQ_INSPECTION_SNAPSHOTS=PASS
+DIRECT_BUS_NEUTRAL_FALLBACK=PASS
+COMPOSED_RUNTIME_ERROR_CATEGORY_REMAINS_USEFUL=PASS
+
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+NO_SECOND_EVENT_AUTHORITY=PASS
+```
+
+### 15.10 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5 and V6
+reports, and the immutable V1, V2, V3, V4, V5 and V6 bundles are byte-identical to
+their audited state. All six bundles remain untracked, as repository policy does
+not track audit bundles. The quarantine stash state was preserved; no stash was
+created, inspected destructively, applied, popped or dropped, and no bundle was
+overwritten.
+
+### 15.11 Next step
+
+Fresh independent ChatGPT re-audit of the **V7** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v7.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V6_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
+begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
+`DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
