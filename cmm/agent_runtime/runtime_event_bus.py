@@ -51,40 +51,41 @@ DEFAULT_MAX_DELIVERY_ATTEMPTS = 1
 #: carrying any attacker-controlled text.
 NEUTRAL_DELIVERY_ERROR_TYPE = "SubscriberDeliveryError"
 
-#: A safe DLQ error category is a plain Python-style class name and nothing else.
+#: A bounded DLQ error category is a plain Python-style class name and nothing else.
 #: The name is attacker-influenced: Python permits ``type("api_key=...", ...)``, so
 #: assignments, whitespace, punctuation, dotted paths and free prose — every shape a
 #: leaked credential or private marker arrives in — are refused outright.
 _SAFE_ERROR_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+#: The type of the one injectable credential/private-marker policy the composed
+#: Phase 11.22 event system supplies.  It returns a bounded safe category for an
+#: exception, or ``None`` when the name must be neutralized.
+ErrorCategorizer = Callable[[BaseException], "str | None"]
 
 
 class _UnsafeDeadLetterErrorType(ValueError):
     """Raised when an unsafe error category would be recorded in the DLQ."""
 
 
-def _is_safe_error_type_name(name: object) -> bool:
-    """Return whether *name* is a bounded, content-safe DLQ error category.
+def _is_bounded_error_name(name: object) -> bool:
+    """Return whether *name* is a bounded Python-style class name.
 
-    This is the single safety predicate behind :func:`safe_delivery_error_type`, so
-    classification and the defensive check at the DLQ write are provably the same
-    rule rather than two drifting copies.
+    This is the transport-local half of the one canonical safe-category rule: the
+    bus is architecturally forbidden from importing ``cmm.domains``, so the
+    credential/private-marker half is supplied by
+    :mod:`cmm.events.event_payload_safety` and injected through
+    :meth:`AgentRuntimeEventBus.bind_error_categorizer`.  This predicate is reused
+    by the defensive check at the single DLQ write point.
     """
 
-    if not isinstance(name, str):
-        return False
-    if not _SAFE_ERROR_TYPE_PATTERN.match(name):
-        return False
-    # Imported lazily so this transport module keeps its place in the canonical
-    # dependency direction and no import cycle is introduced.
-    from cmm.domains.credential_policy import contains_high_confidence_credential
-    from cmm.domains.event_contracts import _contains_private_marker
-
-    if contains_high_confidence_credential(name):
-        return False
-    return not _contains_private_marker(name)
+    return isinstance(name, str) and bool(_SAFE_ERROR_TYPE_PATTERN.match(name))
 
 
-def safe_delivery_error_type(exception: BaseException) -> str:
+def safe_delivery_error_type(
+    exception: BaseException,
+    *,
+    categorizer: ErrorCategorizer | None = None,
+) -> str:
     """Return one bounded, content-safe DLQ error category for *exception*.
 
     The canonical DLQ must never retain attacker-controlled text.  The raw
@@ -92,24 +93,25 @@ def safe_delivery_error_type(exception: BaseException) -> str:
     ``type(exc).__name__`` is itself attacker-influenced: Python lets a caller create
     ``type("api_key=abcdef1234567890", (Exception,), {})`` and raise it.
 
-    This is the one derivation of a DLQ error category.  It reuses the existing
-    Phase 10.33 credential detector and forbidden private-marker vocabulary — the
-    same scanners the canonical event-safety gate composes — rather than inventing
-    a second policy:
+    The one canonical rule composes two halves:
 
-    * an exception class name that is a narrow bounded safe identifier **and** passes
-      the existing credential/private-marker scanning is retained, so an ordinary
-      ``RuntimeError`` stays meaningfully categorized; and
-    * every other name falls back to the neutral bounded category
-      :data:`NEUTRAL_DELIVERY_ERROR_TYPE`.
+    * the transport-local bounded-name check (:func:`_is_bounded_error_name`); and
+    * the composed Phase 11.22 credential/private-marker scanners, injected as
+      *categorizer* by :mod:`cmm.events.event_payload_safety`, which is where the
+      existing Phase 10.33 vocabulary already lives.
 
-    The original unsafe class name is never stored, truncated or partially echoed.
+    An exception class name that satisfies both is retained, so an ordinary
+    ``RuntimeError`` stays meaningfully categorized.  Every other name falls back to
+    the neutral bounded category :data:`NEUTRAL_DELIVERY_ERROR_TYPE`.  The original
+    unsafe class name is never stored, truncated or partially echoed.
     """
 
     name = type(exception).__name__
-    if _is_safe_error_type_name(name):
-        return name
-    return NEUTRAL_DELIVERY_ERROR_TYPE
+    if not _is_bounded_error_name(name):
+        return NEUTRAL_DELIVERY_ERROR_TYPE
+    if categorizer is not None and categorizer(exception) != name:
+        return NEUTRAL_DELIVERY_ERROR_TYPE
+    return name
 
 
 @dataclass
@@ -155,6 +157,7 @@ class AgentRuntimeEventBus:
         #: Phase 11.22 DLQ collaboration, bound by the composed event system.
         #: ``None`` preserves the historical bus-only behaviour exactly.
         self._dead_letter_queue: Any = None
+        self._error_categorizer: ErrorCategorizer | None = None
 
     @property
     def registry(self) -> AgentRuntimeEventRegistry:
@@ -196,6 +199,32 @@ class AgentRuntimeEventBus:
 
         with self._lock:
             self._dead_letter_queue = dead_letter_queue
+
+    def bind_error_categorizer(self, categorizer: ErrorCategorizer | None) -> None:
+        """Bind the credential/private-marker half of the safe-category rule.
+
+        The rule has exactly one owner: :mod:`cmm.events.event_payload_safety`,
+        which composes the existing Phase 10.33 credential detector and forbidden
+        private-marker vocabulary.  This transport module is architecturally
+        forbidden from importing ``cmm.domains``, so the composed Phase 11.22 event
+        system injects that scanner here instead of the bus reaching for it.  No
+        second policy is created: the bus still applies its own bounded-name half.
+
+        Passing ``None`` restores the transport-local bounded-name behaviour for
+        direct legacy bus use.
+        """
+
+        if categorizer is not None and not callable(categorizer):
+            raise TypeError("categorizer must be callable or None")
+        with self._lock:
+            self._error_categorizer = categorizer
+
+    def _safe_error_category(self, exception: BaseException) -> str:
+        """Return the one bounded safe DLQ category for *exception*."""
+
+        with self._lock:
+            categorizer = self._error_categorizer
+        return safe_delivery_error_type(exception, categorizer=categorizer)
 
     def publish(self, event: AgentRuntimeEvent) -> None:
         """Publish an event synchronously to all matching subscribers."""
@@ -464,7 +493,7 @@ class AgentRuntimeEventBus:
                 # what the repository has already recorded.
                 record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
-                last_error_type = safe_delivery_error_type(exc)
+                last_error_type = self._safe_error_category(exc)
                 last_error = str(exc)
                 continue
 
@@ -554,7 +583,7 @@ class AgentRuntimeEventBus:
             try:
                 record.handler(detached_event_copy(event))
             except Exception as exc:  # noqa: BLE001
-                last_error_type = safe_delivery_error_type(exc)
+                last_error_type = self._safe_error_category(exc)
                 continue
 
             return AgentRuntimeEventDelivery(
@@ -592,7 +621,7 @@ class AgentRuntimeEventBus:
         bypasses :func:`safe_delivery_error_type`.
         """
 
-        if not _is_safe_error_type_name(error_type):
+        if not _is_bounded_error_name(error_type):
             raise _UnsafeDeadLetterErrorType(
                 "dead-letter error category failed the bounded safe-category rule"
             )

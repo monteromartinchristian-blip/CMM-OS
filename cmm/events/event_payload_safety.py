@@ -45,6 +45,7 @@ __all__ = [
     "PlatformEventPayloadError",
     "canonicalize_platform_event_sensitivity",
     "canonicalize_platform_payload",
+    "category_for_delivery_error",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
     "is_forbidden_source_content_key",
@@ -545,6 +546,35 @@ def _header_identifier_facts(header: Any) -> tuple[tuple[str, object], ...]:
         ("causation_id", header.causation_id),
         ("actor_id", header.actor_id),
     )
+
+
+def category_for_delivery_error(exception: BaseException) -> str | None:
+    """Return the bounded safe DLQ category for *exception*, or ``None``.
+
+    This is the credential/private-marker half of the one canonical DLQ
+    safe-error-category rule, and it lives here because this is the module that
+    already composes the Phase 10.33 high-confidence credential detector and the
+    forbidden private-marker vocabulary.  ``cmm.agent_runtime`` is architecturally
+    forbidden from importing ``cmm.domains``, so the composed Phase 11.22 event
+    system injects this function into the canonical bus through
+    :meth:`~cmm.agent_runtime.runtime_event_bus.AgentRuntimeEventBus.bind_error_categorizer`
+    rather than the bus reaching for the vocabulary itself.
+
+    The exception class name is attacker-influenced — Python permits
+    ``type("api_key=abcdef1234567890", (Exception,), {})`` — so a name that carries a
+    credential or a private marker returns ``None`` and the bus records its neutral
+    bounded fallback instead.  The rule is a *content* scan only; the bus keeps
+    ownership of the bounded-name half.
+    """
+
+    name = type(exception).__name__
+    if not isinstance(name, str):
+        return None
+    if contains_high_confidence_credential(name):
+        return None
+    if _contains_private_marker(name):
+        return None
+    return name
 
 
 def canonicalize_platform_event_sensitivity(value: object) -> Any:

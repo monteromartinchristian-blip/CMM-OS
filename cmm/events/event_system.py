@@ -62,6 +62,7 @@ from cmm.events.event_payload_safety import (
     PlatformEventPayloadError,
     canonicalize_platform_event_sensitivity,
     canonicalize_platform_payload,
+    category_for_delivery_error,
     validate_platform_event_facts,
     validate_platform_payload,
     validate_platform_permissions,
@@ -186,6 +187,13 @@ class EventSystem:
         # the one existing DLQ authority rather than a Phase 11.22 side channel.
         if hasattr(bus, "bind_dead_letter_queue"):
             bus.bind_dead_letter_queue(self._dead_letters)
+        # The safe DLQ error category has one owner — this package's composed
+        # credential/private-marker vocabulary — and the transport is architecturally
+        # forbidden from importing it.  Binding it here means the *existing* canonical
+        # bus is the one that sanitizes, with no second DLQ subsystem and no second
+        # safety policy.
+        if hasattr(bus, "bind_error_categorizer"):
+            bus.bind_error_categorizer(category_for_delivery_error)
 
     # ── Canonical collaborator access ────────────────────────────────────────
 
