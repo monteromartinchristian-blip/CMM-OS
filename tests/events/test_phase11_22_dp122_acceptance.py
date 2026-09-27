@@ -1404,3 +1404,344 @@ def test_at_dp_122_nested_forbidden_domain_content_still_fails_closed(
                 )
             )
         assert system.repository.count() == before, unsafe
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V3 — AT-DP-122 additions for the two V3 majors and one V3 minor
+#
+# The real composed event system is used throughout: the file-backed canonical
+# repository, the canonical registry/bus/DLQ and the real production
+# ``PlatformOrchestrationEventSink``.  No component is replaced by a mock.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class _AtDp122SecretObject:
+    """Opaque metadata object whose string form is a credential."""
+
+    def __str__(self) -> str:
+        return "api_key=abcdef1234567890"
+
+    def __repr__(self) -> str:
+        return "<AtDp122SecretObject>"
+
+
+#: Persisted metadata facts that are not JSON-safe descriptive values.
+AT_DP_122_UNSAFE_METADATA_FACTS = (
+    ("opaque_object", object()),
+    ("bytes", b"abc"),
+    ("bytearray", bytearray(b"abc")),
+    ("nan", float("nan")),
+    ("positive_infinity", float("inf")),
+    ("secret_object", _AtDp122SecretObject()),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "value"),
+    AT_DP_122_UNSAFE_METADATA_FACTS,
+    ids=[case[0] for case in AT_DP_122_UNSAFE_METADATA_FACTS],
+)
+def test_at_dp_122_unsafe_metadata_value_fails_before_persistence(
+    connected, label, value
+) -> None:
+    """MAJOR-V3-001: no persisted metadata channel accepts an unsafe value type."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+    before_bytes = store.read_bytes() if store.exists() else b""
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v3-metadata", "channel": "conversation"},
+            event_id=f"evt-v3-metadata-{label}".replace("_", "-"),
+            metadata={"value": value},
+        )
+
+    assert system.repository.count() == before, label
+    assert received == [], label
+    assert system.dead_letter_count() == 0, label
+    assert (store.read_bytes() if store.exists() else b"") == before_bytes, label
+
+
+def test_at_dp_122_secret_object_credential_never_reaches_the_durable_store(
+    connected,
+) -> None:
+    """MAJOR-V3-001: the mandatory SecretObject credential-stringification case."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+    before_bytes = store.read_bytes() if store.exists() else b""
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v3-opaque", "channel": "conversation"},
+            event_id="evt-v3-opaque",
+            metadata={"inner": _AtDp122SecretObject()},
+        )
+
+    durable = store.read_bytes() if store.exists() else b""
+    assert b"api_key=abcdef1234567890" not in durable
+    assert durable == before_bytes
+    assert system.repository.count() == before
+    assert received == []
+
+
+#: Sensitivities that are not the one canonical runtime classification.
+AT_DP_122_INVALID_SENSITIVITY = (
+    ("integer", 123),
+    ("none", None),
+    ("credential_string", "api_key=abcdef1234567890"),
+    ("private_marker", "system_prompt=TOP SECRET"),
+    ("unknown_label", "definitely-not-a-sensitivity"),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "value"),
+    AT_DP_122_INVALID_SENSITIVITY,
+    ids=[case[0] for case in AT_DP_122_INVALID_SENSITIVITY],
+)
+def test_at_dp_122_invalid_sensitivity_fails_before_persistence(
+    connected, label, value
+) -> None:
+    """MAJOR-V3-001: the persisted classification is a runtime-enforced enum."""
+
+    system = connected["system"]
+    received: list[AgentRuntimeEvent] = []
+    system.subscribe(received.append, ["message.received"])
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v3-sensitivity", "channel": "conversation"},
+            event_id=f"evt-v3-sensitivity-{label}".replace("_", "-"),
+            sensitivity=value,
+        )
+
+    assert system.repository.count() == before, label
+    assert received == [], label
+
+
+def test_at_dp_122_supported_sensitivity_string_is_canonically_normalized(
+    connected,
+) -> None:
+    """MAJOR-V3-001: the one supported string form becomes the canonical enum."""
+
+    system = connected["system"]
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v3-sensitivity-ok", "channel": "conversation"},
+        event_id="evt-v3-sensitivity-ok",
+        sensitivity="restricted",
+    )
+
+    assert result.event.header.sensitivity is EventSensitivity.RESTRICTED
+    stored = system.repository.get("evt-v3-sensitivity-ok")
+    assert stored is not None
+    assert stored.header.sensitivity is EventSensitivity.RESTRICTED
+
+
+def test_at_dp_122_permissions_string_is_rejected_not_coerced(connected) -> None:
+    """MAJOR-V3-001: a plain string must not become a character list."""
+
+    system = connected["system"]
+    before = system.repository.count()
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v3-permissions", "channel": "conversation"},
+            event_id="evt-v3-permissions",
+            permissions="admin",
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v3-permissions") is None
+
+
+def test_at_dp_122_nested_result_reference_publishes_and_round_trips(
+    connected,
+) -> None:
+    """MAJOR-V3-002: a safe nested mapping publishes and reopens unchanged."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v3-result-reference",
+            "channel": "conversation",
+            "result_reference": {"reference_id": "ref-1"},
+            "approval_refs": [{"approval_id": "app-1"}],
+        },
+        event_id="evt-v3-result-reference",
+    )
+
+    assert result.persisted is True
+    live = result.event
+    reopened = FileAgentRuntimeEventRepository(store).get("evt-v3-result-reference")
+
+    assert reopened is not None
+    assert live == reopened
+    assert event_fingerprint(live) == event_fingerprint(reopened)
+    assert type(live.payload.data["result_reference"]) is dict
+    assert type(live.payload.data["approval_refs"]) is list
+    assert type(live.payload.data["approval_refs"][0]) is dict
+
+
+def test_at_dp_122_supporting_domains_shape_is_stable_across_reopen(
+    connected,
+) -> None:
+    """MAJOR-V3-002: one canonical sequence shape live, persisted and reopened."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v3-sequence",
+            "channel": "conversation",
+            "supporting_domains": ["domain:legal", "domain:health"],
+        },
+        event_id="evt-v3-sequence",
+    )
+
+    reopened = FileAgentRuntimeEventRepository(store).get("evt-v3-sequence")
+
+    assert reopened is not None
+    assert type(result.event.payload.data["supporting_domains"]) is list
+    assert type(reopened.payload.data["supporting_domains"]) is list
+    assert result.event.payload.data == reopened.payload.data
+    assert result.event == reopened
+
+
+def test_at_dp_122_real_orchestration_sink_round_trip_is_equal(connected) -> None:
+    """MAJOR-V3-002: the real production sink satisfies the round-trip invariant."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    sink = PlatformOrchestrationEventSink(system)
+
+    event_id = sink.emit(
+        "orchestration.domain_resolved",
+        request_id="req-v3-orchestration",
+        payload={
+            "primary_domain": "domain:legal",
+            "supporting_domains": ["domain:legal", "domain:health"],
+            "status": "resolved",
+        },
+    )
+
+    assert event_id is not None
+    live = system.repository.get(event_id)
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+
+    assert live is not None
+    assert reopened is not None
+    assert type(live.payload.data["supporting_domains"]) is list
+    assert type(reopened.payload.data["supporting_domains"]) is list
+    assert live.payload.data["supporting_domains"] == [
+        "domain:legal",
+        "domain:health",
+    ]
+    assert live == reopened
+    assert event_fingerprint(live) == event_fingerprint(reopened)
+
+
+def test_at_dp_122_nested_caller_alias_cannot_mutate_the_publication_result(
+    connected,
+) -> None:
+    """MAJOR-V3-002: a nested caller alias must not survive into the result."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    system = connected["system"]
+    caller_list = ["domain:a"]
+    caller_nested = {"reference_id": "ref-1"}
+
+    manual = AgentRuntimeEvent(
+        header=AgentRuntimeEventHeader(
+            event_id="evt-v3-alias",
+            event_type="message.received",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        ),
+        payload=AgentRuntimeEventPayload(
+            data={
+                "request_id": "req-v3-alias",
+                "supporting_domains": caller_list,
+                "result_reference": caller_nested,
+            }
+        ),
+    )
+
+    result = system.publish_event(manual)
+
+    caller_list.append("domain:b")
+    caller_nested["reference_id"] = "mutated"
+
+    stored = system.repository.get("evt-v3-alias")
+    assert result.event.payload.data["supporting_domains"] == ["domain:a"]
+    assert result.event.payload.data["result_reference"] == {"reference_id": "ref-1"}
+    assert stored is not None
+    assert stored.payload.data["supporting_domains"] == ["domain:a"]
+    assert event_fingerprint(stored) == event_fingerprint(result.event)
+
+
+def test_at_dp_122_dead_letter_inspection_snapshots_are_detached(connected) -> None:
+    """MINOR-V3-001: DLQ get/list snapshots cannot mutate retained evidence."""
+
+    system = connected["system"]
+
+    def failing(event: AgentRuntimeEvent) -> None:
+        raise RuntimeError("subscriber failed")
+
+    system.subscribe(failing, ["message.received"], priority=5)
+
+    system.publish(
+        "message.received",
+        {
+            "request_id": "req-v3-dlq",
+            "channel": "conversation",
+            "supporting_domains": ["domain:a"],
+        },
+        event_id="evt-v3-dlq",
+        metadata={"origin": "original"},
+    )
+
+    assert system.dead_letter_count() == 1
+    subscription_id = system.list_dead_letters()[0].subscription_id
+    attempts_before = system.list_dead_letters()[0].attempts
+
+    tampered = system.list_dead_letters()[0]
+    tampered.event.payload.data["supporting_domains"].append("domain:tampered")
+    tampered.event.header.metadata["injected"] = "yes"
+    tampered.metadata["injected"] = "yes"
+
+    for entry in (
+        system.list_dead_letters()[0],
+        system.dead_letters.get(0),
+        system.dead_letters.list()[0],
+    ):
+        assert entry.event.payload.data["supporting_domains"] == ["domain:a"]
+        assert entry.event.header.metadata == {"origin": "original"}
+        assert "injected" not in entry.metadata
+        assert entry.subscription_id == subscription_id
+        assert entry.attempts == attempts_before
+
+    assert system.dead_letter_count() == 1
