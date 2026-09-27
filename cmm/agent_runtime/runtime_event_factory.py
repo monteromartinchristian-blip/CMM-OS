@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import secrets
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -59,6 +60,40 @@ def _normalize_timestamp(value: datetime | None) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _canonical_event_value(value: Any) -> Any:
+    """Return the canonical JSON-compatible form of one nested event value.
+
+    The nested facts of a canonical event (``payload.data``, ``header.metadata``)
+    are JSON structures, and the Phase 11.22 boundary already rejects every value
+    that is not an approved descriptive scalar, mapping or sequence *before*
+    persistence.  This function is therefore a pure shape normalization, not a
+    safety mechanism: it converts mappings to plain ``dict``, any non-``str``/bytes
+    sequence to a plain ``list``, and canonicalizes a ``datetime`` through the
+    same ISO-8601 spelling the durable record uses.
+
+    It exists so that the canonical serialization — and therefore the content
+    fingerprint — never depends on ``json.dumps(default=str)`` to stringify a
+    value.  Relying on ``default=str`` is exactly what let an opaque runtime object
+    stringify a credential into durable evidence, and a value that only survives
+    serialization because of ``default=str`` does not round-trip.
+    """
+
+    if isinstance(value, Mapping):
+        return {key: _canonical_event_value(item) for key, item in value.items()}
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        # Unreachable through the Phase 11.22 gate, which rejects binary values
+        # before an event exists.  Kept explicit so the canonicalizer can never
+        # silently coerce a binary value if it is ever reached another way.
+        raise TypeError("binary values have no canonical event representation")
+    if isinstance(value, Sequence):
+        return [_canonical_event_value(item) for item in value]
+    return value
+
+
 def canonical_event_dict(event: AgentRuntimeEvent) -> dict[str, Any]:
     """Return the one canonical serialization of *event*.
 
@@ -66,6 +101,11 @@ def canonical_event_dict(event: AgentRuntimeEvent) -> dict[str, Any]:
     identity.  The fingerprint is computed from exactly this mapping, so there is
     no second, manually maintained list of "identity-relevant" fields that could
     drift away from what is actually persisted.
+
+    Every nested value is normalized to a JSON-compatible shape, so the emitted
+    mapping is exactly what durable JSON reopens as: a mapping reopens as a
+    ``dict`` and a sequence reopens as a ``list``.  There is consequently one
+    stable canonical shape for live, persisted and replayed events.
     """
 
     header = event.header
@@ -88,21 +128,26 @@ def canonical_event_dict(event: AgentRuntimeEvent) -> dict[str, Any]:
             "source": header.source,
             "sensitivity": header.sensitivity.value,
             "permissions": list(header.permissions),
-            "metadata": dict(header.metadata),
+            "metadata": _canonical_event_value(header.metadata),
             "producer": header.producer,
             "aggregate_id": header.aggregate_id,
         },
         "payload": {
-            "data": dict(event.payload.data),
+            "data": _canonical_event_value(event.payload.data),
             "raw": event.payload.raw,
         },
     }
 
 
 def _canonical_serialization(event: AgentRuntimeEvent) -> str:
-    """Return the deterministic canonical serialization used for the fingerprint."""
+    """Return the deterministic canonical serialization used for the fingerprint.
 
-    return json.dumps(canonical_event_dict(event), sort_keys=True, default=str)
+    The canonical mapping is already JSON-compatible, so this deliberately does
+    **not** pass ``default=str``: a value that is not canonically serializable must
+    fail closed rather than be stringified into content identity.
+    """
+
+    return json.dumps(canonical_event_dict(event), sort_keys=True, allow_nan=False)
 
 
 def event_fingerprint(event: AgentRuntimeEvent) -> str:
@@ -330,8 +375,14 @@ class AgentRuntimeEventFactory:
         return canonical_event_dict(event)
 
     def to_json(self, event: AgentRuntimeEvent) -> str:
-        """Serialize event to JSON string."""
-        return json.dumps(self.to_dict(event), default=str)
+        """Serialize event to its canonical JSON string.
+
+        The canonical mapping is already JSON-compatible, so no ``default=str``
+        fallback is used: a value that is not canonically serializable must fail
+        closed rather than be stringified into persisted evidence.
+        """
+
+        return json.dumps(self.to_dict(event), allow_nan=False)
 
 
 class AgentRuntimeEventNormalizer:
@@ -341,7 +392,15 @@ class AgentRuntimeEventNormalizer:
         self.factory = factory
 
     def normalize(self, event: AgentRuntimeEvent) -> AgentRuntimeEvent:
-        """Normalize timestamps and complete correlation."""
+        """Normalize timestamps, correlation and canonical nested container shape.
+
+        The returned event shares **no** nested container with the caller.  A
+        shallow ``dict(...)`` copy would leave the nested ``payload.data``,
+        ``header.metadata`` and their children aliased to the caller's own objects,
+        so a caller could mutate the canonical event it just published through an
+        alias it still holds.  Normalization therefore deep-detaches every nested
+        fact into the one canonical JSON-compatible shape.
+        """
         header = event.header
 
         occurred_at = _normalize_timestamp(header.occurred_at)
@@ -372,7 +431,7 @@ class AgentRuntimeEventNormalizer:
             source=header.source,
             sensitivity=header.sensitivity,
             permissions=list(header.permissions),
-            metadata=dict(header.metadata),
+            metadata=_canonical_event_value(header.metadata),
             producer=header.producer,
             aggregate_id=header.aggregate_id,
         )
@@ -380,7 +439,7 @@ class AgentRuntimeEventNormalizer:
         return AgentRuntimeEvent(
             header=normalized_header,
             payload=AgentRuntimeEventPayload(
-                data=dict(event.payload.data),
+                data=_canonical_event_value(event.payload.data),
                 raw=event.payload.raw,
             ),
         )

@@ -317,6 +317,37 @@ class AgentRuntimeEventDeadLetter:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def detached_dead_letter_copy(
+    entry: AgentRuntimeEventDeadLetter,
+) -> AgentRuntimeEventDeadLetter:
+    """Return a deep, detached copy of a dead-letter record.
+
+    The dead-letter dataclass is frozen at the top level, but it contains an event
+    with mutable nested containers plus its own mutable ``metadata``.  A queue that
+    returned the stored object would let one caller mutate the retained
+    dead-letter evidence and change what every later inspection observes.
+
+    Every retrieval and inspection path passes the record through this function, so
+    a returned entry shares no mutable container with the queue's retained
+    evidence.  The copy is canonically equal to the original.
+    """
+
+    if not isinstance(entry, AgentRuntimeEventDeadLetter):
+        raise TypeError("entry must be an AgentRuntimeEventDeadLetter")
+
+    return AgentRuntimeEventDeadLetter(
+        event=detached_event_copy(entry.event),
+        subscription_id=entry.subscription_id,
+        handler_name=entry.handler_name,
+        error=entry.error,
+        error_type=entry.error_type,
+        attempts=entry.attempts,
+        first_failed_at=entry.first_failed_at,
+        last_failed_at=entry.last_failed_at,
+        metadata=_detach(entry.metadata),
+    )
+
+
 @dataclass(frozen=True)
 class AgentRuntimeEventReplayRequest:
     """Request for event replay."""
