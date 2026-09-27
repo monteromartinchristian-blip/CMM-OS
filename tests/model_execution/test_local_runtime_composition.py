@@ -285,3 +285,26 @@ def test_a_router_that_advertises_no_model_fails_closed(
             provider_registry=registry, client=_ScriptedDiscoveryClient(())
         )
     assert registry.list() == ()
+
+
+def test_the_router_endpoint_override_moves_the_port_but_never_leaves_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cmm.model_execution.composition import (
+        CHAT_ONLY_ROUTER_BASE_URL_ENV,
+        chat_only_router_provider_spec,
+    )
+
+    monkeypatch.setenv(CHAT_ONLY_ROUTER_BASE_URL_ENV, "http://127.0.0.1:8791/v1")
+    assert (
+        chat_only_router_provider_spec().base_url == "http://127.0.0.1:8791/v1"
+    )
+    # An explicit argument still wins over the launcher environment.
+    assert (
+        chat_only_router_provider_spec(base_url="http://localhost:8790/v1").base_url
+        == "http://localhost:8790/v1"
+    )
+
+    monkeypatch.setenv(CHAT_ONLY_ROUTER_BASE_URL_ENV, "http://192.168.1.10:8790/v1")
+    with pytest.raises(ValueError):
+        chat_only_router_provider_spec()

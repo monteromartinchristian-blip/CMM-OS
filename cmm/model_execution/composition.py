@@ -54,6 +54,7 @@ from kernel.llm.provider_registry import ProviderRegistry, ProviderSpec
 
 __all__ = [
     "CHAT_ONLY_ROUTER_BASE_URL",
+    "CHAT_ONLY_ROUTER_BASE_URL_ENV",
     "CHAT_ONLY_ROUTER_BEARER_ENV",
     "CHAT_ONLY_ROUTER_CONTEXT_WINDOW",
     "CHAT_ONLY_ROUTER_MODEL_ENV",
@@ -89,6 +90,12 @@ CHAT_ONLY_ROUTER_BASE_URL = "http://127.0.0.1:8790/v1"
 #: model identity this canary executes.
 CHAT_ONLY_ROUTER_BEARER_ENV = "CMM_ROUTER_TOKEN"
 CHAT_ONLY_ROUTER_MODEL_ENV = "CMM_ROUTER_MODEL"
+
+#: Launcher override of the router endpoint for local E2E stacks.  It goes
+#: through the same loopback gate as the pinned default, so the override can
+#: move the port a test router listens on but can never move the lane off this
+#: machine.
+CHAT_ONLY_ROUTER_BASE_URL_ENV = "CMM_ROUTER_BASE_URL"
 
 #: The declared context floor of a router model.  The router's ``/v1/models``
 #: advertises identities only, and the canonical router refuses a model without
@@ -142,14 +149,15 @@ def _require_loopback_endpoint(base_url: str) -> str:
 def chat_only_router_provider_spec(*, base_url: str | None = None) -> ProviderSpec:
     """Return the canonical provider definition of the CMMChat Router."""
 
+    configured = (
+        base_url if base_url is not None else os.getenv(CHAT_ONLY_ROUTER_BASE_URL_ENV)
+    )
     return ProviderSpec(
         id=CHAT_ONLY_ROUTER_PROVIDER_ID,
         provider_type="local",
         api_style="chat_completions",
         api_key_env=CHAT_ONLY_ROUTER_BEARER_ENV,
-        base_url=_require_loopback_endpoint(
-            CHAT_ONLY_ROUTER_BASE_URL if base_url is None else base_url
-        ),
+        base_url=_require_loopback_endpoint(configured or CHAT_ONLY_ROUTER_BASE_URL),
         capabilities=ProviderCapabilities(chat_completions=True, streaming=True),
     )
 
