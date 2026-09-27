@@ -75,7 +75,9 @@ def _is_bounded_error_name(name: object) -> bool:
     credential/private-marker half is supplied by
     :mod:`cmm.events.event_payload_safety` and injected through
     :meth:`AgentRuntimeEventBus.bind_error_categorizer`.  This predicate is reused
-    by the defensive check at the single DLQ write point.
+    by the defensive check at the single DLQ write point.  It proves shape only; the
+    content half is what authorizes retaining a name, so an unbound categorizer
+    means the transport records the neutral bounded category instead.
     """
 
     return isinstance(name, str) and bool(_SAFE_ERROR_TYPE_PATTERN.match(name))
@@ -100,16 +102,30 @@ def safe_delivery_error_type(
       *categorizer* by :mod:`cmm.events.event_payload_safety`, which is where the
       existing Phase 10.33 vocabulary already lives.
 
-    An exception class name that satisfies both is retained, so an ordinary
-    ``RuntimeError`` stays meaningfully categorized.  Every other name falls back to
-    the neutral bounded category :data:`NEUTRAL_DELIVERY_ERROR_TYPE`.  The original
-    unsafe class name is never stored, truncated or partially echoed.
+    An exception class name that satisfies **both** halves is retained, so an
+    ordinary ``RuntimeError`` stays meaningfully categorized.  Every other name —
+    and every name at all when no categorizer is bound — falls back to the neutral
+    bounded category :data:`NEUTRAL_DELIVERY_ERROR_TYPE`.
+
+    The no-categorizer rule is deliberately fail-safe rather than permissive.
+    ``type(exc).__name__`` is attacker-influenced, and the transport-local half can
+    only prove that a name has the *shape* of a class name, never that it is free of
+    a credential or a private marker.  Retaining a name without the content half
+    bound would make the canonical transport's secret safety depend on a caller
+    remembering an optional second binding, so an unbound categorizer neutralizes
+    every name.  The original unsafe class name is never stored, truncated or
+    partially echoed.
     """
+
+    if categorizer is None:
+        # Fail safe: the content half that would prove this name carries no
+        # credential or private marker is not bound, so no name is trusted.
+        return NEUTRAL_DELIVERY_ERROR_TYPE
 
     name = type(exception).__name__
     if not _is_bounded_error_name(name):
         return NEUTRAL_DELIVERY_ERROR_TYPE
-    if categorizer is not None and categorizer(exception) != name:
+    if categorizer(exception) != name:
         return NEUTRAL_DELIVERY_ERROR_TYPE
     return name
 
@@ -210,8 +226,9 @@ class AgentRuntimeEventBus:
         system injects that scanner here instead of the bus reaching for it.  No
         second policy is created: the bus still applies its own bounded-name half.
 
-        Passing ``None`` restores the transport-local bounded-name behaviour for
-        direct legacy bus use.
+        Passing ``None`` restores the fail-safe default: with the content half
+        unbound, the transport records the neutral bounded category for every
+        exception rather than trusting an attacker-influenced class name.
         """
 
         if categorizer is not None and not callable(categorizer):
