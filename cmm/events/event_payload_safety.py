@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
@@ -42,6 +43,8 @@ __all__ = [
     "PLATFORM_CONTAINER_HEADER_FIELDS",
     "PLATFORM_IDENTIFIER_HEADER_FIELDS",
     "PlatformEventPayloadError",
+    "canonicalize_platform_event_sensitivity",
+    "canonicalize_platform_payload",
     "freeze_platform_payload",
     "is_forbidden_platform_payload_key",
     "is_forbidden_source_content_key",
@@ -51,6 +54,7 @@ __all__ = [
     "validate_platform_event_facts",
     "validate_platform_identifier",
     "validate_platform_payload",
+    "validate_platform_permissions",
 ]
 
 #: The bounded platform payload vocabulary: references, categorical states and
@@ -294,6 +298,48 @@ def _is_sequence(value: object) -> bool:
     )
 
 
+def _reject_non_descriptive_value(value: object, key: str) -> None:
+    """Fail closed on a value that is not a bounded descriptive JSON-safe value.
+
+    This is the **structural** half of the one canonical safe-event policy, and it
+    is deliberately shared by every persisted container — ``payload.data``,
+    ``metadata`` and ``permissions`` — so "safe to persist" means exactly one thing
+    everywhere.  A runtime object, a binary value or a non-finite number is refused
+    here rather than being stringified later by a serializer.
+
+    ``None``, booleans, integers, finite floats and strings are the approved
+    descriptive scalar types.  Mappings and sequences are handled by the caller,
+    which recurses into them.
+
+    A ``datetime`` is deliberately **not** an approved scalar: the durable JSON
+    record stores a timestamp as an ISO-8601 string, so a live ``datetime`` fact
+    would reopen as a ``str`` and the live and persisted shapes of the same fact
+    would differ.  Rejecting it here keeps one canonical shape rather than letting
+    the type drift silently across a durable restart.
+    """
+
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raise PlatformEventPayloadError("binary value must not be persisted", key=key)
+    if isinstance(value, int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise PlatformEventPayloadError("numeric value must be finite", key=key)
+        return
+    if isinstance(value, str):
+        return
+    if isinstance(value, datetime):
+        raise PlatformEventPayloadError(
+            "timestamp values must be persisted as their canonical string form",
+            key=key,
+        )
+    raise PlatformEventPayloadError(
+        "value must be a descriptive JSON-safe value", key=key
+    )
+
+
 def _scan(value: object, key: str) -> None:
     """Fail closed on credential or private-marker content anywhere in *value*."""
 
@@ -317,18 +363,7 @@ def _scan(value: object, key: str) -> None:
             _scan(item, key)
         return
 
-    if value is None or isinstance(value, bool):
-        return
-    if isinstance(value, int):
-        return
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise PlatformEventPayloadError("numeric value must be finite", key=key)
-        return
-
-    raise PlatformEventPayloadError(
-        "value must be a descriptive immutable value", key=key
-    )
+    _reject_non_descriptive_value(value, key)
 
 
 def validate_platform_payload(payload: Mapping[str, object]) -> None:
@@ -442,10 +477,10 @@ def _scan_forbidden_content(
             )
         return
 
-    # Other value types carry no scannable string content here.  A key that is
-    # actually persisted is still fully type-checked by
-    # :func:`validate_platform_payload`; this scan never loosens that gate.
-    return
+    # Structural type half of the same one policy.  These facts are persisted
+    # verbatim, so an opaque runtime object, a binary value or a non-finite number
+    # fails closed here instead of being stringified into durable evidence later.
+    _reject_non_descriptive_value(value, key)
 
 
 def validate_platform_identifier(value: object, *, field: str) -> str:
@@ -503,13 +538,80 @@ def _header_identifier_facts(header: Any) -> tuple[tuple[str, object], ...]:
     )
 
 
+def canonicalize_platform_event_sensitivity(value: object) -> Any:
+    """Return the one canonical runtime representation of a sensitivity fact.
+
+    The persisted sensitivity fact is an :class:`EventSensitivity` member.  Two
+    inputs are accepted and nothing else:
+
+    * an already-canonical :class:`EventSensitivity` member, returned unchanged; and
+    * exactly one explicit supported-string normalization — a string that is one of
+      the canonical enum's own values, immediately converted to that member.
+
+    Every other input fails closed *before* the event is constructed or persisted:
+    a number, ``None``, an arbitrary object, an unknown label and — critically — a
+    credential-bearing or private-marker string.  Without this gate an arbitrary
+    string could enter a persisted canonical header field the documentation
+    describes as a closed classification.
+
+    The canonical enum is imported lazily so this safety module keeps its place at
+    the bottom of the dependency direction and no import cycle is introduced.
+    """
+
+    from cmm.agent_runtime.runtime_event_contracts import EventSensitivity
+
+    if isinstance(value, EventSensitivity):
+        return value
+
+    if isinstance(value, str):
+        # The credential/private-marker rule is applied to the *string* form, so a
+        # secret cannot ride into persistence merely by spelling a valid label.
+        if contains_high_confidence_credential(value):
+            raise PlatformEventPayloadError("credential-like value", key="sensitivity")
+        if _contains_private_marker(value):
+            raise PlatformEventPayloadError(
+                "forbidden private marker", key="sensitivity"
+            )
+        try:
+            return EventSensitivity(value)
+        except ValueError as exc:
+            raise PlatformEventPayloadError(
+                "sensitivity is outside the canonical classification", key="sensitivity"
+            ) from exc
+
+    raise PlatformEventPayloadError(
+        "sensitivity must be a canonical EventSensitivity value", key="sensitivity"
+    )
+
+
+def validate_platform_permissions(permissions: object) -> None:
+    """Validate the structural shape of a persisted permissions fact.
+
+    This must run **before** any factory coercion.  A plain string is a
+    ``Sequence`` of characters, so ``list(permissions)`` would silently turn
+    ``"admin"`` into ``["a", "d", "m", "i", "n"]`` and persist a permission set the
+    caller never expressed.  Only a real sequence of canonical permission
+    identifiers is accepted, and binary containers are refused outright.
+    """
+
+    if isinstance(permissions, (str, bytes, bytearray, memoryview)) or not _is_sequence(
+        permissions
+    ):
+        raise PlatformEventPayloadError(
+            "event permissions must be a sequence of identifiers", key="permissions"
+        )
+    for index, entry in enumerate(permissions):
+        validate_platform_identifier(entry, field=f"permissions[{index}]")
+
+
 def validate_platform_event_facts(event: Any) -> None:
     """Apply the one canonical Phase 11.22 safety gate to every persisted fact.
 
     ``payload.data`` and every persisted free-form header channel are judged by
     the same policy, so forbidden material can no longer be moved out of the
     payload and into ``metadata``, ``permissions``, ``producer``, ``aggregate_id``
-    or ``source`` to bypass the boundary.
+    or ``source`` to bypass the boundary — and no persisted header channel is left
+    with an unchecked runtime type that a serializer could later stringify.
     """
 
     header = getattr(event, "header", None)
@@ -521,20 +623,26 @@ def validate_platform_event_facts(event: Any) -> None:
             continue
         validate_platform_identifier(value, field=field)
 
+    # The persisted classification is a closed vocabulary, enforced as the
+    # canonical runtime enum rather than trusted as whatever the caller passed.
+    canonicalize_platform_event_sensitivity(getattr(header, "sensitivity", None))
+
     metadata = getattr(header, "metadata", None)
     if not isinstance(metadata, Mapping):
         raise PlatformEventPayloadError(
             "event metadata must be a mapping", key="metadata"
         )
+    for metadata_key in metadata:
+        if not isinstance(metadata_key, str):
+            raise PlatformEventPayloadError(
+                "event metadata keys must be strings", key="metadata"
+            )
     scan_for_forbidden_event_facts(metadata, key="metadata")
 
     permissions = getattr(header, "permissions", None)
-    if permissions is None or not _is_sequence(permissions):
-        raise PlatformEventPayloadError(
-            "event permissions must be a sequence", key="permissions"
-        )
-    for index, entry in enumerate(permissions):
-        validate_platform_identifier(entry, field=f"permissions[{index}]")
+    # The structural shape is checked *before* any factory coercion, so a plain
+    # string can never be iterated into a character list.
+    validate_platform_permissions(permissions)
 
 
 def _freeze(value: object) -> object:
@@ -559,6 +667,46 @@ def freeze_platform_payload(payload: Mapping[str, object]) -> Mapping[str, objec
 
     validate_platform_payload(payload)
     return MappingProxyType({key: _freeze(value) for key, value in payload.items()})
+
+
+def canonicalize_platform_payload(payload: Mapping[str, object]) -> dict[str, Any]:
+    """Validate *payload* and return one canonical JSON-compatible plain copy.
+
+    This is the canonical payload normalization for the Phase 11.22 public
+    boundary.  It applies the one safety gate, then produces the single stable
+    representation the durable record necessarily reopens as:
+
+    * mapping → plain ``dict``;
+    * supported sequence → plain ``list``;
+    * scalar → an approved finite descriptive scalar.
+
+    The result therefore (a) shares no nested container with the caller, so a
+    caller cannot mutate a published canonical event through an alias it still
+    holds, and (b) has the same shape live, persisted, reopened and replayed —
+    a tuple would otherwise reopen from JSON as a ``list``.
+
+    The normalized result is re-validated, so the canonical output is proven to be
+    inside the policy rather than assumed to be.
+    """
+
+    validate_platform_payload(payload)
+    normalized = _canonicalize_payload_value(payload)
+    validate_platform_payload(normalized)
+    return normalized
+
+
+def _canonicalize_payload_value(value: object) -> Any:
+    """Return the canonical JSON-compatible ``dict``/``list``/scalar form of *value*."""
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _canonicalize_payload_value(item) for key, item in value.items()
+        }
+    if isinstance(value, str):
+        return value
+    if _is_sequence(value):
+        return [_canonicalize_payload_value(item) for item in value]
+    return value
 
 
 def thaw_platform_payload(payload: Mapping[str, object]) -> dict[str, Any]:

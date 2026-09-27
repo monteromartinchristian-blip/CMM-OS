@@ -60,9 +60,11 @@ from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
 from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
 from cmm.events.event_payload_safety import (
     PlatformEventPayloadError,
-    freeze_platform_payload,
+    canonicalize_platform_event_sensitivity,
+    canonicalize_platform_payload,
     validate_platform_event_facts,
     validate_platform_payload,
+    validate_platform_permissions,
 )
 
 __all__ = [
@@ -228,18 +230,30 @@ class EventSystem:
         free-form header fact is judged by the same safety gate, so an unsafe fact
         can never become an event in the first place — whichever persisted channel
         the caller tries to hide it in.
+
+        The payload is normalized to the one canonical JSON-compatible shape first,
+        so the canonical factory never receives a frozen view and no nested caller
+        container is aliased into the created event.
         """
 
-        safe_payload = dict(payload) if payload is not None else {}
+        safe_payload = canonicalize_platform_payload(
+            payload if payload is not None else {}
+        )
         self._registry.ensure_registered(event_type)
-        validate_platform_payload(safe_payload)
 
         optional = dict(facts)
         event_id = optional.pop("event_id", None)
         schema_version = optional.pop("schema_version", "1.0.0")
         occurred_at = optional.pop("occurred_at", None)
         emitted_at = optional.pop("emitted_at", None)
-        sensitivity = optional.pop("sensitivity", EventSensitivity.INTERNAL)
+        sensitivity = canonicalize_platform_event_sensitivity(
+            optional.pop("sensitivity", EventSensitivity.INTERNAL)
+        )
+        permissions = optional.pop("permissions", None)
+        if permissions is not None:
+            # Validate the structural container before the factory coerces it, so
+            # a plain string can never be iterated into a character list.
+            validate_platform_permissions(permissions)
 
         event = self._factory.create_event(
             event_type,
@@ -259,7 +273,7 @@ class EventSystem:
             actor_id=optional.pop("actor_id", None),
             source=optional.pop("source", "platform"),
             sensitivity=sensitivity,
-            permissions=optional.pop("permissions", None),
+            permissions=permissions,
             metadata=optional.pop("metadata", None),
             producer=optional.pop("producer", None),
             aggregate_id=optional.pop("aggregate_id", None),
@@ -314,15 +328,13 @@ class EventSystem:
     ) -> PublicationResult:
         """Create one platform event and publish it through the canonical path.
 
-        The payload is restricted to the bounded platform vocabulary *before*
-        creation, so an unsafe payload is rejected before anything is persisted.
+        The payload is normalized to the one canonical JSON-compatible shape and
+        restricted to the bounded platform vocabulary *before* creation, so an
+        unsafe payload is rejected before anything is persisted and a safe nested
+        mapping or sequence publishes without shape drift.
         """
 
-        self._registry.ensure_registered(event_type)
-        safe_payload = freeze_platform_payload(payload if payload is not None else {})
-        return self.publish_event(
-            self.create_event(event_type, dict(safe_payload), **facts)
-        )
+        return self.publish_event(self.create_event(event_type, payload, **facts))
 
     def subscribe(
         self,
