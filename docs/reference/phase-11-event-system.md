@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -318,20 +318,32 @@ immutable** at every boundary that hands an event to another party:
 * the canonical bus hands **each subscriber** (normal delivery and replay) its own
   detached snapshot, so one subscriber cannot change what a later subscriber
   observes;
-* the dead-letter record holds a detached snapshot of the canonical facts;
+* the dead-letter record holds a detached snapshot of the canonical facts, and
+  every dead-letter retrieval/inspection path (`get()`, `list()`, `remove()`,
+  `EventSystem.list_dead_letters()`) returns its own detached snapshot, so a
+  caller cannot change the queue's retained evidence;
+* normalization deep-detaches every nested container, so a caller cannot mutate a
+  published canonical event through an alias it still holds;
 * the publication result therefore keeps the same facts it reported.
 
 The detached snapshot is canonically equal to the original: it serializes to the
-same canonical dictionary and therefore to the same content fingerprint, and it
-preserves the expected JSON-compatible container shapes (a mapping stays a
-mapping, a sequence stays a sequence). No second event contract is introduced; the
-helper lives on the one canonical contract module.
+same canonical dictionary and therefore to the same content fingerprint, and the
+canonical payload and metadata shapes are settled **before** the canonical event is
+constructed — a mapping becomes a plain `dict`, a supported sequence becomes a plain
+`list`, and a scalar is an approved finite descriptive scalar. One semantic fact
+therefore has exactly one shape live, persisted, reopened and replayed: a tuple
+would otherwise reopen from durable JSON as a `list`. No second event contract is
+introduced; the helper lives on the one canonical contract module.
 
 Resulting invariants:
 
 ```text
 LIVE_EVENT_FACTS_STABLE_AFTER_DELIVERY
 FILE_LIVE_AND_REOPENED_FACTS_MATCH
+SAFE_NESTED_MAPPING_PUBLICATION
+SAFE_NESTED_SEQUENCE_PUBLICATION
+PUBLICATION_RESULT_ALIAS_ISOLATION
+FINGERPRINT_STABLE_AFTER_PUBLICATION
 ```
 
 ## 9. Duplicate and conflict semantics
@@ -455,6 +467,22 @@ payloads, credentials, API keys, passwords, tokens, bearer-shaped values,
 authorization headers, cookies, raw tracebacks, opaque runtime objects, arbitrary
 binary payloads, non-finite floats and any unrecognised payload key.
 
+The structural half of that policy applies to **every persisted container**, not
+only `payload.data`. `metadata` is recursively judged by the same descriptive
+JSON-safe rule — an opaque runtime object, a `bytes`/`bytearray` value or a
+non-finite float fails closed before anything is persisted, so an object whose
+`__str__()` returns a credential can never be stringified into durable evidence by
+a serializer. The canonical serialization deliberately does **not** use
+`json.dumps(default=str)`, so a value that is not canonically serializable fails
+closed instead of being stringified.
+
+`sensitivity` is a real runtime-enforced classification: the persisted fact is an
+`EventSensitivity` member, and the single supported string spelling of a canonical
+member is normalized to that enum before the event is constructed. A number,
+`None`, an arbitrary object, an unknown label or a credential-bearing/private-marker
+string fails closed. `permissions` is validated as a structural sequence **before**
+any factory coercion, so a plain string can never be iterated into a character list.
+
 Invariants:
 
 ```text
@@ -465,7 +493,11 @@ PROMPTS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
 HIDDEN_REASONING_NEVER_ENTERS_ANY_PERSISTED_EVENT_FIELD
 CREDENTIALS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
 RAW_PROVIDER_PAYLOADS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
-OPAQUE_VALUES_NEVER_ENTER_PERSISTED_PAYLOAD
+OPAQUE_VALUES_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+BINARY_VALUES_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+NONFINITE_NUMBERS_NEVER_ENTER_ANY_PERSISTED_EVENT_FIELD
+CANONICAL_SENSITIVITY_TYPE_ENFORCED
+INVALID_PERMISSION_CONTAINER_FAILS_CLOSED
 SOURCE_SENSITIVITY_IS_NOT_DOWNGRADED
 CORRUPT_PERSISTED_EVENTS_FAIL_CLOSED
 SAME_ID_DIFFERENT_CONTENT_FAILS_CLOSED
@@ -692,13 +724,38 @@ global pytest                   22694 passed, 1 warning, 0 failed
 global Ruff                          810
 ```
 
+### 19.4 Remediation V3 measurements (current)
+
+```text
+tests/events/                       956 passed
+AT-DP-122                            83 passed
+Remediation V3 regressions           44 passed
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+event inventory                    1270 passed
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+closed-phase acceptances            218 passed
+closed-phase support                112 passed
+global pytest                   23025 passed, 1 warning, 0 failed
+global Ruff                          810 (V3 baseline 810, no new debt)
+```
+
+The V3 production tree measured `893` in `tests/events/` and `22962` globally.
+Both V3 deltas are therefore accounted for exactly: the new V3 regression module
+adds `44` and the strengthened `AT-DP-122` adds `19`, so the global suite moves
+`22962 → 23025` (`+63`) and `tests/events/` moves `893 → 956` (`+63`), while
+`AT-DP-122` itself moves `64 → 83`.
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
 `22558 passed, 1 warning`. Post-remediation V1: `22694 passed, 1 warning, 0 failed`.
-Post-remediation V2: `22962 passed, 1 warning, 0 failed` (+268 over the V1
-remediation figure, +893 over the frozen baseline). The single retained warning is
-the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
+Post-remediation V2: `22962 passed, 1 warning, 0 failed`. Post-remediation V3:
+`23025 passed, 1 warning, 0 failed` (+63 over the V2 remediation figure: 44 new V3
+adversarial regressions and 19 strengthened `AT-DP-122` connected scenarios). The
+single retained warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -752,10 +809,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V3** bundle
-(`phase-11.22-event-system-audit-v3.tar.gz`, produced with `git archive` from the
-final Remediation V2 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V4** bundle
+(`phase-11.22-event-system-audit-v4.tar.gz`, produced with `git archive` from the
+final Remediation V3 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 Phase 11.23 has not begun.
 
@@ -864,3 +921,55 @@ The immutable Audit V1 report, the immutable Re-audit V2 report, and the immutab
 V1 and V2 bundles are preserved byte-identical. The exact Remediation V2 HEAD, tree
 and V3 bundle SHA-256 are reported in the remediation handoff rather than embedded
 here, for the same self-reference reason as the earlier evidence records.
+
+## 26. Remediation V3 record
+
+Independent Re-audit V3
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v3.md`, immutable)
+returned:
+
+```text
+INDEPENDENT_REAUDIT_V3=FAIL
+BLOCKERS=0
+MAJORS=2
+MINORS=1
+AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED
+REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V3_ONLY
+```
+
+Remediation V3 fixed exactly those three findings under strict TDD — a red
+adversarial regression first, then the minimum fix, then the nearest regressions —
+inside the existing safety authority and canonical contracts, with no new bus,
+registry, repository protocol, replayer, DLQ or event contract:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V3-001` | persisted `metadata` was scanned for forbidden *text* but never type-checked, so opaque runtime objects, `bytes`/`bytearray` and `NaN`/`inf` were accepted; an opaque object's `__str__()` could stringify a credential into durable JSONL. `sensitivity` was not runtime-validated and a plain-string `permissions` value was coerced into a character list | the one forbidden-content scanner now also applies the shared structural rule (`_reject_non_descriptive_value`) to every persisted container, so opaque/binary/non-finite values fail closed before append; `canonicalize_platform_event_sensitivity()` enforces the canonical enum with exactly one supported-string normalization and rejects credential-bearing/private-marker labels; `validate_platform_permissions()` validates the container shape before factory coercion; canonical serialization no longer uses `json.dumps(default=str)` |
+| `MAJOR-V3-002` | `publish()` handed nested `MappingProxyType` views to the factory, so supported nested mappings crashed with `TypeError: cannot pickle 'mappingproxy' object`; frozen sequences reopened from JSON as lists, so live and persisted shapes differed; shallow normalization left nested caller aliases reachable through `PublicationResult.event` | `canonicalize_platform_payload()` normalizes mappings to plain `dict` and supported sequences to plain `list` at the public boundary and re-validates the result; the canonical serialization emits that same shape, so live, persisted, reopened and replayed facts are equal with a stable fingerprint; `AgentRuntimeEventNormalizer.normalize()` deep-detaches nested containers |
+| `MINOR-V3-001` | `InMemoryAgentRuntimeDeadLetterQueue.get()`/`list()` and `EventSystem.list_dead_letters()` returned live nested aliases, so a caller could mutate retained dead-letter evidence | the queue stores a detached snapshot and `get()`, `list()`, `remove()` and replay all pass the record through a new `detached_dead_letter_copy()` built on the existing `detached_event_copy()` plus the canonical deep-detach helper; targeted replay is unchanged and still removes the entry only after the targeted subscriber succeeds |
+
+Canonical structured-payload shape decision: mapping → plain `dict`,
+sequence/array → plain `list`, scalar → an approved finite JSON-compatible scalar
+(`None`, `bool`, `int`, finite `float`, `str`). A `datetime` is deliberately **not**
+an approved persisted scalar: durable JSON stores a timestamp as an ISO-8601
+string, so accepting one would reopen it as a `str` and reintroduce exactly the
+live/reopen shape drift this remediation removes.
+
+Sensitivity/permissions validation decision: `sensitivity` has one canonical runtime
+representation, `EventSensitivity`; the single explicitly supported input besides a
+canonical member is a string spelling one of the enum's own values, normalized
+immediately to that member, and every other input (including credential-bearing and
+private-marker strings, which are checked before the label lookup) fails closed.
+`permissions` must be a real sequence of canonical permission identifiers; a
+`str`, `bytes`, `bytearray` or `memoryview` fails closed before any factory
+iteration can coerce it.
+
+The immutable Audit V1 report, the immutable Re-audit V2 report, the immutable
+Re-audit V3 report and the immutable V1, V2 and V3 bundles are preserved
+byte-identical. The exact Remediation V3 HEAD, tree and V4 bundle SHA-256 are
+reported in the remediation handoff rather than embedded here, for the same
+self-reference reason as the earlier evidence records.

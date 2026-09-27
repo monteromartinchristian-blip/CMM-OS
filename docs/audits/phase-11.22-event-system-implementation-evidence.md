@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -10,8 +10,10 @@
 **Implementation plan:** `docs/superpowers/plans/2026-09-26-phase-11.22-event-system-implementation-plan.md`
 **Independent Audit V1:** `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable historical evidence)
 **Independent Re-audit V2:** `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable historical evidence)
+**Independent Re-audit V3:** `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable historical evidence)
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
+**Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
 
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
@@ -21,19 +23,24 @@ REMEDIATION_V1=REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V2=FAIL
 AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED
 REMEDIATION_V2=REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V3=FAIL
+REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED
+REMEDIATION_V3=REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
 (`BLOCKERS=0`, `MAJORS=4`, `MINORS=5`), was **remediated**, **passed the nine
 Audit V1 findings on independent Re-audit V2** (`9/9_VERIFIED`) while **failing
-that re-audit with four new majors** (`BLOCKERS=0`, `MAJORS=4`, `MINORS=0`), and
-has now been **remediated again**. It is not closed, independently verified or
-complete. `DP-122=VERIFIED_EXISTING` and `AT-DP-122=PASS` belong only to the
-independent audit of the V3 bundle.
+that re-audit with four new majors** (`BLOCKERS=0`, `MAJORS=4`, `MINORS=0`), was
+**remediated again**, and **failed independent Re-audit V3** (`BLOCKERS=0`,
+`MAJORS=2`, `MINORS=1`) with those four V2 reproductions verified fixed
+(`4/4_VERIFIED`). It has now been **remediated for the third time**. It is not
+closed, independently verified or complete. `DP-122=VERIFIED_EXISTING` and
+`AT-DP-122=PASS` belong only to the independent audit of the V4 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
-V1 and §11 records Remediation V2; the earlier sections are preserved as
-historical record.
+V1, §11 records Remediation V2 and §12 records Remediation V3; the earlier sections
+are preserved as historical record.
 
 ## 1. Exact repository state
 
@@ -523,6 +530,193 @@ untracked, as repository policy does not track audit bundles.
 Fresh independent ChatGPT re-audit of the **V3** exact-HEAD bundle
 (`phase-11.22-event-system-audit-v3.tar.gz`). The phase remains
 `REMEDIATED_AFTER_REAUDIT_V2_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete. Only that re-audit may write
+`BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`,
+`CLOSURE_ELIGIBLE=YES`.
+
+## 12. Remediation V3
+
+### 12.1 Verdict being remediated
+
+Independent Re-audit V3
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v3.md`) verified all
+prior fixes and returned three new findings:
+
+```text
+INDEPENDENT_REAUDIT_V3=FAIL
+AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED
+REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED
+BLOCKERS=0
+MAJORS=2
+MINORS=1
+MAJOR_V3_001=FULL_PERSISTED_EVENT_SAFETY_AND_HEADER_TYPE_VALIDATION_INCOMPLETE
+MAJOR_V3_002=STRUCTURED_PAYLOAD_CANONICALIZATION_AND_ROUNDTRIP_UNSTABLE
+MINOR_V3_001=DLQ_SNAPSHOT_MUTABLE
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V3_ONLY
+```
+
+No architecture finding was raised: the one canonical bus, registry, repository
+contract, replay owner and dead-letter authority were preserved.
+
+### 12.2 Preflight verification at remediation start
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+REMEDIATION_V3_START_HEAD=5fc8556a627271c36c4ab302561c76dce44229ca
+REAUDIT_V3_COMMIT=822c40fbf13f60202f443cbf7e5f93baee53f55a
+START_HEAD_PARENT=822c40fbf13f60202f443cbf7e5f93baee53f55a
+TRACKED_DELTA_FROM_REAUDIT=docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md
+CODE_DELTA_FROM_REAUDIT=none
+TRACKED_WORKTREE=CLEAN
+V1_BUNDLE_SHA256=a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3
+V2_BUNDLE_SHA256=172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04
+V3_BUNDLE_SHA256=27517348570837df2abe9fc7f11e5cc24cefc32a198ffe3e0afefaee5df3c589
+```
+
+All three bundle hashes still equal the independently audited values; the V1, V2
+and V3 independent reports were not modified.
+
+### 12.3 TDD red evidence
+
+The new adversarial regression module was written before any production edit and
+run against the unmodified V3 production bytes:
+
+```text
+tests/events/test_phase11_22_remediation_v3_regressions.py
+  initial: 34 failed, 10 passed
+```
+
+The ten initial passes are the module's own controls plus one fact the V3 code
+already protected (an opaque value in `payload.data`). Per finding:
+
+```text
+MAJOR-V3-001  opaque/bytes/bytearray/NaN/inf metadata          9 failed
+              SecretObject credential leak (file-backed)       2 failed
+              non-canonical sensitivity                        6 failed
+              supported-string sensitivity normalization       1 failed
+              plain-string permissions coercion                1 failed
+              manual publish_event metadata/sensitivity        2 failed
+MAJOR-V3-002  nested result_reference / approval_refs           3 failed
+              live vs reopened sequence shape                   3 failed
+              nested caller-alias isolation                     2 failed
+MINOR-V3-001  DLQ get/list/remove/EventSystem snapshots         5 failed
+```
+
+Each finding was fixed by the minimum change to the existing safety authority and
+canonical contracts and re-verified green before the next finding.
+
+### 12.4 Remediation commits
+
+```text
+<tests commit>  test(phase11): reproduce phase11.22 reaudit v3 findings
+<fix commit>    fix(events): close phase11.22 persisted event safety gaps
+<fix commit>    fix(events): canonicalize structured payloads and detach dlq snapshots
+<docs commit>   docs(phase11): record phase11.22 remediation v3 pending reaudit
+```
+
+The Audit V1, Re-audit V2, Remediation V1, Remediation V2 and Re-audit V3 history is
+preserved; no history was rewritten.
+
+### 12.5 Findings disposition
+
+```text
+MAJOR_V3_001=REMEDIATED_REPORTED
+MAJOR_V3_002=REMEDIATED_REPORTED
+MINOR_V3_001=REMEDIATED_REPORTED
+AUDIT_V1_FINDINGS_REMEDIATED=9/9_PRESERVED
+REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_PRESERVED
+```
+
+The defect-by-defect detail is recorded in
+`docs/reference/phase-11-event-system.md` §26.
+
+### 12.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py             MAJOR-V3-001 structural value type gate,
+                                               canonical sensitivity, permissions shape;
+                                               MAJOR-V3-002 `canonicalize_platform_payload`
+cmm/events/event_system.py                     MAJOR-V3-001 sensitivity/permissions gates at
+                                               `create_event`; MAJOR-V3-002 canonicalization
+cmm/agent_runtime/runtime_event_factory.py     MAJOR-V3-002 canonical nested serialization
+                                               without `default=str`, deep-detaching normalize
+cmm/agent_runtime/runtime_event_contracts.py   MINOR-V3-001 `detached_dead_letter_copy`
+cmm/agent_runtime/runtime_event_dead_letter.py MINOR-V3-001 detached queue snapshots
+```
+
+No `cmm/domains/`, `kernel/`, Phase 11.2 orchestration, Phase 7 validation, workflow
+or Phase 11.1 platform file was modified, and no second bus, registry, repository
+protocol, replayer, DLQ, container or event contract was created.
+
+### 12.7 New and strengthened adversarial regressions
+
+```text
+tests/events/test_phase11_22_remediation_v3_regressions.py (new, 44 tests)
+  MAJOR-V3-001 9 unsafe metadata value types (incl. nested), SecretObject credential
+               non-leak on the file-backed path, 6 non-canonical sensitivities,
+               supported-string normalization, canonical-enum controls,
+               plain-string and bytes permissions, manual `publish_event` gates,
+               finite/nested metadata controls
+  MAJOR-V3-002 nested result_reference and approval_refs publication, JSON-compatible
+               container shape, live/reopened sequence and event equality,
+               real PlatformOrchestrationEventSink round-trip, nested caller-alias
+               isolation through both public routes, nested forbidden/opaque controls
+  MINOR-V3-001 dead-letter get/list/remove/EventSystem snapshot detachment, retained
+               subscription identity, attempt and status, targeted-replay preservation
+
+tests/events/test_phase11_22_dp122_acceptance.py  +19 connected V3 scenarios
+```
+
+### 12.8 Gate evidence (Remediation V3)
+
+```text
+REMEDIATION_V3_TESTS=44 passed (initial red 34 failed / 10 passed)
+PHASE_SUITE=tests/events/ 956 passed
+AT_DP_122=83 passed
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAINS_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_REGRESSIONS=186 passed (DP-033 acceptance + Domain Event modules)
+CLOSED_PHASE_ACCEPTANCES=218 passed
+  (AT-DP-102, AT-DP-103, AT-DP-105, Phase 11.21, Phase 11.34, AT-DP-150)
+CLOSED_PHASE_SUPPORT=112 passed
+  (validation kernel events, orchestration events, workflow subsystem, DP-101)
+SECURITY_AND_ARCHITECTURE=294 passed (part of tests/events/)
+GLOBAL_PYTEST=23025 passed, 1 warning, 0 failed (V3 baseline 22962, +63)
+CHANGED_FILE_RUFF=PASS (0 violations)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V3 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS (ruff format --check, changed-file delta)
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+ARCHITECTURE_GATES=PASS
+SECURITY_GATES=PASS
+```
+
+The V3 production tree measured `893` in `tests/events/` and `22962` globally; the
+V3 additions are exactly `+44` new regressions and `+19` strengthened acceptance
+scenarios.
+
+The one retained global warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`, unchanged from the V3 baseline.
+
+### 12.9 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2 report, the immutable
+Re-audit V3 report and the immutable V1, V2 and V3 bundles are byte-identical to
+their audited state. All three bundles remain untracked, as repository policy does
+not track audit bundles.
+
+### 12.10 Next step
+
+Fresh independent ChatGPT re-audit of the **V4** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v4.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V3_PENDING_INDEPENDENT_REAUDIT`: not closed, not
 independently verified, not complete. Only that re-audit may write
 `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`,
 `CLOSURE_ELIGIBLE=YES`.
