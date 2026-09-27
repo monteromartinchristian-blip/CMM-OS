@@ -225,6 +225,164 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: Upper bound for one persisted identifier fact.
 MAX_PLATFORM_IDENTIFIER_LENGTH = 256
 
+#: A categorical lifecycle state is a bounded lowercase token, optionally
+#: dot-separated into a small number of segments (``goal.created``,
+#: ``domain.execution.completed``).  It is deliberately narrower than an
+#: identifier: no colons, slashes or free-form paths, and — critically — no
+#: whitespace, so a sentence can never masquerade as a lifecycle state.
+_SAFE_CATEGORY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9]*(?:[._\-][A-Za-z0-9]+)*$")
+
+#: Upper bound for one persisted categorical token.  A 10,000-character "status"
+#: is not a bounded lifecycle state, so the key vocabulary being closed is not by
+#: itself a bound on the semantic fact.
+MAX_PLATFORM_CATEGORY_LENGTH = 128
+
+#: Upper bound for one persisted timestamp string.
+MAX_PLATFORM_TIMESTAMP_LENGTH = 64
+
+#: The canonical ISO-8601 timestamp form the durable JSON record stores.  A live
+#: ``datetime`` is deliberately refused elsewhere, so this string shape is the one
+#: canonical persisted representation.
+_SAFE_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?"
+    r"(?:Z|[+-]\d{2}:?\d{2})?$"
+)
+
+#: Upper bound for a structured reference sequence.  Bounded containers are part of
+#: the approved vocabulary; unbounded ones are not.
+MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH = 256
+
+#: The one canonical payload-key → value-class specification.
+#:
+#: The allowlist above answers *which* lifecycle facts a platform event may carry.
+#: This mapping answers the second, equally required half of the frozen policy:
+#: *what kind of value each approved key may carry*.  Without it an approved key
+#: name was the whole contract, so arbitrary prose could be relocated into
+#: ``request_id``, ``status``, ``approved`` or ``duration_ms`` and persisted as
+#: durable lifecycle evidence.
+#:
+#: Every allowed key belongs to exactly one explicit class, so no approved key can
+#: fall through to unrestricted arbitrary prose.
+PAYLOAD_KEY_CLASSES: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        #: IDs/references: a bounded single-token identifier.
+        "identifier": frozenset(
+            {
+                "request_id",
+                "session_id",
+                "workflow_id",
+                "run_id",
+                "goal_id",
+                "operation_id",
+                "approval_id",
+                "domain_id",
+                "agent_id",
+                "task_id",
+                "validation_id",
+                "event_id",
+                "execution_id",
+                "correlation_id",
+                "causation_id",
+                "aggregate_id",
+                "producer",
+                "parent_run_id",
+                "root_run_id",
+                "node_id",
+                "plan_node_id",
+                "decision_id",
+                "primary_domain",
+                "capability_id",
+                "reference_id",
+            }
+        ),
+        #: Categorical states and tokens: a bounded token form, never free prose.
+        "category": frozenset(
+            {
+                "status",
+                "state",
+                "intent",
+                "route",
+                "channel",
+                "policy",
+                "policy_disposition",
+                "error_category",
+                "error_code",
+                "reason_code",
+                "sensitivity",
+                "event_type",
+            }
+        ),
+        #: Boolean lifecycle facts.
+        "boolean": frozenset({"needs_clarification", "approved", "is_success"}),
+        #: Bounded counts and durations.
+        "number": frozenset({"duration_ms", "count", "attempts", "sequence"}),
+        #: Version facts (a bounded number or a bounded version token).
+        "version": frozenset({"version", "schema_version"}),
+        #: Timestamps: the canonical ISO-8601 string form only.
+        "timestamp": frozenset({"occurred_at", "emitted_at"}),
+        #: Structured reference containers, validated by their documented shape.
+        "structured_reference": frozenset({"result_reference"}),
+        #: Bounded sequences of structured reference containers/identifiers.
+        "structured_reference_sequence": frozenset({"approval_refs"}),
+        #: Bounded sequences of domain/capability references.
+        "domain_reference_sequence": frozenset(
+            {"supporting_domains", "related_domain_ids", "reason_codes"}
+        ),
+    }
+)
+
+#: The nested keys a structured reference container may carry, and the class of
+#: each one.  Nested facts are validated recursively against this documented shape
+#: rather than being treated as arbitrary containers, and an unknown nested key
+#: fails closed instead of becoming a new mirroring path.
+STRUCTURED_REFERENCE_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "reference_id": "identifier",
+        "sequence": "number_sequence",
+        "approval_id": "identifier",
+        "domain_id": "identifier",
+        "count": "number",
+    }
+)
+
+#: The one canonical metadata-key → value-class specification.
+#:
+#: Persisted metadata is lifecycle metadata, not an unrestricted prose side
+#: channel.  Only the metadata keys current Phase 11.22 producers, adapters and
+#: closed-phase contracts actually use are admitted, and each one belongs to an
+#: explicit bounded value class.  An unknown metadata key fails closed rather than
+#: becoming a new content-mirroring path.
+METADATA_KEY_CLASSES: Mapping[str, str] = MappingProxyType(
+    {
+        "status_code": "category",
+        "attempt": "number",
+        "origin": "category",
+        "reason": "category",
+        "error_type": "identifier",
+        "category": "category",
+        "replay": "boolean",
+        "flag": "boolean",
+        "label": "category",
+        "ratio": "number",
+        "count": "number",
+        "detail": "metadata_container",
+    }
+)
+
+#: The nested keys a bounded metadata container may carry, and the class of each.
+METADATA_CONTAINER_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "inner": "bounded_sequence",
+        "count": "number",
+        "reference_id": "identifier",
+    }
+)
+
+#: The bounded scalar classes a metadata list may carry.
+_METADATA_SEQUENCE_ITEM_CLASSES: frozenset[str] = frozenset(
+    {"category", "identifier", "number", "boolean", "null"}
+)
+
 
 class PlatformEventPayloadError(ValueError):
     """Raised when a would-be platform event payload is not safe to persist."""
@@ -293,19 +451,77 @@ def _check_key(key: str) -> None:
         )
 
 
+def _is_binary_buffer(value: object) -> bool:
+    """Return whether *value* is a binary/buffer object by its semantics.
+
+    The frozen rule is semantic — *arbitrary binary/buffer content never enters
+    persisted event content* — not "reject a hand-written list of a few Python
+    binary classes".  Enumerating ``bytes``/``bytearray``/``memoryview`` closed the
+    V4 ``memoryview`` bypass but left ``array.array`` open, because an
+    ``array.array`` is both a compact binary buffer **and** a registered
+    ``collections.abc.Sequence`` whose iteration yields its elements.  It was
+    therefore canonicalized into a plain integer list and persisted.
+
+    The check is a bounded use of the language's own buffer protocol: a value is
+    binary when the interpreter can expose its raw bytes as an unsigned byte view.
+    ``bytes``, ``bytearray``, ``memoryview`` and every ``array.array`` typecode
+    satisfy that; ``str``, the descriptive containers and every other approved
+    scalar do not, because they do not support the buffer protocol at all.  The
+    probe never reads, copies, resizes or exposes the buffer — it only asks whether
+    a raw byte view exists, so a genuine secret never becomes a rendered value here.
+    """
+
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return True
+    if isinstance(value, (str, bool, int, float)) or value is None:
+        # Fast paths for the approved descriptive scalars; none of them is a buffer,
+        # and ``str``/``int`` must never be probed as one.
+        return False
+    try:
+        view = memoryview(value)
+    except TypeError:
+        return False
+    try:
+        # A C-contiguous unsigned-byte view is exactly what makes a value raw
+        # binary evidence; a non-contiguous or non-byte view would fail closed too.
+        view.cast("B")
+    except (TypeError, ValueError):
+        return True
+    finally:
+        view.release()
+    return True
+
+
+def _reject_binary_buffer(value: object, key: str) -> None:
+    """Fail closed when *value* is binary/buffer content.
+
+    This runs **before** any generic sequence handling in every canonicalization
+    path, so binary rejection is unreachable by no standard supported buffer
+    container: an ``array.array`` can never be walked as an ordinary integer
+    sequence, and its elements can never become a plain list.
+    """
+
+    if _is_binary_buffer(value):
+        raise PlatformEventPayloadError("binary value must not be persisted", key=key)
+
+
 def _is_sequence(value: object) -> bool:
     """Return whether *value* is an ordinary descriptive sequence.
 
-    The excluded types are exactly the binary containers.  ``memoryview`` is a
-    registered :class:`collections.abc.Sequence` whose iteration yields integers,
-    so without this exclusion a binary buffer would be treated as an ordinary
-    descriptive sequence and recursively canonicalized into a plain integer list —
-    letting raw binary bytes enter persisted event content.
+    The excluded values are exactly the binary/buffer objects, judged semantically
+    by :func:`_is_binary_buffer`.  ``memoryview`` is a registered
+    :class:`collections.abc.Sequence` whose iteration yields integers, and
+    ``array.array`` is a registered sequence too, so without this exclusion a binary
+    buffer would be treated as an ordinary descriptive sequence and recursively
+    canonicalized into a plain integer list — letting raw binary bytes enter
+    persisted event content.
     """
 
-    return isinstance(value, Sequence) and not isinstance(
-        value, (str, bytes, bytearray, memoryview)
-    )
+    if isinstance(value, str):
+        return False
+    if _is_binary_buffer(value):
+        return False
+    return isinstance(value, Sequence)
 
 
 def _reject_non_descriptive_value(value: object, key: str) -> None:
@@ -330,7 +546,7 @@ def _reject_non_descriptive_value(value: object, key: str) -> None:
 
     if value is None or isinstance(value, bool):
         return
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if _is_binary_buffer(value):
         raise PlatformEventPayloadError("binary value must not be persisted", key=key)
     if isinstance(value, int):
         return
@@ -377,7 +593,15 @@ def _scan(value: object, key: str) -> None:
 
 
 def validate_platform_payload(payload: Mapping[str, object]) -> None:
-    """Validate a platform event payload, failing closed on any violation."""
+    """Validate a platform event payload, failing closed on any violation.
+
+    Two halves of one policy run here: the content/structure half
+    (:func:`_scan`) and the lifecycle-fact *value semantics* half
+    (:func:`_validate_payload_key_classes`).  An approved key name alone is not a
+    contract — the key must carry the bounded kind of fact its name claims, so raw
+    user prose can no longer be relocated into ``request_id``, ``status``,
+    ``approved`` or ``duration_ms`` and persisted as durable lifecycle evidence.
+    """
 
     if not isinstance(payload, Mapping):
         raise PlatformEventPayloadError("payload must be a mapping")
@@ -387,6 +611,8 @@ def validate_platform_payload(payload: Mapping[str, object]) -> None:
             raise PlatformEventPayloadError("payload keys must be strings")
         _check_key(key)
         _scan(value, key)
+
+    _validate_payload_key_classes(payload)
 
 
 def scan_for_forbidden_platform_content(value: object, *, key: str) -> None:
@@ -522,6 +748,337 @@ def validate_platform_identifier(value: object, *, field: str) -> str:
     return value
 
 
+def _validate_bounded_category(value: object, *, field: str) -> str:
+    """Validate one categorical lifecycle token, failing closed.
+
+    A categorical fact is a bounded token, never prose: ``completed``, ``selected``,
+    ``requested``, ``resolved``, ``conversation``, ``orchestration``, ``ok`` and
+    ``goal.created`` all pass, while any value containing whitespace — the shape a
+    raw user sentence arrives in — cannot qualify.
+    """
+
+    if not isinstance(value, str) or not value:
+        raise PlatformEventPayloadError(
+            "categorical fact must be a non-empty string", key=field
+        )
+    if len(value) > MAX_PLATFORM_CATEGORY_LENGTH:
+        raise PlatformEventPayloadError(
+            "categorical fact is unbounded in length", key=field
+        )
+    if contains_high_confidence_credential(value):
+        raise PlatformEventPayloadError("credential-like value", key=field)
+    if _contains_private_marker(value):
+        raise PlatformEventPayloadError("forbidden private marker", key=field)
+    if not _SAFE_CATEGORY_PATTERN.match(value):
+        raise PlatformEventPayloadError(
+            "categorical fact must be a bounded token, not prose", key=field
+        )
+    return value
+
+
+def _validate_bounded_number(value: object, *, field: str) -> int | float:
+    """Validate one bounded numeric lifecycle fact, failing closed."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PlatformEventPayloadError(
+            "numeric fact must be an int or float", key=field
+        )
+    if isinstance(value, float) and not math.isfinite(value):
+        raise PlatformEventPayloadError("numeric fact must be finite", key=field)
+    return value
+
+
+def _validate_bounded_boolean(value: object, *, field: str) -> bool:
+    """Validate one boolean lifecycle fact, failing closed.
+
+    ``bool`` is checked before any numeric acceptance, so ``True``/``False`` are the
+    only accepted values and an integer never silently becomes a lifecycle flag.
+    """
+
+    if not isinstance(value, bool):
+        raise PlatformEventPayloadError(
+            "boolean fact must be a real boolean", key=field
+        )
+    return value
+
+
+def _validate_version(value: object, *, field: str) -> object:
+    """Validate one version fact: a bounded number or a bounded version token."""
+
+    if isinstance(value, bool):
+        raise PlatformEventPayloadError(
+            "version fact must be a number or version token", key=field
+        )
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise PlatformEventPayloadError("version fact must be finite", key=field)
+        return value
+    return _validate_bounded_category(value, field=field)
+
+
+def _validate_canonical_timestamp(value: object, *, field: str) -> str:
+    """Validate one timestamp fact in the canonical persisted ISO-8601 string form.
+
+    The durable record stores a timestamp as a string, so a live ``datetime`` would
+    reopen as a ``str`` and the live and persisted shapes of the same fact would
+    differ.  Only the canonical string form is accepted here.
+    """
+
+    if not isinstance(value, str) or not value:
+        raise PlatformEventPayloadError(
+            "timestamp fact must be its canonical string form", key=field
+        )
+    if len(value) > MAX_PLATFORM_TIMESTAMP_LENGTH:
+        raise PlatformEventPayloadError(
+            "timestamp fact is unbounded in length", key=field
+        )
+    if not _SAFE_TIMESTAMP_PATTERN.match(value):
+        raise PlatformEventPayloadError(
+            "timestamp fact must be canonical ISO-8601", key=field
+        )
+    return value
+
+
+def _validate_domain_reference(value: object, *, field: str) -> object:
+    """Validate one domain reference fact.
+
+    A domain identity is a bounded reference string, or the structured identity
+    mapping a canonical ``DomainId`` projection produces.  A structured identity is
+    validated recursively against the documented nested shape rather than being
+    flattened, and the caller rejects binary buffers before this point, so a buffer
+    can never be read as a reference.
+    """
+
+    if isinstance(value, Mapping):
+        _validate_structured_reference(value, field=field)
+        return value
+    return validate_platform_identifier(value, field=field)
+
+
+def _validate_number_sequence(value: object, *, field: str) -> list[object]:
+    """Validate a bounded sequence of integers, failing closed."""
+
+    if not _is_sequence(value):
+        raise PlatformEventPayloadError(
+            "structured sequence must be a sequence of integers", key=field
+        )
+    items = list(value)
+    if len(items) > MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH:
+        raise PlatformEventPayloadError(
+            "structured sequence is unbounded in length", key=field
+        )
+    for index, item in enumerate(items):
+        _validate_bounded_number(item, field=f"{field}[{index}]")
+    return items
+
+
+def _validate_structured_reference(value: object, *, field: str) -> None:
+    """Validate a structured reference container against its documented shape.
+
+    Nested facts are validated recursively.  An unknown nested key fails closed
+    instead of becoming a new mirroring path, and a nested identifier is judged by
+    the same bounded rule as a top-level one — so the V3 mappingproxy/tuple/live
+    reopen behaviour is preserved without reopening a prose escape hatch.
+    """
+
+    if not isinstance(value, Mapping):
+        raise PlatformEventPayloadError(
+            "structured reference must be a mapping of documented facts", key=field
+        )
+    for nested_key, nested_value in value.items():
+        if not isinstance(nested_key, str):
+            raise PlatformEventPayloadError("payload keys must be strings", key=field)
+        nested_class = STRUCTURED_REFERENCE_KEYS.get(nested_key)
+        if nested_class is None:
+            raise PlatformEventPayloadError(
+                "structured reference key is not a documented lifecycle fact",
+                key=nested_key,
+            )
+        _validate_class(nested_class, nested_value, field=nested_key)
+
+
+def _validate_structured_reference_sequence(value: object, *, field: str) -> None:
+    """Validate a structured reference sequence against its documented shape."""
+
+    if _is_binary_buffer(value) or not _is_sequence(value):
+        raise PlatformEventPayloadError(
+            "structured reference must be a sequence of documented facts", key=field
+        )
+    items = list(value)
+    if len(items) > MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH:
+        raise PlatformEventPayloadError(
+            "structured reference is unbounded in length", key=field
+        )
+    for index, item in enumerate(items):
+        if isinstance(item, Mapping):
+            _validate_structured_reference(item, field=f"{field}[{index}]")
+            continue
+        _validate_domain_reference(item, field=f"{field}[{index}]")
+
+
+def _validate_class(value_class: str, value: object, *, field: str) -> object:
+    """Validate *value* against one explicit lifecycle value class, failing closed.
+
+    This is the single dispatch point of the semantic half of the policy, so every
+    approved key is judged by exactly one documented class and nothing can fall
+    through to unrestricted prose.
+    """
+
+    if value_class == "null":
+        if value is not None:
+            raise PlatformEventPayloadError("value must be null", key=field)
+        return None
+    if value_class == "identifier":
+        if value is None:
+            # An absent optional reference is not a reference *value*: closed-phase
+            # sources legitimately publish an explicit ``None`` for an optional
+            # identifier, and the persisted header gate already skips ``None``
+            # identifier facts.  Accepting it here keeps one consistent rule and
+            # introduces no prose path, because a non-``None`` value still has to
+            # pass the bounded single-token identifier rule.
+            return None
+        return validate_platform_identifier(value, field=field)
+    if value_class == "category":
+        return _validate_bounded_category(value, field=field)
+    if value_class == "boolean":
+        return _validate_bounded_boolean(value, field=field)
+    if value_class == "number":
+        return _validate_bounded_number(value, field=field)
+    if value_class == "version":
+        return _validate_version(value, field=field)
+    if value_class == "timestamp":
+        return _validate_canonical_timestamp(value, field=field)
+    if value_class == "number_sequence":
+        return _validate_number_sequence(value, field=field)
+    if value_class == "bounded_sequence":
+        return _validate_bounded_scalar_sequence(value, field=field)
+    if value_class == "metadata_container":
+        _validate_metadata_container(value, field=field)
+        return value
+    if value_class == "domain_reference_sequence":
+        _validate_structured_reference_sequence(value, field=field)
+        return value
+    if value_class == "structured_reference":
+        _validate_structured_reference(value, field=field)
+        return value
+    if value_class == "structured_reference_sequence":
+        _validate_structured_reference_sequence(value, field=field)
+        return value
+    raise PlatformEventPayloadError(
+        f"unknown lifecycle value class '{value_class}'", key=field
+    )
+
+
+def _validate_payload_key_classes(payload: Mapping[str, object]) -> None:
+    """Enforce the semantic value class of every approved payload key."""
+
+    for key, value in payload.items():
+        value_class = _payload_value_class(key)
+        if value_class is None:
+            raise PlatformEventPayloadError(
+                "payload key has no declared lifecycle value class", key=key
+            )
+        _validate_class(value_class, value, field=key)
+
+
+def _payload_value_class(key: str) -> str | None:
+    """Return the declared value class of one approved payload key, or ``None``."""
+
+    for value_class, keys in PAYLOAD_KEY_CLASSES.items():
+        if key in keys:
+            return value_class
+    return None
+
+
+def _validate_bounded_scalar_sequence(value: object, *, field: str) -> list[object]:
+    """Validate a bounded sequence of bounded scalar metadata values."""
+
+    if _is_binary_buffer(value) or not _is_sequence(value):
+        raise PlatformEventPayloadError(
+            "metadata sequence must be a sequence of bounded values", key=field
+        )
+    items = list(value)
+    if len(items) > MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH:
+        raise PlatformEventPayloadError(
+            "metadata sequence is unbounded in length", key=field
+        )
+    for index, item in enumerate(items):
+        _validate_metadata_scalar(
+            item, field=f"{field}[{index}]", classes=_METADATA_SEQUENCE_ITEM_CLASSES
+        )
+    return items
+
+
+def _validate_metadata_scalar(
+    value: object, *, field: str, classes: frozenset[str]
+) -> object:
+    """Validate one bounded metadata scalar against an allowed class set.
+
+    The class is selected from the value's own Python type rather than by trying
+    each allowed class in turn, so the rule stays total and explicit: a boolean is
+    judged as a boolean, a number as a number, a string as the narrowest allowed
+    token class, ``None`` only where a null is admitted, and every other type fails
+    closed.
+    """
+
+    if value is None:
+        return _validate_class("null", value, field=field)
+    if isinstance(value, bool):
+        return _validate_class("boolean", value, field=field)
+    if isinstance(value, (int, float)):
+        return _validate_class("number", value, field=field)
+    if isinstance(value, str):
+        if classes & {"category", "identifier"}:
+            return _validate_bounded_category(value, field=field)
+        raise PlatformEventPayloadError(
+            "metadata value must be a bounded lifecycle value", key=field
+        )
+    raise PlatformEventPayloadError(
+        "metadata value must be a bounded lifecycle value", key=field
+    )
+
+
+def _validate_metadata_container(value: object, *, field: str) -> None:
+    """Validate one bounded metadata container against its documented nested shape."""
+
+    if not isinstance(value, Mapping):
+        raise PlatformEventPayloadError(
+            "metadata container must be a mapping of documented facts", key=field
+        )
+    for nested_key, nested_value in value.items():
+        if not isinstance(nested_key, str):
+            raise PlatformEventPayloadError("metadata keys must be strings", key=field)
+        nested_class = METADATA_CONTAINER_KEYS.get(nested_key)
+        if nested_class is None:
+            raise PlatformEventPayloadError(
+                "metadata container key is not a documented lifecycle fact",
+                key=nested_key,
+            )
+        _validate_class(nested_class, nested_value, field=nested_key)
+
+
+def _validate_metadata_value_classes(metadata: Mapping[str, object]) -> None:
+    """Enforce the semantic value class of every persisted metadata fact.
+
+    Only the bounded lifecycle metadata vocabulary current Phase 11.22 producers,
+    adapters and closed-phase contracts actually use is admitted, and each key
+    carries an explicit bounded value class.  An unknown metadata key fails closed,
+    so metadata cannot become a new content-mirroring path merely because a
+    producer picks an innocuous-sounding key name for raw user text.
+    """
+
+    for key, value in metadata.items():
+        value_class = METADATA_KEY_CLASSES.get(key)
+        if value_class is None:
+            raise PlatformEventPayloadError(
+                "metadata key is outside the bounded lifecycle metadata vocabulary",
+                key=key,
+            )
+        _validate_class(value_class, value, field=key)
+
+
 def _header_identifier_facts(header: Any) -> tuple[tuple[str, object], ...]:
     """Return every persisted identifier header fact as ``(field, value)``.
 
@@ -633,9 +1190,11 @@ def validate_platform_permissions(permissions: object) -> None:
     identifiers is accepted, and binary containers are refused outright.
     """
 
-    if isinstance(permissions, (str, bytes, bytearray, memoryview)) or not _is_sequence(
-        permissions
-    ):
+    if isinstance(permissions, str) or _is_binary_buffer(permissions):
+        raise PlatformEventPayloadError(
+            "event permissions must be a sequence of identifiers", key="permissions"
+        )
+    if not _is_sequence(permissions):
         raise PlatformEventPayloadError(
             "event permissions must be a sequence of identifiers", key="permissions"
         )
@@ -677,6 +1236,11 @@ def validate_platform_event_facts(event: Any) -> None:
                 "event metadata keys must be strings", key="metadata"
             )
     scan_for_forbidden_event_facts(metadata, key="metadata")
+    # The content half above refuses forbidden keys, credentials and private
+    # markers anywhere in metadata; this half refuses a *value* that is not the
+    # bounded lifecycle fact its metadata key claims to represent, so metadata
+    # cannot become a prose side channel under an innocuous key name.
+    _validate_metadata_value_classes(metadata)
 
     permissions = getattr(header, "permissions", None)
     # The structural shape is checked *before* any factory coercion, so a plain
@@ -691,6 +1255,8 @@ def _freeze(value: object) -> object:
         return value
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if _is_binary_buffer(value):
+        raise PlatformEventPayloadError("binary value must not be persisted")
     if _is_sequence(value):
         return tuple(_freeze(item) for item in value)
     raise PlatformEventPayloadError("value must be a descriptive immutable value")
@@ -737,9 +1303,10 @@ def canonicalize_platform_payload(payload: Mapping[str, object]) -> dict[str, An
 def _canonicalize_payload_value(value: object) -> Any:
     """Return the canonical JSON-compatible ``dict``/``list``/scalar form of *value*.
 
-    Binary containers are refused here as well, so this shape transform can never
-    turn a binary buffer into an integer list even if it is ever reached without
-    the validation half having run first.
+    Binary containers are refused here as well, and **before** generic sequence
+    handling, so this shape transform can never turn a binary buffer — including an
+    ``array.array`` — into an integer list even if it is ever reached without the
+    validation half having run first.
     """
 
     if isinstance(value, Mapping):
@@ -748,8 +1315,7 @@ def _canonicalize_payload_value(value: object) -> Any:
         }
     if isinstance(value, str):
         return value
-    if isinstance(value, (bytes, bytearray, memoryview)):
-        raise PlatformEventPayloadError("binary value must not be persisted")
+    _reject_binary_buffer(value, "payload")
     if _is_sequence(value):
         return [_canonicalize_payload_value(item) for item in value]
     return value
