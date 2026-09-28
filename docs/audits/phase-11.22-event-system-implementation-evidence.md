@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -17,6 +17,7 @@
 **Independent Re-audit V7:** `docs/audits/phase-11.22-event-system-independent-reaudit-v7.md` (immutable historical evidence)
 **Independent Re-audit V8:** `docs/audits/phase-11.22-event-system-independent-reaudit-v8.md` (immutable historical evidence)
 **Independent Re-audit V9:** `docs/audits/phase-11.22-event-system-independent-reaudit-v9.md` (immutable historical evidence)
+**Independent Re-audit V10:** `docs/audits/phase-11.22-event-system-independent-reaudit-v10.md` (immutable historical evidence)
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
@@ -26,6 +27,7 @@
 **Remediation V7 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
 **Remediation V8 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v8-agent-prompt.md`
 **Remediation V9 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
+**Remediation V10 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`
 
 ```text
 DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
@@ -67,6 +69,11 @@ MAJOR_V9_001_STATUS=REMEDIATED_REPORTED
 MAJOR_V9_002_STATUS=REMEDIATED_REPORTED
 MINOR_V9_001_STATUS=REMEDIATED_REPORTED
 REMEDIATION_V9=REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V10=FAIL
+V9_FINDINGS_FIXED=3/3_VERIFIED
+MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER
+MAJOR_V10_001_STATUS=REMEDIATED_REPORTED
+REMEDIATION_V10=REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
@@ -100,14 +107,19 @@ minor** (`BLOCKERS=0`, `MAJORS=2`, `MINORS=1`,
 `MAJOR_V9_001=WRAPPED_NON_AUTHORITY_FILE_URI_BYPASSES_FAIL_CLOSED_FILESYSTEM_CLASSIFIER`,
 `MAJOR_V9_002=SUPPORTED_RUNTIME_TIMESTAMP_SEMANTICS_REOPEN_PRIOR_V6_FINDING_AND_KEEP_GLOBAL_GATE_RED`,
 `MINOR_V9_001=REFERENCE_TEST_EVIDENCE_COUNTS_STALE_AFTER_FINAL_V8_AT_ADDITIONS`).
+It has now been **remediated for the ninth time**, **passed all three V9 findings on
+independent Re-audit V10** (`3/3_VERIFIED`) while **failing that re-audit with one
+new major, no minors and no blockers** (`BLOCKERS=0`, `MAJORS=1`, `MINORS=0`,
+`MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER`).
 It is not closed, independently verified or complete. `DP-122=VERIFIED_EXISTING`
-and `AT-DP-122=PASS` belong only to the independent audit of the V10 bundle.
+and `AT-DP-122=PASS` belong only to the independent audit of the V11 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
 V1, §11 records Remediation V2, §12 records Remediation V3, §13 records
 Remediation V4, §14 records Remediation V5, §15 records Remediation V6, §16
-records Remediation V7, §17 records Remediation V8 and §18 records Remediation V9;
-the earlier sections are preserved as historical record.
+records Remediation V7, §17 records Remediation V8, §18 records Remediation V9 and
+§19 records Remediation V10; the earlier sections are preserved as historical
+record.
 
 ## 1. Exact repository state
 
@@ -2826,6 +2838,324 @@ audit report was rewritten and no historical bundle was touched.
 Fresh independent ChatGPT re-audit of the **V10** exact-HEAD bundle
 (`phase-11.22-event-system-audit-v10.tar.gz`). The phase remains
 `REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
+begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
+`DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
+
+That re-audit has since been performed and returned `FAIL`
+(`INDEPENDENT_REAUDIT_V10=FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`). Section 19
+records the resulting Remediation V10 and supersedes this next-step statement.
+
+## 19. Remediation V10
+
+### 19.1 Verdict being remediated
+
+Independent Re-audit V10
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v10.md`, immutable,
+report SHA-256
+`ffe8c5e7d96836643362796c5ccfae29461aaa2d1293cc9ce0a6c210f86d7a8c`) verified all
+three V9 findings fixed (`3/3_VERIFIED`) and preserved the prior remediation
+regressions, while failing the phase with one new major, no minors and no blockers:
+
+```text
+INDEPENDENT_REAUDIT_V10=FAIL
+V9_FINDINGS_FIXED=3/3_VERIFIED
+BLOCKERS=0
+MAJORS=1
+MINORS=0
+MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V10_ONLY
+EXPECTED_NEXT_BUNDLE=phase-11.22-event-system-audit-v11.tar.gz
+```
+
+### 19.2 Exact start state
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+REMEDIATION_V10_START_HEAD=a41eb4906ecc464c25e042d2cf0268e291b37abb
+REMEDIATION_V10_START_TREE=6eab976eed4df755a32095806c3e900f0e5af3e9
+START_HEAD_PARENT=3cd26ff4f4f3f20dfa524e48f876357e972c0073
+  (tree cd0796063d50ecdd070d4e168f22c069b459b294, the prompt's declared
+   remediation-start HEAD and tree — exact match)
+AUDITED_V10_IMPLEMENTATION_HEAD=81a3a65e2b4edb3d9f2e89ead98aaf9e785cc2ef
+  (tree 43d1b2efb12f71fa6dc215598074318038172849 — exact match)
+TRACKED_WORKTREE=CLEAN (only untracked historical audit bundles present)
+V10_AUDIT_REPORT_SHA256=ffe8c5e7d96836643362796c5ccfae29461aaa2d1293cc9ce0a6c210f86d7a8c
+  (exact match to the prompt's declared value)
+V10_BUNDLE_SHA256=cd594b857a0882cbc4059afbc01eb1f5d3f760c5ca7aacc1c4e9643bbae35840
+  (exact match to the prompt's declared value; not modified)
+```
+
+Provenance was verified before any change: the current HEAD is exactly the
+**prompt-only child** of `3cd26ff4`, whose only tracked delta is the addition of
+this cycle's own committed prompt document
+(`docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`,
+`A` in `--name-status`), and whose tree is exactly the declared
+`cd0796063d50ecdd070d4e168f22c069b459b294`. Unlike the V9 cycle, no provenance
+deviation arose: the user named `a41eb49`/`6eab976` as the mandatory starting point
+and both matched exactly, so no compensating note is required. No forbidden Git
+operation was used: no `git stash`, `stash pop`, `stash apply`, `stash drop`,
+`git reset`, `git clean` or `git worktree`, and no push or merge.
+
+### 19.3 TDD red evidence
+
+Red was established on the canonical `.venv` / CPython 3.14.7 **before** any
+production mutation, in a commit that contains only the new adversarial module
+(`27b2aca`, `test(phase11): reproduce phase11.22 reaudit v10 finding`):
+
+```text
+tests/events/test_phase11_22_remediation_v10_regressions.py
+    227 failed, 248 passed
+```
+
+All 227 failures were V10 targets; every positive control and every retained
+V1–V9 control passed in the same run. Reproduced before their own fix, for the exact
+audited reference `provider/C:/Windows/System32/config/SAM` and its family: the
+direct classifier returning `False`, the direct identifier validator accepting, the
+canonical `EventSystem` persisting (repository count `0 -> 1`), the official
+in-memory repository, the official file-backed repository, the manual
+`publish_event(...)` boundary and all 13 shared identifier-bearing channels. After
+the single production change the module measured `475 passed` in the same run.
+
+The failing counts were evenly structural, not literal-driven: 78 failures on the
+fresh wrapped corpus across the 13 channels, 65 on the reported wrapped corpus
+across the 13 channels, 14 on the equivalence spellings, 13 on the per-channel
+durable-store proof, 11 each on the direct classifier, the direct identifier
+authority, the file-backed repository and the manual boundary, and the remainder on
+the structural controls that assert the rule exists at all.
+
+### 19.4 Finding and remediation
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V10-001` | the canonical identifier/filesystem safety authority detected a raw Windows drive-root path only when the drive token sat at **character zero** of the whole reference: `re.compile(r"^[A-Za-z]:[\\/]")`. Remediation V9 had already moved the `file:` signature to a path-*segment* boundary, but the structurally equivalent raw drive-root token was left whole-value-anchored. Because `provider` and `cmm` are declared public slash roots (`PUBLIC_SLASH_REFERENCE_ROOTS`), the writer path was `provider/C:/Windows/System32/config/SAM` → not traversal, not whole-value absolute, drive-root pattern misses, public root `provider` → accepted as public-safe → persisted. `cmm/C:/Windows/System32/config/SAM`, `provider//C:/Windows/System32/config/SAM`, `provider/./C:/Windows/System32/config/SAM` and `provider/C:/Windows/System32/config/SECURITY` behaved identically, and the same value was durably appended through all 13 shared identifier-bearing channels in both official repositories and through a manual `publish_event(...)` call. The defect was not the literal filename `SAM`; it was the ability of an allowlisted logical wrapper to carry an embedded raw drive-root filesystem reference | the **existing** raw Windows drive-root signature inside `_PRIVATE_FILESYSTEM_PATTERNS` is anchored at a path *segment* boundary instead of at character zero: `re.compile(r"^[A-Za-z]:[\\/]")` → `re.compile(r"(?:^|/)[A-Za-z]:[\\/]")` — the same structural repair V9 applied to the structurally identical `file:` token, not a second scanner or a new Windows-path subsystem. Because the pattern is evaluated against the canonical lexical analysis form whose segments are joined by `/`, a segment boundary is exactly where the identifier grammar can carry a drive token, so `provider//C:/`, `provider/./C:/`, `Provider/C:/`, `PROVIDER/C:/`, `C://Windows/` and the lowercase `provider/c:/` all receive the identical verdict. The rule still requires real drive-root syntax — a letter, a colon and a path separator — so ordinary colon identifiers (`workflow:123`, `domain:legal`), segment-boundary non-drive colons (`provider/a:1/model`, `cmm/v2:3/detail`) and credential-free URIs (`https://example.com/model`, `http://localhost:8080/health`, `jdbc:postgresql://example.com/db`, `provider/https://example.com/model`) keep their verdicts. No literal was appended for `SAM`, `SECURITY`, `Windows`, `System32`, `ProgramData`, `MachineKeys` or any audited drive letter, so the fresh wrapped probes are refused by the same structural rule. Analysis-only: no filesystem I/O, no `Path.resolve()`, no host-dependent resolution, no rewriting of an accepted persisted identifier, and no second path/URI/identifier policy module. The Windows-backslash spelling (`C:\Windows\…`) is refused earlier by the identifier character set — a positive fail-closed fact recorded by test, so the grammar did not have to be widened |
+
+The single production rule lives in the authority the phase already had
+(`is_private_filesystem_reference()`, reached by every persisted identifier channel
+through `validate_platform_identifier()`), so no channel can be patched alone and no
+second authority was introduced.
+
+### 19.5 Remediation commits
+
+```text
+27b2aca test(phase11): reproduce phase11.22 reaudit v10 finding
+7ce59c2 fix(events): reject wrapped windows drive-root references
+f7c44e0 test(phase11): strengthen at-dp-122 for v10 drive-root safety
+<docs>  docs(phase11): record phase11.22 remediation v10 pending reaudit
+```
+
+The red-test commit precedes the single production mutation. The docs commit and the
+exact Remediation V10 HEAD, tree and V11 bundle SHA-256 are reported in the
+remediation handoff rather than embedded here, for the same self-reference reason as
+the earlier cycles.
+
+### 19.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py   (only production file changed)
+```
+
+Exact delta, inside the existing canonical authority:
+
+```text
+_PRIVATE_FILESYSTEM_PATTERNS:
+    re.compile(r"^[A-Za-z]:[\\/]")
+ -> re.compile(r"(?:^|/)[A-Za-z]:[\\/]")
+
+plus the accompanying V10 provenance comments on that entry and on the
+classifier's module-level comment block, and one sentence in the
+is_private_filesystem_reference() docstring.
+```
+
+No new constant, pattern, module, class, registry, resolver, loader, engine,
+container or policy file was added, and `cmm/events/` still contains exactly the
+same nine modules. Every other identifier, credential, numeric, timestamp and path
+rule is byte-identical to the V9 state.
+
+### 19.7 New and strengthened adversarial regressions
+
+```text
+tests/events/test_phase11_22_remediation_v10_regressions.py   NEW, 475 tests
+tests/events/test_phase11_22_dp122_acceptance.py             +121 connected cases
+```
+
+The new module covers: the direct classifier and the direct identifier authority for
+the retained top-level controls, the five reported wrapped spellings and six fresh
+wrapped probes (other drive letters, lowercase drive letter, unnamed locations); the
+canonical `EventSystem`; the official in-memory repository; the official file-backed
+repository, with the durable store asserted byte-identical on every rejection; the
+manual `publish_event(...)` boundary; all 13 shared identifier-bearing channels, each
+asserted both through the in-memory system and against the durable store; four
+separator/case equivalence families that must share one verdict; positive controls
+proving the refusal is not a spelling denylist (including segment-boundary non-drive
+colons such as `provider/a:1/model`); the `\`-spelling refusal by the identifier
+character set; a structural control proving one of the *existing* patterns matches
+the canonical form at a segment boundary rather than at offset zero; a
+no-filesystem-I/O proof that runs the whole corpus with `Path.resolve`, `Path.stat`,
+`os.path.realpath`, `os.lstat` and friends replaced by assertions; the static refusal
+message; an identity/correlation/causation-unchanged control for every accepted
+reference; and an architecture guard that no second path/URI policy module exists.
+
+`AT-DP-122` grew `628 -> 749` (`+121`) through the same connected acceptance file —
+the real Phase 11.1 composition, the real file-backed canonical repository, the
+canonical registry/bus/DLQ, the real production `PlatformOrchestrationEventSink`
+and the real Orchestrator. The additions re-derive MAJOR-V10-001 in both directions:
+top-level and wrapped drive roots refused, the four equivalence families receiving one
+connected verdict, the reported corpus refused on all 13 shared channels, both
+official repositories agreeing, and the real Orchestrator failing closed with
+`ORCHESTRATION_EVENT_EMISSION_FAILED` and no durable bytes added — while every
+legitimate reference persists and reopens with `workflow_id`, `aggregate_id`,
+`producer`, `permissions`, `correlation_id` and `causation_id` intact and a matching
+fingerprint. No replacement acceptance system was created and no previously passing
+case was removed or weakened.
+
+### 19.8 Gate evidence (Remediation V10)
+
+Run with the canonical repository environment named by `CONTRIBUTING.md`
+(`.venv/bin/python -m pytest`, CPython 3.14.7, `pytest 9.1.1`):
+
+```text
+REMEDIATION_V10_TESTS=475 passed (initial red 227 failed / 248 passed)
+V9_REGRESSIONS=397 passed (preserved)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=1765 passed (V1-V10, no failure)
+PHASE_SUITE=tests/events/ 3131 passed, 0 failed
+AT_DP_122=749 passed (628 prior + 121 V10)
+EVENT_SYSTEM_COMPOSITION_AND_INTEGRATION=323 passed
+KERNEL_ADAPTER_TESTS=76 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+AGENT_RUNTIME_DEPENDENCY_DIRECTION=tests/agent_runtime/test_dependency_direction.py 1 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=tests/domains/test_domain_events_dp033_acceptance.py 92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+  (AT-DP-103, AT-DP-105, Phase 11.21/AT-DP-121, Phase 11.34/AT-DP-134, AT-DP-150)
+PLATFORM_ARCHITECTURE=tests/platform/test_architecture.py 69 passed
+IMPORTS=tests/test_imports.py 1 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed (22 files, unchanged)
+GLOBAL_PYTEST=25200 collected, 25200 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V10 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS (every changed/created file `ruff format --check`-clean)
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+The V9 production tree measured `2535` tests in `tests/events/` and `24604`
+collected globally, all passing. The V10 additions are `+475` adversarial
+regressions in a new module and `+121` strengthened `AT-DP-122` connected scenarios,
+with no production-repair case needed this cycle, so `tests/events/` moves
+`2535 -> 3131` (`+596`) and the global collected count moves `24604 -> 25200`
+(`+596`), the pass count moving with it.
+
+`GLOBAL_PYTEST_FAILURES=0` is therefore **met** on the canonical CPython 3.14.7
+runtime, and `GLOBAL_PYTEST_PASS_COUNT=25200` is **at or above** the `24604` floor
+(and above it by `596`). No test was deleted, skipped or xfailed to obtain this: the
+pass count rose by exactly the number of tests added. The build was re-run clean and
+uncontended; the previously observed cross-interpreter
+`tests/cli/test_phase11_4_parser.py` argparse case is **not** part of the canonical
+environment and does not appear in the canonical global run.
+
+### 19.9 Mandatory invariant evidence
+
+```text
+WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_DRIVE_ROOT_REFERENCES=PASS
+WRAPPED_FILE_URI_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_FILE_URI_REFERENCES=PASS
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION=PASS
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE=PASS (complete corpus, top-level and wrapped)
+PHASE11_22_TIMESTAMP_ACCEPTANCE_IS_INTERPRETER_VERSION_INDEPENDENT=PASS
+URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER=PASS
+CREDENTIALS_NEVER_ENTER_EVENT_PERSISTENCE=PASS
+LEXICAL_PATH_ANALYSIS_PERFORMS_NO_FILESYSTEM_IO=PASS
+PERSISTED_IDENTIFIER_IS_NEVER_REWRITTEN_BY_CANONICALIZATION=PASS
+
+V9_WRAPPED_FILE_URI_REFUSAL=PASS (preserved)
+V9_INTERPRETER_INDEPENDENT_CIVIL_HOUR=PASS (preserved)
+V8_FILESYSTEM_REFERENCE_CLASSIFICATION=PASS (preserved)
+V8_OCCURRENCE_INDEPENDENT_URI_USERINFO=PASS (preserved)
+V7_URI_USERINFO_CREDENTIAL_REJECTION=PASS (preserved)
+V7_RELATIVE_PATH_TRAVERSAL_REJECTION=PASS (preserved)
+ABSOLUTE_HOME_FILESYSTEM_PATH_REJECTION=PASS (preserved, V6)
+NUMERIC_LIFECYCLE_FACTS_ARE_ACTUALLY_BOUNDED=PASS (preserved, V6)
+OFFICIAL_REPOSITORY_PARITY=PASS (preserved, V6)
+ONE_CANONICAL_HEADER_FACT_AUTHORITY=PASS (preserved, V6)
+TIMESTAMP_SEMANTIC_VALIDITY=PASS (preserved, V6)
+BINARY_BUFFER_VALUES_FAIL_CLOSED=PASS (preserved, V5)
+RAW_USER_TEXT_CANNOT_BE_RELOCATED=PASS (preserved, V5)
+METADATA_IS_NOT_A_PROSE_SIDE_CHANNEL=PASS (preserved, V5)
+DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING=PASS (preserved, V5)
+RAW_EXCEPTION_MESSAGES_NEVER_ENTER_DLQ=PASS (preserved, V4)
+UNSAFE_EXCEPTION_CLASS_NAMES_NEVER_ENTER_DLQ=PASS (preserved, V4)
+CONTENT_BOUND_FINGERPRINT=PASS (preserved, V1-V3)
+SAME_ID_DIFFERENT_CONTENT_FAIL_CLOSED=PASS (preserved, V1-V3)
+TAMPER_DETECTION=PASS (preserved, V1-V3)
+UNSUPPORTED_SCHEMA_REJECTED_BEFORE_APPEND=PASS (preserved, V1-V3)
+SUPPORTED_SCHEMA_REOPEN_ROUNDTRIP=PASS (preserved, V1-V3)
+PUBLICATION_RESULT_ALIAS_ISOLATION=PASS (preserved, V1-V3)
+SUBSCRIBER_MUTATION_ISOLATION=PASS (preserved, V1-V3)
+REPOSITORY_SNAPSHOT_ISOLATION=PASS (preserved, V1-V3)
+MANUAL_SENSITIVITY_CANONICALIZATION=PASS (preserved, V1-V3)
+REPLAY_DOES_NOT_REPERSIST=PASS (preserved, V1-V3)
+REPLAY_DEFAULT_DENY=PASS (preserved, V1-V3)
+TARGETED_DLQ_REPLAY=PASS (preserved, V1-V3)
+UNRELATED_SUBSCRIBER_CANNOT_RESOLVE_DLQ=PASS (preserved, V1-V3)
+DLQ_RETAINED_UNTIL_TARGET_SUCCESS=PASS (preserved, V1-V3)
+DETACHED_DLQ_INSPECTION_SNAPSHOTS=PASS (preserved, V1-V3)
+DIRECT_BUS_NEUTRAL_FALLBACK=PASS (preserved, V1-V3)
+
+NO_SECOND_EVENT_AUTHORITY=PASS
+NO_SECOND_PATH_POLICY_MODULE=PASS
+NO_SECOND_DRIVE_ROOT_POLICY_MODULE=PASS
+NO_SECOND_CREDENTIAL_POLICY=PASS
+NO_SECOND_TIMESTAMP_PARSER=PASS
+NO_SECOND_EVENT_SYSTEM_INFRASTRUCTURE=PASS
+```
+
+Failure-path expectations were re-proved for the new refusals: a rejected drive-root
+reference never reaches a durable repository file, the durable bytes are asserted
+unchanged on every rejection, the DLQ count stays `0`, no adversarial location marker
+appears in the refusal text or in the store, and the refusal messages remain static
+categorical literals that echo neither a credential nor a filesystem location. The
+official in-memory repository is asserted unchanged beside the official file-backed
+one, so no repository is treated as the safety boundary.
+
+### 19.10 Warnings
+
+The one retained global warning is the pre-existing unrelated `starlette`
+`anyio`/`httpx` `DeprecationWarning`. No new warning was introduced by Remediation
+V10. No pre-existing warning was suppressed, and no warning filter was added.
+
+### 19.11 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6, V7, V8, V9
+and V10 reports, and the immutable V1, V2, V3, V4, V5, V6, V7, V8, V9 and V10 bundles
+are byte-identical to their audited state; each was re-hashed and matched the declared
+value. All ten bundles remain untracked, as repository policy does not track audit
+bundles, and none was overwritten. No stash was created, applied, popped or dropped,
+and no `git reset`, `git clean` or `git worktree` was used. `ROADMAP.md` and the
+current evidence/reference/roadmap documents were updated for Remediation V10; no
+historical audit report was rewritten and no historical bundle was touched.
+
+### 19.12 Next step
+
+Fresh independent ChatGPT re-audit of the **V11** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v11.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT`: not closed, not
 independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
 begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
 `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.

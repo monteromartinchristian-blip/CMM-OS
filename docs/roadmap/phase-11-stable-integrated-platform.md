@@ -2882,7 +2882,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
@@ -2892,6 +2892,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Independent Re-audit V7:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`; `V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=477_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v7.md` (immutable)
 **Independent Re-audit V8:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `V7_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=604_PASS`; `MAJOR_V8_001=FILESYSTEM_REFERENCE_CLASSIFIER_STILL_ACCEPTS_PATH_EQUIVALENTS_AND_UNLISTED_SENSITIVE_PATHS`, `MAJOR_V8_002=WRAPPED_OR_NESTED_URI_USERINFO_CREDENTIALS_BYPASS_IDENTIFIER_SAFETY`, `MINOR_V8_001=ROADMAP_PHASE11_SUMMARY_OMITS_REAUDIT_V7`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v8.md` (immutable)
 **Independent Re-audit V9:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `V8_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=604_PASS`; `MAJOR_V9_001=WRAPPED_NON_AUTHORITY_FILE_URI_BYPASSES_FAIL_CLOSED_FILESYSTEM_CLASSIFIER`, `MAJOR_V9_002=SUPPORTED_RUNTIME_TIMESTAMP_SEMANTICS_REOPEN_PRIOR_V6_FINDING_AND_KEEP_GLOBAL_GATE_RED`, `MINOR_V9_001=REFERENCE_TEST_EVIDENCE_COUNTS_STALE_AFTER_FINAL_V8_AT_ADDITIONS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v9.md` (immutable)
+**Independent Re-audit V10:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V9_FINDINGS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1290_PASS`; `MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v10.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2906,8 +2907,10 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V7 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
 **Remediation V8 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v8-agent-prompt.md`
 **Remediation V9 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
+**Remediation V10 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`
 **V9 audit bundle:** `phase-11.22-event-system-audit-v9.tar.gz` from the exact Remediation V8 HEAD; SHA-256 `1f5908e63a728d440cec6f62607d89fd6b4d9add8d77c941d967c3be139488fa`
-**V10 audit bundle:** `phase-11.22-event-system-audit-v10.tar.gz` from the exact Remediation V9 HEAD
+**V10 audit bundle:** `phase-11.22-event-system-audit-v10.tar.gz` from the exact Remediation V9 HEAD; SHA-256 `cd594b857a0882cbc4059afbc01eb1f5d3f760c5ca7aacc1c4e9643bbae35840`
+**V11 audit bundle:** `phase-11.22-event-system-audit-v11.tar.gz` from the exact Remediation V10 HEAD
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2971,6 +2974,12 @@ MAJOR_V9_001_STATUS=REMEDIATED_REPORTED
 MAJOR_V9_002_STATUS=REMEDIATED_REPORTED
 MINOR_V9_001_STATUS=REMEDIATED_REPORTED
 REMEDIATION_V9=REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V10=FAIL
+V9_FINDINGS_FIXED=3/3_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=1290_PASS
+MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER
+MAJOR_V10_001_STATUS=REMEDIATED_REPORTED
+REMEDIATION_V10=REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
@@ -3267,25 +3276,32 @@ GIT_DIFF_CHECK=PASS
 
 The accepted one-authority architecture was preserved: no second bus, registry,
 repository protocol, replay engine, DLQ, safety module, path-policy module,
-credential-policy module, payload registry, numeric-policy registry, timestamp
-subsystem, container, broker abstraction or event contract was added, and
-`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still enforced. All nine Audit V1 fixes, all
-four Re-audit V2 reproductions, all three Re-audit V3 reproductions, all three
-Re-audit V4 reproductions, all three Re-audit V5 reproductions, all four Re-audit V6
-findings, both Re-audit V7 findings and both Re-audit V8 findings remain green
-(`PRIOR_REMEDIATION_REGRESSIONS=1290_PASS`, V1–V9). Remediation V9 fixed the two
+drive-root-policy module, credential-policy module, payload registry,
+numeric-policy registry, timestamp subsystem, container, broker abstraction or event
+contract was added, and `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0` is still enforced. All
+nine Audit V1 fixes, all four Re-audit V2 reproductions, all three Re-audit V3
+reproductions, all three Re-audit V4 reproductions, all three Re-audit V5
+reproductions, all four Re-audit V6 findings, both Re-audit V7 findings, both
+Re-audit V8 findings and all three Re-audit V9 findings remain green
+(`PRIOR_REMEDIATION_REGRESSIONS=1765_PASS`, V1–V10). Remediation V9 fixed the two
 Re-audit V9 majors and the one minor inside the existing authorities: the `file:`
 signature is anchored at a path *segment* boundary so a public logical wrapper can
 no longer carry an unclassified non-authority `file:` reference, and the frozen
 `00..23` civil-hour bound is asserted by the canonical timestamp authority itself
 instead of being delegated to `datetime.fromisoformat`, which restores
-`GLOBAL_PYTEST_FAILURES=0` on the canonical runtime. No earlier
+`GLOBAL_PYTEST_FAILURES=0` on the canonical runtime. Remediation V10 fixed the single
+Re-audit V10 major inside the same authority: the raw Windows drive-root signature is
+anchored at a path *segment* boundary too, so an allowlisted public slash root
+(`provider/`, `cmm/`) can no longer carry an unclassified raw local drive — the same
+structural repair V9 applied to the structurally identical `file:` token, with no
+literal added for `SAM`, `SECURITY`, `Windows`, `System32`, `ProgramData`,
+`MachineKeys` or any audited drive letter. No earlier
 fix, test or invariant was weakened. The immutable Audit V1 report, the immutable
-Re-audit V2, V3, V4, V5, V6, V7, V8 and V9 reports, and the immutable V1-V9 bundles
-are preserved byte-identical.
+Re-audit V2, V3, V4, V5, V6, V7, V8, V9 and V10 reports, and the immutable V1-V10
+bundles are preserved byte-identical.
 
 The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V10** bundle passes. Only that re-audit may
+independent re-audit of the exact-HEAD **V11** bundle passes. Only that re-audit may
 write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
 `CLOSURE_ELIGIBLE=YES`.
 
