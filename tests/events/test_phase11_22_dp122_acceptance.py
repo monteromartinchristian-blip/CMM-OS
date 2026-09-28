@@ -4458,3 +4458,465 @@ def test_at_dp_122_v9_retains_the_v8_controls_it_builds_on(connected) -> None:
     assert stored.header.occurred_at == datetime(
         2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V10 — AT-DP-122 additions for the V10 drive-root finding
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V10-001 is the *same structural anchoring defect* Remediation V9 fixed
+# for the ``file:`` scheme, found in the raw Windows drive-root signature: the
+# drive token was recognized only at character zero, so an allowlisted public
+# slash root (``provider/``, ``cmm/``) could carry one unclassified.  It is
+# re-derived here in both directions: every top-level and wrapped drive-root
+# spelling must be refused through the connected boundary, on every shared
+# identifier-bearing channel and in both official repositories, while every
+# public-safe logical reference, every credential-free URI and every
+# segment-boundary non-drive colon keeps persisting with identity, correlation
+# and causation unchanged.  The durable store itself proves "refused before
+# persistence".
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Raw drive-root references the frozen contract already refused at character
+#: zero.  They are the retained controls the wrapped forms must match.
+AT_DP_122_V10_TOP_LEVEL = (
+    pytest.param("C:/Windows/System32/config/SAM", id="top_level_windows_sam"),
+    pytest.param("D:/private/example", id="top_level_other_drive"),
+    pytest.param("Z:/tmp/example", id="top_level_last_drive"),
+)
+
+#: The wrapped drive-root references the independent Re-audit V10 demonstrated
+#: being accepted and durably persisted through the real composition.
+AT_DP_122_V10_REPORTED_WRAPPED = (
+    pytest.param("provider/C:/Windows/System32/config/SAM", id="provider_windows_sam"),
+    pytest.param("cmm/C:/Windows/System32/config/SAM", id="cmm_windows_sam"),
+    pytest.param(
+        "provider//C:/Windows/System32/config/SAM", id="provider_repeat_separator"
+    ),
+    pytest.param(
+        "provider/./C:/Windows/System32/config/SAM", id="provider_current_dir"
+    ),
+    pytest.param(
+        "provider/C:/Windows/System32/config/SECURITY", id="provider_windows_security"
+    ),
+)
+
+#: Fresh connected probes: wrapped drives and locations no literal names.
+AT_DP_122_V10_FRESH_WRAPPED = (
+    pytest.param("provider/D:/private/example", id="fresh_provider_other_drive"),
+    pytest.param("cmm/Z:/tmp/example", id="fresh_cmm_last_drive"),
+    pytest.param("provider/c:/Windows/System32/config/SAM", id="fresh_lowercase_drive"),
+    pytest.param("cmm/E:/ProgramData/Example/config.xml", id="fresh_cmm_programdata"),
+    pytest.param("provider/A:/boot/grub/grub.cfg", id="fresh_provider_boot"),
+)
+
+#: Every raw drive-root reference the connected boundary must refuse.
+AT_DP_122_V10_ALL_DRIVE_ROOTS = (
+    AT_DP_122_V10_TOP_LEVEL
+    + AT_DP_122_V10_REPORTED_WRAPPED
+    + AT_DP_122_V10_FRESH_WRAPPED
+)
+
+#: Families of spellings of one unsafe drive-root reference.  Every member must
+#: receive the identical connected verdict, so a repeated separator, a ``.``
+#: current-directory segment, a trailing separator, a case-varied wrapper or a
+#: case-varied drive letter cannot smuggle one past the boundary.
+AT_DP_122_V10_EQUIVALENCE_FAMILIES = (
+    pytest.param(
+        (
+            "provider/C:/Windows/System32/config/SAM",
+            "provider//C:/Windows/System32/config/SAM",
+            "provider/./C:/Windows/System32/config/SAM",
+            "provider/C:/Windows/System32/config/SAM/",
+            "PROVIDER/C:/Windows/System32/config/SAM",
+        ),
+        id="provider_windows_family",
+    ),
+    pytest.param(
+        (
+            "cmm/C:/Windows/System32/config/SAM",
+            "cmm//C:/Windows/System32/config/SAM",
+            "cmm/./C:/Windows/System32/config/SAM",
+            "CMM/C:/Windows/System32/config/SAM",
+        ),
+        id="cmm_windows_family",
+    ),
+    pytest.param(
+        (
+            "C:/Windows/System32/config/SAM",
+            "C://Windows/System32/config/SAM",
+            "c:/Windows/System32/config/SAM",
+        ),
+        id="top_level_windows_family",
+    ),
+    pytest.param(
+        (
+            "provider/D:/private/example",
+            "provider//D:/private/example",
+            "provider/./D:/private/example",
+            "provider/d:/private/example",
+        ),
+        id="provider_other_drive_family",
+    ),
+)
+
+#: Every V10 adversarial value, with the plain-text marker it would leak.
+AT_DP_122_V10_ADVERSARIAL = (
+    pytest.param(
+        "provider/C:/Windows/System32/config/SAM", "SAM", id="wrapped_windows_sam"
+    ),
+    pytest.param(
+        "cmm/C:/Windows/System32/config/SECURITY",
+        "SECURITY",
+        id="wrapped_windows_security",
+    ),
+    pytest.param(
+        "provider/C:/Windows/System32/config/SAM", "System32", id="wrapped_system32"
+    ),
+    pytest.param(
+        "cmm/E:/ProgramData/Example/config.xml", "ProgramData", id="fresh_programdata"
+    ),
+    pytest.param("provider/A:/boot/grub/grub.cfg", "grub.cfg", id="fresh_boot_config"),
+)
+
+#: Public references and credential-free URIs the V10 rule must keep, including
+#: segment-boundary colons that are not drive-root syntax (``provider/a:1/model``)
+#: and the retained V9 ``file:``-token-as-logical-scheme controls.
+AT_DP_122_V10_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("provider//model", id="provider_repeat_separator"),
+    pytest.param("provider/./model", id="provider_current_dir"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("provider/a:1/model", id="segment_colon_not_drive_root"),
+    pytest.param("cmm/v2:3/detail", id="segment_version_colon"),
+    pytest.param("cmm/orchestration:step", id="segment_word_colon"),
+    pytest.param("workflow:file:123", id="colon_logical_file_token"),
+    pytest.param("req:file:mod", id="colon_logical_file_token_nested"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("http://localhost:8080/health", id="credential_free_host_port"),
+    pytest.param("postgres://example.com/db", id="credential_free_postgres"),
+    pytest.param("jdbc:postgresql://example.com/db", id="credential_free_jdbc"),
+    pytest.param(
+        "provider/https://example.com/model", id="credential_free_prefixed_https"
+    ),
+)
+
+_AT_DP_122_V10_SHARED_CHANNEL_IDS = [case[0] for case in AT_DP_122_V7_SHARED_CHANNELS]
+_AT_DP_122_V10_EQUIVALENCE_IDS = [
+    case.id for case in AT_DP_122_V10_EQUIVALENCE_FAMILIES
+]
+_AT_DP_122_V10_ADVERSARIAL_IDS = [case.id for case in AT_DP_122_V10_ADVERSARIAL]
+_AT_DP_122_V10_CHANNEL_REFERENCE_IDS = [
+    case.id for case in AT_DP_122_V10_REPORTED_WRAPPED
+]
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V10_ALL_DRIVE_ROOTS)
+def test_at_dp_122_v10_drive_root_reference_is_refused_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V10-001: every top-level and wrapped raw drive root is refused."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v10-at-drive-root"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", {"request_id": reference}, event_id=event_id)
+
+    assert system.repository.get(event_id) is None
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=_AT_DP_122_V10_SHARED_CHANNEL_IDS,
+)
+@pytest.mark.parametrize(
+    "reference",
+    AT_DP_122_V10_REPORTED_WRAPPED,
+    ids=_AT_DP_122_V10_CHANNEL_REFERENCE_IDS,
+)
+def test_at_dp_122_v10_wrapped_drive_root_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V10-001: all 13 shared channels refuse, not just ``request_id``."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v10-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", payload, event_id=event_id, **header_facts)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    "family",
+    AT_DP_122_V10_EQUIVALENCE_FAMILIES,
+    ids=_AT_DP_122_V10_EQUIVALENCE_IDS,
+)
+def test_at_dp_122_v10_equivalent_spellings_share_one_connected_verdict(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V10-001: one drive, one connected verdict — no admitted spelling."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in family:
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v10-at-equivalence",
+            )
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V10_ADVERSARIAL,
+    ids=_AT_DP_122_V10_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v10_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V10-001: refusal leaves no location marker in the store or the error."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received", {"request_id": reference}, event_id="evt-v10-at-durable"
+        )
+
+    assert marker not in str(captured.value)
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v10_both_official_repositories_refuse_a_wrapped_drive_root(
+    connected,
+) -> None:
+    """MAJOR-V10-001: the refusal is repository-independent.
+
+    The connected acceptance runs the official file-backed repository.  The
+    official in-memory repository is exercised beside it so "the durable store was
+    never the safety boundary" holds for both canonical implementations.
+    """
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+    from tests.events.test_phase11_22_event_system import build_system
+
+    durable_system = connected["system"]
+    memory_system = build_system(repository=InMemoryAgentRuntimeEventRepository())
+    before_durable = durable_system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "provider/C:/Windows/System32/config/SAM",
+        "cmm/D:/private/example",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            memory_system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v10-at-memory",
+            )
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            durable_system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v10-at-durable-repo",
+            )
+
+    assert memory_system.repository.count() == 0
+    assert memory_system.dead_letter_count() == 0
+    assert durable_system.repository.count() == before_durable
+    assert durable_system.dead_letter_count() == 0
+    assert durable_system.repository.get("evt-v10-at-durable-repo") is None
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V10_LEGITIMATE)
+def test_at_dp_122_v10_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V10-001 control: the drive-root rule does not over-correct."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v10-at-ok-{uuid.uuid4().hex[:10]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v10-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        correlation_id="CORR-V10-AT",
+        causation_id="CAUSE-V10-AT",
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert reopened.header.correlation_id == "CORR-V10-AT"
+    assert reopened.header.causation_id == "CAUSE-V10-AT"
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference", AT_DP_122_V10_REPORTED_WRAPPED + AT_DP_122_V10_FRESH_WRAPPED
+)
+def test_at_dp_122_v10_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V10-001: the real production adapter cannot persist the shape either."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v10-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V10_ADVERSARIAL,
+    ids=_AT_DP_122_V10_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v10_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V10-001: the real Orchestrator's mandatory emission refuses them."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v10_the_refusal_message_never_echoes_the_location(
+    connected,
+) -> None:
+    """MAJOR-V10-001: the boundary refuses the location without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "provider/C:/Windows/System32/config/SAM",
+        "cmm/C:/Windows/System32/config/SECURITY",
+        "provider/D:/private/example",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v10-at-echo",
+            )
+        message = str(captured.value)
+        assert reference not in message
+        assert "private filesystem location" in message
+
+
+def test_at_dp_122_v10_retains_the_v9_controls_it_builds_on(connected) -> None:
+    """MAJOR-V10-001 control: the frozen V9 ``file:`` and civil-time rules still hold."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "provider/file:/boot/grub/grub.cfg",
+        "file:/etc/shadow",
+        "safe/etc//shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v10-at-v9-regression",
+            )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v10-at-v9-ts", "occurred_at": "2026-09-27T24:00:00Z"},
+            event_id="evt-v10-at-v9-ts",
+        )
+
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert system.repository.count() == 0
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v10-at-v9-control",
+            "workflow_id": "provider/model",
+            "occurred_at": "2026-09-27T23:59:59Z",
+        },
+        event_id="evt-v10-at-v9-control",
+        aggregate_id="cmm/orchestration/step",
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v10-at-v9-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/orchestration/step"
+    assert stored.header.workflow_id == "provider/model"
+    assert stored.header.occurred_at == datetime(
+        2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
+    )
