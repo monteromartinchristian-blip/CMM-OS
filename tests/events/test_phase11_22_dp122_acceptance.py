@@ -3395,3 +3395,523 @@ def test_at_dp_122_v7_retains_the_two_v6_controls_it_builds_on(connected) -> Non
     stored = system.repository.get("evt-v7-at-v6-control")
     assert stored is not None
     assert stored.header.aggregate_id == "cmm/orchestration/step"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V8 — AT-DP-122 additions for the two V8 majors
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V8-001 is the *classification* defect, so it is re-derived here in two
+# directions: every lexically equivalent spelling of one non-public location must
+# receive one identical verdict, and every strong system/private path form the V8
+# audit probed must be refused through the connected boundary.  MAJOR-V8-002 is
+# re-derived for the wrapped, prefixed and later-occurrence authority forms.  Both
+# are driven across every shared persisted identifier channel so "not a
+# ``request_id``-only patch" is an executable claim, and the real orchestration
+# path is exercised end to end so "refused before persistence" is proven by the
+# durable store itself.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The exact path-equivalent spellings the independent Re-audit V8 published.
+AT_DP_122_V8_PATH_EQUIVALENT = (
+    pytest.param("safe/etc//shadow", id="etc_repeat_separator"),
+    pytest.param("safe/etc/./shadow", id="etc_current_dir"),
+    pytest.param("safe/private//var/db/keychains", id="private_repeat_separator"),
+    pytest.param("safe/private/./var/db/keychains", id="private_current_dir"),
+)
+
+#: The strong non-public system/private path forms fresh V8 probing found.
+AT_DP_122_V8_STRONG_NON_PUBLIC = (
+    pytest.param("proc/self/environ", id="proc_self_environ"),
+    pytest.param("etc/ssh/ssh_host_rsa_key", id="etc_ssh_host_key"),
+    pytest.param("Windows/System32/config/SAM", id="windows_sam"),
+    pytest.param("Library/Keychains/login.keychain-db", id="macos_keychain"),
+)
+
+#: Non-public path spellings that only *contain* a URI authority marker.  Under
+#: POSIX path semantics ``a://x`` names ``a/x``, so a value must not be exempted
+#: from filesystem classification merely because a ``://`` occurs inside it.
+AT_DP_122_V8_URI_SUFFIXED = (
+    pytest.param("proc/self/environ://x", id="proc_environ_uri_suffix"),
+    pytest.param("etc/shadow://x", id="etc_shadow_uri_suffix"),
+    pytest.param("safe/etc/./shadow://x", id="etc_current_dir_uri_suffix"),
+    pytest.param("Windows/System32/config/SAM://x", id="windows_sam_uri_suffix"),
+)
+
+#: Every non-public filesystem reference the connected boundary must refuse.
+AT_DP_122_V8_NON_PUBLIC = (
+    AT_DP_122_V8_PATH_EQUIVALENT
+    + AT_DP_122_V8_STRONG_NON_PUBLIC
+    + AT_DP_122_V8_URI_SUFFIXED
+)
+
+#: Families of lexically equivalent spellings of one non-public location.  Every
+#: member must receive the identical connected verdict.
+AT_DP_122_V8_PATH_EQUIVALENCE_FAMILIES = (
+    pytest.param(
+        (
+            "etc/shadow",
+            "etc//shadow",
+            "etc/./shadow",
+            "ETC/SHADOW",
+            "safe/../etc/shadow",
+        ),
+        id="etc_shadow_family",
+    ),
+    pytest.param(
+        (
+            "private/var/db/keychains",
+            "private//var/db/keychains",
+            "private/./var/db/keychains",
+            "PRIVATE/VAR/DB/KEYCHAINS",
+        ),
+        id="private_keychains_family",
+    ),
+    pytest.param(
+        ("proc/self/environ", "proc//self/./environ", "PROC/self/environ"),
+        id="proc_environ_family",
+    ),
+    pytest.param(
+        (
+            "Library/Keychains/login.keychain-db",
+            "Library//Keychains/./login.keychain-db",
+        ),
+        id="macos_keychain_family",
+    ),
+    pytest.param(
+        ("etc/shadow", "etc/shadow://x"),
+        id="uri_suffix_etc_family",
+    ),
+    pytest.param(
+        ("proc/self/environ", "proc/self/environ://x"),
+        id="uri_suffix_proc_family",
+    ),
+    pytest.param(
+        ("Windows/System32/config/SAM", "Windows/System32/config/SAM://x"),
+        id="uri_suffix_windows_family",
+    ),
+)
+
+#: The exact wrapped/nested URI userinfo credentials the independent Re-audit V8
+#: published.
+AT_DP_122_V8_WRAPPED_URI_USERINFO = (
+    pytest.param(
+        "jdbc:postgresql://alice:supersecret@example.com/db", id="jdbc_postgres"
+    ),
+    pytest.param("jdbc:mysql://root:hunter2hunter2@example.com/db", id="jdbc_mysql"),
+    pytest.param(
+        "provider/https://alice:supersecret@example.com/db", id="prefixed_https"
+    ),
+    pytest.param("foo:https://alice:supersecret@example.com/db", id="prefixed_foo"),
+)
+
+#: A value whose first authority-bearing URI is credential-free and whose later
+#: authority carries a password: a detector that stops at the first occurrence
+#: cannot see it.
+AT_DP_122_V8_LATER_AUTHORITY = (
+    pytest.param(
+        "https://example.com/db+postgres://alice:supersecret@example.com/db",
+        id="second_authority",
+    ),
+)
+
+#: Every articulated-authority credential the V8 rule must refuse.
+AT_DP_122_V8_URI_CREDENTIALS = (
+    AT_DP_122_V8_WRAPPED_URI_USERINFO + AT_DP_122_V8_LATER_AUTHORITY
+)
+
+#: Every V8 adversarial value, with the plain-text secret or marker it would leak.
+AT_DP_122_V8_ADVERSARIAL = (
+    pytest.param("safe/etc//shadow", "etc", id="equiv_etc_repeat"),
+    pytest.param("safe/etc/./shadow", "etc", id="equiv_etc_current_dir"),
+    pytest.param(
+        "safe/private//var/db/keychains", "keychain", id="equiv_private_repeat"
+    ),
+    pytest.param(
+        "safe/private/./var/db/keychains", "keychain", id="equiv_private_current_dir"
+    ),
+    pytest.param("proc/self/environ", "environ", id="proc_environ"),
+    pytest.param("etc/ssh/ssh_host_rsa_key", "ssh_host_rsa_key", id="ssh_host_key"),
+    pytest.param("Windows/System32/config/SAM", "SAM", id="windows_sam"),
+    pytest.param(
+        "Library/Keychains/login.keychain-db", "login.keychain-db", id="macos_keychain"
+    ),
+    pytest.param("proc/self/environ://x", "environ", id="proc_environ_uri_suffix"),
+    pytest.param("etc/shadow://x", "shadow", id="etc_shadow_uri_suffix"),
+    pytest.param("Windows/System32/config/SAM://x", "SAM", id="windows_sam_uri_suffix"),
+    pytest.param(
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+        "supersecret",
+        id="jdbc_postgres_credential",
+    ),
+    pytest.param(
+        "jdbc:mysql://root:hunter2hunter2@example.com/db",
+        "hunter2hunter2",
+        id="jdbc_mysql_credential",
+    ),
+    pytest.param(
+        "provider/https://alice:supersecret@example.com/db",
+        "supersecret",
+        id="prefixed_credential",
+    ),
+    pytest.param(
+        "https://example.com/db+postgres://alice:supersecret@example.com/db",
+        "supersecret",
+        id="later_authority_credential",
+    ),
+)
+
+#: Legitimate public references and credential-free URIs the V8 rules must keep,
+#: including the credential-free wrapped forms current producers can publish.
+AT_DP_122_V8_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("provider//model", id="provider_repeat_separator"),
+    pytest.param("provider/./model", id="provider_current_dir"),
+    pytest.param("cmm.orchestration", id="producer_dotted"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("events:read", id="permission_colon"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("postgres://example.com/db", id="credential_free_postgres"),
+    pytest.param("jdbc:postgresql://example.com/db", id="credential_free_jdbc"),
+    pytest.param(
+        "provider/https://example.com/db", id="credential_free_prefixed_https"
+    ),
+)
+
+
+def _at_dp_122_v8_assert_refused(connected, event_id: str, before_bytes: bytes) -> None:
+    """Assert one refused publication left the real durable store untouched."""
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V8_PATH_EQUIVALENT)
+def test_at_dp_122_v8_path_equivalent_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V8-001: a path-equivalent spelling fails closed on every channel."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v8-at-equiv-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v8_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V8_STRONG_NON_PUBLIC)
+def test_at_dp_122_v8_strong_non_public_path_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V8-001: the fail-closed classification, on every persisted channel."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v8-at-strong-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v8_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V8_WRAPPED_URI_USERINFO)
+def test_at_dp_122_v8_wrapped_uri_userinfo_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V8-002: a wrapped URI credential fails closed on every channel."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v8-at-uri-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v8_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=[case[0] for case in AT_DP_122_V7_SHARED_CHANNELS],
+)
+@pytest.mark.parametrize("reference", AT_DP_122_V8_LATER_AUTHORITY)
+def test_at_dp_122_v8_later_authority_credential_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V8-002: a credential after a credential-free authority is still seen."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v8-at-later-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            payload,
+            event_id=event_id,
+            **header_facts,
+        )
+
+    assert system.repository.count() == before, label
+    _at_dp_122_v8_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize("family", AT_DP_122_V8_PATH_EQUIVALENCE_FAMILIES)
+def test_at_dp_122_v8_path_equivalent_spellings_share_one_verdict_at_the_boundary(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V8-001: the connected boundary never disagrees with itself.
+
+    Each equivalent spelling is driven through the real durable store.  A family
+    passes only when every member is refused and no member reaches persistence, so
+    "identical safety classification" is proven against the boundary rather than
+    against a helper in isolation.
+    """
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for index, spelling in enumerate(family):
+        event_id = f"evt-v8-at-family-{index}"
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": "req-v8-at-family", "workflow_id": spelling},
+                event_id=event_id,
+                permissions=[spelling],
+                metadata={"error_type": spelling},
+            )
+        assert system.repository.get(event_id) is None, spelling
+
+    assert system.repository.count() == before
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "secret"),
+    AT_DP_122_V8_ADVERSARIAL,
+    ids=[case.id for case in AT_DP_122_V8_ADVERSARIAL],
+)
+def test_at_dp_122_v8_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, secret: str
+) -> None:
+    """MAJOR-V8-001/002: the real durable store never receives either shape."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v8-at-durable", "workflow_id": reference},
+            event_id="evt-v8-at-durable",
+            permissions=[reference],
+            metadata={"error_type": reference},
+        )
+
+    assert system.repository.count() == before
+    assert system.repository.get("evt-v8-at-durable") is None
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert secret.encode() not in store.read_bytes()
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V8_LEGITIMATE)
+def test_at_dp_122_v8_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V8-001/002 control: the V8 rules do not over-correct."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = "evt-v8-at-ok-" + reference.replace(":", "-").replace("/", "-").replace(
+        ".", "_"
+    )
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v8-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference", AT_DP_122_V8_NON_PUBLIC + AT_DP_122_V8_URI_CREDENTIALS
+)
+def test_at_dp_122_v8_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V8-001/002: the real production adapter cannot persist either shape."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v8-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "secret"),
+    AT_DP_122_V8_ADVERSARIAL,
+    ids=[case.id for case in AT_DP_122_V8_ADVERSARIAL],
+)
+def test_at_dp_122_v8_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, secret: str
+) -> None:
+    """MAJOR-V8-001/002: the real Orchestrator's mandatory emission refuses them.
+
+    The Orchestrator owns the mandatory ``orchestration.request_received`` fact, so
+    an identifier the platform boundary refuses makes the emission fail rather than
+    being silently dropped.  The observable result is a failed orchestration with
+    no durable event evidence at all — and no secret in the store.
+    """
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert secret.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v8_the_refusal_message_never_echoes_the_secret(connected) -> None:
+    """MAJOR-V8-002: the boundary refuses the credential without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+        "jdbc:mysql://root:hunter2hunter2@example.com/db",
+        "provider/https://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v8-at-echo",
+            )
+        assert "supersecret" not in str(captured.value)
+        assert "hunter2hunter2" not in str(captured.value)
+
+
+def test_at_dp_122_v8_retains_the_v7_controls_it_builds_on(connected) -> None:
+    """MAJOR-V8-001/002 control: the frozen V7 rules are still enforced."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    # The V7 reproductions are still refused through the same connected boundary...
+    for reference in (
+        "safe/../../etc/shadow",
+        "foo/../bar/../../private/var",
+        "https://admin:hunter2hunter2@example.com/path",
+        "postgres://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v8-at-v7-regression",
+            )
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+    # ...and the V7 controls the V8 rules must not break still persist.
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v8-at-v7-control", "workflow_id": "provider/model"},
+        event_id="evt-v8-at-v7-control",
+        aggregate_id="cmm/orchestration/step",
+        metadata={"origin": "orchestration"},
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v8-at-v7-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/orchestration/step"
+    assert stored.header.workflow_id == "provider/model"
