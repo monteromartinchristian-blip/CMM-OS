@@ -2882,7 +2882,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
@@ -2890,6 +2890,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Independent Re-audit V5:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`; `V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v5.md` (immutable)
 **Independent Re-audit V6:** `FAIL` — `BLOCKERS=0`, `MAJORS=3`, `MINORS=1`; `V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v6.md` (immutable)
 **Independent Re-audit V7:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`; `V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=477_PASS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v7.md` (immutable)
+**Independent Re-audit V8:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `V7_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=604_PASS`; `MAJOR_V8_001=FILESYSTEM_REFERENCE_CLASSIFIER_STILL_ACCEPTS_PATH_EQUIVALENTS_AND_UNLISTED_SENSITIVE_PATHS`, `MAJOR_V8_002=WRAPPED_OR_NESTED_URI_USERINFO_CREDENTIALS_BYPASS_IDENTIFIER_SAFETY`, `MINOR_V8_001=ROADMAP_PHASE11_SUMMARY_OMITS_REAUDIT_V7`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v8.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2902,6 +2903,8 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V5 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 **Remediation V6 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
 **Remediation V7 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
+**Remediation V8 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v8-agent-prompt.md`
+**V9 audit bundle:** `phase-11.22-event-system-audit-v9.tar.gz` from the exact Remediation V8 HEAD
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2948,6 +2951,13 @@ INDEPENDENT_REAUDIT_V7=FAIL
 V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED
 PRIOR_REMEDIATION_REGRESSIONS=477_PASS
 REMEDIATION_V7=REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V8=FAIL
+V7_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=604_PASS
+MAJOR_V8_001=REMEDIATED_REPORTED
+MAJOR_V8_002=REMEDIATED_REPORTED
+MINOR_V8_001=REMEDIATED_REPORTED
+REMEDIATION_V8=REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:

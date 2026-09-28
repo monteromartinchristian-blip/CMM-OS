@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -555,7 +555,7 @@ reached, so no repository is responsible for discovering an invalid platform num
 and the two official repositories cannot diverge. `ratio` follows the normalized
 `0.0 <= ratio <= 1.0` contract current producers actually publish.
 
-### 15.2 Non-public filesystem locations (Remediation V6, extended by V7)
+### 15.2 Non-public filesystem locations (Remediation V6, extended by V7 and V8)
 
 The identifier character set deliberately keeps `:`, `/` and `.` because
 legitimate platform references need them (`workflow:123`, `domain:legal`,
@@ -693,6 +693,8 @@ BOOLEAN_FIELDS_REQUIRE_BOOLEAN_VALUES
 NUMERIC_FIELDS_REQUIRE_NUMERIC_VALUES
 NUMERIC_LIFECYCLE_FACTS_ARE_ACTUALLY_BOUNDED
 NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
+URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER
 ONE_CANONICAL_HEADER_FACT_AUTHORITY
 NO_HEADER_PAYLOAD_SENSITIVITY_CONFLICT
 TIMESTAMP_SEMANTIC_VALIDITY
@@ -716,8 +718,11 @@ forbidden material can neither choose a lower-level entry point nor be relocated
 from `payload.data` into `metadata`, `permissions`, `producer`, `aggregate_id`,
 `source` or another persisted identifier field. A persisted identifier is a
 bounded single-token value that additionally survives the credential/private-marker
-scan, the URI userinfo credential rule and the non-public filesystem classifier
-(absolute signatures, `..` traversal segments and relative private system roots); a
+scan, the occurrence-independent URI userinfo credential rule and the non-public
+filesystem classifier, which classifies the pure lexical canonical analysis form of
+the reference (absolute signatures, `..` traversal segments, relative private system
+roots, and — since Remediation V8 — a fail-closed public-reference allowlist against
+which every lexically equivalent spelling of one location receives one verdict); a
 persisted `metadata`/`permissions` key is itself content and is judged by
 the same canonical key rule the Phase 10.33 Domain authority applies to its own
 payload and metadata keys. The durable Phase 9 repository stays a generic
@@ -759,6 +764,120 @@ Credential-free URIs stay valid (`https://example.com/model`,
 `urn:cmm:event:message.received`, `mailto:ops@example.com`), and so does
 bare-username userinfo with no password component. A password with an empty
 username (`https://:secret@example.com/db`) is still a password and is refused.
+
+### 15.6 The lexical path-analysis form and the fail-closed reference allowlist (Remediation V8)
+
+Remediation V6 and V7 built the filesystem classifier as a tuple of patterns
+matched against the **raw identifier text**. Independent Re-audit V8 showed that
+this made it a list of selected spellings rather than a classification:
+
+```text
+etc/shadow                                 refused
+etc//shadow                                ACCEPTED and durably persisted
+etc/./shadow                               ACCEPTED and durably persisted
+private/var/db/keychains                   refused
+safe/private/./var/db/keychains            ACCEPTED and durably persisted
+proc/self/environ                          ACCEPTED and durably persisted
+Windows/System32/config/SAM                ACCEPTED and durably persisted
+Library/Keychains/login.keychain-db        ACCEPTED and durably persisted
+```
+
+Two changes fix the class, not the examples, inside the **existing** identifier
+safety authority.
+
+**1. A pure lexical canonical analysis form.** `_analyze_lexical_path()` is a pure
+string transformation used only for safety classification. It normalizes `\` and
+`/` to one separator, collapses repeated separators, elides `.` current-directory
+segments and *detects* — never elides — a `..` parent segment, so traversal is
+refused before any normalization could hide it. It performs no filesystem I/O, no
+host resolution and no `Path.resolve()`, and it never mutates the identifier value
+that is persisted: the canonical form exists only inside the analysis, and a
+producer that publishes `provider//model` still stores exactly `provider//model`.
+
+**2. A fail-closed public-reference allowlist.** Classification then runs on the
+canonical form, so lexically equivalent spellings receive one identical verdict:
+
+```text
+etc/shadow, etc//shadow, etc/./shadow, ETC/SHADOW, safe/../etc/shadow
+    -> all refused, because they share the canonical form "etc/shadow"
+```
+
+A slash-bearing reference is public-safe only when its path-shaped **residue** is
+one of:
+
+```text
+empty — the value is nothing but credential-free authority-bearing URI
+         references (scheme://…), exempted only for the span they cover; or
+rooted in a declared public logical namespace
+```
+
+The residue is what remains once every authority-bearing URI reference is removed
+from the value. A value is **not** exempted merely because a `://` occurs inside
+it: under POSIX path semantics `a://x` names `a/x`, so `proc/self/environ://x`,
+`etc/shadow://x` and `Windows/System32/config/SAM://x` are refused exactly as their
+plain spellings are. Credential-free wrapped URIs still leave a clean residue
+(`jdbc:postgresql://example.com/db` leaves `jdbc:`, which carries no separator, and
+`provider/https://example.com/db` leaves `provider/`, whose root is declared).
+
+The declared namespaces are the small set a **real inventory** of every identifier
+value the whole suite routes through this shared authority found in use —
+`provider/model` and `cmm/orchestration/step` — so
+`PUBLIC_SLASH_REFERENCE_ROOTS = {cmm, provider}`. Every other slash-bearing
+spelling fails closed by default rather than being trusted for being absent from a
+pattern list, which is why `proc/self/environ`, `Windows/System32/config/SAM` and
+`Library/Keychains/login.keychain-db` are refused without a pattern being appended
+for them. The retained V6/V7 pattern tuple is unchanged in content and is now
+evaluated against the canonical form; it is explicitly **not** how the classifier
+is kept correct.
+
+A reference that carries no separator at all is not path-shaped and is not
+classified here. A wrapped `file:` authority (`x:file:///…`) is the same local
+location as a top-level one and is refused. Credential-free URIs survive, while a
+password-bearing authority is refused by the one userinfo rule below — so the
+rejection reason stays accurate rather than being reported as a path violation.
+
+Invariants:
+
+```text
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+```
+
+### 15.7 Occurrence-independent URI userinfo credentials (Remediation V8)
+
+The V7 check recognized the userinfo password structure only when the
+authority-bearing URI began at character zero, so the whole wrapper family was
+durably persisted:
+
+```text
+jdbc:postgresql://alice:supersecret@example.com/db
+jdbc:mysql://root:hunter2hunter2@example.com/db
+provider/https://alice:supersecret@example.com/db
+foo:https://alice:supersecret@example.com/db
+```
+
+`contains_uri_userinfo_credential()` is still one narrow check in the same
+authority — no second credential subsystem — but it is now
+**occurrence-independent**: it scans every authority-bearing `://` occurrence in
+the reference, splits each authority at its last `@` (where RFC 3986 ends the
+userinfo), percent-decodes that userinfo and splits it at the first `:`. A
+non-empty password component means the reference is credential material. A
+credential that appears only in a *later* authority is therefore seen too.
+
+Credential-free references are untouched, including credential-free wrapped URIs
+(`jdbc:postgresql://example.com/db`, `provider/https://example.com/db`),
+bare-username userinfo (`https://alice@example.com/db`) and an empty password
+(`https://alice:@example.com/db`). The function returns a boolean and the caller's
+rejection message remains a static literal, so the refused secret is never echoed
+into a log, an error or a DLQ record. The percent-decoding regression is retained
+at helper level even though the outer identifier grammar excludes `%`.
+
+Invariants:
+
+```text
+URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER
+CREDENTIALS_NEVER_ENTER_EVENT_PERSISTENCE
+```
 
 ## 16. Composition bindings
 
@@ -1128,10 +1247,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V8** bundle
-(`phase-11.22-event-system-audit-v8.tar.gz`, produced with `git archive` from the
-final Remediation V7 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V7_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V9** bundle
+(`phase-11.22-event-system-audit-v9.tar.gz`, produced with `git archive` from the
+final Remediation V8 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -1553,5 +1672,77 @@ not the host's filesystem, and boundary I/O would be slow and host-dependent.
 The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6 and V7
 reports, and the immutable V1–V7 bundles are preserved byte-identical. The exact
 Remediation V7 HEAD, tree and V8 bundle SHA-256 are reported in the remediation
+handoff rather than embedded here, for the same self-reference reason as the
+earlier evidence records.
+
+## 31. Remediation V8 record
+
+Independent Re-audit V8
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v8.md`) verified both V7
+findings fixed (`2/2_VERIFIED`) and preserved `604` prior remediation regressions,
+while failing the phase with two new majors and one new minor (`BLOCKERS=0`):
+
+```text
+INDEPENDENT_REAUDIT_V8=FAIL
+V7_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=604_PASS
+MAJOR_V8_001=FILESYSTEM_REFERENCE_CLASSIFIER_STILL_ACCEPTS_PATH_EQUIVALENTS_AND_UNLISTED_SENSITIVE_PATHS
+MAJOR_V8_002=WRAPPED_OR_NESTED_URI_USERINFO_CREDENTIALS_BYPASS_IDENTIFIER_SAFETY
+MINOR_V8_001=ROADMAP_PHASE11_SUMMARY_OMITS_REAUDIT_V7
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V8_ONLY
+```
+
+Remediation V8 fixed exactly those three findings under strict TDD — a red
+reproduction suite first (`234 failed / 47 passed`), then the minimum fix in the
+existing authority:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V8-001` | the V6/V7 classifier matched the **raw identifier text**, so it was a list of selected spellings rather than a classification. Lexically equivalent forms of one location disagreed — `etc/shadow` was refused while `etc//shadow` and `etc/./shadow` were durably persisted, `private/var/db/keychains` was refused while `safe/private/./var/db/keychains` was persisted — and unmistakable system locations no pattern named (`proc/self/environ`, `etc/ssh/ssh_host_rsa_key`, `Windows/System32/config/SAM`, `Library/Keychains/login.keychain-db`) were durably persisted through every shared identifier channel | one **pure lexical canonical analysis form** (`_analyze_lexical_path()`: separators normalized, repeated separators collapsed, `.` elided, `..` detected before any elision, no I/O, no `Path.resolve()`, no mutation of the persisted value) plus a **fail-closed public-reference allowlist**: a slash-bearing reference is public-safe only when it is a credential-free authority-bearing URI reference or is rooted in a declared public logical namespace (`PUBLIC_SLASH_REFERENCE_ROOTS = {cmm, provider}`, the complete set a real inventory of every identifier value the suite routes through the authority found in use). The retained V6/V7 pattern tuple is unchanged in content and now evaluated against the canonical form. Every other slash-bearing spelling fails closed, so an unlisted local/system path cannot enter persistence because no pattern was appended for it |
+| `MAJOR-V8-002` | the V7 userinfo rule recognized a password-bearing authority only when the URI began at character zero, so `jdbc:postgresql://alice:supersecret@example.com/db`, `jdbc:mysql://root:hunter2hunter2@example.com/db`, `provider/https://alice:supersecret@example.com/db` and `foo:https://alice:supersecret@example.com/db` qualified as safe identifiers and were durably persisted | the same `contains_uri_userinfo_credential()` check made **occurrence-independent**: every authority-bearing `://` occurrence is visited, each authority is split at its last `@`, the userinfo is percent-decoded and split at the first `:`, and a non-empty password component refuses the reference. A credential appearing only in a later authority is seen. Credential-free URIs, credential-free wrapped URIs, bare-username userinfo and an empty password stay valid. Returns a boolean; the rejection message is a static literal, so the secret is never echoed. No second credential policy |
+| `MINOR-V8-001` | the high-level Phase 11 row in `ROADMAP.md` summarized the Phase 11.22 audit history only through Re-audit V6 and "all six", contradicting the detailed Phase 11.22 line, the detailed Phase 11 roadmap, the requirements matrix, the implementation evidence and the committed immutable V7 re-audit report | the high-level row now states Re-audits `V2/V3/V4/V5/V6/V7` and "was remediated after all seven", and additionally records the Re-audit V8 failure and the Remediation V8 state. No historical audit artifact was rewritten |
+
+Both production rules live in `validate_platform_identifier()`, the single shared
+authority used by payload identifier fields, the canonical header facts,
+`permissions`, identifier-classified metadata facts and nested structured
+references, so no channel can be patched alone. No second path policy, credential
+scanner, URI registry or identifier subsystem was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS` remains `0`.
+
+```text
+REMEDIATION_V8_TESTS=289 passed (initial red 234 failed / 47 passed on the 281-case module; the 8 URI-suffix residue reproductions added under TDD were independently red before their fix)
+PRIOR_REMEDIATION_REGRESSIONS=604 collected, 603 passed, 1 pre-existing interpreter-dependent failure
+REMEDIATION_V1_TO_V8_REGRESSIONS=893 collected, 892 passed, 1 pre-existing interpreter-dependent failure
+PHASE_SUITE=tests/events/ 1984 collected, 1983 passed, 1 pre-existing interpreter-dependent failure
+AT_DP_122=474 passed (250 prior + 224 V8)
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+CLOSED_PHASE_ACCEPTANCES=310 passed
+CLOSED_PHASE_SUPPORT=1077 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+GLOBAL_PYTEST=24066 collected, 24065 passed, 1 warning, 1 pre-existing interpreter-dependent failure
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V8 baseline 810, no new debt)
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+```
+
+The lexical path rule and the fail-closed classification are documented in
+§15.6, and the occurrence-independent userinfo rule in §15.7. Both were chosen
+over broader alternatives: banning every `/`, `:` or `@` was rejected because the
+producer inventory proves legitimate references genuinely need those characters,
+real path resolution and filesystem inspection were rejected because the frozen
+requirement concerns the public-safety of the token rather than the host's
+filesystem, and a `contains ":" and "@"` userinfo heuristic was rejected because
+the URI grammar names the component after the `:` — the rule stays structural.
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6, V7 and V8
+reports, and the immutable V1–V8 bundles are preserved byte-identical. The exact
+Remediation V8 HEAD, tree and V9 bundle SHA-256 are reported in the remediation
 handoff rather than embedded here, for the same self-reference reason as the
 earlier evidence records.
