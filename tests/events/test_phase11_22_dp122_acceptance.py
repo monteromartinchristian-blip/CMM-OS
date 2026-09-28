@@ -3915,3 +3915,546 @@ def test_at_dp_122_v8_retains_the_v7_controls_it_builds_on(connected) -> None:
     assert stored is not None
     assert stored.header.aggregate_id == "cmm/orchestration/step"
     assert stored.header.workflow_id == "provider/model"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V9 — AT-DP-122 additions for the two V9 findings
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V9-001 is a *structural classifier* defect, so it is re-derived here in
+# both directions: every unsafe top-level and wrapped ``file:`` reference must be
+# refused through the connected boundary, on every shared identifier-bearing
+# channel, and every public-safe logical and credential-free URI reference must
+# keep persisting unchanged.  MAJOR-V9-002 is re-derived for the retained V6
+# end-of-day case and its adjacent spellings, with the ``23:59:59`` and next-day
+# ``00:00:00`` controls proving the bound did not over-correct.  In both cases the
+# durable store itself proves "refused before persistence".
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The wrapped non-authority ``file:`` references the independent Re-audit V9
+#: demonstrated being accepted and durably persisted through the real composition.
+AT_DP_122_V9_REPORTED_WRAPPED = (
+    pytest.param(
+        "provider/file:C:/Windows/System32/config/SAM", id="provider_windows_sam"
+    ),
+    pytest.param("cmm/file:C:/Windows/System32/config/SAM", id="cmm_windows_sam"),
+    pytest.param(
+        "provider/file:C:/Windows/System32/config/SECURITY",
+        id="provider_windows_security",
+    ),
+    pytest.param(
+        "provider/file:/Windows/System32/config/SAM",
+        id="provider_relative_windows_sam",
+    ),
+    pytest.param(
+        "provider/file:C:/ProgramData/Microsoft/Crypto/RSA/MachineKeys",
+        id="provider_machine_keys",
+    ),
+)
+
+#: The POSIX and macOS wrapped forms of the same structural defect.
+AT_DP_122_V9_POSIX_AND_MACOS = (
+    pytest.param("provider/file:/etc/shadow", id="provider_posix_etc_shadow"),
+    pytest.param(
+        "provider/file:/Library/Keychains/login.keychain-db",
+        id="provider_macos_keychain",
+    ),
+    pytest.param(
+        "cmm/file:/Library/Keychains/login.keychain-db", id="cmm_macos_keychain"
+    ),
+    pytest.param("cmm/file:/private/var/db/keychains", id="cmm_posix_private"),
+    pytest.param(
+        "provider/file:C:/Users/alice/.ssh/id_rsa", id="provider_windows_home_key"
+    ),
+)
+
+#: Unsafe top-level ``file:`` references.  The frozen contract already refused
+#: these, and the V9 fix must keep refusing them.
+AT_DP_122_V9_TOP_LEVEL = (
+    pytest.param("file:/etc/shadow", id="top_level_posix"),
+    pytest.param("file:///etc/shadow", id="top_level_authority"),
+    pytest.param("file:C:/Windows/System32/config/SAM", id="top_level_windows"),
+)
+
+#: Fresh connected probes: wrapped locations no pattern, list or literal names.
+AT_DP_122_V9_FRESH = (
+    pytest.param("provider/file:/boot/grub/grub.cfg", id="fresh_boot_config"),
+    pytest.param(
+        "cmm/file:/Applications/Secrets.app/Contents/Resources/key", id="fresh_app_key"
+    ),
+)
+
+#: Every ``file:`` reference the connected boundary must refuse.
+AT_DP_122_V9_ALL_FILE_URIS = (
+    AT_DP_122_V9_TOP_LEVEL
+    + AT_DP_122_V9_REPORTED_WRAPPED
+    + AT_DP_122_V9_POSIX_AND_MACOS
+    + AT_DP_122_V9_FRESH
+)
+
+#: Families of spellings of one unsafe local ``file:`` reference.  Every member must
+#: receive the identical connected verdict, so a repeated separator, a ``.``
+#: current-directory segment, a trailing separator, a case-varied scheme or a
+#: case-varied wrapper cannot smuggle one past the boundary.
+AT_DP_122_V9_EQUIVALENCE_FAMILIES = (
+    pytest.param(
+        (
+            "provider/file:C:/Windows/System32/config/SAM",
+            "provider//file:C:/Windows/System32/config/SAM",
+            "provider/./file:C:/Windows/System32/config/SAM",
+            "provider/file:C:/Windows/System32/config/SAM/",
+            "PROVIDER/FILE:C:/Windows/System32/config/SAM",
+        ),
+        id="provider_windows_family",
+    ),
+    pytest.param(
+        (
+            "cmm/file:C:/Windows/System32/config/SAM",
+            "cmm//file:C:/Windows/System32/config/SAM",
+            "cmm/./file:C:/Windows/System32/config/SAM",
+            "CMM/File:C:/Windows/System32/config/SAM",
+        ),
+        id="cmm_windows_family",
+    ),
+    pytest.param(
+        (
+            "provider/file:/etc/shadow",
+            "provider//file:/etc/shadow",
+            "provider/./file:/etc/shadow",
+            "file:/etc/shadow",
+            "File:/etc/shadow",
+        ),
+        id="etc_shadow_family",
+    ),
+    pytest.param(
+        (
+            "provider/file:/Library/Keychains/login.keychain-db",
+            "provider//file:/Library/Keychains/login.keychain-db",
+            "provider/./file:/Library/Keychains/login.keychain-db",
+        ),
+        id="macos_keychain_family",
+    ),
+)
+
+#: Every V9 adversarial value, with the plain-text marker it would leak.
+AT_DP_122_V9_ADVERSARIAL = (
+    pytest.param(
+        "provider/file:C:/Windows/System32/config/SAM", "SAM", id="wrapped_windows_sam"
+    ),
+    pytest.param(
+        "cmm/file:C:/Windows/System32/config/SECURITY",
+        "SECURITY",
+        id="wrapped_windows_security",
+    ),
+    pytest.param(
+        "provider/file:C:/ProgramData/Microsoft/Crypto/RSA/MachineKeys",
+        "MachineKeys",
+        id="wrapped_machine_keys",
+    ),
+    pytest.param(
+        "provider/file:/Library/Keychains/login.keychain-db",
+        "login.keychain-db",
+        id="wrapped_macos_keychain",
+    ),
+    pytest.param(
+        "provider/file:/boot/grub/grub.cfg", "grub.cfg", id="fresh_boot_config"
+    ),
+)
+
+#: Public references and credential-free URIs the V9 rule must keep, including the
+#: colon-bearing logical identifiers whose ``file`` token does not begin a segment.
+AT_DP_122_V9_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("provider//model", id="provider_repeat_separator"),
+    pytest.param("provider/./model", id="provider_current_dir"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("workflow:file:123", id="colon_logical_file_token"),
+    pytest.param("req:file:mod", id="colon_logical_file_token_nested"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("postgres://example.com/db", id="credential_free_postgres"),
+    pytest.param("jdbc:postgresql://example.com/db", id="credential_free_jdbc"),
+    pytest.param(
+        "provider/https://example.com/model", id="credential_free_prefixed_https"
+    ),
+)
+
+#: The retained V6 civil-time case and the adjacent end-of-day spellings CPython
+#: 3.14 also accepts through ``datetime.fromisoformat``.
+AT_DP_122_V9_END_OF_DAY = (
+    pytest.param("2026-09-27T24:00:00Z", id="retained_v6_case"),
+    pytest.param("2026-09-27T24:00Z", id="end_of_day_minute_precision"),
+    pytest.param("2026-09-27T24:00:00+00:00", id="end_of_day_explicit_offset"),
+    pytest.param("2026-09-27 24:00:00Z", id="end_of_day_space_separator"),
+    pytest.param("2026-09-27T24:00:00.000000Z", id="end_of_day_zero_fraction"),
+)
+
+#: Civil-time bounds that were already refused before V9.  The hour bound must not
+#: disturb them.
+AT_DP_122_V9_RETAINED_INVALID_TIMESTAMPS = (
+    pytest.param("9999-99-99T99:99Z", id="everything_invalid"),
+    pytest.param("2026-13-01T12:00:00Z", id="invalid_month"),
+    pytest.param("2026-02-31T12:00:00Z", id="invalid_day"),
+    pytest.param("2026-09-27T25:00:00Z", id="invalid_hour"),
+    pytest.param("2026-09-27T24:01:00Z", id="end_of_day_with_minutes"),
+    pytest.param("2026-09-27T12:61:00Z", id="invalid_minute"),
+    pytest.param("2026-09-27T12:00:61Z", id="invalid_second"),
+    pytest.param("2026-09-27T12:00:00+25:00", id="invalid_offset"),
+)
+
+#: Timestamps the frozen Phase 11.22 contract admits: the hour bound must reject
+#: ``24:00`` without touching the last hour of a day or the first of the next.
+AT_DP_122_V9_VALID_TIMESTAMPS = (
+    pytest.param("2026-09-27T00:00:00Z", id="day_start"),
+    pytest.param("2026-09-27T23:59:59Z", id="last_second_of_day"),
+    pytest.param("2026-09-27T23:59Z", id="last_minute_of_day"),
+    pytest.param("2026-09-28T00:00:00Z", id="next_day_start"),
+    pytest.param("2026-09-27T12:00:00.123456Z", id="fractional_precision"),
+    pytest.param("2026-09-27T12:00:00+02:00", id="positive_offset"),
+    pytest.param("2026-09-27T12:00:00-05:00", id="negative_offset"),
+    pytest.param("2026-09-27 12:00:00Z", id="space_separator"),
+)
+
+_AT_DP_122_V9_SHARED_CHANNEL_IDS = [case[0] for case in AT_DP_122_V7_SHARED_CHANNELS]
+_AT_DP_122_V9_EQUIVALENCE_IDS = [case.id for case in AT_DP_122_V9_EQUIVALENCE_FAMILIES]
+_AT_DP_122_V9_ADVERSARIAL_IDS = [case.id for case in AT_DP_122_V9_ADVERSARIAL]
+_AT_DP_122_V9_CHANNEL_REFERENCE_IDS = [
+    case.id for case in AT_DP_122_V9_REPORTED_WRAPPED
+]
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V9_ALL_FILE_URIS)
+def test_at_dp_122_v9_file_uri_reference_is_refused_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V9-001: every unsafe top-level and wrapped ``file:`` is refused."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v9-at-file-uri"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", {"request_id": reference}, event_id=event_id)
+
+    assert system.repository.get(event_id) is None
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=_AT_DP_122_V9_SHARED_CHANNEL_IDS,
+)
+@pytest.mark.parametrize(
+    "reference",
+    AT_DP_122_V9_REPORTED_WRAPPED,
+    ids=_AT_DP_122_V9_CHANNEL_REFERENCE_IDS,
+)
+def test_at_dp_122_v9_wrapped_file_uri_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V9-001: all 13 shared channels refuse, not just ``request_id``."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v9-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", payload, event_id=event_id, **header_facts)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    "family",
+    AT_DP_122_V9_EQUIVALENCE_FAMILIES,
+    ids=_AT_DP_122_V9_EQUIVALENCE_IDS,
+)
+def test_at_dp_122_v9_equivalent_spellings_share_one_connected_verdict(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V9-001: one location, one connected verdict — no admitted spelling."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in family:
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v9-at-equivalence",
+            )
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V9_ADVERSARIAL,
+    ids=_AT_DP_122_V9_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v9_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V9-001: refusal leaves no location marker in the store or the error."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received", {"request_id": reference}, event_id="evt-v9-at-durable"
+        )
+
+    assert marker not in str(captured.value)
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V9_LEGITIMATE)
+def test_at_dp_122_v9_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V9-001 control: the ``file:`` rule does not over-correct."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v9-at-ok-{reference.replace(':', '-').replace('/', '-')}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v9-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference", AT_DP_122_V9_REPORTED_WRAPPED + AT_DP_122_V9_FRESH
+)
+def test_at_dp_122_v9_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V9-001: the real production adapter cannot persist the shape either."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v9-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V9_ADVERSARIAL,
+    ids=_AT_DP_122_V9_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v9_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V9-001: the real Orchestrator's mandatory emission refuses them."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v9_the_refusal_message_never_echoes_the_location(
+    connected,
+) -> None:
+    """MAJOR-V9-001: the boundary refuses the location without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "provider/file:/boot/grub/grub.cfg",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v9-at-echo",
+            )
+        message = str(captured.value)
+        assert reference not in message
+        assert "private filesystem location" in message
+
+
+@pytest.mark.parametrize(
+    "timestamp", AT_DP_122_V9_END_OF_DAY + AT_DP_122_V9_RETAINED_INVALID_TIMESTAMPS
+)
+def test_at_dp_122_v9_invalid_civil_timestamps_are_rejected(
+    connected, timestamp: str
+) -> None:
+    """MAJOR-V9-002: ``PHASE11_22_TIMESTAMP_ACCEPTANCE_IS_INTERPRETER_VERSION_INDEPENDENT``."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v9-ts", "occurred_at": timestamp},
+            event_id="evt-v9-at-ts",
+        )
+
+    assert system.repository.get("evt-v9-at-ts") is None
+    assert system.repository.count() == before
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("timestamp", AT_DP_122_V9_END_OF_DAY)
+def test_at_dp_122_v9_end_of_day_spelling_reaches_no_persisted_channel(
+    connected, timestamp: str
+) -> None:
+    """MAJOR-V9-002: the bound holds for every canonical timestamp channel."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for key in ("occurred_at", "emitted_at"):
+        event_id = f"evt-v9-at-ts-{key}"
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": "req-v9-ts", key: timestamp},
+                event_id=event_id,
+            )
+        assert system.repository.get(event_id) is None
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert b"24:00" not in store.read_bytes()
+
+
+@pytest.mark.parametrize("timestamp", AT_DP_122_V9_VALID_TIMESTAMPS)
+def test_at_dp_122_v9_valid_timestamp_controls_persist_with_identity_intact(
+    connected, timestamp: str
+) -> None:
+    """MAJOR-V9-002 control: the hour bound leaves identity and chronology intact."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v9-at-ts-ok-{uuid.uuid4().hex[:10]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v9-ts-ok", "occurred_at": timestamp},
+        event_id=event_id,
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        correlation_id="CORR-V9-AT",
+        causation_id="CAUSE-V9-AT",
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.event_id == event_id
+    assert reopened.header.correlation_id == "CORR-V9-AT"
+    assert reopened.header.causation_id == "CAUSE-V9-AT"
+    assert reopened.header.occurred_at == datetime.fromisoformat(timestamp)
+    assert "occurred_at" not in reopened.payload.data
+
+
+def test_at_dp_122_v9_retains_the_v8_controls_it_builds_on(connected) -> None:
+    """MAJOR-V9-001/002 control: the frozen V8 rules are still enforced."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "safe/etc//shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v9-at-v8-regression",
+            )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v9-at-v8-ts", "occurred_at": "2026-09-27T12:00"},
+            event_id="evt-v9-at-v8-ts",
+        )
+
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert system.repository.count() == 0
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v9-at-v8-control",
+            "workflow_id": "provider/model",
+            "occurred_at": "2026-09-27T23:59:59Z",
+        },
+        event_id="evt-v9-at-v8-control",
+        aggregate_id="cmm/orchestration/step",
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v9-at-v8-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/orchestration/step"
+    assert stored.header.workflow_id == "provider/model"
+    assert stored.header.occurred_at == datetime(
+        2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
+    )
