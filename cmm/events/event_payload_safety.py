@@ -30,7 +30,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import unquote
 
 from cmm.domains.credential_policy import contains_high_confidence_credential
@@ -47,6 +47,7 @@ __all__ = [
     "NUMERIC_FACT_SEMANTICS",
     "PLATFORM_CONTAINER_HEADER_FIELDS",
     "PLATFORM_IDENTIFIER_HEADER_FIELDS",
+    "PUBLIC_SLASH_REFERENCE_ROOTS",
     "PlatformEventPayloadError",
     "canonical_header_fact_values",
     "canonicalize_platform_event_sensitivity",
@@ -323,6 +324,18 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: user/system location or a known secret-bearing path segment.  A legitimate
 #: reference such as ``workflow:123``, ``domain:legal`` or ``provider/model``
 #: matches none of them.
+#:
+#: Independent Re-audit V8 then showed that evaluating these patterns against the
+#: *raw* identifier text made the classifier a list of selected spellings rather
+#: than a classification: ``etc/shadow`` was refused while the lexically identical
+#: ``etc//shadow`` and ``etc/./shadow`` were durably persisted, and unlisted system
+#: roots (``proc/self/environ``, ``Windows/System32/config/SAM``,
+#: ``Library/Keychains/login.keychain-db``) matched nothing at all.  The patterns
+#: are therefore unchanged in content but are now evaluated against the canonical
+#: analysis form produced by :func:`_analyze_lexical_path`, and they are backed by
+#: the fail-closed public-reference allowlist in
+#: :func:`is_private_filesystem_reference`.  Growing this tuple is explicitly *not*
+#: how the classifier is kept correct.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A file: URI — the explicit spelling of one local filesystem location.
     re.compile(r"^file:", re.IGNORECASE),
@@ -896,53 +909,197 @@ def _scan_forbidden_content(
     _reject_non_descriptive_value(value, key)
 
 
-def is_private_filesystem_reference(value: str) -> bool:
-    """Return whether *value* syntactically denotes a non-public local path.
+#: The declared public-safe slash-bearing logical reference roots.
+#:
+#: Independent Re-audit V8 showed that the V6/V7 classifier was still a denylist of
+#: selected path *spellings*: because it matched the raw identifier text,
+#: ``etc//shadow`` and ``etc/./shadow`` were durably persisted while the lexically
+#: identical ``etc/shadow`` was refused, ``safe/private/./var/db/keychains`` was
+#: persisted while ``private/var/db/keychains`` was refused, and fresh probing
+#: persisted unmistakable system locations (``proc/self/environ``,
+#: ``Windows/System32/config/SAM``, ``Library/Keychains/login.keychain-db``) that
+#: no pattern named.
+#:
+#: The fix is a fail-closed classification of the *canonical* analysis form rather
+#: than more patterns.  A real inventory of every identifier value the whole suite
+#: routes through this authority found exactly two non-URI slash-bearing
+#: references in use — ``provider/model`` and ``cmm/orchestration/step`` — so this
+#: set is the complete declared public-safe logical namespace set and every other
+#: slash-bearing spelling fails closed by default instead of being trusted for
+#: being absent from a list.  An unlisted local/system path can therefore never
+#: enter persistence merely because no pattern was appended for it, and admitting a
+#: genuinely public namespace is a visible, deliberate edit here.
+PUBLIC_SLASH_REFERENCE_ROOTS: frozenset[str] = frozenset({"cmm", "provider"})
 
-    The classifier is narrow and fail-closed: it answers ``True`` only for strong
-    filesystem signatures (a ``file:`` URI, an absolute POSIX path, a Windows
-    drive-root path, a UNC share, a ``..`` traversal segment, a relative private
-    system root, a user-home directory, a known secret-bearing path segment or a
-    private key file name) and ``False`` for every legitimate reference shape
-    current producers publish.
+#: One authority-bearing URI reference (``scheme://authority``).
+#:
+#: The search is deliberately unanchored: a wrapped or nested reference such as
+#: ``jdbc:postgresql://alice:secret@example.com/db`` or
+#: ``provider/https://example.com/db`` carries its authority *inside* the value, so
+#: a rule that only recognized a URI at offset zero — the V7 defect — must not be
+#: reintroduced.  ``finditer`` visits every occurrence, so a credential-free
+#: authority cannot hide a password-bearing one that follows it.
+_URI_AUTHORITY_PATTERN = re.compile(
+    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*)://(?P<authority>[^/?#]*)"
+)
+
+#: One whole authority-bearing URI reference, including its path, query and
+#: fragment.  It exists to compute the *residue* a reference leaves once every URI
+#: it contains is removed, so a host path cannot hide behind a ``://`` suffix:
+#: under POSIX path semantics ``a://x`` names ``a/x``, and treating a whole value as
+#: "a URI" merely because a ``://`` occurs inside it would reopen exactly the
+#: fail-closed gap Remediation V8 closes.
+_URI_REFERENCE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^\s]*")
+
+#: The one URI scheme that names a local filesystem location.
+_FILE_URI_SCHEME = "file"
+
+
+class _LexicalPathAnalysis(NamedTuple):
+    """The pure lexical analysis form of one reference.
+
+    Produced only for safety classification; never persisted, never returned to a
+    caller and never used to rewrite the identifier a producer supplied.
+    """
+
+    #: Separators normalized, repeats collapsed, ``.`` elided, absoluteness kept.
+    canonical: str
+    #: The canonical path segments, in order, with case preserved.
+    segments: tuple[str, ...]
+    #: Whether a ``..`` parent segment occurs anywhere in the reference.
+    has_traversal: bool
+    #: Whether the reference is root-relative (``/…``) or a UNC share.
+    is_absolute: bool
+    #: Every authority-bearing URI scheme found inside the reference, lowercased.
+    schemes: tuple[str, ...]
+
+
+def _analyze_lexical_path(value: str) -> _LexicalPathAnalysis:
+    """Return the lexical canonical analysis form of *value*.
+
+    This is a pure string transformation used **only** for safety classification.
+    It performs no filesystem I/O, no host resolution and no
+    :meth:`pathlib.Path.resolve`, and it never changes the identifier value that is
+    persisted:
+
+    * ``\\`` and ``/`` are normalized to one separator, because a Windows spelling
+      is the same filesystem semantic;
+    * repeated separators are collapsed;
+    * ``.`` current-directory segments are elided;
+    * a ``..`` parent-directory segment is *detected*, never elided, so traversal
+      is refused before any normalization could hide it.
+
+    Because classification runs on this form rather than on the raw text, every
+    lexically equivalent spelling of one location receives exactly one verdict.
+    """
+
+    normalized = value.replace("\\", "/")
+    raw_segments = normalized.split("/")
+    has_traversal = any(segment == ".." for segment in raw_segments)
+    is_absolute = normalized.startswith("/")
+    segments = tuple(segment for segment in raw_segments if segment not in ("", "."))
+    canonical = ("/" if is_absolute else "") + "/".join(segments)
+    schemes = tuple(
+        match.group("scheme").lower()
+        for match in _URI_AUTHORITY_PATTERN.finditer(value)
+    )
+    return _LexicalPathAnalysis(
+        canonical=canonical,
+        segments=segments,
+        has_traversal=has_traversal,
+        is_absolute=is_absolute,
+        schemes=schemes,
+    )
+
+
+def is_private_filesystem_reference(value: str) -> bool:
+    """Return whether *value* denotes a non-public local filesystem location.
+
+    The answer is computed in two halves over the **canonical analysis form** of
+    the reference, so lexically equivalent spellings can never disagree:
+
+    1. The unconditional filesystem signatures.  A ``..`` traversal segment (found
+       before any elision), an absolute POSIX path or UNC share, the ``~`` home
+       shorthand, a Windows drive-root path, a ``file:`` URI, a bare or unknown
+       authority under the ``file`` scheme, and the retained V6/V7 sensitive
+       location signatures — all evaluated on the canonical form.
+    2. A **fail-closed public-reference allowlist**.  A slash-bearing reference is
+       public-safe only when its path-shaped **residue** is rooted in one of the
+       declared public logical namespaces
+       (:data:`PUBLIC_SLASH_REFERENCE_ROOTS`) or is empty because the value is
+       nothing but authority-bearing URI references.  Everything else fails closed,
+       so an unlisted local/system path — ``proc/self/environ``,
+       ``Windows/System32/config/SAM``, ``Library/Keychains/login.keychain-db`` —
+       is refused without a pattern being appended for it.  The residue is what
+       remains once every URI reference is removed, so a value is not exempted
+       merely because a ``://`` occurs inside it: under POSIX path semantics
+       ``a://x`` names ``a/x``.
+
+    A reference that carries no separator at all is not path-shaped and is not
+    classified here; the other identifier rules still apply to it.
     """
 
     if not isinstance(value, str) or not value:
         return False
-    return any(pattern.search(value) for pattern in _PRIVATE_FILESYSTEM_PATTERNS)
 
+    analysis = _analyze_lexical_path(value)
 
-#: A URI carrying an authority component (``scheme://…``) with userinfo before the
-#: ``@``.  The identifier grammar deliberately admits ``:``, ``/`` and ``@``
-#: because legitimate references need them, so a URI authority has to be
-#: classified *semantically* rather than character by character.  The userinfo is
-#: captured up to the first ``/``, ``?`` or ``#``, which is where RFC 3986 ends it.
-_URI_USERINFO_PATTERN = re.compile(
-    r"^[A-Za-z][A-Za-z0-9+.\-]*://(?P<userinfo>[^/?#]*)@"
-)
+    if analysis.has_traversal or analysis.is_absolute:
+        return True
+    if any(
+        pattern.search(analysis.canonical) for pattern in _PRIVATE_FILESYSTEM_PATTERNS
+    ):
+        return True
+    if any(scheme == _FILE_URI_SCHEME for scheme in analysis.schemes):
+        # A wrapped ``file:`` authority is the same local location as a top-level
+        # one, and the identifier grammar admits the wrapper.
+        return True
+
+    # Everything a reference leaves outside its authority-bearing URI components is
+    # path-shaped text, and it is classified by the same allowlist.  A value is not
+    # "a URI" merely because a ``://`` occurs inside it, so a credential-free URI
+    # reference is exempted only for the span it actually covers.  Credential-bearing
+    # userinfo is refused by the one userinfo rule, not here, so the rejection
+    # reason stays accurate.
+    masked = _URI_REFERENCE_PATTERN.sub("", value)
+    if "/" not in masked.replace("\\", "/"):
+        # The value is one or more URI references, or it carries no separator at
+        # all and is therefore not path-shaped.
+        return False
+    residue = _analyze_lexical_path(masked)
+    root = residue.segments[0].lower() if residue.segments else ""
+    return root not in PUBLIC_SLASH_REFERENCE_ROOTS
 
 
 def contains_uri_userinfo_credential(value: str) -> bool:
-    """Return whether *value* is a URI whose userinfo carries a password.
+    """Return whether *value* carries a URI authority whose userinfo has a password.
 
     Independent Re-audit V7 showed that the composed Phase 10.33 credential
     detector recognizes token formats and explicit secret markers but not the
-    structural signal ``<scheme>://<name>:<secret>@<authority>``.  That shape is
-    not a guess about a secret: the URI grammar itself names the component after
-    the ``:`` a password, and persisting it contradicts the frozen rule that
-    credentials never enter event persistence.
+    structural signal ``<scheme>://<name>:<secret>@<authority>``.  Independent
+    Re-audit V8 then showed that recognizing it only when the URI began at
+    character zero left the whole wrapper family open: connection URLs such as
+    ``jdbc:postgresql://alice:supersecret@example.com/db``,
+    ``jdbc:mysql://root:hunter2hunter2@example.com/db`` and
+    ``provider/https://alice:supersecret@example.com/db`` qualified as safe
+    identifiers and were durably persisted.
 
-    The check is deliberately narrow so credential-free URIs survive:
+    The rule is therefore structural and *occurrence-independent*: every
+    authority-bearing ``://`` occurrence inside the reference is visited, and for
+    each one the authority is split at its last ``@`` (where RFC 3986 ends the
+    userinfo), percent-decoded, and split at the first ``:``.  A non-empty password
+    component means the reference is credential material.
 
-    * it requires a real scheme and a ``//`` authority;
-    * it requires userinfo terminated by ``@``;
-    * it requires a colon inside that userinfo with a non-empty password component.
+    The check stays narrow so credential-free references survive — it requires a
+    real scheme, a ``//`` authority, userinfo terminated by ``@``, and a colon
+    inside that userinfo with a non-empty password component.  ``https://example.com/model``,
+    ``postgres://example.com/db``, ``jdbc:postgresql://example.com/db`` and a
+    bare-username userinfo such as ``https://alice@example.com/db`` therefore stay
+    valid identifiers, while the wrapped password forms above do not.
 
-    ``https://example.com/model`` and ``postgres://example.com/db`` therefore stay
-    valid identifiers, while ``https://admin:hunter2hunter2@example.com/path`` does
-    not.  The userinfo is percent-decoded before the colon test, so an encoded
-    ``%3A`` that decodes to a password separator is refused as the same credential
-    rather than being trusted because the raw text has no literal colon.
+    The userinfo is percent-decoded before the colon test, so an encoded ``%3A``
+    that decodes to a password separator is refused as the same credential rather
+    than being trusted because the raw text has no literal colon.
 
     The answer is a boolean.  The refused value is never returned, logged or
     echoed by the caller, so the password cannot leak through a rejection message.
@@ -950,11 +1107,14 @@ def contains_uri_userinfo_credential(value: str) -> bool:
 
     if not isinstance(value, str) or not value:
         return False
-    match = _URI_USERINFO_PATTERN.match(value)
-    if match is None:
-        return False
-    _name, separator, secret = unquote(match.group("userinfo")).partition(":")
-    return bool(separator) and bool(secret)
+    for match in _URI_AUTHORITY_PATTERN.finditer(value):
+        userinfo, separator, _host = match.group("authority").rpartition("@")
+        if not separator:
+            continue
+        _name, password_separator, secret = unquote(userinfo).partition(":")
+        if password_separator and secret:
+            return True
+    return False
 
 
 def validate_platform_identifier(value: object, *, field: str) -> str:
@@ -962,11 +1122,12 @@ def validate_platform_identifier(value: object, *, field: str) -> str:
 
     An identifier is a bounded, single-token value drawn from an explicit safe
     character set, and it additionally has to survive the canonical
-    credential/private-marker scan, the URI-userinfo credential rule and the
-    non-public filesystem classifier.  Legitimate references such as
-    ``workflow:123``, ``domain.execution.completed`` or ``CORR-ORIGINAL`` pass;
-    assignments, prose, credential-shaped values, URI userinfo credentials and
-    non-public local filesystem locations do not.
+    credential/private-marker scan, the occurrence-independent URI-userinfo
+    credential rule and the non-public filesystem classifier.  Legitimate
+    references such as ``workflow:123``, ``domain.execution.completed`` or
+    ``CORR-ORIGINAL`` pass; assignments, prose, credential-shaped values, URI
+    userinfo credentials — however wrapped — and non-public local filesystem
+    locations — however spelled — do not.
 
     This function is the single shared authority every persisted identifier channel
     routes through — payload identifier fields, the canonical header facts,
