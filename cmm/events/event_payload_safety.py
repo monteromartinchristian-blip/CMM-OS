@@ -345,6 +345,15 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: allowlist below and persisted.  The signature is therefore anchored at a path
 #: *segment* boundary rather than at the start of the value.  No literal was
 #: appended for any audited filename or location.
+#:
+#: Independent Re-audit V10 then showed that the *raw Windows drive-root* rule had
+#: been left with exactly the anchoring defect V9 fixed for ``file:``:
+#: ``^[A-Za-z]:[\\/]`` recognized a drive token only at character zero.  Because
+#: ``provider`` and ``cmm`` are public slash roots, ``provider/C:/Windows/System32/
+#: config/SAM`` was accepted by the wrapper allowlist and persisted.  The drive-root
+#: signature is therefore anchored at a path *segment* boundary too — the same
+#: structural repair as V9, applied to the structurally identical token.  Again no
+#: literal was appended for any audited filename, directory or drive letter.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A file: URI — the explicit spelling of one local filesystem location.  The
     # scheme token is recognized at the start of the reference **or at the start of
@@ -360,8 +369,26 @@ _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # grammar can carry a scheme token, and ``file`` is a case-insensitive URI
     # scheme, so ``FILE:`` is the same reference.
     re.compile(r"(?:^|/)file:", re.IGNORECASE),
-    # A Windows drive-root path (``C:/…``, ``C:\…``).
-    re.compile(r"^[A-Za-z]:[\\/]"),
+    # A Windows drive-root path (``C:/…``, ``C:\…``).  Like the ``file:`` scheme
+    # above, the drive token is recognized at the start of the reference **or at
+    # the start of any path segment**, never at character zero alone.  Independent
+    # Re-audit V10 showed that the outer public slash-root allowlist
+    # (:data:`PUBLIC_SLASH_REFERENCE_ROOTS`) is what made the character-zero
+    # anchoring exploitable: ``provider/C:/Windows/System32/config/SAM`` and
+    # ``cmm/C:/Windows/System32/config/SAM`` were admitted by the wrapper because
+    # no signature recognized the raw local drive the wrapper carried, and were
+    # durably persisted through every shared identifier channel.  A raw drive-root
+    # token is the same local filesystem semantic wherever the identifier grammar
+    # can carry it, so it is anchored to a segment boundary.  The rule still
+    # requires real drive-root syntax — a letter, a colon and a path separator — so
+    # ordinary colon identifiers (``workflow:123``, ``domain:legal``) and
+    # segment-boundary non-drive colons (``provider/a:1/model``) are unaffected.
+    # No literal was appended for any audited filename or location.
+    #
+    # The Windows-backslash spelling (``C:\Windows\…``) needs no widening here: the
+    # outer identifier grammar already excludes ``\``, so it is refused before this
+    # classifier is consulted — a positive fail-closed fact, not a gap.
+    re.compile(r"(?:^|/)[A-Za-z]:[\\/]"),
     # A Windows UNC share (``\\server\share``).
     re.compile(r"^\\\\"),
     # An absolute POSIX path or the ``~`` home shorthand.
@@ -1060,11 +1087,13 @@ def is_private_filesystem_reference(value: str) -> bool:
 
     1. The unconditional filesystem signatures.  A ``..`` traversal segment (found
        before any elision), an absolute POSIX path or UNC share, the ``~`` home
-       shorthand, a Windows drive-root path, a ``file:`` URI at the start of the
-       reference or at **any path-segment boundary** — so a public logical wrapper
-       cannot carry one unclassified — a bare or unknown authority under the
-       ``file`` scheme, and the retained V6/V7 sensitive location signatures — all
-       evaluated on the canonical form.
+       shorthand, a Windows drive-root path at the start of the reference or at
+       **any path-segment boundary** — so an allowlisted public logical wrapper such
+       as ``provider/`` or ``cmm/`` cannot carry a raw local drive unclassified — a
+       ``file:`` URI at the start of the reference or at **any path-segment
+       boundary**, a bare or unknown authority under the ``file`` scheme, and the
+       retained V6/V7 sensitive location signatures — all evaluated on the
+       canonical form.
     2. A **fail-closed public-reference allowlist**.  A slash-bearing reference is
        public-safe only when its path-shaped **residue** is rooted in one of the
        declared public logical namespaces
