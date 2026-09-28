@@ -354,6 +354,20 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: signature is therefore anchored at a path *segment* boundary too — the same
 #: structural repair as V9, applied to the structurally identical token.  Again no
 #: literal was appended for any audited filename, directory or drive letter.
+#:
+#: Independent Re-audit V11 then showed that the drive rule still required a path
+#: separator after the colon, so it recognized only the *rooted* spelling
+#: (``C:/name``) and not the *drive-relative* spelling Windows also defines
+#: (``C:name``, ``ntpath.splitdrive("C:Windows") == ("C:", "Windows")``).  A value
+#: such as ``C:id_rsa`` therefore matched no signature and, carrying no separator,
+#: was not treated as path-shaped either; it was durably persisted through every
+#: shared identifier channel.  The Windows drive *designator* — one letter and a
+#: colon — is now classified at the start of the whole reference, which is the only
+#: position where drive-relative syntax is meaningful and the position that leaves
+#: the deliberately preserved wrapped segment-colon logical identifiers
+#: (``provider/a:1/model``) untouched.  The rooted token keeps its separate
+#: segment-boundary rule so the V10 wrapper family is unchanged.  Still no literal
+#: was appended for any audited filename, directory or drive letter.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A file: URI — the explicit spelling of one local filesystem location.  The
     # scheme token is recognized at the start of the reference **or at the start of
@@ -369,6 +383,38 @@ _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # grammar can carry a scheme token, and ``file`` is a case-insensitive URI
     # scheme, so ``FILE:`` is the same reference.
     re.compile(r"(?:^|/)file:", re.IGNORECASE),
+    # A Windows drive *designator* at the start of the reference — the rooted
+    # spelling (``C:/Windows``) and, critically, the drive-relative spelling
+    # (``C:Windows``, ``C:id_rsa``, ``D:ProgramData``, ``C:``).  Windows treats
+    # ``C:name`` as a drive-qualified local location resolved against that drive's
+    # current directory, which the standard library confirms lexically:
+    # ``ntpath.splitdrive("C:Windows") == ("C:", "Windows")``.
+    #
+    # Independent Re-audit V11 showed that the retained drive rule below required a
+    # path separator after the drive colon, so no canonical signature recognized the
+    # drive-relative spelling at all; and because a value such as ``C:id_rsa``
+    # contains no separator, the final path-shape branch also declined to classify it
+    # as path-shaped.  ``id_rsa`` was already a sensitive private-file marker, so the
+    # drive designator was actively shielding a known private location.  The value
+    # was admitted by the identifier grammar, accepted by the canonical
+    # ``EventSystem`` and durably persisted through all 13 shared identifier channels
+    # in both official repositories and through a manual ``publish_event(...)`` call.
+    #
+    # The designator itself — a single ASCII letter and a colon — is the
+    # classification, so this rule is anchored to the **start of the whole
+    # reference** rather than to a path-segment boundary.  That anchoring is required,
+    # not incidental: drive-relative syntax only has that meaning at the start of a
+    # path, while the frozen contract deliberately preserves wrapped *segment-colon*
+    # logical identifiers (``provider/a:1/model``, ``cmm/v2:3/detail``) whose colon
+    # sits inside an allowlisted public logical wrapper.  A *rooted* drive token
+    # carried by such a wrapper stays refused by the segment-boundary rule below, so
+    # the V10 family is preserved exactly.  No literal was appended for any audited
+    # drive letter, directory or filename, and the rule widens no outer grammar.
+    #
+    # The Windows-backslash spelling (``C:\Windows``) still needs nothing here: the
+    # outer identifier grammar excludes ``\``, so it is refused before this classifier
+    # is consulted — a positive fail-closed fact, not a gap.
+    re.compile(r"^[A-Za-z]:"),
     # A Windows drive-root path (``C:/…``, ``C:\…``).  Like the ``file:`` scheme
     # above, the drive token is recognized at the start of the reference **or at
     # the start of any path segment**, never at character zero alone.  Independent
@@ -388,6 +434,14 @@ _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # The Windows-backslash spelling (``C:\Windows\…``) needs no widening here: the
     # outer identifier grammar already excludes ``\``, so it is refused before this
     # classifier is consulted — a positive fail-closed fact, not a gap.
+    #
+    # Remediation V11 added the whole-value drive-designator rule above.  The two
+    # rules are intentionally kept separate rather than merged: this signature is the
+    # V10 remediation verbatim, and the ``^`` alternative it still carries is now
+    # subsumed by the broader whole-value designator rule.  Retaining it unchanged
+    # keeps the audited V10 wrapper behaviour byte-identical and leaves each rule with
+    # its own job — the designator rule classifies a drive-qualified reference, this
+    # one refuses a *rooted* drive token carried inside an allowlisted logical wrapper.
     re.compile(r"(?:^|/)[A-Za-z]:[\\/]"),
     # A Windows UNC share (``\\server\share``).
     re.compile(r"^\\\\"),
@@ -1087,7 +1141,9 @@ def is_private_filesystem_reference(value: str) -> bool:
 
     1. The unconditional filesystem signatures.  A ``..`` traversal segment (found
        before any elision), an absolute POSIX path or UNC share, the ``~`` home
-       shorthand, a Windows drive-root path at the start of the reference or at
+       shorthand, a Windows drive *designator* at the start of the reference — which
+       covers both the rooted spelling ``C:/…`` and the drive-relative spelling
+       ``C:…`` that Re-audit V11 showed was persisted — a Windows drive-root path at
        **any path-segment boundary** — so an allowlisted public logical wrapper such
        as ``provider/`` or ``cmm/`` cannot carry a raw local drive unclassified — a
        ``file:`` URI at the start of the reference or at **any path-segment
