@@ -422,6 +422,25 @@ _SAFE_TIMESTAMP_PATTERN = re.compile(
     r"(?:Z|[+-]\d{2}:?\d{2})?$"
 )
 
+#: The largest civil hour the frozen Phase 11.22 timestamp contract admits.
+MAX_PLATFORM_CIVIL_HOUR = 23
+
+#: The civil time-of-day field of one already shape-validated persisted timestamp.
+#:
+#: ISO 8601 admits the end-of-day spelling ``24:00``, and CPython 3.14 widened
+#: ``datetime.fromisoformat`` to accept it by rolling it into the next day.
+#: Delegating the hour bound to that parser made the Phase 11.22 timestamp contract
+#: interpreter-version dependent and reopened the retained V6 civil-time regression:
+#: ``2026-09-27T24:00:00Z`` was accepted and durably persisted on the canonical
+#: runtime although the frozen contract admits only hours ``00..23``.  Independent
+#: Re-audit V9 classified that as a current Phase 11.22 contract defect, so the bound
+#: is now asserted by this authority itself, on the value's own text, before any
+#: parser is consulted.  The guard is deliberately limited to the hour: every other
+#: out-of-range month, day, minute, second, microsecond and UTC offset is refused by
+#: ``fromisoformat`` on this interpreter, so no wider parser rewrite is introduced
+#: and no legitimate timestamp changes verdict.
+_TIMESTAMP_CIVIL_TIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}[T ](?P<hour>\d{2}):")
+
 #: Upper bound for a structured reference sequence.  Bounded containers are part of
 #: the approved vocabulary; unbounded ones are not.
 MAX_PLATFORM_REFERENCE_SEQUENCE_LENGTH = 256
@@ -1356,6 +1375,13 @@ def _parse_canonical_timestamp(value: object, *, field: str) -> datetime:
     as a real calendar/time value *and* carry an explicit UTC offset.  Nothing is
     reinterpreted or normalized here: an invalid value fails closed instead of being
     silently repaired, and the caller keeps the documented canonical serialization.
+
+    Independent Re-audit V9 showed that the civil-hour bound cannot be delegated to
+    the parser either: CPython 3.14 widened ``datetime.fromisoformat`` to accept the
+    ISO end-of-day spelling ``24:00`` and roll it into the next day, which silently
+    widened the persisted Phase 11.22 contract on that interpreter alone.  The frozen
+    ``00..23`` hour range is therefore asserted here, on the value's own text, before
+    ``fromisoformat`` is consulted.
     """
 
     if not isinstance(value, str) or not value:
@@ -1370,6 +1396,18 @@ def _parse_canonical_timestamp(value: object, *, field: str) -> datetime:
         raise PlatformEventPayloadError(
             "timestamp fact must be canonical ISO-8601", key=field
         )
+    civil_time = _TIMESTAMP_CIVIL_TIME_PATTERN.match(value)
+    if civil_time is not None:
+        civil_hour = int(civil_time.group("hour"))
+        if civil_hour > MAX_PLATFORM_CIVIL_HOUR:
+            # The canonical *shape* is satisfied, but the value names an hour the
+            # frozen Phase 11.22 contract does not admit.  The check runs on the text
+            # and before the parser, so an interpreter that accepts a wider ISO form
+            # cannot widen the persisted contract —
+            # ``PHASE11_22_TIMESTAMP_ACCEPTANCE_IS_INTERPRETER_VERSION_INDEPENDENT``.
+            raise PlatformEventPayloadError(
+                "timestamp fact is not a real calendar/time value", key=field
+            )
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as exc:
