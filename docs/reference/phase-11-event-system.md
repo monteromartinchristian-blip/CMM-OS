@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -17,6 +17,7 @@
 **Remediation V8 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v8-agent-prompt.md`
 **Remediation V9 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
 **Remediation V10 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`
+**Remediation V11 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v11-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -26,13 +27,14 @@
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
 Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
 failed independent Re-audit V5, failed independent Re-audit V6, failed independent
-Re-audit V7, failed independent Re-audit V8 and failed independent Re-audit V9, and
+Re-audit V7, failed independent Re-audit V8, failed independent Re-audit V9 and
+failed independent Re-audit V10, and
 has been **remediated** after each. It is not closed, not independently verified and
 not complete: the `VERIFIED_EXISTING` marker may only be written by the independent
-re-audit of the V11 bundle. See §27 for the Remediation V4 record, §28 for the
+re-audit of the V12 bundle. See §27 for the Remediation V4 record, §28 for the
 Remediation V5 record, §29 for the Remediation V6 record, §30 for the Remediation V7
-record, §31 for the Remediation V8 record, §32 for the Remediation V9 record and §33
-for the Remediation V10 record.
+record, §31 for the Remediation V8 record, §32 for the Remediation V9 record, §33
+for the Remediation V10 record and §34 for the Remediation V11 record.
 
 ### Provenance note (recorded deviation)
 
@@ -1019,6 +1021,88 @@ NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
 PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
 ```
 
+### 15.10 Windows drive-relative references (Remediation V11)
+
+Windows defines both a drive-*root* path and a drive-*relative* path:
+
+```text
+C:/name     drive-root path
+C:name      drive-relative path
+```
+
+The second form is still a drive-qualified local filesystem reference — it resolves
+against that drive's current directory. The standard library confirms the syntax
+lexically:
+
+```text
+ntpath.splitdrive("C:Windows") = ("C:", "Windows")
+ntpath.splitdrive("C:id_rsa")  = ("C:", "id_rsa")
+```
+
+The V10 drive rule required a path separator after the colon, so no canonical
+signature recognized the drive-relative spelling; and because a value such as
+`C:id_rsa` contains no separator at all, the final path-shape branch also declined to
+treat it as path-shaped and returned "not a private filesystem reference". The
+following were therefore classified as public-safe, admitted by
+`validate_platform_identifier()`, published by the canonical `EventSystem` and
+durably appended — across all 13 shared identifier-bearing channels, in both official
+repositories and through a manual `publish_event(...)` call:
+
+```text
+C:Windows
+C:id_rsa
+C:.ssh
+D:ProgramData
+Z:tmp
+```
+
+`id_rsa` was already a sensitive private-file marker in `_PRIVATE_FILESYSTEM_PATTERNS`,
+so the drive-designator colon was shielding a known private location. Remediation V11
+is a one-line structural classification of the drive **designator** inside the same
+`_PRIVATE_FILESYSTEM_PATTERNS` tuple and the same classifier:
+
+```python
+re.compile(r"^[A-Za-z]:")
+```
+
+The rule is anchored to the **start of the whole reference** rather than to a
+path-segment boundary, for two reasons that the frozen contract makes mandatory:
+
+* drive-relative syntax only has that meaning at the start of a path;
+* the contract deliberately preserves wrapped *segment-colon* logical identifiers
+  (`provider/a:1/model`, `provider/x:0/step`, `cmm/v2:3/detail`,
+  `cmm/orchestration:step`), whose colon sits inside an allowlisted public logical
+  wrapper. A segment-boundary rule would refuse them.
+
+The retained V10 segment-boundary drive-root signature is unchanged, so a *rooted*
+drive token carried by an allowlisted wrapper (`provider/C:/Windows/…`, the whole V10
+family) keeps its audited verdict. The rule is evaluated on the canonical lexical
+analysis form **before** any separator heuristic or the generic "no separator means
+not path-shaped" escape, so the bare designator (`C:`, the drive's current
+directory), lowercase drive letters (`c:id_rsa`) and unnamed drives and remainders
+(`C:a`, `X:foo.bar`, `E:secret.txt`) receive the identical verdict. No literal was
+appended for `Windows`, `ProgramData`, `id_rsa`, `.ssh` or `tmp`, no filesystem I/O
+and no `Path.resolve()` is used, no identifier grammar was widened, and no accepted
+identifier is rewritten. Multi-letter colon identifiers (`workflow:123`,
+`domain:legal`, `events:read`), wrapped segment-colon logical identifiers
+(`provider/a:1/model`, `cmm/v2:3/detail`), the V9 `file:`-token-as-logical-scheme
+controls (`workflow:file:123`, `req:file:mod`), plain slash references
+(`provider/model`, `cmm/orchestration/step`) and credential-free URIs
+(`https://example.com/model`, `provider/https://example.com/model`,
+`jdbc:postgresql://example.com/db`) all keep their verdicts. Windows drive-relative
+**backslash** spellings (`C:\Windows`) are refused earlier by the identifier
+character set; that is a positive fail-closed fact and the grammar was not widened
+for them.
+
+Invariants:
+
+```text
+WINDOWS_DRIVE_RELATIVE_REFERENCES_NEVER_ENTER_EVENT_PERSISTENCE
+WINDOWS_DRIVE_DESIGNATOR_PATHS_ARE_CLASSIFIED_BEFORE_SEPARATOR_HEURISTICS
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
+```
+
 ## 16. Composition bindings
 
 One Phase 11.1 module, `phase11_22_events`, owned by `cmm.events`, contributing
@@ -1362,14 +1446,14 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9 and V10 change, is Ruff-clean. The
-global count after Remediation V10 is `810`: identical to the audited V1 HEAD, to the
-V5, V6, V7, V8 and V9 figures, and one below the frozen baseline. The only delta
-against the baseline is one pre-existing violation removed while editing
+Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9, V10 and V11 change, is Ruff-clean.
+The global count after Remediation V11 is `810`: identical to the audited V1 HEAD, to
+the V5, V6, V7, V8, V9 and V10 figures, and one below the frozen baseline. The only
+delta against the baseline is one pre-existing violation removed while editing
 `tests/conftest.py` to add the test data-directory isolation fixture. No unrelated
 violation was fixed, no global auto-fix was run, and no file outside the Phase 11.22
-delta was touched. Every changed and created V10 file is also `ruff format --check`
--clean, so the V10 formatting pass introduced no unrelated churn.
+delta was touched. Every changed and created V11 file is also `ruff format --check`
+-clean, so the V11 formatting pass introduced no unrelated churn.
 
 ## 22. Known non-goals and limitations
 
@@ -1401,10 +1485,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V11** bundle
-(`phase-11.22-event-system-audit-v11.tar.gz`, produced with `git archive` from the
-final Remediation V10 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V10_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V12** bundle
+(`phase-11.22-event-system-audit-v12.tar.gz`, produced with `git archive` from the
+final Remediation V11 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -2062,3 +2146,85 @@ Audit V1 report, the immutable Re-audit V2–V10 reports, and the immutable V1�
 bundles are preserved byte-identical. The exact Remediation V10 HEAD, tree and V11
 bundle SHA-256 are reported in the remediation handoff rather than embedded here, for
 the same self-reference reason as the earlier evidence records.
+
+## 34. Remediation V11 record
+
+Independent Re-audit V11
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v11.md`) verified the
+single V10 finding fixed (`1/1_VERIFIED`) and preserved the prior remediation
+regressions, while failing the phase with one new major, no minors and no blockers:
+
+```text
+INDEPENDENT_REAUDIT_V11=FAIL
+V10_FINDINGS_FIXED=1/1_VERIFIED
+BLOCKERS=0
+MAJORS=1
+MINORS=0
+MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V11_ONLY
+EXPECTED_NEXT_BUNDLE=phase-11.22-event-system-audit-v12.tar.gz
+```
+
+Remediation V11 fixed that single finding under strict TDD — a red reproduction
+suite first (`328 failed / 380 passed` on the new module, in a commit containing only
+tests), then the minimum fix in the existing authority:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V11-001` | Windows defines both a drive-*root* path (`C:/name`) and a drive-*relative* path (`C:name`), and the latter is still a drive-qualified local filesystem reference (`ntpath.splitdrive("C:Windows") == ("C:", "Windows")`). The retained drive signature required a path separator after the colon (`re.compile(r"(?:^|/)[A-Za-z]:[\\/]")`), so no signature recognized `C:Windows`, `C:id_rsa`, `C:.ssh`, `D:ProgramData`, `Z:tmp`, `C:` or lowercase `c:id_rsa`; and because those values contain no separator at all, the final path-shape branch also declined to treat them as path-shaped. `is_private_filesystem_reference("C:id_rsa")` returned `False`, the canonical identifier validator accepted, and the value was durably appended — across all 13 shared identifier-bearing channels, through both official repositories and through a manual `publish_event(...)` call. `id_rsa` was already a sensitive private-file marker, so the drive-designator colon was shielding a known private location rather than creating a naming ambiguity | the **existing** canonical classifier in `_PRIVATE_FILESYSTEM_PATTERNS` gains one structurally minimal signature for the drive *designator* itself — `re.compile(r"^[A-Za-z]:")` — evaluated on the canonical lexical analysis form **before** any separator heuristic or the generic "no separator means not path-shaped" escape. The rule is anchored to the start of the whole reference because that is the only position where drive-relative syntax has that meaning, and because the frozen contract deliberately preserves wrapped *segment-colon* logical identifiers (`provider/a:1/model`, `provider/x:0/step`, `cmm/v2:3/detail`). The V10 segment-boundary rule for a rooted drive token carried by an allowlisted wrapper is retained verbatim, so the whole V10 family keeps its audited verdict. No literal was appended for `Windows`, `ProgramData`, `id_rsa`, `.ssh` or `tmp`; fresh drives and remainders (`C:a`, `X:foo.bar`, `E:secret.txt`, `Q:zzz-not-a-real-location`) are refused by the same structural rule. Analysis-only: no filesystem I/O, no `Path.resolve()`, no grammar widening, no rewriting of an accepted persisted identifier, and no second path/URI/Windows policy module |
+
+The one production rule lives in `is_private_filesystem_reference()`, reached by
+every persisted identifier channel through `validate_platform_identifier()` — the
+single shared authority the phase already had — so no channel can be patched alone.
+No second event, identifier, URI, path, drive-root, timestamp, registry, repository,
+runtime, resolver, loader, engine or policy infrastructure was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS` remains `0`.
+
+```text
+REMEDIATION_V11_TESTS=708 passed (initial red 328 failed / 380 passed)
+V10_REGRESSIONS=475 passed (preserved)
+V9_REGRESSIONS=397 passed (preserved)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=2473 passed (V1-V11)
+PHASE_SUITE=tests/events/ 3979 passed
+AT_DP_122=889 passed (749 prior + 140 V11)
+KERNEL_ADAPTER_TESTS=76 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+GLOBAL_PYTEST=26048 collected, 26048 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V11 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+Both alternative fixes were rejected. Appending the audited literals (`Windows`,
+`ProgramData`, `id_rsa`, `.ssh`, `tmp`) would have left the classifier a denylist of
+selected spellings — the exact V8 defect — and anchoring the drive rule at a
+path-segment boundary instead of the whole reference would have refused the wrapped
+segment-colon logical identifiers the frozen contract deliberately preserves. The
+drive *designator* is therefore classified structurally, in the authority that already
+existed. The immutable Audit V1 report, the immutable Re-audit V2–V11 reports, and the
+immutable V1–V11 bundles are preserved byte-identical. The exact Remediation V11 HEAD,
+tree and V12 bundle SHA-256 are reported in the remediation handoff rather than
+embedded here, for the same self-reference reason as the earlier evidence records.
