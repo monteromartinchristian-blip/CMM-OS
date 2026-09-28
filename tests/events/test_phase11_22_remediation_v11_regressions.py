@@ -161,15 +161,13 @@ DRIVE_RELATIVE_EQUIVALENCE_FAMILIES = (
 #: Every spelling in every equivalence family.  The whole family is one
 #: drive-qualified local reference with one required classification: refused.
 DRIVE_RELATIVE_EQUIVALENT_SPELLINGS = tuple(
-    spelling
-    for family in DRIVE_RELATIVE_EQUIVALENCE_FAMILIES
-    for spelling in family
+    spelling for family in DRIVE_RELATIVE_EQUIVALENCE_FAMILIES for spelling in family
 )
 
-#: Xbox drive-relative spellings that the outer identifier grammar refuses anyway,
-#: because ``\`` is not in the accepted identifier character set.  These are recorded
-#: as positive fail-closed facts: the grammar does not have to be widened to refuse
-#: the Windows-backslash spelling, and the V11 rule does not rely on it.
+#: Backslash drive-relative spellings that the outer identifier grammar refuses
+#: anyway, because ``\`` is not in the accepted identifier character set.  These are
+#: recorded as positive fail-closed facts: the grammar does not have to be widened to
+#: refuse the Windows-backslash spelling, and the V11 rule does not rely on it.
 BACKSLASH_DRIVE_RELATIVE_REFERENCES = (
     "C:\\Windows",
     "C:\\id_rsa",
@@ -258,21 +256,25 @@ ALL_ACCEPTED_CONTROLS = (
 #: relative system roots, drive-root paths, wrapped drive-root paths, ``file:`` URIs
 #: and wrapped ``file:`` URIs, and named private locations.
 RETAINED_UNSAFE_REFERENCES = (
-    "safe/../../etc/shadow",
-    "foo/../bar/../../private/var",
-    "/etc/shadow",
-    "~/.ssh/id_rsa",
-    "etc/shadow",
-    "etc//shadow",
-    "etc/./shadow",
-    "proc/self/environ",
-    "Windows/System32/config/SAM",
-    "Library/Keychains/login.keychain-db",
-    "file:///Users/alice/.ssh/id_rsa",
-    "provider/file:C:/Windows/System32/config/SAM",
-    "cmm/file:/Library/Keychains/login.keychain-db",
-    "Users/alice/.ssh/id_rsa",
-) + TOP_LEVEL_DRIVE_ROOT_REFERENCES_RETAINED + WRAPPED_DRIVE_ROOT_REFERENCES_RETAINED
+    (
+        "safe/../../etc/shadow",
+        "foo/../bar/../../private/var",
+        "/etc/shadow",
+        "~/.ssh/id_rsa",
+        "etc/shadow",
+        "etc//shadow",
+        "etc/./shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "file:///Users/alice/.ssh/id_rsa",
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "Users/alice/.ssh/id_rsa",
+    )
+    + TOP_LEVEL_DRIVE_ROOT_REFERENCES_RETAINED
+    + WRAPPED_DRIVE_ROOT_REFERENCES_RETAINED
+)
 
 #: Retained URI-userinfo credential families from Re-audits V7/V8.
 RETAINED_USERINFO_CREDENTIAL_REFERENCES = (

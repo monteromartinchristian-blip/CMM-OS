@@ -5233,7 +5233,8 @@ def test_at_dp_122_v11_legitimate_references_still_persist_and_reopen(
 
 
 @pytest.mark.parametrize(
-    "reference", AT_DP_122_V11_REPORTED_DRIVE_RELATIVE + AT_DP_122_V11_FRESH_DRIVE_RELATIVE
+    "reference",
+    AT_DP_122_V11_REPORTED_DRIVE_RELATIVE + AT_DP_122_V11_FRESH_DRIVE_RELATIVE,
 )
 def test_at_dp_122_v11_real_orchestration_sink_refuses_before_persistence(
     connected, reference: str
