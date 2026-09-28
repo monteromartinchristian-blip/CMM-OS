@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -14,6 +14,8 @@
 **Remediation V5 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v5-agent-prompt.md`
 **Remediation V6 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v6-agent-prompt.md`
 **Remediation V7 agent prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v7-agent-prompt.md`
+**Remediation V8 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v8-agent-prompt.md`
+**Remediation V9 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -23,11 +25,12 @@
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
 Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
 failed independent Re-audit V5, failed independent Re-audit V6, failed independent
-Re-audit V7 and has been **remediated** after each. It is not closed, not
-independently verified and not complete: the `VERIFIED_EXISTING` marker may only be
-written by the independent re-audit of the V8 bundle. See §27 for the Remediation
-V4 record, §28 for the Remediation V5 record, §29 for the Remediation V6 record and
-§30 for the Remediation V7 record.
+Re-audit V7, failed independent Re-audit V8 and has been **remediated** after each.
+It is not closed, not independently verified and not complete: the
+`VERIFIED_EXISTING` marker may only be written by the independent re-audit of the
+V9 bundle. See §27 for the Remediation V4 record, §28 for the Remediation V5
+record, §29 for the Remediation V6 record, §30 for the Remediation V7 record, §31
+for the Remediation V8 record and §32 for the Remediation V9 record.
 
 ### Provenance note (recorded deviation)
 
@@ -663,6 +666,26 @@ invalid value fails closed instead of being silently reinterpreted or normalized
 and a valid timezone-aware value (`2026-09-27T12:00:00Z`,
 `2026-09-27T12:00:00+02:00`) keeps its documented canonical string form.
 
+Remediation V9 removed the one remaining interpreter dependency from that rule.
+CPython 3.14 widened `datetime.fromisoformat()` to accept the ISO end-of-day
+spelling `24:00` and roll it into the next day, so `2026-09-27T24:00:00Z` was
+accepted and durably persisted on the canonical runtime although the frozen
+contract admits only hours `00..23`, and the retained V6 regression case failed.
+The frozen hour range is now asserted explicitly, on the value's own text and
+before the parser is consulted:
+
+```python
+MAX_PLATFORM_CIVIL_HOUR = 23
+_TIMESTAMP_CIVIL_TIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}[T ](?P<hour>\d{2}):")
+```
+
+The guard is deliberately limited to the hour bound, because that is the only
+civil bound the canonical parser demonstrably widened: hour `25`, minute `60`,
+second `60`, month `13`, day `32`, a fractional end-of-day value and an
+out-of-range UTC offset are all still refused by `fromisoformat()` itself. No
+second timestamp parser, no wider parser rewrite, and no change to the accepted
+shape, the timezone-awareness requirement or the canonical serialization.
+
 `sensitivity` is a real runtime-enforced classification: the persisted fact is an
 `EventSensitivity` member, and the single supported string spelling of a canonical
 member is normalized to that enum before the event is constructed. A number,
@@ -698,6 +721,8 @@ URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER
 ONE_CANONICAL_HEADER_FACT_AUTHORITY
 NO_HEADER_PAYLOAD_SENSITIVITY_CONFLICT
 TIMESTAMP_SEMANTIC_VALIDITY
+PHASE11_22_TIMESTAMP_ACCEPTANCE_IS_INTERPRETER_VERSION_INDEPENDENT
+WRAPPED_FILE_URI_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_FILE_URI_REFERENCES
 LIFECYCLE_FACT_ONLY_POLICY
 DLQ_SECRET_SAFETY_FAILS_SAFE_WITHOUT_EXTERNAL_BINDING
 CANONICAL_SENSITIVITY_TYPE_ENFORCED
@@ -877,6 +902,57 @@ Invariants:
 ```text
 URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER
 CREDENTIALS_NEVER_ENTER_EVENT_PERSISTENCE
+```
+
+### 15.8 Wrapped non-authority `file:` references (Remediation V9)
+
+The V6–V8 classifier recognized a `file:` reference only as an **authority-bearing**
+URI (`scheme://authority`) or at character zero (`^file:`). The outer identifier
+grammar admits a public logical wrapper, and the V8 fail-closed allowlist accepted
+that wrapper, so a *non-authority* `file:` reference carried by it was never
+classified and was durably persisted across every shared identifier channel,
+through both official repositories and through a manual `publish_event(...)` call:
+
+```text
+provider/file:C:/Windows/System32/config/SAM
+cmm/file:C:/Windows/System32/config/SAM
+provider/file:C:/Windows/System32/config/SECURITY
+provider/file:/Windows/System32/config/SAM
+provider/file:C:/ProgramData/Microsoft/Crypto/RSA/MachineKeys
+provider/file:/Library/Keychains/login.keychain-db
+```
+
+The one canonical fix anchors the **existing** `file:` signature at a path *segment*
+boundary instead of at character zero, inside the same
+`_PRIVATE_FILESYSTEM_PATTERNS` tuple and the same classifier:
+
+```python
+re.compile(r"(?:^|/)file:", re.IGNORECASE)
+```
+
+The pattern is evaluated against the canonical lexical analysis form whose segments
+are joined by `/`, so a segment boundary is exactly where the identifier grammar can
+carry a scheme token — even when the wrapper is repeated (`provider//file:`), uses a
+`.` segment (`provider/./file:`) or varies case (`PROVIDER/FILE:`) — and `file` is a
+case-insensitive URI scheme. No literal was appended for any audited filename or
+location, so an unnamed wrapped location (`provider/file:/boot/grub/grub.cfg`) is
+refused by the same structural rule. The rule stays analysis-only: no filesystem
+I/O, no host resolution, no `Path.resolve()` and no rewriting of an accepted
+persisted identifier.
+
+Top-level `file:` refusals, credential-free network URIs, logical slash references
+(`provider/model`, `cmm/orchestration/step`) and colon-bearing logical identifiers
+whose `file` token does not begin a path segment (`workflow:file:123`,
+`req:file:mod`) all keep their verdicts. Windows-backslash spellings
+(`provider/file:C:\Windows\…`) are refused earlier by the identifier character set;
+that is a positive fail-closed fact and the grammar was not widened for them.
+
+Invariants:
+
+```text
+WRAPPED_FILE_URI_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_FILE_URI_REFERENCES
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
 ```
 
 ## 16. Composition bindings
@@ -1190,8 +1266,19 @@ removed). Post-remediation V7: `23540 passed, 1 warning, 0 failed` (+200 over th
 V6 remediation figure: 127 new V7 adversarial regressions and 73 strengthened
 `AT-DP-122` connected scenarios; no previously passing test was removed or
 weakened, so `tests/events/` moves `1271 -> 1471` and `AT-DP-122` moves
-`177 -> 250`). The single retained warning is the pre-existing unrelated
-`starlette` `anyio` `DeprecationWarning`.
+`177 -> 250`). Post-remediation V8: `24065 passed, 1 warning, 1 pre-existing
+interpreter-dependent failure` (+525 over the V7 remediation figure: 289 new V8
+adversarial regressions and 237 strengthened `AT-DP-122` connected scenarios; no
+previously passing test was removed or weakened, so `tests/events/` moves
+`1471 -> 1997` and the global collected count moves `23540 -> 24066`). Post-
+remediation V9: `24604 passed, 1 warning, 0 failed` (+539 over the V8 remediation
+figure: 397 new V9 adversarial regressions, 141 strengthened `AT-DP-122` connected
+scenarios, and the retained V6 civil-time case now passing, so the global failure
+count returns to zero; `tests/events/` moves `1997 -> 2535` and `AT-DP-122` moves
+`487 -> 628`). `GLOBAL_PYTEST_FAILURES=0` is therefore met on the canonical CPython
+3.14.7 runtime, at a pass count of `24604` against the `24066` floor. The single
+retained warning is the pre-existing unrelated `starlette` `anyio`
+`DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
 (`tests/llm/test_model_gateway_streaming.py::test_the_public_stream_drops_content_arriving_after_the_deadline`,
@@ -1208,14 +1295,14 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1, V2, V3, V4, V5, V6 and V7 change, is Ruff-clean. The global count
-after Remediation V7 is `810`: identical to the audited V1 HEAD, to the V5 and V6
-figures, and one below the frozen baseline. The only delta against the baseline is
-one pre-existing violation removed while editing `tests/conftest.py` to add the test
-data-directory isolation fixture. No unrelated violation was fixed, no global
-auto-fix was run, and no file outside the Phase 11.22 delta was touched. Every
-changed and created V7 file is also `ruff format --check`-clean, so the V7
-formatting pass introduced no unrelated churn.
+Remediation V1, V2, V3, V4, V5, V6, V7, V8 and V9 change, is Ruff-clean. The global
+count after Remediation V9 is `810`: identical to the audited V1 HEAD, to the V5,
+V6, V7 and V8 figures, and one below the frozen baseline. The only delta against the
+baseline is one pre-existing violation removed while editing `tests/conftest.py` to
+add the test data-directory isolation fixture. No unrelated violation was fixed, no
+global auto-fix was run, and no file outside the Phase 11.22 delta was touched. Every
+changed and created V9 file is also `ruff format --check`-clean, so the V9 formatting
+pass introduced no unrelated churn.
 
 ## 22. Known non-goals and limitations
 
@@ -1247,10 +1334,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V9** bundle
-(`phase-11.22-event-system-audit-v9.tar.gz`, produced with `git archive` from the
-final Remediation V8 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V8_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V10** bundle
+(`phase-11.22-event-system-audit-v10.tar.gz`, produced with `git archive` from the
+final Remediation V9 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -1716,8 +1803,8 @@ scanner, URI registry or identifier subsystem was introduced, and
 REMEDIATION_V8_TESTS=289 passed (initial red 234 failed / 47 passed on the 281-case module; the 8 URI-suffix residue reproductions added under TDD were independently red before their fix)
 PRIOR_REMEDIATION_REGRESSIONS=604 collected, 603 passed, 1 pre-existing interpreter-dependent failure
 REMEDIATION_V1_TO_V8_REGRESSIONS=893 collected, 892 passed, 1 pre-existing interpreter-dependent failure
-PHASE_SUITE=tests/events/ 1984 collected, 1983 passed, 1 pre-existing interpreter-dependent failure
-AT_DP_122=474 passed (250 prior + 224 V8)
+PHASE_SUITE=tests/events/ 1997 collected, 1996 passed, 1 pre-existing interpreter-dependent failure
+AT_DP_122=487 passed (250 prior + 237 V8)
 PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
 DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
 EVENT_INVENTORY=tests/**/*event*.py 1270 passed
@@ -1746,3 +1833,85 @@ reports, and the immutable V1–V8 bundles are preserved byte-identical. The exa
 Remediation V8 HEAD, tree and V9 bundle SHA-256 are reported in the remediation
 handoff rather than embedded here, for the same self-reference reason as the
 earlier evidence records.
+
+## 32. Remediation V9 record
+
+Independent Re-audit V9
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v9.md`) verified both V8
+findings fixed (`2/2_VERIFIED`) and preserved the prior remediation regressions,
+while failing the phase with two new majors and one new minor (`BLOCKERS=0`):
+
+```text
+INDEPENDENT_REAUDIT_V9=FAIL
+V8_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=2
+MINORS=1
+MAJOR_V9_001=WRAPPED_NON_AUTHORITY_FILE_URI_BYPASSES_FAIL_CLOSED_FILESYSTEM_CLASSIFIER
+MAJOR_V9_002=SUPPORTED_RUNTIME_TIMESTAMP_SEMANTICS_REOPEN_PRIOR_V6_FINDING_AND_KEEP_GLOBAL_GATE_RED
+MINOR_V9_001=REFERENCE_TEST_EVIDENCE_COUNTS_STALE_AFTER_FINAL_V8_AT_ADDITIONS
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V9_ONLY
+```
+
+Remediation V9 fixed exactly those three findings under strict TDD — a red
+reproduction suite first (`168 failed / 229 passed` on the new module, plus the
+retained V6 case), then the minimum fix in the existing authority:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V9-001` | the shared identifier/filesystem authority recognized a `file:` reference only as an authority-bearing URI (`scheme://authority`) or at character zero (`^file:`). The outer identifier grammar admits a public logical wrapper such as `provider/` or `cmm/`, and the V8 slash-root allowlist accepted that wrapper, so a **non-authority** `file:` reference reached through it was never classified: `provider/file:C:/Windows/System32/config/SAM`, `cmm/file:C:/Windows/System32/config/SAM`, `provider/file:C:/Windows/System32/config/SECURITY`, `provider/file:/Windows/System32/config/SAM` and `provider/file:C:/ProgramData/Microsoft/Crypto/RSA/MachineKeys` each returned non-private from the classifier, passed the canonical identifier validator, passed canonical `EventSystem` publication and were durably persisted — across all 13 shared identifier-bearing channels, through both official repositories and through a manual `publish_event(...)` call | the **existing** `file:` signature in `_PRIVATE_FILESYSTEM_PATTERNS` is anchored at a path *segment* boundary instead of at character zero: `re.compile(r"(?:^|/)file:", re.IGNORECASE)`. Because the pattern is evaluated against the canonical lexical analysis form whose segments are joined by `/`, a segment boundary is exactly where the identifier grammar can carry a scheme token, and `file` is a case-insensitive URI scheme — so `provider//file:`, `provider/./file:`, `PROVIDER/FILE:` and `File:` receive the identical verdict. No literal was appended for any audited filename or location, so an unnamed wrapped location is refused by the same structural rule. Analysis-only: no filesystem I/O, no host resolution, no rewriting of a persisted identifier, and no second path or URI policy module |
+| `MAJOR-V9-002` | the canonical Phase 11.22 timestamp authority delegated the civil-hour bound to `datetime.fromisoformat()`. CPython 3.14 widened that parser to accept the ISO end-of-day spelling `24:00` and roll it into the next day, so on the canonical `.venv` the retained V6 regression case `2026-09-27T24:00:00Z` was accepted and durably persisted although the frozen contract admits only hours `00..23`, and `GLOBAL_PYTEST_FAILURES=0` could not be met | the frozen `00..23` hour range is asserted explicitly in the same authority, on the value's own text and **before** the parser is consulted (`MAX_PLATFORM_CIVIL_HOUR = 23` plus `_TIMESTAMP_CIVIL_TIME_PATTERN`), so an interpreter that accepts a wider ISO form cannot widen the persisted contract. The guard is deliberately limited to the hour: hour `25`, minute `60`, second `60`, month `13`, day `32`, a fractional end-of-day value and an out-of-range UTC offset are all still refused by `fromisoformat()` itself, so no wider parser rewrite was undertaken. No second timestamp parser, no accepted-form change, no normalization change and no Python support-metadata change |
+| `MINOR-V9-001` | current non-historical references still carried pre-final counts — `tests/events/` `1984 collected / 1983 passed` and `AT-DP-122` `474 passed (250 prior + 224 V8)` — and a current statement claimed `NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE=PASS` while the V9-001 bypass was live | `docs/reference/phase-11-event-system.md`, `docs/reference/phase-11-stable-integrated-platform-requirements-matrix.md`, `docs/audits/phase-11.22-event-system-implementation-evidence.md`, `docs/roadmap/phase-11-stable-integrated-platform.md` and `ROADMAP.md` are synchronized to the final V9 counts (`tests/events/` `2535`, `AT-DP-122` `628`, global `24604`), the invariant is stated with its scope and only after the V9-001 remediation made it true, and every current-state marker reads `REMEDIATED_AFTER_REAUDIT_V9_PENDING_INDEPENDENT_REAUDIT`. No historical audit report was rewritten |
+
+Both production rules live in `validate_platform_identifier()` /
+`_parse_canonical_timestamp()`, the single shared authorities the phase already
+had, so no channel can be patched alone. No second event, identifier, URI, path,
+timestamp, registry, repository, runtime, resolver, loader, engine or policy
+infrastructure was introduced, and `AGENT_RUNTIME_TO_DOMAIN_IMPORTS` remains `0`.
+
+```text
+REMEDIATION_V9_TESTS=397 passed (initial red 168 failed / 229 passed, plus the retained V6 civil-time case)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved; the retained civil-time case is now green)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=1290 passed (V1-V9)
+PHASE_SUITE=tests/events/ 2535 passed
+AT_DP_122=628 passed (487 prior + 141 V9)
+KERNEL_ADAPTER_TESTS=76 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+GLOBAL_PYTEST=24604 collected, 24604 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V9 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+The wrapped-`file:` rule is documented in §15.8 and the interpreter-independent
+hour bound in §15.4. Both were chosen over broader alternatives: appending the
+audited Windows and macOS filenames to the pattern list was rejected because it
+would leave the classifier a denylist of selected spellings (the exact V8 defect),
+and bounding every civil field explicitly was rejected because only the hour bound
+is demonstrably interpreter-dependent. The immutable Audit V1 report, the immutable
+Re-audit V2–V9 reports, and the immutable V1–V9 bundles are preserved
+byte-identical. The exact Remediation V9 HEAD, tree and V10 bundle SHA-256 are
+reported in the remediation handoff rather than embedded here, for the same
+self-reference reason as the earlier evidence records.
