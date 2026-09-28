@@ -5370,3 +5370,553 @@ def test_at_dp_122_v11_retains_the_v10_controls_it_builds_on(connected) -> None:
     assert stored.header.occurred_at == datetime(
         2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V12 — AT-DP-122 additions for the V12 private filename finding
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V12-001 is not a missing rule: the canonical sensitive-private-filename
+# family (``id_rsa``, ``id_dsa``, ``id_ecdsa``, ``id_ed25519``, ``known_hosts``)
+# already existed.  Its *own* signature was case-sensitive and accepted only
+# end-of-value or a literal ``.`` as a suffix boundary, so an already-known
+# private basename stopped being classified as private by changing case or by
+# attaching an NTFS named-stream suffix — ``ntfs`` defines ``name:stream`` as the
+# ``stream`` alternate data stream of the file ``name``.  ``ID_RSA``,
+# ``KNOWN_HOSTS``, ``Id_Ed25519.pub``, ``id_rsa:stream``, ``known_hosts:ads``,
+# ``provider/ID_RSA`` and ``provider/id_rsa:stream`` were therefore persisted
+# through every shared identifier channel.  It is re-derived here in both
+# directions: every case-varied and named-stream spelling must be refused through
+# the connected boundary, on every shared identifier-bearing channel, in both
+# official repositories and through a manual prebuilt ``publish_event(...)``,
+# while every generic colon identifier, every generic non-sensitive
+# ``filename:stream`` control and every credential-free URI keeps persisting with
+# identity, correlation and causation unchanged.  The durable store itself proves
+# "refused before persistence", and the retained V6–V11 controls are re-run
+# beside it.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The case-varied sensitive private filenames the independent Re-audit V12
+#: demonstrated being accepted and durably persisted through the real composition.
+AT_DP_122_V12_REPORTED_CASE_VARIANT = (
+    pytest.param("ID_RSA", id="reported_upper_id_rsa"),
+    pytest.param("KNOWN_HOSTS", id="reported_upper_known_hosts"),
+    pytest.param("Id_Ed25519.pub", id="reported_mixed_ed25519_pub"),
+    pytest.param("provider/ID_RSA", id="reported_wrapped_upper_id_rsa"),
+    pytest.param("cmm/KNOWN_HOSTS", id="reported_wrapped_upper_known_hosts"),
+)
+
+#: The named-stream sensitive private filenames the independent Re-audit V12
+#: demonstrated being accepted and durably persisted through the real composition.
+AT_DP_122_V12_REPORTED_NAMED_STREAM = (
+    pytest.param("id_rsa:stream", id="reported_id_rsa_stream"),
+    pytest.param("known_hosts:ads", id="reported_known_hosts_ads"),
+    pytest.param("id_ed25519:foo", id="reported_id_ed25519_foo"),
+    pytest.param("id_ecdsa:data", id="reported_id_ecdsa_data"),
+    pytest.param("provider/id_rsa:stream", id="reported_wrapped_id_rsa_stream"),
+    pytest.param("cmm/known_hosts:ads", id="reported_wrapped_known_hosts_ads"),
+)
+
+#: Fresh connected probes: casings and stream names no literal names.
+AT_DP_122_V12_FRESH = (
+    pytest.param("Id_Rsa", id="fresh_mixed_id_rsa"),
+    pytest.param("id_RSA", id="fresh_lower_upper_id_rsa"),
+    pytest.param("Known_Hosts", id="fresh_title_known_hosts"),
+    pytest.param("ID_DSA.PUB", id="fresh_upper_dsa_pub"),
+    pytest.param("ID_ECDSA", id="fresh_upper_ecdsa"),
+    pytest.param("ID_RSA:STREAM", id="fresh_upper_named_stream"),
+    pytest.param("Known_Hosts:ADS", id="fresh_mixed_named_stream"),
+    pytest.param("id_dsa:stream", id="fresh_dsa_named_stream"),
+    pytest.param("provider/id_ed25519:foo", id="fresh_wrapped_ed25519_stream"),
+    pytest.param("cmm/id_ecdsa:data", id="fresh_wrapped_ecdsa_stream"),
+)
+
+#: Every V12 adversarial spelling the connected boundary must refuse.
+AT_DP_122_V12_ALL_ADVERSARIAL = (
+    AT_DP_122_V12_REPORTED_CASE_VARIANT
+    + AT_DP_122_V12_REPORTED_NAMED_STREAM
+    + AT_DP_122_V12_FRESH
+)
+
+#: One case-variant reference and one named-stream reference repeated across the
+#: complete shared-channel family, so the inheritance claim is executable.
+AT_DP_122_V12_CHANNEL_CASE_VARIANT = pytest.param("ID_RSA", id="case_variant")
+AT_DP_122_V12_CHANNEL_NAMED_STREAM = pytest.param("id_rsa:stream", id="named_stream")
+
+#: Families of spellings of one sensitive private filename.  Case variation and the
+#: NTFS named-stream suffix are the *same* private file, so every member must receive
+#: the identical connected verdict.
+AT_DP_122_V12_EQUIVALENCE_FAMILIES = (
+    pytest.param(("id_rsa", "ID_RSA", "Id_Rsa", "id_RSA"), id="id_rsa_family"),
+    pytest.param(("id_dsa", "ID_DSA", "ID_DSA.PUB"), id="id_dsa_family"),
+    pytest.param(("id_ecdsa", "ID_ECDSA", "Id_Ecdsa"), id="id_ecdsa_family"),
+    pytest.param(
+        ("id_ed25519", "ID_ED25519", "Id_Ed25519", "Id_Ed25519.pub"),
+        id="id_ed25519_family",
+    ),
+    pytest.param(
+        ("known_hosts", "KNOWN_HOSTS", "Known_Hosts"), id="known_hosts_family"
+    ),
+    pytest.param(
+        ("id_rsa", "id_rsa:stream", "ID_RSA:STREAM"), id="id_rsa_stream_family"
+    ),
+    pytest.param(
+        ("known_hosts", "known_hosts:ads", "Known_Hosts:ADS"),
+        id="known_hosts_stream_family",
+    ),
+    pytest.param(("id_ed25519", "id_ed25519:foo"), id="id_ed25519_stream_family"),
+    pytest.param(("id_ecdsa", "id_ecdsa:data"), id="id_ecdsa_stream_family"),
+    pytest.param(
+        ("provider/id_rsa", "provider/ID_RSA", "provider/id_rsa:stream"),
+        id="wrapped_id_rsa_family",
+    ),
+    pytest.param(
+        ("cmm/known_hosts", "cmm/KNOWN_HOSTS", "cmm/known_hosts:ads"),
+        id="wrapped_known_hosts_family",
+    ),
+)
+
+#: Every V12 adversarial value, with the plain-text marker it would leak.
+AT_DP_122_V12_ADVERSARIAL = (
+    pytest.param("ID_RSA", "ID_RSA", id="upper_id_rsa"),
+    pytest.param("KNOWN_HOSTS", "KNOWN_HOSTS", id="upper_known_hosts"),
+    pytest.param("Id_Ed25519.pub", "Id_Ed25519", id="mixed_ed25519_pub"),
+    pytest.param("provider/ID_RSA", "ID_RSA", id="wrapped_upper_id_rsa"),
+    pytest.param("cmm/KNOWN_HOSTS", "KNOWN_HOSTS", id="wrapped_upper_known_hosts"),
+    pytest.param("id_rsa:stream", "id_rsa", id="id_rsa_named_stream"),
+    pytest.param("known_hosts:ads", "known_hosts", id="known_hosts_named_stream"),
+    pytest.param("id_ed25519:foo", "id_ed25519", id="ed25519_named_stream"),
+    pytest.param("id_ecdsa:data", "id_ecdsa", id="ecdsa_named_stream"),
+    pytest.param("provider/id_rsa:stream", "id_rsa", id="wrapped_id_rsa_stream"),
+    pytest.param("cmm/known_hosts:ads", "known_hosts", id="wrapped_known_hosts_stream"),
+)
+
+#: Public references the V12 rule must keep, in both directions: multi-letter colon
+#: identifiers, wrapped segment-colon logical identifiers, generic non-sensitive
+#: ``filename:stream`` controls, sensitive-looking suffixes, plain slash references
+#: and credential-free URIs.
+AT_DP_122_V12_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("events:read", id="events_colon"),
+    pytest.param("provider/a:1/model", id="wrapped_segment_colon"),
+    pytest.param("cmm/v2:3/detail", id="wrapped_version_colon"),
+    pytest.param("foo.txt:stream", id="generic_named_stream"),
+    pytest.param("provider/foo.txt:stream", id="wrapped_generic_named_stream"),
+    pytest.param("model:id_rsa", id="sensitive_looking_suffix"),
+    pytest.param("workflow:id_rsa", id="sensitive_looking_suffix_workflow"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("provider/https://example.com/model", id="credential_free_prefixed"),
+    pytest.param("jdbc:postgresql://example.com/db", id="credential_free_jdbc"),
+)
+
+_AT_DP_122_V12_SHARED_CHANNEL_IDS = [case[0] for case in AT_DP_122_V7_SHARED_CHANNELS]
+_AT_DP_122_V12_EQUIVALENCE_IDS = [
+    case.id for case in AT_DP_122_V12_EQUIVALENCE_FAMILIES
+]
+_AT_DP_122_V12_ADVERSARIAL_IDS = [case.id for case in AT_DP_122_V12_ADVERSARIAL]
+_AT_DP_122_V12_CASE_VARIANT_IDS = [
+    case.id for case in AT_DP_122_V12_REPORTED_CASE_VARIANT
+]
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V12_ALL_ADVERSARIAL)
+def test_at_dp_122_v12_private_filename_is_refused_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V12-001: every case-varied and named-stream spelling is refused."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v12-at-private-filename"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", {"request_id": reference}, event_id=event_id)
+
+    assert system.repository.get(event_id) is None
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=_AT_DP_122_V12_SHARED_CHANNEL_IDS,
+)
+@pytest.mark.parametrize(
+    "reference",
+    (AT_DP_122_V12_CHANNEL_CASE_VARIANT, AT_DP_122_V12_CHANNEL_NAMED_STREAM),
+)
+def test_at_dp_122_v12_private_filename_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V12-001: all 13 shared channels inherit the verdict.
+
+    One case-variant example (``ID_RSA``) and one named-stream example
+    (``id_rsa:stream``) are carried through the complete shared-channel family, so
+    the inheritance is proven on the whole authority surface rather than on
+    ``request_id`` alone.
+    """
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v12-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", payload, event_id=event_id, **header_facts)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    "family",
+    AT_DP_122_V12_EQUIVALENCE_FAMILIES,
+    ids=_AT_DP_122_V12_EQUIVALENCE_IDS,
+)
+def test_at_dp_122_v12_equivalent_spellings_share_one_connected_verdict(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V12-001: one private file, one connected verdict — no admitted casing."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in family:
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v12-at-equivalence",
+            )
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V12_ADVERSARIAL,
+    ids=_AT_DP_122_V12_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v12_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V12-001: refusal leaves no private marker in store or error."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v12-at-durable",
+        )
+
+    assert marker not in str(captured.value)
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+        assert reference.encode() not in store.read_bytes()
+    assert FileAgentRuntimeEventRepository(store).count() == 0
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V12_ALL_ADVERSARIAL)
+def test_at_dp_122_v12_both_official_repositories_refuse_a_private_filename(
+    connected, reference: str
+) -> None:
+    """MAJOR-V12-001: the refusal is repository-independent.
+
+    The connected acceptance runs the official file-backed repository.  The
+    official in-memory repository is exercised beside it so "the durable store was
+    never the safety boundary" holds for both canonical implementations.
+    """
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+    from tests.events.test_phase11_22_event_system import build_system
+
+    durable_system = connected["system"]
+    memory_system = build_system(repository=InMemoryAgentRuntimeEventRepository())
+    before_durable = durable_system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        memory_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v12-at-memory",
+        )
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        durable_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v12-at-durable-repo",
+        )
+
+    assert memory_system.repository.count() == 0
+    assert memory_system.dead_letter_count() == 0
+    assert durable_system.repository.count() == before_durable
+    assert durable_system.dead_letter_count() == 0
+    assert durable_system.repository.get("evt-v12-at-durable-repo") is None
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V12_ALL_ADVERSARIAL)
+def test_at_dp_122_v12_manual_prebuilt_event_cannot_bypass_the_rule(
+    connected, reference: str
+) -> None:
+    """MAJOR-V12-001: the manual canonical boundary re-applies the same rule."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEvent,
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v12-at-manual"
+    manual = AgentRuntimeEvent(
+        header=AgentRuntimeEventHeader(
+            event_id=event_id,
+            event_type="message.received",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        ),
+        payload=AgentRuntimeEventPayload(data={"request_id": reference}),
+    )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish_event(manual)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V12_LEGITIMATE)
+def test_at_dp_122_v12_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V12-001 control: the private-filename rule does not over-correct.
+
+    The generic non-sensitive ``filename:stream`` controls and the
+    ``model:id_rsa`` negative-space control are the load-bearing controls: a rule
+    that refused every colon-bearing value, or every ``filename:stream`` form, would
+    refuse them, which the frozen contract forbids.  Accepted event
+    identity/correlation/causation semantics and the stored fingerprint are
+    unchanged by the fix.
+    """
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v12-at-ok-{uuid.uuid4().hex[:10]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v12-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        correlation_id="CORR-V12-AT",
+        causation_id="CAUSE-V12-AT",
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert reopened.header.correlation_id == "CORR-V12-AT"
+    assert reopened.header.causation_id == "CAUSE-V12-AT"
+    assert reopened.header.event_id == event_id
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    AT_DP_122_V12_REPORTED_CASE_VARIANT + AT_DP_122_V12_REPORTED_NAMED_STREAM,
+)
+def test_at_dp_122_v12_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V12-001: the real production adapter cannot persist the shape either."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v12-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V12_ADVERSARIAL,
+    ids=_AT_DP_122_V12_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v12_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V12-001: the real Orchestrator's mandatory emission refuses them."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v12_the_refusal_message_never_echoes_the_private_basename(
+    connected,
+) -> None:
+    """MAJOR-V12-001: the boundary refuses the value without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "ID_RSA",
+        "KNOWN_HOSTS",
+        "id_rsa:stream",
+        "known_hosts:ads",
+        "provider/id_rsa:stream",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v12-at-echo",
+            )
+        message = str(captured.value)
+        assert reference not in message
+        assert "private filesystem location" in message
+
+
+def test_at_dp_122_v12_retains_the_v11_controls_it_builds_on(connected) -> None:
+    """MAJOR-V12-001 control: the V6–V11 rules still hold beside the V12 rule.
+
+    The private-filename rule must strengthen, not replace, the retained
+    drive-relative, rooted, wrapped-rooted, traversal, ``file:`` URI, credential
+    and civil-time rules.
+    """
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "C:id_rsa",
+        "C:Windows",
+        "c:id_rsa",
+        "D:ProgramData",
+        "Z:tmp",
+        "C:",
+        "C:/Windows/System32/config/SAM",
+        "provider/C:/Windows/System32/config/SAM",
+        "cmm/D:/private/example",
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "safe/../../etc/shadow",
+        "etc//shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "~/.ssh/id_rsa",
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+        "provider/https://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v12-at-v11-regression",
+            )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v12-at-v11-ts", "occurred_at": "2026-09-27T24:00:00Z"},
+            event_id="evt-v12-at-v11-ts",
+        )
+
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert system.repository.count() == 0
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v12-at-v11-control",
+            "workflow_id": "provider/a:1/model",
+            "occurred_at": "2026-09-27T23:59:59Z",
+        },
+        event_id="evt-v12-at-v11-control",
+        aggregate_id="cmm/v2:3/detail",
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v12-at-v11-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/v2:3/detail"
+    assert stored.header.workflow_id == "provider/a:1/model"
+    assert stored.header.occurred_at == datetime(
+        2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
+    )
+
+
+def test_at_dp_122_v12_generic_named_stream_controls_are_explicitly_supported() -> None:
+    """MAJOR-V12-001 control: a generic ``filename:stream`` form stays valid.
+
+    The invariant is narrow.  ``foo.txt:stream`` and ``provider/foo.txt:stream`` are
+    the prompt's named false-positive controls and are asserted at the shared
+    authority itself, so the V12 rule is proven not to be a generic
+    named-stream/named-colon ban rather than merely not exercised on them.
+    """
+
+    from cmm.events.event_payload_safety import (
+        is_private_filesystem_reference,
+        validate_platform_identifier,
+    )
+
+    for control in (
+        "workflow:123",
+        "domain:legal",
+        "events:read",
+        "foo.txt:stream",
+        "provider/foo.txt:stream",
+        "model:id_rsa",
+        "workflow:id_rsa",
+    ):
+        assert is_private_filesystem_reference(control) is False, control
+        assert validate_platform_identifier(control, field="probe") == control
