@@ -336,9 +336,30 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: the fail-closed public-reference allowlist in
 #: :func:`is_private_filesystem_reference`.  Growing this tuple is explicitly *not*
 #: how the classifier is kept correct.
+#:
+#: Independent Re-audit V9 then showed that the ``file:`` signature itself was
+#: anchored to character zero (``^file:``) while URI handling recognized only
+#: *authority-bearing* forms (``scheme://authority``).  A non-authority ``file:``
+#: reference carried by a public logical wrapper was therefore never classified:
+#: ``provider/file:C:/Windows/System32/config/SAM`` was admitted by the wrapper
+#: allowlist below and persisted.  The signature is therefore anchored at a path
+#: *segment* boundary rather than at the start of the value.  No literal was
+#: appended for any audited filename or location.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # A file: URI — the explicit spelling of one local filesystem location.
-    re.compile(r"^file:", re.IGNORECASE),
+    # A file: URI — the explicit spelling of one local filesystem location.  The
+    # scheme token is recognized at the start of the reference **or at the start of
+    # any path segment**, never at character zero alone.  Independent Re-audit V9
+    # showed that the outer identifier grammar admits a public logical wrapper such
+    # as ``provider/`` or ``cmm/``, so a *non-authority* ``file:`` reference reached
+    # through that wrapper (``provider/file:C:/Windows/System32/config/SAM``,
+    # ``cmm/file:/Library/Keychains/login.keychain-db``) was classified as a public
+    # reference and durably persisted: the slash-root allowlist accepted the wrapper
+    # while no signature recognized the local location the wrapper carried.  Because
+    # this pattern is evaluated against the canonical analysis form — whose segments
+    # are joined by ``/`` — a segment boundary is exactly where the identifier
+    # grammar can carry a scheme token, and ``file`` is a case-insensitive URI
+    # scheme, so ``FILE:`` is the same reference.
+    re.compile(r"(?:^|/)file:", re.IGNORECASE),
     # A Windows drive-root path (``C:/…``, ``C:\…``).
     re.compile(r"^[A-Za-z]:[\\/]"),
     # A Windows UNC share (``\\server\share``).
@@ -1020,9 +1041,11 @@ def is_private_filesystem_reference(value: str) -> bool:
 
     1. The unconditional filesystem signatures.  A ``..`` traversal segment (found
        before any elision), an absolute POSIX path or UNC share, the ``~`` home
-       shorthand, a Windows drive-root path, a ``file:`` URI, a bare or unknown
-       authority under the ``file`` scheme, and the retained V6/V7 sensitive
-       location signatures — all evaluated on the canonical form.
+       shorthand, a Windows drive-root path, a ``file:`` URI at the start of the
+       reference or at **any path-segment boundary** — so a public logical wrapper
+       cannot carry one unclassified — a bare or unknown authority under the
+       ``file`` scheme, and the retained V6/V7 sensitive location signatures — all
+       evaluated on the canonical form.
     2. A **fail-closed public-reference allowlist**.  A slash-bearing reference is
        public-safe only when its path-shaped **residue** is rooted in one of the
        declared public logical namespaces
