@@ -368,6 +368,26 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: (``provider/a:1/model``) untouched.  The rooted token keeps its separate
 #: segment-boundary rule so the V10 wrapper family is unchanged.  Still no literal
 #: was appended for any audited filename, directory or drive letter.
+#:
+#: Independent Re-audit V12 then showed that one already-present signature — the
+#: sensitive private filename family (``id_rsa``, ``id_dsa``, ``id_ecdsa``,
+#: ``id_ed25519``, ``known_hosts``) — had two Windows-semantic blind spots *inside
+#: its own rule*, so an already-known private basename was not classified at all:
+#: its match was case-sensitive, and its only accepted suffix boundary was
+#: end-of-value or a literal ``.``.  ``ID_RSA``, ``KNOWN_HOSTS`` and
+#: ``Id_Ed25519.pub`` therefore passed the classifier by case alone, and
+#: ``id_rsa:stream``, ``known_hosts:ads``, ``id_ed25519:foo``, ``id_ecdsa:data``,
+#: ``provider/ID_RSA``, ``provider/id_rsa:stream`` and ``cmm/known_hosts:ads``
+#: passed it by carrying an ``ntfs`` named-stream suffix — ``name:stream`` is the
+#: ``stream`` alternate data stream of the file ``name``, so the private basename
+#: before the colon is the file that is actually referenced.  All of them were
+#: durably persisted through all 13 shared identifier-bearing channels, in both
+#: official repositories and through a manual ``publish_event(...)`` call.  This is
+#: the *same* family rule, not a second policy: the already-sensitive basenames are
+#: matched case-insensitively and ``:`` becomes a suffix boundary exactly as ``.``
+#: already was.  No audited literal was appended, the identifier grammar is
+#: unchanged, and no colon is banned in general — a colon-bearing identifier whose
+#: segment does not start with an already-sensitive basename keeps its verdict.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A file: URI — the explicit spelling of one local filesystem location.  The
     # scheme token is recognized at the start of the reference **or at the start of
@@ -473,8 +493,40 @@ _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"|\.pgpass|\.npmrc|\.git-credentials)(?:[\\/]|$)",
         re.IGNORECASE,
     ),
-    # A well-known private key material file name.
-    re.compile(r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|\.)"),
+    # A well-known private key material file name (``id_rsa``, ``id_dsa``,
+    # ``id_ecdsa``, ``id_ed25519``, ``known_hosts``).
+    #
+    # Independent Re-audit V12 showed that this *already-existing* family had two
+    # Windows-semantic blind spots in its own signature, so an already-sensitive
+    # private basename stopped being classified as private:
+    #
+    # * the match was case-sensitive, although a Windows filename is
+    #   case-insensitive — ``ID_RSA``, ``KNOWN_HOSTS`` and ``Id_Ed25519.pub``
+    #   passed the classifier and were durably persisted;
+    # * the only accepted suffix boundary was end-of-value or a literal ``.``,
+    #   although ``ntfs`` defines ``name:stream`` as the ``stream`` *alternate data
+    #   stream* of the file ``name`` — ``id_rsa:stream``, ``known_hosts:ads``,
+    #   ``id_ed25519:foo`` and ``id_ecdsa:data`` still denote the private file
+    #   before the colon, and every one of them was durably persisted through all
+    #   13 shared identifier-bearing channels, in both official repositories and
+    #   through a manual ``publish_event(...)`` call.
+    #
+    # The repair is confined to this one signature and is deliberately minimal and
+    # structural: the same private basename family gains case-insensitive matching
+    # and ``:`` becomes a suffix boundary exactly as ``.`` already was.  Nothing is
+    # appended for an audited spelling (no ``ID_RSA``, ``KNOWN_HOSTS``, ``stream``,
+    # ``ads``, ``foo`` or ``data`` literal), the identifier grammar is unchanged,
+    # and no generic colon is banned: a colon-bearing identifier whose *segment*
+    # does not start with an already-sensitive basename keeps its verdict
+    # (``workflow:123``, ``domain:legal``, ``provider/a:1/model``,
+    # ``cmm/v2:3/detail``, ``provider/model``, ``model:id_rsa`` and the generic
+    # non-sensitive ``foo.txt:stream`` form all remain valid).  The invariant stays
+    # narrow: an already-sensitive private basename must not become public-safe by
+    # case variation or by attaching a named-stream suffix.
+    re.compile(
+        r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|[.:])",
+        re.IGNORECASE,
+    ),
 )
 
 #: Upper bound for one persisted identifier fact.
