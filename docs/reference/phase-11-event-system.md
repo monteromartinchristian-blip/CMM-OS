@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -18,6 +18,7 @@
 **Remediation V9 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
 **Remediation V10 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`
 **Remediation V11 agent prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v11-agent-prompt.md`
+**Remediation V12 agent prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v12-agent-prompt.md`
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
@@ -583,7 +584,8 @@ absolute POSIX path and the ~ home shorthand
 a user-home directory segment (Users/, home/, Documents and Settings/)
 a known secret-bearing private directory segment (.ssh, .aws, .gnupg, .kube,
   .docker, .azure, .netrc, .pgpass, .npmrc, .git-credentials)
-a private key material file name (id_rsa, id_dsa, id_ecdsa, id_ed25519, known_hosts)
+a private key material file name (id_rsa, id_dsa, id_ecdsa, id_ed25519, known_hosts;
+  case-insensitive, and with an NTFS named-stream `:` suffix — see §15.11)
 ```
 
 It performs no content inspection, resolves no path and performs no I/O. The rule
@@ -1103,6 +1105,103 @@ NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
 PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
 ```
 
+### 15.11 Windows sensitive private filename equivalents (Remediation V12)
+
+The sensitive private key material family already existed in the canonical
+classifier:
+
+```text
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+known_hosts
+```
+
+Independent Re-audit V12 showed that this family's **own signature** had two
+Windows-semantic blind spots, so an already-sensitive private basename stopped
+being classified as private:
+
+```python
+# audited V12 state
+re.compile(r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|\.)")
+```
+
+* **case**: a Windows filename is case-insensitive, but the match was
+  case-sensitive, so `ID_RSA`, `KNOWN_HOSTS` and `Id_Ed25519.pub` passed.
+* **NTFS named stream**: `ntfs` defines `name:stream` as the `stream` *alternate
+  data stream* of the file `name`, so `id_rsa:stream` still denotes the private
+  key material `id_rsa`. The only accepted suffix boundary was end-of-value or a
+  literal `.`, so the stream colon hid the private file.
+
+The following were therefore classified as public-safe, admitted by
+`validate_platform_identifier()`, published by the canonical `EventSystem` and
+durably appended — across all 13 shared identifier-bearing channels, in both
+official repositories and through a manual `publish_event(...)` call. The
+file-backed store reopened with the exact unsafe value persisted:
+
+```text
+ID_RSA
+KNOWN_HOSTS
+Id_Ed25519.pub
+provider/ID_RSA
+cmm/KNOWN_HOSTS
+
+id_rsa:stream
+known_hosts:ads
+id_ed25519:foo
+id_ecdsa:data
+provider/id_rsa:stream
+cmm/known_hosts:ads
+```
+
+Remediation V12 repairs that one signature in place — the same family, in the same
+canonical `event_payload_safety` authority:
+
+```python
+re.compile(
+    r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|[.:])",
+    re.IGNORECASE,
+)
+```
+
+`:` becomes a suffix boundary exactly as `.` already was, and the declared basename
+family is matched case-insensitively. The rule stays narrow and structural:
+
+* it is still anchored to the start of the reference or of a path segment, so a
+  colon-bearing identifier whose segment does not *start* with an already-sensitive
+  basename keeps its verdict;
+* no literal was appended for `ID_RSA`, `KNOWN_HOSTS`, `Id_Ed25519`, `stream`,
+  `ads`, `foo` or `data`;
+* no generic colon is banned and no generic `filename:stream` form is refused;
+* there is no second parser, scanner, ADS policy, registry or subsystem;
+* no filesystem I/O and no `Path.resolve()`;
+* no identifier grammar widening, and no lowercasing or rewriting of an accepted
+  identifier — case-insensitivity is a classification input only.
+
+Fresh case and stream spellings no literal names (`Id_Rsa`, `id_RSA`,
+`Known_Hosts`, `ID_DSA.PUB`, `ID_ECDSA`, `ID_RSA:STREAM`, `Known_Hosts:ADS`,
+`id_dsa:stream`, `provider/id_ed25519:foo`, `cmm/id_ecdsa:data`) receive the
+identical verdict. Preserved controls include the multi-letter colon identifiers
+(`workflow:123`, `domain:legal`, `events:read`), the wrapped segment-colon logical
+identifiers (`provider/a:1/model`, `cmm/v2:3/detail`), the generic non-sensitive
+named-stream controls (`foo.txt:stream`, `provider/foo.txt:stream`), the
+negative-space controls whose *suffix* looks sensitive (`model:id_rsa`,
+`workflow:id_rsa`), the plain slash references (`provider/model`,
+`cmm/orchestration/step`) and every credential-free URI
+(`https://example.com/model`, `provider/https://example.com/model`,
+`jdbc:postgresql://example.com/db`). Windows-backslash spellings
+(`.ssh\id_rsa`) remain refused earlier by the identifier character set, recorded as
+a positive fail-closed fact that did not require widening the grammar.
+
+Invariants:
+
+```text
+WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_NEVER_ENTER_EVENT_PERSISTENCE
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
+```
+
 ## 16. Composition bindings
 
 One Phase 11.1 module, `phase11_22_events`, owned by `cmm.events`, contributing
@@ -1394,6 +1493,51 @@ passing test was deleted. Both deltas are therefore `+180` and they agree exactl
 `tests/events/` moves `1091 → 1271` and the global suite moves `23160 → 23340`.
 `AT-DP-122` itself moves `124 → 177`.
 
+### 19.8 Remediation V12 measurements (current)
+
+```text
+tests/events/                      5045 passed
+AT-DP-122                          1039 passed (889 prior + 150 V12)
+Remediation V12 regressions         916 passed (initial red 396 failed / 520 passed)
+Remediation V11 regressions         708 passed (preserved)
+Remediation V10 regressions         475 passed (preserved)
+Remediation V9 regressions          397 passed (preserved)
+Remediation V8 regressions          289 passed (preserved)
+Remediation V7 regressions          127 passed (preserved)
+Remediation V6 regressions          127 passed (preserved)
+Remediation V5 regressions           71 passed (preserved)
+Remediation V4 regressions           23 passed (preserved)
+Remediation V3 regressions           44 passed (preserved)
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+prior remediation regressions      2473 passed (V1-V11)
+focused V1-V12 regressions         3389 passed
+direct identifier/path safety       257 passed
+architecture + security gates       294 passed
+composition / integration           323 passed
+kernel adapter tests                 76 passed
+event inventory                    1270 passed (22 files)
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+Domain DP-033 acceptance             92 passed
+orchestration event regressions     498 passed
+validation event regressions        533 passed
+workflow event regressions           46 passed
+closed-phase acceptances            185 passed, 1 warning
+platform architecture                69 passed
+imports                               1 passed
+agent_runtime -> domains imports      0
+global pytest                   27114 passed, 1 warning, 0 failed
+global Ruff                          810 (V12 baseline 810, no new debt)
+```
+
+The V11 production tree measured `3979` in `tests/events/` and `26048` collected
+globally, all passing. The V12 additions are `+916` adversarial regressions in a new
+module and `+150` strengthened `AT-DP-122` connected scenarios, with no
+production-repair case needed this cycle, so `tests/events/` moves `3979 -> 5045`
+(`+1066`) and the global collected count moves `26048 -> 27114` (`+1066`), the pass
+count moving with it. No test was deleted, skipped or xfailed.
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
@@ -1427,8 +1571,16 @@ count returns to zero; `tests/events/` moves `1997 -> 2535` and `AT-DP-122` move
 the V9 remediation figure: 475 new V10 adversarial regressions and 121 strengthened
 `AT-DP-122` connected scenarios; no production-repair case was needed this cycle, so
 `tests/events/` moves `2535 -> 3131` and `AT-DP-122` moves `628 -> 749`).
+Post-remediation V11: `26048 passed, 1 warning, 0 failed` (+848 over the V10
+remediation figure: 708 new V11 adversarial regressions and 140 strengthened
+`AT-DP-122` connected scenarios; no production-repair case was needed this cycle, so
+`tests/events/` moves `3131 -> 3979` and `AT-DP-122` moves `749 -> 889`).
+Post-remediation V12: `27114 passed, 1 warning, 0 failed` (+1066 over the V11
+remediation figure: 916 new V12 adversarial regressions and 150 strengthened
+`AT-DP-122` connected scenarios, with no production-repair case needed, so
+`tests/events/` moves `3979 -> 5045` and `AT-DP-122` moves `889 -> 1039`).
 `GLOBAL_PYTEST_FAILURES=0` is therefore met on the canonical CPython 3.14.7 runtime,
-at a pass count of `25200` against the `24604` floor. The single retained warning is
+at a pass count of `27114` against the `26048` floor. The single retained warning is
 the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
@@ -1446,14 +1598,15 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9, V10 and V11 change, is Ruff-clean.
-The global count after Remediation V11 is `810`: identical to the audited V1 HEAD, to
-the V5, V6, V7, V8, V9 and V10 figures, and one below the frozen baseline. The only
-delta against the baseline is one pre-existing violation removed while editing
+Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11 and V12 change, is
+Ruff-clean.
+The global count after Remediation V12 is `810`: identical to the audited V1 HEAD, to
+the V5, V6, V7, V8, V9, V10 and V11 figures, and one below the frozen baseline. The
+only delta against the baseline is one pre-existing violation removed while editing
 `tests/conftest.py` to add the test data-directory isolation fixture. No unrelated
 violation was fixed, no global auto-fix was run, and no file outside the Phase 11.22
-delta was touched. Every changed and created V11 file is also `ruff format --check`
--clean, so the V11 formatting pass introduced no unrelated churn.
+delta was touched. Every changed and created V12 file is also `ruff format --check`
+-clean, so the V12 formatting pass introduced no unrelated churn.
 
 ## 22. Known non-goals and limitations
 
@@ -1485,10 +1638,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V12** bundle
-(`phase-11.22-event-system-audit-v12.tar.gz`, produced with `git archive` from the
-final Remediation V11 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V13** bundle
+(`phase-11.22-event-system-audit-v13.tar.gz`, produced with `git archive` from the
+final Remediation V12 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -2228,3 +2381,93 @@ existed. The immutable Audit V1 report, the immutable Re-audit V2–V11 reports,
 immutable V1–V11 bundles are preserved byte-identical. The exact Remediation V11 HEAD,
 tree and V12 bundle SHA-256 are reported in the remediation handoff rather than
 embedded here, for the same self-reference reason as the earlier evidence records.
+
+## 35. Remediation V12 record
+
+Independent Re-audit V12
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v12.md`) verified the
+single V11 finding fixed (`1/1_VERIFIED`) and preserved the prior remediation
+regressions, while failing the phase with one new major, no minors and no blockers:
+
+```text
+INDEPENDENT_REAUDIT_V12=FAIL
+V11_FINDINGS_FIXED=1/1_VERIFIED
+BLOCKERS=0
+MAJORS=1
+MINORS=0
+MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V12_ONLY
+EXPECTED_NEXT_BUNDLE=phase-11.22-event-system-audit-v13.tar.gz
+```
+
+Remediation V12 fixed that single finding under strict TDD — a red reproduction
+suite first (`396 failed / 520 passed` on the new module, in a commit containing only
+tests), then the minimum fix in the existing authority:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V12-001` | The canonical sensitive-private-filename signature (`re.compile(r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|\.)")`) had two Windows-semantic blind spots in its own rule. Its match was case-sensitive although a Windows filename is case-insensitive, so `ID_RSA`, `KNOWN_HOSTS` and `Id_Ed25519.pub` passed; and its only accepted suffix boundary was end-of-value or a literal `.`, although `ntfs` defines `name:stream` as the `stream` alternate data stream of the file `name`, so `id_rsa:stream`, `known_hosts:ads`, `id_ed25519:foo` and `id_ecdsa:data` still denote the private file before the colon. `provider/ID_RSA`, `provider/id_rsa:stream` and `cmm/known_hosts:ads` reached the same verdict through the allowlisted public logical wrappers. `is_private_filesystem_reference("id_rsa:stream")` returned `False`, `validate_platform_identifier("id_rsa:stream")` accepted, and the value was durably persisted and reopened — across all 13 shared identifier-bearing channels, in both official repositories and through a manual `publish_event(...)` call | the **same** canonical signature in `_PRIVATE_FILESYSTEM_PATTERNS` gains case-insensitive matching for the already-declared private basename family and treats `:` as a suffix boundary exactly as it already treated `.` — `re.compile(r"(?:^|[\\/])(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts)(?:$|[.:])", re.IGNORECASE)`. The invariant is deliberately narrow: the rule stays anchored to the start of the reference or of a path segment, so a colon-bearing identifier whose segment does not *start* with an already-sensitive basename keeps its verdict (`workflow:123`, `domain:legal`, `events:read`, `provider/a:1/model`, `cmm/v2:3/detail`, `provider/model`, `model:id_rsa`, `workflow:id_rsa`, and the generic non-sensitive `foo.txt:stream` / `provider/foo.txt:stream` controls). No literal was appended for `ID_RSA`, `KNOWN_HOSTS`, `Id_Ed25519`, `stream`, `ads`, `foo` or `data`; fresh casings and stream names (`Id_Rsa`, `id_RSA`, `Known_Hosts`, `ID_DSA.PUB`, `ID_ECDSA`, `ID_RSA:STREAM`, `Known_Hosts:ADS`, `id_dsa:stream`, `provider/id_ed25519:foo`, `cmm/id_ecdsa:data`) are refused by the same structural rule. No generic colon is banned, no generic `filename:stream` form is refused, no identifier grammar was widened, and no accepted identifier is lowercased or rewritten. Analysis-only: no filesystem I/O, no `Path.resolve()`, no second parser, scanner, ADS policy, registry or subsystem |
+
+The one production rule lives in `is_private_filesystem_reference()`, reached by
+every persisted identifier channel through `validate_platform_identifier()` — the
+single shared authority the phase already had — so no channel can be patched alone.
+No second event, identifier, URI, path, filename, ADS, registry, repository, runtime,
+resolver, loader, engine or policy infrastructure was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS` remains `0`.
+
+```text
+REMEDIATION_V12_TESTS=916 passed (initial red 396 failed / 520 passed)
+V11_REGRESSIONS=708 passed (preserved)
+V10_REGRESSIONS=475 passed (preserved)
+V9_REGRESSIONS=397 passed (preserved)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=2473 passed (V1-V11)
+FOCUSED_V1_V12_REGRESSIONS=3389 passed
+DIRECT_IDENTIFIER_PATH_SAFETY=257 passed
+PHASE_SUITE=tests/events/ 5045 passed
+AT_DP_122=1039 passed (889 prior + 150 V12)
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+EVENT_SYSTEM_COMPOSITION_AND_INTEGRATION=323 passed
+KERNEL_ADAPTER_TESTS=76 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+PLATFORM_ARCHITECTURE=69 passed
+IMPORTS=1 passed
+AGENT_RUNTIME_DEPENDENCY_DIRECTION=1 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed (22 files)
+GLOBAL_PYTEST=27114 collected, 27114 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V12 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+Both alternative repairs were rejected. Appending the audited literals (`ID_RSA`,
+`KNOWN_HOSTS`, `stream`, `ads`, `foo`, `data`) would have left the classifier a
+denylist of selected spellings — the exact V8 defect — and banning the colon in
+general, or lowercasing identifiers, would have broken the frozen contract's
+deliberately preserved colon-bearing identifiers. The already-declared private
+basename family is therefore made case-insensitive and colon-suffix-aware
+structurally, inside the authority that already existed. The immutable Audit V1
+report, the immutable Re-audit V2–V12 reports, and the immutable V1–V12 bundles are
+preserved byte-identical. The exact Remediation V12 HEAD, tree and V13 bundle SHA-256
+are reported in the remediation handoff rather than embedded here, for the same
+self-reference reason as the earlier evidence records.

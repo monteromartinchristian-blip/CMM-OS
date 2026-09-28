@@ -2882,7 +2882,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
@@ -2894,6 +2894,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Independent Re-audit V9:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `V8_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=604_PASS`; `MAJOR_V9_001=WRAPPED_NON_AUTHORITY_FILE_URI_BYPASSES_FAIL_CLOSED_FILESYSTEM_CLASSIFIER`, `MAJOR_V9_002=SUPPORTED_RUNTIME_TIMESTAMP_SEMANTICS_REOPEN_PRIOR_V6_FINDING_AND_KEEP_GLOBAL_GATE_RED`, `MINOR_V9_001=REFERENCE_TEST_EVIDENCE_COUNTS_STALE_AFTER_FINAL_V8_AT_ADDITIONS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v9.md` (immutable)
 **Independent Re-audit V10:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V9_FINDINGS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1290_PASS`; `MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v10.md` (immutable)
 **Independent Re-audit V11:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V10_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1765_PASS`; `MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v11.md` (immutable)
+**Independent Re-audit V12:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V11_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=2473_PASS`; `MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v12.md` (immutable)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2910,10 +2911,12 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Remediation V9 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v9-agent-prompt.md`
 **Remediation V10 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v10-agent-prompt.md`
 **Remediation V11 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v11-agent-prompt.md`
+**Remediation V12 prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v12-agent-prompt.md`
 **V9 audit bundle:** `phase-11.22-event-system-audit-v9.tar.gz` from the exact Remediation V8 HEAD; SHA-256 `1f5908e63a728d440cec6f62607d89fd6b4d9add8d77c941d967c3be139488fa`
 **V10 audit bundle:** `phase-11.22-event-system-audit-v10.tar.gz` from the exact Remediation V9 HEAD; SHA-256 `cd594b857a0882cbc4059afbc01eb1f5d3f760c5ca7aacc1c4e9643bbae35840`
 **V11 audit bundle:** `phase-11.22-event-system-audit-v11.tar.gz` from the exact Remediation V10 HEAD; SHA-256 `e53b7942f264aaf47045d6c4a7566dc68a796ce0b99488d8561f2c34b8d03a59`
-**V12 audit bundle:** `phase-11.22-event-system-audit-v12.tar.gz` from the exact Remediation V11 HEAD
+**V12 audit bundle:** `phase-11.22-event-system-audit-v12.tar.gz` from the exact Remediation V11 HEAD; SHA-256 `c46e717a916c80cd6ffce7ba54e08896cc3826ba6d4b5a1a4ac460d46330bd2a`
+**V13 audit bundle:** `phase-11.22-event-system-audit-v13.tar.gz` from the exact Remediation V12 HEAD
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2989,6 +2992,11 @@ PRIOR_REMEDIATION_REGRESSIONS=1765_PASS
 MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS
 MAJOR_V11_001_STATUS=REMEDIATED_REPORTED
 REMEDIATION_V11=REMEDIATED_AFTER_REAUDIT_V11_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V12=FAIL
+V11_FINDINGS_FIXED=1/1_VERIFIED
+MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
+MAJOR_V12_001_STATUS=REMEDIATED_REPORTED
+REMEDIATION_V12=REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT
 ```
 
 What was implemented:
