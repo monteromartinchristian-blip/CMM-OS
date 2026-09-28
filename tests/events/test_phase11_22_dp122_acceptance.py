@@ -4920,3 +4920,452 @@ def test_at_dp_122_v10_retains_the_v9_controls_it_builds_on(connected) -> None:
     assert stored.header.occurred_at == datetime(
         2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V11 — AT-DP-122 additions for the V11 drive-relative finding
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V11-001 is the Windows *drive-relative* spelling of the same structural
+# drive-classification defect Remediation V10 fixed for the rooted spelling.
+# Windows defines both ``C:/name`` (drive-root) and ``C:name`` (drive-relative),
+# and the latter is still a drive-qualified local reference; the retained rule
+# required a separator after the colon, and a value with no separator was not
+# treated as path-shaped either, so ``C:id_rsa`` was persisted through every
+# shared identifier channel.  It is re-derived here in both directions: every
+# whole-value drive-relative spelling must be refused through the connected
+# boundary, on every shared identifier-bearing channel, in both official
+# repositories and through a manual prebuilt ``publish_event(...)``, while every
+# multi-letter colon identifier, every wrapped segment-colon logical identifier
+# and every credential-free URI keeps persisting with identity, correlation and
+# causation unchanged.  The durable store itself proves "refused before
+# persistence", and the retained V6–V10 controls are re-run beside it.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The drive-relative references the independent Re-audit V11 demonstrated being
+#: accepted and durably persisted through the real composition.
+AT_DP_122_V11_REPORTED_DRIVE_RELATIVE = (
+    pytest.param("C:Windows", id="reported_windows"),
+    pytest.param("C:id_rsa", id="reported_id_rsa"),
+    pytest.param("C:.ssh", id="reported_ssh_directory"),
+    pytest.param("D:ProgramData", id="reported_programdata"),
+    pytest.param("Z:tmp", id="reported_tmp"),
+)
+
+#: Fresh connected probes: drive letters, remainders and the bare drive designator
+#: that no literal names.
+AT_DP_122_V11_FRESH_DRIVE_RELATIVE = (
+    pytest.param("C:", id="fresh_bare_drive_designator"),
+    pytest.param("C:a", id="fresh_single_segment_remainder"),
+    pytest.param("c:id_rsa", id="fresh_lowercase_drive_letter"),
+    pytest.param("X:foo.bar", id="fresh_dotted_remainder"),
+    pytest.param("D:Users", id="fresh_users_directory"),
+    pytest.param("E:secret.txt", id="fresh_secret_file"),
+)
+
+#: Every drive-relative reference the connected boundary must refuse.
+AT_DP_122_V11_ALL_DRIVE_RELATIVE = (
+    AT_DP_122_V11_REPORTED_DRIVE_RELATIVE + AT_DP_122_V11_FRESH_DRIVE_RELATIVE
+)
+
+#: Families of spellings of one drive-relative reference.  Every member must receive
+#: the identical connected verdict, so a trailing separator or a case-varied drive
+#: letter cannot smuggle one past the boundary.
+AT_DP_122_V11_EQUIVALENCE_FAMILIES = (
+    pytest.param(("C:Windows", "c:Windows", "C:Windows/"), id="windows_family"),
+    pytest.param(("C:id_rsa", "c:id_rsa"), id="id_rsa_family"),
+    pytest.param(
+        ("D:ProgramData", "d:ProgramData", "D:ProgramData/"), id="programdata_family"
+    ),
+    pytest.param(("C:.ssh", "c:.ssh"), id="ssh_directory_family"),
+    pytest.param(("C:", "c:"), id="bare_designator_family"),
+    pytest.param(("Z:tmp", "z:tmp", "Z:tmp/"), id="tmp_family"),
+)
+
+#: Every V11 adversarial value, with the plain-text marker it would leak.
+AT_DP_122_V11_ADVERSARIAL = (
+    pytest.param("C:id_rsa", "id_rsa", id="drive_relative_id_rsa"),
+    pytest.param("C:.ssh", ".ssh", id="drive_relative_ssh_directory"),
+    pytest.param("D:ProgramData", "ProgramData", id="drive_relative_programdata"),
+    pytest.param("C:Windows", "Windows", id="drive_relative_windows"),
+    pytest.param("Z:tmp", "tmp", id="drive_relative_tmp"),
+    pytest.param("E:secret.txt", "secret.txt", id="fresh_secret_file"),
+)
+
+#: Public references the V11 rule must keep, in both directions.  Multi-letter colon
+#: identifiers, wrapped segment-colon logical identifiers the frozen contract
+#: deliberately preserves, plain slash references and credential-free URIs.
+AT_DP_122_V11_LEGITIMATE = (
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("events:read", id="events_colon"),
+    pytest.param("urn:cmm:event:message.received", id="urn_colon"),
+    pytest.param("provider/a:1/model", id="wrapped_segment_colon_not_drive"),
+    pytest.param("cmm/v2:3/detail", id="wrapped_version_colon"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("provider/https://example.com/model", id="credential_free_prefixed"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+    pytest.param("jdbc:postgresql://example.com/db", id="credential_free_jdbc"),
+)
+
+_AT_DP_122_V11_SHARED_CHANNEL_IDS = [case[0] for case in AT_DP_122_V7_SHARED_CHANNELS]
+_AT_DP_122_V11_EQUIVALENCE_IDS = [
+    case.id for case in AT_DP_122_V11_EQUIVALENCE_FAMILIES
+]
+_AT_DP_122_V11_ADVERSARIAL_IDS = [case.id for case in AT_DP_122_V11_ADVERSARIAL]
+_AT_DP_122_V11_CHANNEL_REFERENCE_IDS = [
+    case.id for case in AT_DP_122_V11_REPORTED_DRIVE_RELATIVE
+]
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V11_ALL_DRIVE_RELATIVE)
+def test_at_dp_122_v11_drive_relative_reference_is_refused_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V11-001: every drive-relative spelling is refused by the boundary."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v11-at-drive-relative"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", {"request_id": reference}, event_id=event_id)
+
+    assert system.repository.get(event_id) is None
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=_AT_DP_122_V11_SHARED_CHANNEL_IDS,
+)
+@pytest.mark.parametrize(
+    "reference",
+    AT_DP_122_V11_REPORTED_DRIVE_RELATIVE,
+    ids=_AT_DP_122_V11_CHANNEL_REFERENCE_IDS,
+)
+def test_at_dp_122_v11_drive_relative_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V11-001: all 13 shared channels refuse, not just ``request_id``."""
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v11-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", payload, event_id=event_id, **header_facts)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    "family",
+    AT_DP_122_V11_EQUIVALENCE_FAMILIES,
+    ids=_AT_DP_122_V11_EQUIVALENCE_IDS,
+)
+def test_at_dp_122_v11_equivalent_spellings_share_one_connected_verdict(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V11-001: one drive, one connected verdict — no admitted spelling."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in family:
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v11-at-equivalence",
+            )
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V11_ADVERSARIAL,
+    ids=_AT_DP_122_V11_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v11_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V11-001: refusal leaves no drive-relative marker in store or error."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v11-at-durable",
+        )
+
+    assert marker not in str(captured.value)
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V11_ALL_DRIVE_RELATIVE)
+def test_at_dp_122_v11_both_official_repositories_refuse_a_drive_relative_reference(
+    connected, reference: str
+) -> None:
+    """MAJOR-V11-001: the refusal is repository-independent.
+
+    The connected acceptance runs the official file-backed repository.  The
+    official in-memory repository is exercised beside it so "the durable store was
+    never the safety boundary" holds for both canonical implementations.
+    """
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+    from tests.events.test_phase11_22_event_system import build_system
+
+    durable_system = connected["system"]
+    memory_system = build_system(repository=InMemoryAgentRuntimeEventRepository())
+    before_durable = durable_system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        memory_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v11-at-memory",
+        )
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        durable_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v11-at-durable-repo",
+        )
+
+    assert memory_system.repository.count() == 0
+    assert memory_system.dead_letter_count() == 0
+    assert durable_system.repository.count() == before_durable
+    assert durable_system.dead_letter_count() == 0
+    assert durable_system.repository.get("evt-v11-at-durable-repo") is None
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V11_ALL_DRIVE_RELATIVE)
+def test_at_dp_122_v11_manual_prebuilt_event_cannot_bypass_the_rule(
+    connected, reference: str
+) -> None:
+    """MAJOR-V11-001: the manual canonical boundary re-applies the same rule."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEvent,
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v11-at-manual"
+    manual = AgentRuntimeEvent(
+        header=AgentRuntimeEventHeader(
+            event_id=event_id,
+            event_type="message.received",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        ),
+        payload=AgentRuntimeEventPayload(data={"request_id": reference}),
+    )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish_event(manual)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V11_LEGITIMATE)
+def test_at_dp_122_v11_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V11-001 control: the drive-relative rule does not over-correct.
+
+    The wrapped segment-colon logical identifiers are the load-bearing controls: a
+    rule anchored to a path-segment boundary instead of the whole reference would
+    refuse them, which the frozen contract forbids.
+    """
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v11-at-ok-{uuid.uuid4().hex[:10]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v11-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        correlation_id="CORR-V11-AT",
+        causation_id="CAUSE-V11-AT",
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert reopened.header.correlation_id == "CORR-V11-AT"
+    assert reopened.header.causation_id == "CAUSE-V11-AT"
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize(
+    "reference", AT_DP_122_V11_REPORTED_DRIVE_RELATIVE + AT_DP_122_V11_FRESH_DRIVE_RELATIVE
+)
+def test_at_dp_122_v11_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V11-001: the real production adapter cannot persist the shape either."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v11-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V11_ADVERSARIAL,
+    ids=_AT_DP_122_V11_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v11_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V11-001: the real Orchestrator's mandatory emission refuses them."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v11_the_refusal_message_never_echoes_the_location(
+    connected,
+) -> None:
+    """MAJOR-V11-001: the boundary refuses the location without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "C:id_rsa",
+        "C:.ssh",
+        "D:ProgramData",
+        "Z:tmp",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v11-at-echo",
+            )
+        message = str(captured.value)
+        assert reference not in message
+        assert "private filesystem location" in message
+
+
+def test_at_dp_122_v11_retains_the_v10_controls_it_builds_on(connected) -> None:
+    """MAJOR-V11-001 control: the V6–V10 rules still hold beside the V11 rule.
+
+    The drive-relative rule must strengthen, not replace, the retained rooted,
+    wrapped-rooted, traversal, ``file:`` URI, credential and civil-time rules.
+    """
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "C:/Windows/System32/config/SAM",
+        "provider/C:/Windows/System32/config/SAM",
+        "cmm/D:/private/example",
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "safe/../../etc/shadow",
+        "etc//shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "jdbc:postgresql://alice:supersecret@example.com/db",
+        "provider/https://alice:supersecret@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v11-at-v10-regression",
+            )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v11-at-v10-ts", "occurred_at": "2026-09-27T24:00:00Z"},
+            event_id="evt-v11-at-v10-ts",
+        )
+
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert system.repository.count() == 0
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v11-at-v10-control",
+            "workflow_id": "provider/a:1/model",
+            "occurred_at": "2026-09-27T23:59:59Z",
+        },
+        event_id="evt-v11-at-v10-control",
+        aggregate_id="cmm/v2:3/detail",
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v11-at-v10-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/v2:3/detail"
+    assert stored.header.workflow_id == "provider/a:1/model"
+    assert stored.header.occurred_at == datetime(
+        2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
+    )
