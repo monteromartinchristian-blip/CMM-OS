@@ -810,9 +810,14 @@ def test_the_civil_hour_bound_is_not_delegated_to_the_interpreter_parser(
     """MAJOR-V9-002: a *wider* interpreter parser cannot widen the contract.
 
     The authority is re-run with the parser subrogated by a hypothetical future
-    interpreter that accepts everything the shape admits.  Every frozen verdict
-    must be unchanged, which is only possible if the hour bound is enforced by the
-    Phase 11.22 authority itself rather than by ``datetime.fromisoformat``.
+    interpreter that accepts everything the shape admits.  The end-of-day spellings
+    must still be refused, which is only possible if the hour bound is enforced by
+    the Phase 11.22 authority itself rather than by ``datetime.fromisoformat``.
+
+    Only the hour bound is asserted here, because only the hour bound is asserted by
+    the authority itself: the month, day, minute, second, microsecond and offset
+    bounds stay delegated to the canonical parser and are checked against it by the
+    frozen verdict table above.
     """
 
     from cmm.events import event_payload_safety as authority
@@ -826,7 +831,7 @@ def test_the_civil_hour_bound_is_not_delegated_to_the_interpreter_parser(
 
     monkeypatch.setattr(authority, "datetime", _PermissiveDatetime)
 
-    for timestamp in END_OF_DAY_TIMESTAMPS + RETAINED_INVALID_TIMESTAMPS:
+    for timestamp in END_OF_DAY_TIMESTAMPS:
         with pytest.raises(REJECTIONS):
             authority._validate_canonical_timestamp(timestamp, field="occurred_at")
     for timestamp in VALID_TIMESTAMPS:
