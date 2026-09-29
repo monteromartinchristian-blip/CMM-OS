@@ -388,6 +388,21 @@ _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]*$")
 #: already was.  No audited literal was appended, the identifier grammar is
 #: unchanged, and no colon is banned in general — a colon-bearing identifier whose
 #: segment does not start with an already-sensitive basename keeps its verdict.
+#:
+#: Independent Re-audit V13 then showed that the analysis form itself still left
+#: one Windows-semantic gap in front of every retained signature: Win32 removes
+#: trailing ASCII periods from a path component when it resolves a name, so
+#: ``.ssh.``/``.ssh..`` name the same location as ``.ssh``, yet the analysis form
+#: kept the trailing period, no sensitive-family signature matched it, and an
+#: allowlisted public wrapper made the reference look public:
+#: ``provider/.ssh./config``, ``cmm/.ssh./config``, ``provider/.aws./config``,
+#: ``provider/Users./alice/config``, ``provider/.ssh../config`` and their
+#: equivalents were durably persisted through all 13 shared identifier-bearing
+#: channels, both official repositories and a manual ``publish_event(...)`` call.
+#: The repair is in the existing :func:`_analyze_lexical_path` — every component's
+#: trailing periods are stripped for classification only, traversal is still
+#: detected on the raw segments before any normalization, and no audited literal
+#: was appended to this tuple.
 _PRIVATE_FILESYSTEM_PATTERNS: tuple[re.Pattern[str], ...] = (
     # A file: URI — the explicit spelling of one local filesystem location.  The
     # scheme token is recognized at the start of the reference **or at the start of
@@ -1135,9 +1150,11 @@ class _LexicalPathAnalysis(NamedTuple):
     caller and never used to rewrite the identifier a producer supplied.
     """
 
-    #: Separators normalized, repeats collapsed, ``.`` elided, absoluteness kept.
+    #: Separators normalized, repeats collapsed, ``.`` elided, Win32 trailing
+    #: periods stripped for classification, absoluteness kept.
     canonical: str
-    #: The canonical path segments, in order, with case preserved.
+    #: The canonical path segments, in order, with case preserved and Win32
+    #: trailing periods stripped for classification.
     segments: tuple[str, ...]
     #: Whether a ``..`` parent segment occurs anywhere in the reference.
     has_traversal: bool
@@ -1160,7 +1177,11 @@ def _analyze_lexical_path(value: str) -> _LexicalPathAnalysis:
     * repeated separators are collapsed;
     * ``.`` current-directory segments are elided;
     * a ``..`` parent-directory segment is *detected*, never elided, so traversal
-      is refused before any normalization could hide it.
+      is refused before any normalization could hide it;
+    * ordinary Win32 trailing ASCII periods are stripped from each component
+      **for classification only**, because a Windows path component ``.ssh.``
+      names the same location as ``.ssh`` and the persisted value is never
+      rewritten.
 
     Because classification runs on this form rather than on the raw text, every
     lexically equivalent spelling of one location receives exactly one verdict.
@@ -1170,7 +1191,29 @@ def _analyze_lexical_path(value: str) -> _LexicalPathAnalysis:
     raw_segments = normalized.split("/")
     has_traversal = any(segment == ".." for segment in raw_segments)
     is_absolute = normalized.startswith("/")
-    segments = tuple(segment for segment in raw_segments if segment not in ("", "."))
+
+    # Ordinary Win32 path normalization removes trailing ASCII periods from a path
+    # component when it resolves a name, so ``.ssh.``/``.ssh..`` and ``.ssh`` —
+    # and ``Users.`` and ``Users`` — name the same location.  Independent Re-audit
+    # V13 showed that without this fold the analysis form stopped matching an
+    # already-sensitive family behind an allowlisted public root, so the
+    # equivalent spelling was durably persisted.  The fold is for classification
+    # only: the raw identifier is never rewritten, a ``..`` segment is detected
+    # above on the raw segments before any normalization could hide it and is
+    # never folded, and a component left empty by the fold contributes nothing
+    # (it is never invented as a current-directory segment).
+    segments_list: list[str] = []
+    for segment in raw_segments:
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            segments_list.append(segment)
+            continue
+        stripped = segment.rstrip(".")
+        if not stripped:
+            continue
+        segments_list.append(stripped)
+    segments = tuple(segments_list)
     canonical = ("/" if is_absolute else "") + "/".join(segments)
     schemes = tuple(
         match.group("scheme").lower()
@@ -1201,7 +1244,8 @@ def is_private_filesystem_reference(value: str) -> bool:
        ``file:`` URI at the start of the reference or at **any path-segment
        boundary**, a bare or unknown authority under the ``file`` scheme, and the
        retained V6/V7 sensitive location signatures — all evaluated on the
-       canonical form.
+       canonical form, which folds ordinary Win32 trailing ASCII periods off each
+       component for classification.
     2. A **fail-closed public-reference allowlist**.  A slash-bearing reference is
        public-safe only when its path-shaped **residue** is rooted in one of the
        declared public logical namespaces
