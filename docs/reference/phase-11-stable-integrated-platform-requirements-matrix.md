@@ -55,69 +55,7 @@ meaning of `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` under the wording the design
 specification's §33 requires before audit, and it is neither a closure nor a
 verification claim.
 
-Phase 11.22 records its post-audit state under the explicit marker
-`REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`: Independent Audit V1
-returned `FAIL` (`BLOCKERS=0`, `MAJORS=4`, `MINORS=5`); Remediation V1 fixed all
-nine of those findings under strict TDD with adversarial regressions; Independent
-Re-audit V2 verified all nine as remediated
-(`AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`) and returned `FAIL` with exactly four
-new majors (`BLOCKERS=0`, `MAJORS=4`, `MINORS=0`); Remediation V2 fixed exactly
-those four under strict TDD with adversarial regressions; Independent Re-audit V3
-verified all nine Audit V1 findings and all four Re-audit V2 reproductions as fixed
-(`9/9_VERIFIED`, `4/4_VERIFIED`) and returned `FAIL` with exactly two majors and one
-minor (`BLOCKERS=0`, `MAJORS=2`, `MINORS=1`); Remediation V3 fixed exactly those
-three under strict TDD with adversarial regressions; Independent Re-audit V4
-verified all three Re-audit V3 reproductions as fixed
-(`3/3_VERIFIED`) and returned `FAIL` with exactly three majors
-(`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`); Remediation V4 fixed exactly those three
-under strict TDD with adversarial regressions; Independent Re-audit V5 verified
-those three as fixed (`3/3_VERIFIED`) and preserved `279` prior remediation
-regressions, then returned `FAIL` with exactly three new majors
-(`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`); Remediation V5 fixed exactly those three
-under strict TDD with adversarial regressions; Independent Re-audit V6 verified
-those three as fixed (`3/3_VERIFIED`) and preserved `350` prior remediation
-regressions, then returned `FAIL` with exactly three new majors and one new minor
-(`BLOCKERS=0`, `MAJORS=3`, `MINORS=1`); Remediation V6 fixed exactly those four
-under strict TDD with adversarial regressions; Independent Re-audit V7 verified
-all four V6 findings as fixed (`4/4_VERIFIED`) and preserved `477` prior
-remediation regressions, then returned `FAIL` with exactly two new majors and no
-minors (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`); Remediation V7 fixed exactly those
-two under strict TDD with adversarial regressions; Independent Re-audit V8 verified
-both V7 findings as fixed (`2/2_VERIFIED`) and preserved `604` prior remediation
-regressions, then returned `FAIL` with exactly two new majors and one new minor
-(`BLOCKERS=0`, `MAJORS=2`, `MINORS=1`); Remediation V8 fixed exactly those three
-under strict TDD with adversarial regressions; Independent Re-audit V9 verified
-both V8 findings as fixed (`2/2_VERIFIED`) and preserved `604` prior remediation
-regressions, then returned `FAIL` with exactly two new majors and one new minor
-(`BLOCKERS=0`, `MAJORS=2`, `MINORS=1`); Remediation V9 fixed exactly those three
-under strict TDD with adversarial regressions; Independent Re-audit V10 verified all
-three V9 findings as fixed (`3/3_VERIFIED`) and preserved `1290` prior remediation
-regressions, then returned `FAIL` with exactly one new major, no minors and no
-blockers (`BLOCKERS=0`, `MAJORS=1`, `MINORS=0`,
-`MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER`);
-Remediation V10 fixed exactly that finding under strict TDD with adversarial
-regressions; Independent Re-audit V11 verified the V10 finding as fixed
-(`1/1_VERIFIED`) and preserved `1765` prior remediation regressions, then returned
-`FAIL` with exactly one new major, no minors and no blockers
-(`BLOCKERS=0`, `MAJORS=1`, `MINORS=0`,
-`MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS`);
-Remediation V11 fixed exactly that finding under strict TDD with adversarial
-regressions; Independent Re-audit V12 verified the V11 finding as fixed
-(`1/1_VERIFIED`) and preserved `2473` prior remediation regressions, then returned
-`FAIL` with exactly one new major, no minors and no blockers
-(`BLOCKERS=0`, `MAJORS=1`, `MINORS=0`,
-`MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`);
-Remediation V12 fixed exactly that finding under strict TDD with adversarial
-regressions; Independent Re-audit V13 verified the V12 finding as fixed
-(`1/1_VERIFIED`) and preserved `3389` prior remediation regressions, then returned
-`FAIL` with exactly one new major and one new minor
-(`BLOCKERS=0`, `MAJORS=1`, `MINORS=1`,
-`MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`,
-`MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12`);
-Remediation V13 fixed exactly those two under strict TDD with adversarial
-regressions, and the independent re-audit of the exact-HEAD V14 bundle is still
-pending. It is the same state as `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`, is not a
-closure and is not a verification claim.
+Phase 11.22 is now closed after Independent Re-audit V14 `PASS`. Historical Independent Audit V1 and Re-audits V2–V13 `FAIL` evidence remains immutable; Re-audit V14 verified the V13 major and minor as remediated and returned `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and `CLOSURE_ELIGIBLE=YES`. The canonical requirement state is `F11_022=VERIFIED_EXISTING`; the dedicated docs-only closure records `PHASE11_22=CLOSED` without reopening any previously closed phase.
 
 ## 3. Inherited / preassigned Phase 11 requirements (`F11-001` … `F11-013`)
 
@@ -338,7 +276,7 @@ Application Backend.
 | Independent Re-audit V1 | `docs/audits/phase-11.3-application-backend-independent-reaudit-v1.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED`; `F11_017=VERIFIED_EXISTING`; `DP_103=VERIFIED_EXISTING`; `AT_DP_103=PASS`; `AT_DP_102=PASS`; `AT_DP_101=PASS`; `AT_DP_134=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `4525f72391792e623730af69e95bcd054ce3cddf`; audited tree `0b650c8133111754452940c74a1bc72f24a0df23`; bundle SHA-256 `152276776b9e2765edb67adcd95b6ee3d2b565d416e1e4bce665777a078d9618`; report commit `c21f2e257a1995b748b78b65b622ff68ca3e6d38` |
 | Finding status | `MAJOR_01=VERIFIED_REMEDIATED`; `MINOR_01=VERIFIED_REMEDIATED` |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
 `F11-017` is `VERIFIED_EXISTING` and `DP_103=VERIFIED_EXISTING` after Independent
 Re-audit V1 `PASS`. Historical Audit V1 `FAIL` remains immutable; Re-audit V1
@@ -376,7 +314,7 @@ assigned to Phase 11.4 — CLI.
 | Inherited requirements reused | `F11-017` / `DP-103` (Phase 11.3), `F11-016` / `DP-102` (Phase 11.2), `F11-015` / `DP-101` (Phase 11.1) and `F11-014` / `DP-134` (Phase 11.34) — referenced, **not reopened and not modified** |
 | Inherited acceptance regressions | `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102`; `AT-DP-101`; `AT-DP-134` |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
 `F11-018` is `VERIFIED_EXISTING`. Independent Audit V1 `FAIL` is preserved as historical evidence; final Independent Re-audit V1 `PASS` verified `DP-104`, `AT-DP-104`, and `CLOSURE_ELIGIBLE=YES`.
 
@@ -417,7 +355,7 @@ here, while no independent audit has examined it yet.
 | Inherited acceptance regressions | `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py`; `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py`; `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py`; `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py`; `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py`; `AT-DP-045` — `tests/domains/test_domain_interface_dp045_acceptance.py` |
 | Closed-phase adjustments | two additive architecture-gate seams (`tests/application/test_architecture.py`, `tests/api/test_architecture.py`) and the repaired exact-set/allowlist pins (`tests/application/test_channels.py`, `tests/application/test_local_runtime.py`, `tests/api/test_http_v1.py`, `tests/api/test_openapi.py`, `tests/application/test_phase11_3_dp103_acceptance.py`, `tests/platform/test_architecture.py`) — every change additive, documented with a Phase 11.5/DP-105 comment and recorded in the reference document |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
 `F11-019` is `VERIFIED_EXISTING` and
 `DP_105` is implemented in production architecture after Remediation V2 — which
@@ -474,7 +412,7 @@ green here, while no independent audit has examined it yet.
 | Inherited acceptance regressions | `AT-DP-134` — `tests/llm/test_provider_registry_dp134_acceptance.py` (68 passed); `AT-DP-101` — `tests/platform/test_phase11_1_dp101_acceptance.py` (31 passed); `AT-DP-102` — `tests/orchestration/test_phase11_2_dp102_acceptance.py` (33 passed); `AT-DP-103` — `tests/application/test_phase11_3_dp103_acceptance.py` (47 passed); `AT-DP-104` — `tests/cli/test_phase11_4_dp104_acceptance.py` (69 passed); `AT-DP-105` — `tests/conversation/test_phase11_5_dp105_acceptance.py` (1 passed) |
 | Repository-wide Ruff | 837 findings — identical to the inspected pre-phase baseline; Phase 11.21 introduces zero new findings and every touched file is Ruff- and format-clean |
 | Mapping status | `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
 ### 4.15 `F11-021` — Reusable First-Party Backend Interface
 
@@ -560,7 +498,7 @@ exact Remediation V3 state and returned `PASS` with `BLOCKERS=0`, `MAJORS=0`,
 | Remediation V3 result | `MAJOR_V3_01=IMPLEMENTED_PENDING_REAUDIT`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_NONE=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_OBJECT=REJECTED`; `CLIENT_BACKEND_SUBCLASS_REPLACEMENT_RUNTIME_CONTRACT_SUBCLASS=REJECTED`; `EXPECTED_RUNTIME_CONTRACT_CANNOT_BE_OMITTED=PASS`; `EXPECTED_EXACT_MATCH_CANNOT_BE_DOWNGRADED=PASS`; `REBUILT_CLIENT_BACKEND_DESCRIPTOR_CANNOT_BYPASS_EXPECTATION=PASS`; `REPLACEMENT_CANNOT_CHANGE_SERVICE_EXPECTATION=PASS`; `EXPECTATION_ATTACHMENT_ATOMIC=PASS`; `EXPECTATION_DOWNGRADE=REJECTED`; `IDENTICAL_EXPECTATION_RECONFIGURATION=IDEMPOTENT`; `PREPOPULATED_FORGED_CLIENT_BACKEND=REJECTED`; `CONTAINER_READY_WITH_FORGED_CLIENT_BACKEND=NO`; `EXACT_CLIENT_BACKEND_CONFIGURED_BINDING=ACCEPTED`; `LEGACY_SERVICE_EXPECTATION_CONSTRUCTION=PRESERVED`; `INHERITED_INSTANCE_OF_SEMANTICS=PRESERVED`; `CANONICAL_RUNTIME_IDENTITY_SOURCE=SERVICE_EXPECTATION`; `BINDING_RUNTIME_CONTRACT_IS_AUTHORITY=NO`; `AT-DP-150` Scenario A3 exercises the configuration-anchored authoritative expectation path over real components and a real `ApplicationContainer` |
 | Final Independent Re-audit V4 | `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `F11_021=VERIFIED_EXISTING`; `DP_150=VERIFIED_EXISTING`; `AT_DP_150=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `a405e883edbafd04acad9d26f357ad54723041f7`; audited tree `0bcd8f69710a28f3c372ac559afc17846a0baeb3`; bundle SHA-256 `526f575a20524dccbc9b1901ee9f4fe4f7dfc34add47fd4ca420144a118aa194`; final report `docs/audits/phase-11.50-reusable-backend-interfaces-independent-reaudit-v4.md`; audit-report commit `bc101c74aa7e29edceafc47e20e69ed816be7b6d` |
 | Mapping status | `VERIFIED_EXISTING` |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
 ## 5. Current lifecycle status
 
@@ -1446,8 +1384,8 @@ document. `F11-022` is the next non-colliding Phase 11 requirement identifier.
 | Additive Phase 9 hardening | `cmm/agent_runtime/runtime_event_bus.py` (bounded `max_delivery_attempts`, `deliver_replay`, declared `event_types` matching, DLQ binding, detached per-subscriber delivery snapshots); `runtime_event_contracts.py` (optional `producer` / `aggregate_id`, `accept_replay`, `retry_total`, `detached_event_copy`); `runtime_event_factory.py` (producer/aggregate passthrough, `event_fingerprint`, `supports_schema_version`, fail-closed schema version); `runtime_event_repository.py` (`FileAgentRuntimeEventRepository`, shared filter helper, `ensure_event_is_reopenable`, detached stored/read snapshots); `runtime_event_replay.py` (notification replay, no re-save); `runtime_event_errors.py` (identity-conflict, persistence-corruption, unsupported-schema, retry-exhausted, replay-denied); `runtime_event_types.py` (16 additive platform names); **Remediation V3** added, inside the same canonical contracts: `runtime_event_contracts.py` `detached_dead_letter_copy()` for dead-letter snapshot detachment; `runtime_event_factory.py` canonical nested JSON-compatible serialization with no `json.dumps(default=str)` and a deep-detaching `AgentRuntimeEventNormalizer.normalize()`; `runtime_event_dead_letter.py` detached `add()`/`get()`/`list()`/`remove()` snapshots; **Remediation V4** added, inside the same canonical contracts: `runtime_event_bus.py` bounded safe DLQ error-category derivation with `bind_error_categorizer()` injection and a defensive check at the single DLQ write point; **Remediation V5** added, inside those same canonical contracts and with no second safety module or payload registry: `event_payload_safety.py` semantic buffer/binary classification via one bounded buffer-protocol probe (covers `bytes`, `bytearray`, `memoryview` and every `array.array` typecode before all generic sequence handling), one canonical `PAYLOAD_KEY_CLASSES` lifecycle value-class specification covering every allowed payload key, recursive structured-reference validation, and `METADATA_KEY_CLASSES`/`METADATA_CONTAINER_KEYS` bounded lifecycle metadata semantics that fail closed on an unknown metadata key; `runtime_event_bus.py` fail-safe DLQ categorization that records the neutral bounded category whenever no external error categorizer is bound |
 | Composition | `cmm/application/local_runtime.py` composes the `phase11_22_events` module and the durable event store, so the real Orchestrator reports to the production platform sink through the frozen Phase 11.2 `orchestration.event_sink` identity |
 | Documentation | `docs/reference/phase-11-event-system.md` |
-| Mapping status | `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT` (independent Audit V1 = `FAIL`, `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; independent Re-audit V2 = `FAIL`, `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`, `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; independent Re-audit V3 = `FAIL`, `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`, `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; independent Re-audit V4 = `FAIL`, `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`, `REAUDIT_V3_REPRODUCTIONS_FIXED=3/3_VERIFIED`; independent Re-audit V5 = `FAIL`, `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`, `V4_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=279_PASS`; independent Re-audit V6 = `FAIL`, `BLOCKERS=0`, `MAJORS=3`, `MINORS=1`, `V5_CONCRETE_REPRODUCTIONS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=350_PASS`; independent Re-audit V7 = `FAIL`, `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`, `V6_CONCRETE_FINDINGS_FIXED=4/4_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=477_PASS`; independent Re-audit V8 = `FAIL`, `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`, `V7_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=604_PASS`; independent Re-audit V9 = `FAIL`, `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`, `V8_CONCRETE_FINDINGS_FIXED=2/2_VERIFIED`, `MAJOR_V9_001=WRAPPED_NON_AUTHORITY_FILE_URI_BYPASSES_FAIL_CLOSED_FILESYSTEM_CLASSIFIER`, `MAJOR_V9_002=SUPPORTED_RUNTIME_TIMESTAMP_SEMANTICS_REOPEN_PRIOR_V6_FINDING_AND_KEEP_GLOBAL_GATE_RED`, `MINOR_V9_001=REFERENCE_TEST_EVIDENCE_COUNTS_STALE_AFTER_FINAL_V8_AT_ADDITIONS`; independent Re-audit V10 = `FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`, `V9_FINDINGS_FIXED=3/3_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1290_PASS`, `MAJOR_V10_001=WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCE_BYPASSES_PUBLIC_ROOT_FILESYSTEM_CLASSIFIER`; independent Re-audit V11 = `FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`, `V10_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1765_PASS`, `MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS`; independent Re-audit V12 = `FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`, `V11_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=2473_PASS`, `MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`; independent Re-audit V13 = `FAIL`, `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`, `V12_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=3389_PASS`, `MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`, `MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12`) |
-| Acceptance status | `DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`; `AT-DP-122=PASS_REPORTED` |
+| Mapping status | `VERIFIED_EXISTING` — Independent Re-audit V14 `PASS`; `V13_FINDINGS_FIXED=2/2_VERIFIED`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`; final report `docs/audits/phase-11.22-event-system-independent-reaudit-v14.md`; audited HEAD `bf1d02eb341a3160617872710cb41b64b68676da`; audited tree `f80b1a2037ea885396981ba76d8ba83e9c64c749`; bundle SHA-256 `574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac` |
+| Acceptance status | `DP-122=VERIFIED_EXISTING`; `AT-DP-122=PASS`; `CLOSURE_ELIGIBLE=YES` |
 | Remediation V1 | `MAJOR_001=REMEDIATED_REPORTED`; `MAJOR_002=REMEDIATED_REPORTED`; `MAJOR_003=REMEDIATED_REPORTED`; `MAJOR_004=REMEDIATED_REPORTED`; `MINOR_001=REMEDIATED_REPORTED`; `MINOR_002=REMEDIATED_REPORTED`; `MINOR_003=REMEDIATED_REPORTED`; `MINOR_004=REMEDIATED_REPORTED`; `MINOR_005=REMEDIATED_REPORTED`; immutable Audit V1 report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` and V1 bundle `phase-11.22-event-system-audit-v1.tar.gz` (`a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3`) preserved byte-identical; V2 bundle `phase-11.22-event-system-audit-v2.tar.gz` (`172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04`) from the exact remediation V1 HEAD; all nine findings independently verified `9/9` by Re-audit V2 and preserved |
 | Remediation V2 | `MAJOR_V2_001=REMEDIATED_REPORTED`; `MAJOR_V2_002=REMEDIATED_REPORTED`; `MAJOR_V2_003=REMEDIATED_REPORTED`; `MAJOR_V2_004=REMEDIATED_REPORTED`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_PRESERVED`; immutable Re-audit V2 report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` preserved byte-identical; V3 bundle `phase-11.22-event-system-audit-v3.tar.gz` from the exact Remediation V2 HEAD; `CLOSURE_ELIGIBLE=NO` |
 | Remediation V3 | `MAJOR_V3_001=REMEDIATED_REPORTED`; `MAJOR_V3_002=REMEDIATED_REPORTED`; `MINOR_V3_001=REMEDIATED_REPORTED`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_PRESERVED`; `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_PRESERVED`; immutable Re-audit V3 report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` preserved byte-identical; V1/V2/V3 bundles `phase-11.22-event-system-audit-v1.tar.gz` (`a88f7c82f599ad7fc4679c2d5f82aefb86fe897e593531ec5430882417427ba3`), `phase-11.22-event-system-audit-v2.tar.gz` (`172f37be69af5a38603a97944104fdcbf4cac34d7dbd8e3d4b752f44cff3ad04`) and `phase-11.22-event-system-audit-v3.tar.gz` (`27517348570837df2abe9fc7f11e5cc24cefc32a198ffe3e0afefaee5df3c589`) preserved byte-identical; V4 bundle `phase-11.22-event-system-audit-v4.tar.gz` from the exact Remediation V3 HEAD; `CLOSURE_ELIGIBLE=NO` |
@@ -1469,6 +1407,40 @@ document. `F11-022` is the next non-colliding Phase 11 requirement identifier.
 | Inherited constraints | `F11-021` / `DP-150`, `F11-020` / `DP-121`, `F11-019` / `DP-105`, `F11-018` / `DP-104`, `F11-017` / `DP-103`, `F11-016` / `DP-102`, `F11-015` / `DP-101`, `F11-014` / `DP-134`, Phase 10.33 Domain Events, Phase 7 Continuous Validation and Phase 9 Autonomous Agent Runtime remained the canonical authorities and were **not architecturally replaced or reopened as a new phase**; Phase 9 received **bounded additive compatibility hardening** under Phase 11.22 — the accepted subscription `event_types` delivery correction, the accepted replay no-re-save correction, and the minimal additions Phase 11.22 requires (bounded `max_delivery_attempts`, replay-authorised dispatch, DLQ binding, optional `producer`/`aggregate_id`, `accept_replay`, `retry_total`, content-bound `event_fingerprint`, and the durable repository implementation) — while its contracts, identity and authority were preserved; the Phase 10.33 Domain Event and Phase 7 validation contracts were referenced without modification; closed-phase connected regressions all `PASS` |
 | Reserved (registered, never emitted) | `session.created`; `reasoning.completed`; `knowledge.updated`; `backup.created`; `plugin.failed`; `security.alert` |
 | Provenance deviation | preflight requested `HEAD=d691c753c25801d1957fc8dee917ef4e6fff4694`; actual starting HEAD `744de6d996e0aa3dc3f9326fdb33fc38ab13ac8d` (parent exactly `d691c753`, tree exactly the required `36255f0293ac23fe93c2c85c94b989dd91ca0ff2`), the only delta being this phase's own committed prompt document and **zero** production-code differences; explicitly authorized by the user; no reset, checkout, stash, clean or worktree operation performed |
-| Next step | fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 V14 bundle (`phase-11.22-event-system-audit-v14.tar.gz`); Phase 11.22 is not closed, not independently verified and not complete; Phase 11.23 and Phase 11.24 are **not** begun |
+| Next step | verify the dedicated Phase 11.22 docs-only closure commit, then perform a fresh repository inspection for Phase 11.23 — Observability; Phase 11.24 is **not** begun |
 
-<!-- PHASE11_22_REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT -->
+<!-- PHASE11_22_FINAL_CLOSURE -->
+
+<!-- PHASE11_22_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.22 — Final closure evidence
+
+```text
+PHASE11_22=CLOSED
+F11_022=VERIFIED_EXISTING
+DP_122=VERIFIED_EXISTING
+AT_DP_122=PASS
+INDEPENDENT_REAUDIT_V14=PASS
+V13_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_V13_001=VERIFIED_REMEDIATED
+MINOR_V13_001=VERIFIED_REMEDIATED
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS
+AUDITED_HEAD=bf1d02eb341a3160617872710cb41b64b68676da
+AUDITED_TREE=f80b1a2037ea885396981ba76d8ba83e9c64c749
+AUDITED_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+AUDITED_BUNDLE_SHA256=574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac
+FINAL_REPORT=docs/audits/phase-11.22-event-system-independent-reaudit-v14.md
+FINAL_REPORT_SHA256=fb49e800241b975991cfb9188118b0369307ca88d78a2f14ac39fd39dd7aad92
+AUDIT_REPORT_COMMIT=8e084dfe804b3a9ef0960292a570fa9b658bcc93
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_23_OBSERVABILITY
+PHASE11_23=NOT_STARTED
+PHASE11_24=NOT_STARTED
+```
+
+Phase 11.22 is closed by this dedicated documentation-only closure commit after
+Independent Re-audit V14 `PASS`. Historical Audit V1 and Re-audits V2–V13 `FAIL`
+evidence and all immutable audit bundles remain preserved. No production code is
+changed by closure.

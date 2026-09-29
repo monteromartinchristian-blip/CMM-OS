@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -22,22 +22,10 @@
 **Production package:** `cmm/events/` (9 modules) plus additive Phase 9 hardening
 **Contract catalog:** `cmm/events/event_catalog.py`
 
-`DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`
-`AT-DP-122=PASS_REPORTED`
+`DP-122=VERIFIED_EXISTING`
+`AT-DP-122=PASS`
 
-Phase 11.22 was implemented, failed independent Audit V1, failed independent
-Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
-failed independent Re-audit V5, failed independent Re-audit V6, failed independent
-Re-audit V7, failed independent Re-audit V8, failed independent Re-audit V9,
-failed independent Re-audit V10, failed independent Re-audit V11, failed independent
-Re-audit V12 and failed independent Re-audit V13, and
-has been **remediated** after each. It is not closed, not independently verified and
-not complete: the `VERIFIED_EXISTING` marker may only be written by the independent
-re-audit of the V14 bundle. See §27 for the Remediation V4 record, §28 for the
-Remediation V5 record, §29 for the Remediation V6 record, §30 for the Remediation V7
-record, §31 for the Remediation V8 record, §32 for the Remediation V9 record, §33
-for the Remediation V10 record, §34 for the Remediation V11 record, §35 for the
-Remediation V12 record and §36 for the Remediation V13 record.
+Phase 11.22 was implemented, remediated across the historical Audit V1 and Re-audits V2–V13, and independently passed Re-audit V14. The final audit verified `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and `CLOSURE_ELIGIBLE=YES`. Historical failure reports remain immutable. This dedicated docs-only closure records `PHASE11_22=CLOSED` without changing production code.
 
 ### Provenance note (recorded deviation)
 
@@ -1692,12 +1680,7 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V14** bundle
-(`phase-11.22-event-system-audit-v14.tar.gz`, produced with `git archive` from the
-final Remediation V13 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
-described as closed, independently verified, re-audited, passed or complete, and
-neither Phase 11.23 nor Phase 11.24 has begun.
+Independent Re-audit V14 passed. Phase 11.22 is closed by the dedicated docs-only closure commit. The next allowed action is to verify that closure commit and then perform a fresh repository inspection for Phase 11.23 — Observability. Phase 11.24 has not begun.
 
 ## 24. Remediation V1 record
 
@@ -2620,3 +2603,37 @@ immutable Re-audit V2–V13 reports, and the immutable V1–V13 bundles are pres
 byte-identical. The exact Remediation V13 HEAD, tree and V14 bundle SHA-256 are
 reported in the remediation handoff rather than embedded here, for the same
 self-reference reason as the earlier evidence records.
+
+<!-- PHASE11_22_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.22 — Final closure evidence
+
+```text
+PHASE11_22=CLOSED
+F11_022=VERIFIED_EXISTING
+DP_122=VERIFIED_EXISTING
+AT_DP_122=PASS
+INDEPENDENT_REAUDIT_V14=PASS
+V13_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_V13_001=VERIFIED_REMEDIATED
+MINOR_V13_001=VERIFIED_REMEDIATED
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS
+AUDITED_HEAD=bf1d02eb341a3160617872710cb41b64b68676da
+AUDITED_TREE=f80b1a2037ea885396981ba76d8ba83e9c64c749
+AUDITED_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+AUDITED_BUNDLE_SHA256=574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac
+FINAL_REPORT=docs/audits/phase-11.22-event-system-independent-reaudit-v14.md
+FINAL_REPORT_SHA256=fb49e800241b975991cfb9188118b0369307ca88d78a2f14ac39fd39dd7aad92
+AUDIT_REPORT_COMMIT=8e084dfe804b3a9ef0960292a570fa9b658bcc93
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_23_OBSERVABILITY
+PHASE11_23=NOT_STARTED
+PHASE11_24=NOT_STARTED
+```
+
+Phase 11.22 is closed by this dedicated documentation-only closure commit after
+Independent Re-audit V14 `PASS`. Historical Audit V1 and Re-audits V2–V13 `FAIL`
+evidence and all immutable audit bundles remain preserved. No production code is
+changed by closure.

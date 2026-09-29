@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -21,6 +21,7 @@
 **Independent Re-audit V11:** `docs/audits/phase-11.22-event-system-independent-reaudit-v11.md` (immutable historical evidence)
 **Independent Re-audit V12:** `docs/audits/phase-11.22-event-system-independent-reaudit-v12.md` (immutable historical evidence)
 **Independent Re-audit V13:** `docs/audits/phase-11.22-event-system-independent-reaudit-v13.md` (immutable historical evidence)
+**Independent Re-audit V14:** `docs/audits/phase-11.22-event-system-independent-reaudit-v14.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-122=VERIFIED_EXISTING`; `AT-DP-122=PASS`; `CLOSURE_ELIGIBLE=YES`
 **Remediation V12 prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v12-agent-prompt.md`
 **Remediation V13 prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v13-agent-prompt.md`
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
@@ -36,8 +37,8 @@
 **Remediation V11 prompt:** `docs/superpowers/prompts/2026-09-28-phase-11.22-remediation-v11-agent-prompt.md`
 
 ```text
-DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-122=PASS_REPORTED
+DP-122=VERIFIED_EXISTING
+AT-DP-122=PASS
 INDEPENDENT_AUDIT_V1=FAIL
 REMEDIATION_V1=REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V2=FAIL
@@ -4223,9 +4224,38 @@ audit report was rewritten and no historical bundle was touched.
 
 ### 22.12 Next step
 
-Fresh independent ChatGPT re-audit of the **V14** exact-HEAD bundle
-(`phase-11.22-event-system-audit-v14.tar.gz`). The phase remains
-`REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`: not closed, not
-independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
-begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
-`DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
+Independent Re-audit V14 passed with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and `CLOSURE_ELIGIBLE=YES`. The next lifecycle action is this dedicated docs-only closure commit; after its verification, Phase 11.23 may begin only with a fresh repository inspection.
+
+<!-- PHASE11_22_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.22 — Final closure evidence
+
+```text
+PHASE11_22=CLOSED
+F11_022=VERIFIED_EXISTING
+DP_122=VERIFIED_EXISTING
+AT_DP_122=PASS
+INDEPENDENT_REAUDIT_V14=PASS
+V13_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_V13_001=VERIFIED_REMEDIATED
+MINOR_V13_001=VERIFIED_REMEDIATED
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS
+AUDITED_HEAD=bf1d02eb341a3160617872710cb41b64b68676da
+AUDITED_TREE=f80b1a2037ea885396981ba76d8ba83e9c64c749
+AUDITED_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+AUDITED_BUNDLE_SHA256=574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac
+FINAL_REPORT=docs/audits/phase-11.22-event-system-independent-reaudit-v14.md
+FINAL_REPORT_SHA256=fb49e800241b975991cfb9188118b0369307ca88d78a2f14ac39fd39dd7aad92
+AUDIT_REPORT_COMMIT=8e084dfe804b3a9ef0960292a570fa9b658bcc93
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_23_OBSERVABILITY
+PHASE11_23=NOT_STARTED
+PHASE11_24=NOT_STARTED
+```
+
+Phase 11.22 is closed by this dedicated documentation-only closure commit after
+Independent Re-audit V14 `PASS`. Historical Audit V1 and Re-audits V2–V13 `FAIL`
+evidence and all immutable audit bundles remain preserved. No production code is
+changed by closure.

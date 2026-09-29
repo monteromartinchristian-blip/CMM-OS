@@ -2882,7 +2882,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 
 # 11.22 — Event System
 
-**Implementation status:** `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`
+**Implementation status:** `CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS`
 **Independent Audit V1:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=5`; report `docs/audits/phase-11.22-event-system-independent-audit-v1.md` (immutable)
 **Independent Re-audit V2:** `FAIL` — `BLOCKERS=0`, `MAJORS=4`, `MINORS=0`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v2.md` (immutable)
 **Independent Re-audit V3:** `FAIL` — `BLOCKERS=0`, `MAJORS=2`, `MINORS=1`; `AUDIT_V1_FINDINGS_REMEDIATED=9/9_VERIFIED`, `REAUDIT_V2_REPRODUCTIONS_FIXED=4/4_VERIFIED`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v3.md` (immutable)
@@ -2896,6 +2896,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **Independent Re-audit V11:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V10_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=1765_PASS`; `MAJOR_V11_001=WINDOWS_DRIVE_RELATIVE_REFERENCE_BYPASSES_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSISTS`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v11.md` (immutable)
 **Independent Re-audit V12:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=0`; `V11_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=2473_PASS`; `MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v12.md` (immutable)
 **Independent Re-audit V13:** `FAIL` — `BLOCKERS=0`, `MAJORS=1`, `MINORS=1`; `V12_FINDINGS_FIXED=1/1_VERIFIED`, `PRIOR_REMEDIATION_REGRESSIONS=3389_PASS`; `MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`, `MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v13.md` (immutable)
+**Independent Re-audit V14:** `PASS` — `V13_FINDINGS_FIXED=2/2_VERIFIED`; `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`; `MAJOR_V13_001=VERIFIED_REMEDIATED`; `MINOR_V13_001=VERIFIED_REMEDIATED`; `DP-122=VERIFIED_EXISTING`; `AT-DP-122=PASS`; `CLOSURE_ELIGIBLE=YES`; audited HEAD `bf1d02eb341a3160617872710cb41b64b68676da`; audited tree `f80b1a2037ea885396981ba76d8ba83e9c64c749`; bundle SHA-256 `574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac`; report `docs/audits/phase-11.22-event-system-independent-reaudit-v14.md` (immutable after commit)
 **Design Point:** `DP-122`
 **Acceptance:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
 **Reference:** [`docs/reference/phase-11-event-system.md`](../reference/phase-11-event-system.md)
@@ -2919,7 +2920,7 @@ Provider priority is an implementation default, not a permanent lock-in. Continu
 **V11 audit bundle:** `phase-11.22-event-system-audit-v11.tar.gz` from the exact Remediation V10 HEAD; SHA-256 `e53b7942f264aaf47045d6c4a7566dc68a796ce0b99488d8561f2c34b8d03a59`
 **V12 audit bundle:** `phase-11.22-event-system-audit-v12.tar.gz` from the exact Remediation V11 HEAD; SHA-256 `c46e717a916c80cd6ffce7ba54e08896cc3826ba6d4b5a1a4ac460d46330bd2a`
 **V13 audit bundle:** `phase-11.22-event-system-audit-v13.tar.gz` from the exact Remediation V12 HEAD; SHA-256 `21006a0e92ae57773a6eafc4b6a7aab3ef15722d83a51d3ddaa143b4f8b8e930`
-**V14 audit bundle:** `phase-11.22-event-system-audit-v14.tar.gz` from the exact Remediation V13 HEAD
+**V14 audit bundle:** `phase-11.22-event-system-audit-v14.tar.gz` from exact audited HEAD `bf1d02eb341a3160617872710cb41b64b68676da`; SHA-256 `574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac`
 
 > The broad roadmap wording below is preserved unchanged. The scoped
 > implementation record follows it.
@@ -2941,8 +2942,8 @@ Phase 11.22 is an **integration and hardening** phase over the existing Phase 9
 runtime event infrastructure. It adds no second event system.
 
 ```text
-DP-122=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-122=PASS_REPORTED
+DP-122=VERIFIED_EXISTING
+AT-DP-122=PASS
 INDEPENDENT_AUDIT_V1=FAIL
 REMEDIATION_V1=REMEDIATED_AFTER_AUDIT_V1_PENDING_INDEPENDENT_REAUDIT
 INDEPENDENT_REAUDIT_V2=FAIL
@@ -3007,7 +3008,14 @@ MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_
 MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12
 MAJOR_V13_001_STATUS=REMEDIATED_REPORTED
 MINOR_V13_001_STATUS=REMEDIATED_REPORTED
-REMEDIATION_V13=REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT
+REMEDIATION_V13=INDEPENDENTLY_REAUDITED_PASS
+INDEPENDENT_REAUDIT_V14=PASS
+V13_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+CLOSURE_ELIGIBLE=YES
+PHASE11_22=CLOSED
 ```
 
 What was implemented:
@@ -3341,10 +3349,7 @@ fix, test or invariant was weakened. The immutable Audit V1 report, the immutabl
 Re-audit V2, V3, V4, V5, V6, V7, V8, V9, V10 and V11 reports, and the immutable V1-V11
 bundles are preserved byte-identical.
 
-The phase remains open, not independently verified and not complete until the fresh
-independent re-audit of the exact-HEAD **V14** bundle passes. Only that re-audit may
-write `BLOCKERS=0`, `MAJORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and
-`CLOSURE_ELIGIBLE=YES`.
+Independent Re-audit V14 passed with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS` and `CLOSURE_ELIGIBLE=YES`. Phase 11.22 is closed by the dedicated docs-only closure commit; Phase 11.23 remains unstarted until the closure commit is verified.
 
 ## Event
 
@@ -7666,3 +7671,37 @@ Phase 11.21 design/plan and both remediation design/plan pairs remain immutable.
 The implemented surface, enforced invariants, known limits and final evidence are
 documented in
 [`docs/reference/phase-11-model-gateway.md`](../reference/phase-11-model-gateway.md).
+
+<!-- PHASE11_22_FINAL_CLOSURE_EVIDENCE -->
+## Phase 11.22 — Final closure evidence
+
+```text
+PHASE11_22=CLOSED
+F11_022=VERIFIED_EXISTING
+DP_122=VERIFIED_EXISTING
+AT_DP_122=PASS
+INDEPENDENT_REAUDIT_V14=PASS
+V13_FINDINGS_FIXED=2/2_VERIFIED
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_V13_001=VERIFIED_REMEDIATED
+MINOR_V13_001=VERIFIED_REMEDIATED
+CLOSURE_ELIGIBLE=YES
+AUDIT_STATUS=CLOSED_AFTER_INDEPENDENT_REAUDIT_V14_PASS
+AUDITED_HEAD=bf1d02eb341a3160617872710cb41b64b68676da
+AUDITED_TREE=f80b1a2037ea885396981ba76d8ba83e9c64c749
+AUDITED_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+AUDITED_BUNDLE_SHA256=574dd14521598a694c52eeead65647cc43d41c1a2a4ebb126b3e9043019b49ac
+FINAL_REPORT=docs/audits/phase-11.22-event-system-independent-reaudit-v14.md
+FINAL_REPORT_SHA256=fb49e800241b975991cfb9188118b0369307ca88d78a2f14ac39fd39dd7aad92
+AUDIT_REPORT_COMMIT=8e084dfe804b3a9ef0960292a570fa9b658bcc93
+NEXT=VERIFY_CLOSURE_COMMIT_THEN_INSPECT_PHASE11_23_OBSERVABILITY
+PHASE11_23=NOT_STARTED
+PHASE11_24=NOT_STARTED
+```
+
+Phase 11.22 is closed by this dedicated documentation-only closure commit after
+Independent Re-audit V14 `PASS`. Historical Audit V1 and Re-audits V2–V13 `FAIL`
+evidence and all immutable audit bundles remain preserved. No production code is
+changed by closure.
