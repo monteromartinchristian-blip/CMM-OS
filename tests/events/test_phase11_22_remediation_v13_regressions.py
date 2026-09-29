@@ -234,9 +234,7 @@ TRAILING_PERIOD_EQUIVALENCE_FAMILIES = (
 
 #: Every spelling in every equivalence family.
 TRAILING_PERIOD_EQUIVALENT_SPELLINGS = tuple(
-    spelling
-    for family in TRAILING_PERIOD_EQUIVALENCE_FAMILIES
-    for spelling in family
+    spelling for family in TRAILING_PERIOD_EQUIVALENCE_FAMILIES for spelling in family
 )
 
 #: The already-sensitive component families, paired with one representative tail,
@@ -592,9 +590,10 @@ def test_repeated_trailing_period_variants_keep_the_unsafe_verdict(
 
     assert authority.is_private_filesystem_reference(reference) is True, reference
     analysis = authority._analyze_lexical_path(reference)
-    assert not any(
-        segment.endswith(".") for segment in analysis.segments
-    ), (reference, analysis.segments)
+    assert not any(segment.endswith(".") for segment in analysis.segments), (
+        reference,
+        analysis.segments,
+    )
 
 
 @pytest.mark.parametrize(
@@ -676,9 +675,10 @@ def test_the_trailing_period_rule_lives_in_the_analysis_form() -> None:
 
     for reference in ALL_TRAILING_PERIOD_REFERENCES:
         analysis = authority._analyze_lexical_path(reference)
-        assert not any(
-            segment.endswith(".") for segment in analysis.segments
-        ), (reference, analysis.segments)
+        assert not any(segment.endswith(".") for segment in analysis.segments), (
+            reference,
+            analysis.segments,
+        )
         assert any(
             pattern.search(analysis.canonical)
             for pattern in authority._PRIVATE_FILESYSTEM_PATTERNS
@@ -696,7 +696,9 @@ def test_the_trailing_period_rule_is_not_a_reproduced_literal_denylist() -> None
 
     from cmm.events import event_payload_safety as authority
 
-    joined = " ".join(pattern.pattern for pattern in authority._PRIVATE_FILESYSTEM_PATTERNS)
+    joined = " ".join(
+        pattern.pattern for pattern in authority._PRIVATE_FILESYSTEM_PATTERNS
+    )
     for audited_literal in (
         ".ssh.",
         ".ssh..",
@@ -793,13 +795,13 @@ def test_raw_traversal_semantics_are_detected_before_any_normalization() -> None
 
     # Hidden private content remains reachable for the retained signatures no
     # matter how many period tails precede it.
-    assert (
-        authority.is_private_filesystem_reference("provider/.../.ssh/config") is True
-    )
+    assert authority.is_private_filesystem_reference("provider/.../.ssh/config") is True
     assert (
         authority.is_private_filesystem_reference("provider/...../etc/shadow") is True
     )
-    assert authority.is_private_filesystem_reference("provider/.../../etc/shadow") is True
+    assert (
+        authority.is_private_filesystem_reference("provider/.../../etc/shadow") is True
+    )
 
 
 def test_the_trailing_period_strip_is_analysis_only_and_never_rewrites() -> None:
@@ -817,9 +819,10 @@ def test_the_trailing_period_strip_is_analysis_only_and_never_rewrites() -> None
             reference
         )
 
-    assert (
-        authority._analyze_lexical_path("provider/.ssh./config").segments
-        == ("provider", ".ssh", "config")
+    assert authority._analyze_lexical_path("provider/.ssh./config").segments == (
+        "provider",
+        ".ssh",
+        "config",
     )
     assert (
         authority.validate_platform_identifier("provider/release./v1", field="probe")
