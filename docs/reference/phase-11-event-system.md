@@ -1,6 +1,6 @@
 # Phase 11 — Event System reference
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Design Point:** `DP-122 — One Canonical, Durable, Replayable Platform Event System`
 **Acceptance Test:** `AT-DP-122` — `tests/events/test_phase11_22_dp122_acceptance.py`
@@ -28,14 +28,16 @@
 Phase 11.22 was implemented, failed independent Audit V1, failed independent
 Re-audit V2, failed independent Re-audit V3, failed independent Re-audit V4,
 failed independent Re-audit V5, failed independent Re-audit V6, failed independent
-Re-audit V7, failed independent Re-audit V8, failed independent Re-audit V9 and
-failed independent Re-audit V10, and
+Re-audit V7, failed independent Re-audit V8, failed independent Re-audit V9,
+failed independent Re-audit V10, failed independent Re-audit V11, failed independent
+Re-audit V12 and failed independent Re-audit V13, and
 has been **remediated** after each. It is not closed, not independently verified and
 not complete: the `VERIFIED_EXISTING` marker may only be written by the independent
-re-audit of the V12 bundle. See §27 for the Remediation V4 record, §28 for the
+re-audit of the V14 bundle. See §27 for the Remediation V4 record, §28 for the
 Remediation V5 record, §29 for the Remediation V6 record, §30 for the Remediation V7
 record, §31 for the Remediation V8 record, §32 for the Remediation V9 record, §33
-for the Remediation V10 record and §34 for the Remediation V11 record.
+for the Remediation V10 record, §34 for the Remediation V11 record, §35 for the
+Remediation V12 record and §36 for the Remediation V13 record.
 
 ### Provenance note (recorded deviation)
 
@@ -1462,7 +1464,7 @@ and the strengthened `AT-DP-122` adds `29`, so the global suite moves
 `AT-DP-122` itself moves `95 → 124`. The two deltas are the same `+100` because
 the strengthened acceptance scenarios live inside `tests/events/`.
 
-### 19.7 Remediation V6 measurements (current)
+### 19.7 Remediation V6 measurements (historical)
 
 ```text
 tests/events/                      1271 passed
@@ -1493,7 +1495,7 @@ passing test was deleted. Both deltas are therefore `+180` and they agree exactl
 `tests/events/` moves `1091 → 1271` and the global suite moves `23160 → 23340`.
 `AT-DP-122` itself moves `124 → 177`.
 
-### 19.8 Remediation V12 measurements (current)
+### 19.8 Remediation V12 measurements (historical)
 
 ```text
 tests/events/                      5045 passed
@@ -1538,6 +1540,52 @@ production-repair case needed this cycle, so `tests/events/` moves `3979 -> 5045
 (`+1066`) and the global collected count moves `26048 -> 27114` (`+1066`), the pass
 count moving with it. No test was deleted, skipped or xfailed.
 
+### 19.9 Remediation V13 measurements (current)
+
+```text
+tests/events/                      5553 passed
+AT-DP-122                          1202 passed (1039 prior + 163 V13)
+Remediation V13 regressions         345 passed (initial red 236 failed / 109 passed)
+Remediation V12 regressions         916 passed (preserved)
+Remediation V11 regressions         708 passed (preserved)
+Remediation V10 regressions         475 passed (preserved)
+Remediation V9 regressions          397 passed (preserved)
+Remediation V8 regressions          289 passed (preserved)
+Remediation V7 regressions          127 passed (preserved)
+Remediation V6 regressions          127 passed (preserved)
+Remediation V5 regressions           71 passed (preserved)
+Remediation V4 regressions           23 passed (preserved)
+Remediation V3 regressions           44 passed (preserved)
+Remediation V2 regressions          126 passed (preserved)
+Remediation V1 regressions           86 passed (preserved)
+prior remediation regressions      3389 passed (V1-V12)
+focused V1-V13 regressions         3734 passed
+direct identifier/path safety       257 passed
+architecture + security gates       294 passed
+composition / integration           323 passed
+kernel adapter tests                 76 passed
+event inventory                    1270 passed (22 files)
+Phase 9 runtime regressions        3635 passed
+Phase 10.33 Domain regressions    11824 passed
+Domain DP-033 acceptance             92 passed
+orchestration event regressions     498 passed
+validation event regressions        533 passed
+workflow event regressions           46 passed
+closed-phase acceptances            185 passed, 1 warning
+platform architecture                69 passed
+imports                               1 passed
+agent_runtime -> domains imports      0
+global pytest                   27622 passed, 1 warning, 0 failed
+global Ruff                          810 (V13 baseline 810, no new debt)
+```
+
+The V12 production tree measured `5045` in `tests/events/` and `27114` collected
+globally, all passing. The V13 additions are `+345` adversarial regressions in a new
+module and `+163` strengthened `AT-DP-122` connected scenarios, with no
+production-repair case needed this cycle, so `tests/events/` moves `5045 -> 5553`
+(`+508`) and the global collected count moves `27114 -> 27622` (`+508`), the pass
+count moving with it. No test was deleted, skipped or xfailed.
+
 ## 20. Global test evidence
 
 Frozen pre-Phase-11.22 baseline: `22069 passed, 1 warning`. V1 implementation:
@@ -1579,8 +1627,12 @@ Post-remediation V12: `27114 passed, 1 warning, 0 failed` (+1066 over the V11
 remediation figure: 916 new V12 adversarial regressions and 150 strengthened
 `AT-DP-122` connected scenarios, with no production-repair case needed, so
 `tests/events/` moves `3979 -> 5045` and `AT-DP-122` moves `889 -> 1039`).
+Post-remediation V13: `27622 passed, 1 warning, 0 failed` (+508 over the V12
+remediation figure: 345 new V13 adversarial regressions and 163 strengthened
+`AT-DP-122` connected scenarios, with no production-repair case needed, so
+`tests/events/` moves `5045 -> 5553` and `AT-DP-122` moves `1039 -> 1202`).
 `GLOBAL_PYTEST_FAILURES=0` is therefore met on the canonical CPython 3.14.7 runtime,
-at a pass count of `27114` against the `26048` floor. The single retained warning is
+at a pass count of `27622` against the `27114` floor. The single retained warning is
 the pre-existing unrelated `starlette` `anyio` `DeprecationWarning`.
 
 One timing-sensitive, event-system-unrelated test
@@ -1598,7 +1650,7 @@ implementation base the same command reports `811`, and at the audited V1 HEAD i
 reports `810`, confirming both baselines exactly.
 
 Every Phase 11.22-created or Phase 11.22-modified Python file, including every
-Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11 and V12 change, is
+Remediation V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12 and V13 change, is
 Ruff-clean.
 The global count after Remediation V12 is `810`: identical to the audited V1 HEAD, to
 the V5, V6, V7, V8, V9, V10 and V11 figures, and one below the frozen baseline. The
@@ -1606,7 +1658,9 @@ only delta against the baseline is one pre-existing violation removed while edit
 `tests/conftest.py` to add the test data-directory isolation fixture. No unrelated
 violation was fixed, no global auto-fix was run, and no file outside the Phase 11.22
 delta was touched. Every changed and created V12 file is also `ruff format --check`
--clean, so the V12 formatting pass introduced no unrelated churn.
+-clean, so the V12 formatting pass introduced no unrelated churn. The global count
+after Remediation V13 is `810`: identical to the audited V1 HEAD and to the V5–V12
+figures, and every changed and created V13 file is also `ruff format --check`-clean.
 
 ## 22. Known non-goals and limitations
 
@@ -1638,10 +1692,10 @@ Known limitations accepted by the design:
 
 ## 23. Next step
 
-Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V13** bundle
-(`phase-11.22-event-system-audit-v13.tar.gz`, produced with `git archive` from the
-final Remediation V12 HEAD). This document states only
-`REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
+Fresh independent ChatGPT re-audit of the exact-HEAD Phase 11.22 **V14** bundle
+(`phase-11.22-event-system-audit-v14.tar.gz`, produced with `git archive` from the
+final Remediation V13 HEAD). This document states only
+`REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`; Phase 11.22 must not be
 described as closed, independently verified, re-audited, passed or complete, and
 neither Phase 11.23 nor Phase 11.24 has begun.
 
@@ -2470,4 +2524,99 @@ structurally, inside the authority that already existed. The immutable Audit V1
 report, the immutable Re-audit V2–V12 reports, and the immutable V1–V12 bundles are
 preserved byte-identical. The exact Remediation V12 HEAD, tree and V13 bundle SHA-256
 are reported in the remediation handoff rather than embedded here, for the same
+self-reference reason as the earlier evidence records.
+
+## 36. Remediation V13 record
+
+Independent Re-audit V13
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v13.md`) verified the
+single V12 finding fixed (`1/1_VERIFIED`) and preserved the prior remediation
+regressions, while failing the phase with one new major, one new minor and no
+blockers:
+
+```text
+INDEPENDENT_REAUDIT_V13=FAIL
+V12_FINDINGS_FIXED=1/1_VERIFIED
+BLOCKERS=0
+MAJORS=1
+MINORS=1
+MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
+MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V13_ONLY
+EXPECTED_NEXT_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+```
+
+Remediation V13 fixed the major under strict TDD — a red reproduction suite first
+(`236 failed / 109 passed` on the new module, in a commit containing only tests),
+then the minimum fix in the existing authority — and synchronized the current
+non-historical navigation for the minor:
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V13-001` | The canonical lexical path analysis (`_analyze_lexical_path()`) normalized backslashes, collapsed repeated separators and elided exact `.` segments, but did not fold ordinary Win32 trailing ASCII periods off an otherwise named path component. Win32 removes trailing periods from a path component when it resolves a name, so `.ssh.`/`.ssh..` and `.ssh` — and `Users.`/`Users` — name the same location; yet the analysis form kept the trailing period, no sensitive-family signature matched, and an allowlisted public slash root made the reference look public. `provider/.ssh./config` returned `False` from `is_private_filesystem_reference()`, passed `validate_platform_identifier()`, passed canonical `EventSystem` publication and was durably persisted through all 13 shared identifier-bearing channels, both official repositories and a manual `publish_event(...)` call — alongside `.SSH.`, `.aws.`, `.gnupg.`, `.kube.`, `.docker.`, `.azure.`, `Users.`, `users.`, `home.`, `cmm/.ssh./config`, `cmm/Users./alice/config`, `.ssh..`/`Users..` and their equivalents | the **existing** analysis form gains one structural, analysis-only rule: each component's trailing ASCII periods are stripped **for classification only**, exactly as Win32 removes them when resolving a name. Ordering is preserved — `..` traversal is still detected on the raw segment sequence before any normalization and is never folded, and a component left empty by the fold contributes nothing rather than being invented as a current-directory segment. The stripped form feeds the same `_PRIVATE_FILESYSTEM_PATTERNS` signatures and the same public-root allowlist, so `provider/.ssh./config` receives the verdict `provider/.ssh/config` already had. The raw identifier is never rewritten — `provider/release./v1`, `cmm/version./node`, `provider/.sshx./config` and `provider/Usersx./alice/config` stay valid and persist unchanged. No literal (`.ssh.`, `Users.`, `.aws.`, `.kube.`, ...) was appended to the pattern tuple; no second Win32 normalizer, parser, scanner, policy, registry or subsystem is introduced; no filesystem I/O and no `Path.resolve()`; the identifier grammar is unchanged and trailing-space spellings remain excluded by it |
+| `MINOR-V13-001` | the current `ROADMAP.md` navigation was stale after Re-audit V12 — the next-action line still pointed to a fresh re-audit of the V11 bundle and the Phase 11.22 summary omitted the V12 failure/remediation state | the current `ROADMAP.md` Phase 11.22 line and next action are synchronized to the V13 state (re-audit history through V13, `MAJOR_V13_001`/`MINOR_V13_001` recorded and remediated, `F11_022=REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`, V13 report/V14 bundle pointers, next action = fresh independent re-audit of the exact-HEAD V14 bundle). No historical audit report was rewritten and the phase is not closed |
+
+The one production fold lives in `_analyze_lexical_path()`, reached by every
+persisted identifier channel through `is_private_filesystem_reference()` and
+`validate_platform_identifier()` — the single shared authority the phase already
+had — so no channel can be patched alone. No second event, identifier, URI, path,
+Win32-normalization, filename, ADS, registry, repository, runtime, resolver,
+loader, engine or policy infrastructure was introduced, and
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS` remains `0`.
+
+```text
+REMEDIATION_V13_TESTS=345 passed (initial red 236 failed / 109 passed)
+V12_REGRESSIONS=916 passed (preserved)
+V11_REGRESSIONS=708 passed (preserved)
+V10_REGRESSIONS=475 passed (preserved)
+V9_REGRESSIONS=397 passed (preserved)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=3389 passed (V1-V12)
+FOCUSED_V1_V13_REGRESSIONS=3734 passed
+DIRECT_IDENTIFIER_PATH_SAFETY=257 passed
+PHASE_SUITE=tests/events/ 5553 passed
+AT_DP_122=1202 passed (1039 prior + 163 V13)
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+EVENT_SYSTEM_COMPOSITION_AND_INTEGRATION=323 passed
+KERNEL_ADAPTER_TESTS=76 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+PLATFORM_ARCHITECTURE=69 passed
+IMPORTS=1 passed
+AGENT_RUNTIME_DEPENDENCY_DIRECTION=1 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed (22 files)
+GLOBAL_PYTEST=27622 collected, 27622 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS
+GLOBAL_RUFF_COUNT=810 (V13 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+Both alternative repairs were rejected. Appending the audited literals (`.ssh.`,
+`Users.`, `.aws.`, `.kube.`) would have left the classifier a denylist of selected
+spellings — the exact V8 defect — and folding the trailing period into the *raw
+persisted value* would have rewritten accepted identifiers. The Win32
+trailing-period normalization is therefore applied inside the analysis form that
+already existed, for classification only. The immutable Audit V1 report, the
+immutable Re-audit V2–V13 reports, and the immutable V1–V13 bundles are preserved
+byte-identical. The exact Remediation V13 HEAD, tree and V14 bundle SHA-256 are
+reported in the remediation handoff rather than embedded here, for the same
 self-reference reason as the earlier evidence records.

@@ -1,6 +1,6 @@
 # Phase 11.22 — Event System — implementation evidence for independent audit
 
-**Status:** `REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`
+**Status:** `REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`
 **Phase:** 11.22 — Event System
 **Requirement:** `F11-022 — Canonical Platform Event System`
 **Design Point:** `DP-122`
@@ -20,7 +20,9 @@
 **Independent Re-audit V10:** `docs/audits/phase-11.22-event-system-independent-reaudit-v10.md` (immutable historical evidence)
 **Independent Re-audit V11:** `docs/audits/phase-11.22-event-system-independent-reaudit-v11.md` (immutable historical evidence)
 **Independent Re-audit V12:** `docs/audits/phase-11.22-event-system-independent-reaudit-v12.md` (immutable historical evidence)
+**Independent Re-audit V13:** `docs/audits/phase-11.22-event-system-independent-reaudit-v13.md` (immutable historical evidence)
 **Remediation V12 prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v12-agent-prompt.md`
+**Remediation V13 prompt:** `docs/superpowers/prompts/2026-09-29-phase-11.22-remediation-v13-agent-prompt.md`
 **Remediation V1 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v1-agent-prompt.md`
 **Remediation V2 prompt:** `docs/superpowers/prompts/2026-09-26-phase-11.22-remediation-v2-agent-prompt.md`
 **Remediation V3 prompt:** `docs/superpowers/prompts/2026-09-27-phase-11.22-remediation-v3-agent-prompt.md`
@@ -88,6 +90,14 @@ V11_FINDINGS_FIXED=1/1_VERIFIED
 MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
 MAJOR_V12_001_STATUS=REMEDIATED_REPORTED
 REMEDIATION_V12=REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT
+INDEPENDENT_REAUDIT_V13=FAIL
+V12_FINDINGS_FIXED=1/1_VERIFIED
+PRIOR_REMEDIATION_REGRESSIONS=3389_PASS
+MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
+MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12
+MAJOR_V13_001_STATUS=REMEDIATED_REPORTED
+MINOR_V13_001_STATUS=REMEDIATED_REPORTED
+REMEDIATION_V13=REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT
 ```
 
 Phase 11.22 was **implemented**, **failed independent Audit V1**
@@ -133,15 +143,21 @@ It has now been **remediated for the eleventh time**, **passed the single V11 fi
 on independent Re-audit V12** (`1/1_VERIFIED`) while **failing that re-audit with one
 new major, no minors and no blockers** (`BLOCKERS=0`, `MAJORS=1`, `MINORS=0`,
 `MAJOR_V12_001=WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`).
+It has now been **remediated for the twelfth time**, **passed the single V12 finding
+on independent Re-audit V13** (`1/1_VERIFIED`) while **failing that re-audit with one
+new major and one new minor** (`BLOCKERS=0`, `MAJORS=1`, `MINORS=1`,
+`MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST`,
+`MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12`).
 It is not closed, independently verified or complete. `DP-122=VERIFIED_EXISTING`
-and `AT-DP-122=PASS` belong only to the independent audit of the V13 bundle.
+and `AT-DP-122=PASS` belong only to the independent audit of the V14 bundle.
 
 Sections 1–9 record the original implementation evidence, §10 records Remediation
 V1, §11 records Remediation V2, §12 records Remediation V3, §13 records
 Remediation V4, §14 records Remediation V5, §15 records Remediation V6, §16
 records Remediation V7, §17 records Remediation V8, §18 records Remediation V9,
-§19 records Remediation V10, §20 records Remediation V11 and §21 records
-Remediation V12; the earlier sections are preserved as historical record.
+§19 records Remediation V10, §20 records Remediation V11, §21 records
+Remediation V12 and §22 records Remediation V13; the earlier sections are preserved
+as historical record.
 
 ## 1. Exact repository state
 
@@ -3873,6 +3889,343 @@ touched.
 Fresh independent ChatGPT re-audit of the **V13** exact-HEAD bundle
 (`phase-11.22-event-system-audit-v13.tar.gz`). The phase remains
 `REMEDIATED_AFTER_REAUDIT_V12_PENDING_INDEPENDENT_REAUDIT`: not closed, not
+independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
+begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
+`DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
+
+## 22. Remediation V13
+
+### 22.1 Verdict being remediated
+
+Independent Re-audit V13
+(`docs/audits/phase-11.22-event-system-independent-reaudit-v13.md`, immutable) — the
+authoritative cycle report named by this remediation's prompt, whose SHA-256 is
+reported in the Remediation V13 handoff rather than embedded here for the same
+self-reference reason as the earlier cycles — verified the single V12 finding fixed
+(`1/1_VERIFIED`) and preserved the prior remediation regressions, while failing the
+phase with one new major, one new minor and no blockers:
+
+```text
+INDEPENDENT_REAUDIT_V13=FAIL
+V12_FINDINGS_FIXED=1/1_VERIFIED
+BLOCKERS=0
+MAJORS=1
+MINORS=1
+MAJOR_V13_001=WIN32_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_BYPASS_CANONICAL_FILESYSTEM_CLASSIFIER_AND_PERSIST
+MINOR_V13_001=ROADMAP_CURRENT_PHASE11_22_NAVIGATION_STALE_AFTER_REAUDIT_V12
+DP-122=NOT_VERIFIED
+AT-DP-122=FAIL_INDEPENDENT_REAUDIT
+CLOSURE_ELIGIBLE=NO
+NEXT_STEP=REMEDIATION_V13_ONLY
+EXPECTED_NEXT_BUNDLE=phase-11.22-event-system-audit-v14.tar.gz
+```
+
+### 22.2 Exact start state
+
+```text
+BRANCH=feature/phase-11-stable-integrated-platform
+REMEDIATION_V13_START_HEAD=e7b8a6812333e3bfbdd03ecdb7412485a56f6868
+REMEDIATION_V13_START_TREE=aebada3f0b391a6ee7205fa4869e937932a77998
+  (the prompt's declared mandatory starting point — exact match on both values; the
+   HEAD is the prompt-only child of 503f0ebb608dc47b84f8e8d9a260c756d65815a3)
+REAUDIT_V13_COMMIT=503f0ebb608dc47b84f8e8d9a260c756d65815a3
+  (the committed independent Re-audit V13 record, whose only tracked delta from the
+   audited V13 implementation HEAD d6294daf4e9c90a5cc0cf246181b1089cc606cb0 is
+   docs/audits/phase-11.22-event-system-independent-reaudit-v13.md)
+AUDITED_V13_IMPLEMENTATION_HEAD=d6294daf4e9c90a5cc0cf246181b1089cc606cb0
+AUDITED_V13_IMPLEMENTATION_TREE=b6ffd03fb7136f49a6b85f5439da2ccceaceb7a8
+V13_BUNDLE=phase-11.22-event-system-audit-v13.tar.gz
+V13_BUNDLE_SHA256=21006a0e92ae57773a6eafc4b6a7aab3ef15722d83a51d3ddaa143b4f8b8e930
+  (re-hashed and matched the declared value; regenerated byte-identically from the
+   audited HEAD with the same exact-HEAD `git archive` workflow; not modified)
+V13_REPORT_SHA256=d1d9ab1110136ce246199e5b72932c60758df29470bb703e71fbd65fc9a62325
+  (re-hashed and matched the declared value; immutable)
+TRACKED_WORKTREE=CLEAN (only untracked historical audit bundles present)
+```
+
+Provenance was verified before any production or test mutation: the branch was
+`feature/phase-11-stable-integrated-platform`, `HEAD` resolved to exactly
+`e7b8a6812333e3bfbdd03ecdb7412485a56f6868`, `HEAD^{tree}` resolved to exactly
+`aebada3f0b391a6ee7205fa4869e937932a77998`, and `git status --porcelain` reported no
+tracked modification — only the thirteen untracked historical V1–V13 audit bundles
+that repository policy does not track. The user named `e7b8a68`/`aebada3f` as the
+mandatory starting point and both matched exactly, so no provenance deviation arose
+and no compensating note is required. No forbidden Git operation was used: no
+`git stash`, `stash pop`, `stash apply`, `stash drop`, `git reset`, `git clean` or
+`git worktree`, and no push or merge.
+
+### 22.3 Mandatory inventory before implementation
+
+Before choosing the production rule, the repository was inspected for legitimate
+**event/platform identifier segments ending with one or more ASCII periods** — a
+path component whose name is not ``.`` or ``..`` but ends in periods. The inventory
+was taken over production code, kernel code, tests (including the shared identifier
+fixtures/factories), and the current Phase 11.22 documents, by parsing every Python
+string literal in `cmm/`, `kernel/` and `tests/` and classifying the ones that
+contain a path separator and a trailing-period component.
+
+```text
+TRAILING_PERIOD_IDENTIFIER_SEGMENT_INVENTORY=NO_PRODUCTION_SUPPORTED_FORM
+```
+
+Result in full:
+
+```text
+PRODUCTION_CODE_cmm/=0 identifier string literals with a trailing-period path
+  component; the only `.`-before-separator occurrences are regex-escape sequences
+  (`.\-`) inside identifier/version grammars (agent-id patterns such as
+  `^[a-zA-Z][a-zA-Z0-9_.\-]{0,127}$`), which are not identifiers
+PRODUCTION_CODE_kernel/=0
+TEST_ONLY_POSITIVE_CONTROLS=provider/release./v1, cmm/version./node,
+  provider/.sshx./config, provider/Usersx./alice/config — the near-miss logical
+  identifiers the audit requires to stay valid; none pre-existed in code and all are
+  added by this remediation's regression tests
+TEST_ONLY_NON_IDENTIFIERS=sentence-ending periods in docstrings and prose ("...
+resolution policy.", "... schema version.") and the regex escapes above
+PROSE_AND_FILE_NAMES=historical documents and file names (not routed through the
+  identifier authority)
+ADVERSARIAL_FILESYSTEM_REFERENCES=the audited family (provider/.ssh./config,
+  cmm/.ssh./config, provider/.aws./config, provider/.gnupg./trustdb.gpg,
+  provider/.kube./config, provider/.docker./config.json,
+  provider/.azure./profile, provider/Users./alice/config,
+  provider/users./alice/config, provider/home./alice/config, cmm/Users./alice/config,
+  provider/.ssh../config, provider/Users../alice/config and the wider fresh family)
+CURRENT_PHASE11_22_DOCS=the audited spellings appear only in the immutable V13 audit
+  report and the V13 prompt, as adversarial references and required positive controls
+```
+
+No production-supported identifier value ends with an ASCII period component, and
+no test routes one through the canonical identifier authority. Treating a
+trailing-period component as the Win32-equivalent name **for classification only**
+therefore cannot redefine any existing public contract, and the near-miss logical
+controls (`release.`, `version.`, `.sshx.`, `Usersx.`) remain valid because their
+stripped forms are not members of an already-sensitive family.
+
+### 22.4 Findings and remediation
+
+| Finding | Defect | Remediation |
+| --- | --- | --- |
+| `MAJOR-V13-001` | the canonical lexical path analysis (`_analyze_lexical_path()`) performed backslash-to-slash normalization, repeated-separator collapse and exact `.` elision, but did not fold **ordinary Win32 trailing ASCII periods** off an otherwise named path component. Win32 removes trailing periods from a path component when it resolves a name, so `.ssh.`/`.ssh..` and `.ssh` — and `Users.`/`Users` — name the same location, yet the analysis form kept the trailing period, no sensitive-family signature matched the equivalent spelling, and an allowlisted public slash root (`provider/`, `cmm/`) made the reference look public. `provider/.ssh./config` returned `False` from `is_private_filesystem_reference()`, passed `validate_platform_identifier()`, passed canonical `EventSystem` publication and was durably persisted — through all 13 shared identifier-bearing channels, in both official repositories and through a manual `publish_event(...)` call; reopening the file-backed store retained the exact unsafe spelling. The same contradiction held for `.SSH.`, `.aws.`, `.gnupg.`, `.kube.`, `.docker.`, `.azure.`, `Users.`, `users.`, `home.`, `cmm/.ssh./config`, `cmm/Users./alice/config`, the repeated-period forms `.ssh..`/`Users..` and their equivalents | the **existing** canonical analysis form gains one structural, analysis-only rule: each component's trailing ASCII periods are stripped **for classification only**, exactly as Win32 removes them when resolving a name. Ordering is preserved: `..` traversal is still detected on the raw segment sequence *before* any normalization can hide it and a `..` segment is never folded; a component left empty by the fold (a component of pure periods) contributes nothing rather than being invented as a current-directory segment. The stripped form feeds the same `_PRIVATE_FILESYSTEM_PATTERNS` signatures and the same public-root allowlist, so unsafe equivalents receive the identical verdict as their canonical spelling. The raw identifier is never rewritten — accepted values keep the exact producer spelling, including any trailing period (`provider/release./v1`, `cmm/version./node`, `provider/.sshx./config`, `provider/Usersx./alice/config` stay valid and persist unchanged). No literal (`.ssh.`, `Users.`, `.aws.`, `.kube.`, ...) was appended to `_PRIVATE_FILESYSTEM_PATTERNS`; no second Win32 normalizer, parser, scanner, policy, registry or subsystem is introduced; no filesystem I/O and no `Path.resolve()`; the identifier grammar is unchanged and trailing-space spellings remain excluded by it |
+| `MINOR-V13-001` | the current `ROADMAP.md` navigation was stale after Re-audit V12: the next-action line still pointed to a fresh re-audit of the **V11** bundle and the Phase 11.22 summary omitted the V12 failure/remediation state | the current `ROADMAP.md` Phase 11.22 line and next action are synchronized to the V13 state — re-audit history through V13, `INDEPENDENT_REAUDIT_V13` verdict, `MAJOR_V13_001`/`MINOR_V13_001` recorded and remediated, `PHASE11_22=REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`, `F11_022=REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`, the capability clause extended with the trailing-period equivalence and the V13 report/V14 bundle pointers added; the next action now points to the fresh independent re-audit of the exact-HEAD V14 bundle. Only current non-historical navigation was edited; no historical audit report was rewritten and the phase is not closed |
+
+The single production fold lives in the authority the phase already had
+(`_analyze_lexical_path()`, reached by every persisted identifier channel through
+`is_private_filesystem_reference()` and `validate_platform_identifier()`), so no
+channel can be patched alone and no second identifier/path/Win32 authority, parser,
+scanner, registry or subsystem was introduced.
+
+The invariant established and proved by this cycle is:
+
+```text
+WINDOWS_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION
+```
+
+### 22.5 Remediation commits
+
+```text
+b78b36a test(phase11): reproduce phase11.22 reaudit v13 findings
+e1c852a fix(events): normalize win32 trailing periods for safety analysis
+8d937fd test(phase11): strengthen at-dp-122 for v13 path equivalence
+f79ceae style(phase11): format remediation v13 test additions
+<docs>  docs(phase11): record phase11.22 remediation v13 pending reaudit
+```
+
+The red-test commit (`b78b36a`) contains only the new adversarial test module and
+precedes the single production mutation (`e1c852a`). The docs commit and the exact
+Remediation V13 HEAD, tree and V14 bundle SHA-256 are reported in the remediation
+handoff rather than embedded here, for the same self-reference reason as the earlier
+cycles.
+
+### 22.6 Production files changed
+
+```text
+cmm/events/event_payload_safety.py   (only production file changed)
+```
+
+Exact delta, inside the existing canonical authority and confined to the analysis
+form (`+49/-5` lines):
+
+```text
+_analyze_lexical_path():
+    - segments = tuple(segment for segment in raw_segments if segment not in ("", "."))
+    + segments_list: list[str] = []
+    + for segment in raw_segments:
+    +     if segment in ("", "."):
+    +         continue
+    +     if segment == "..":
+    +         segments_list.append(segment)
+    +         continue
+    +     stripped = segment.rstrip(".")
+    +     if not stripped:
+    +         continue
+    +     segments_list.append(stripped)
+    + segments = tuple(segments_list)
+
+plus the accompanying V13 provenance comment on the analysis form, the
+_LexicalPathAnalysis field notes and one V13 paragraph on the classifier's
+module-level comment block.  No other signature, constant, pattern or rule was
+touched.
+```
+
+No new constant, module, class, registry, resolver, loader, engine, container or
+policy file was added, and `cmm/events/` still contains exactly the same modules.
+Every other identifier, credential, numeric, timestamp, path, drive, URI and
+sensitive-filename rule is byte-identical to the V12 state.
+
+### 22.7 New and strengthened adversarial regressions
+
+`tests/events/test_phase11_22_remediation_v13_regressions.py` is the new focused
+module: `345 passed` after the fix, `236 failed / 109 passed` as the recorded initial
+red. It reproduces the finding at the direct classifier, the shared identifier
+authority, the canonical `EventSystem`, the manual/prebuilt `publish_event(...)`
+boundary, both official repositories, all 13 shared identifier-bearing channels, the
+durable-store byte-identity check and the reopened store; it re-runs every V1–V12
+protection beside the new rule; and it proves the analysis-only semantics (canonical
+equals the stripped form while accepted raw spellings are never rewritten), the
+traversal-before-normalization ordering, the no-filesystem-I/O property, the absence
+of appended literals, and the preserved near-miss controls.
+
+`tests/events/test_phase11_22_dp122_acceptance.py` grew `1039 -> 1202` (`+163`)
+through the same connected acceptance file — the real Phase 11.1 composition, the
+real file-backed canonical repository, the canonical registry/bus/DLQ, the real
+production `PlatformOrchestrationEventSink` and the real Orchestrator. The additions
+re-derive MAJOR-V13-001 in both directions: reported and fresh trailing-period
+references refused, twelve equivalence families receiving one connected verdict, one
+`.ssh.` example and one `Users.` example carried through the complete 13-channel
+family, both official repositories agreeing, a manual prebuilt event refused, a
+reopened store revealing nothing, the real production sink refused and the real
+Orchestrator failing closed with `ORCHESTRATION_EVENT_EMISSION_FAILED` and no durable
+bytes added — while every preserved near-miss control, every generic colon/named
+stream control and every credential-free URI persists and reopens with `workflow_id`,
+`aggregate_id`, `producer`, `permissions`, `correlation_id` and `causation_id` intact
+and a matching fingerprint, and the retained V6–V12 controls are re-run beside it.
+No replacement acceptance system was created and no previously passing case was
+removed or weakened.
+
+### 22.8 Gate evidence (Remediation V13)
+
+Run with the canonical repository environment named by `CONTRIBUTING.md`
+(`.venv/bin/python -m pytest`, CPython 3.14.7, `pytest 9.1.1`):
+
+```text
+REMEDIATION_V13_TESTS=345 passed (initial red 236 failed / 109 passed)
+V12_REGRESSIONS=916 passed (preserved)
+V11_REGRESSIONS=708 passed (preserved)
+V10_REGRESSIONS=475 passed (preserved)
+V9_REGRESSIONS=397 passed (preserved)
+V8_REGRESSIONS=289 passed (preserved)
+V7_REGRESSIONS=127 passed (preserved)
+V6_REGRESSIONS=127 passed (preserved)
+V5_REGRESSIONS=71 passed (preserved)
+V4_REGRESSIONS=23 passed (preserved)
+V3_REGRESSIONS=44 passed (preserved)
+V2_REGRESSIONS=126 passed (preserved)
+V1_REGRESSIONS=86 passed (preserved)
+PRIOR_REMEDIATION_REGRESSIONS=3389 passed (V1-V12, no failure)
+FOCUSED_V1_V13_REGRESSIONS=3734 passed
+DIRECT_IDENTIFIER_PATH_SAFETY=257 passed
+PHASE_SUITE=tests/events/ 5553 passed, 0 failed
+AT_DP_122=1202 passed (1039 prior + 163 V13)
+ARCHITECTURE_AND_SECURITY_GATES=294 passed
+EVENT_SYSTEM_COMPOSITION_AND_INTEGRATION=323 passed
+KERNEL_ADAPTER_TESTS=76 passed
+PHASE9_EVENT_REGRESSIONS=tests/agent_runtime/ 3635 passed
+AGENT_RUNTIME_DEPENDENCY_DIRECTION=tests/agent_runtime/test_dependency_direction.py 1 passed
+DOMAIN_DP033_REGRESSIONS=tests/domains/ 11824 passed
+DOMAIN_DP033_ACCEPTANCE=tests/domains/test_domain_events_dp033_acceptance.py 92 passed
+ORCHESTRATION_EVENT_TESTS=tests/orchestration/ 498 passed
+VALIDATION_EVENT_TESTS=tests/validation/ 533 passed
+WORKFLOW_EVENT_TESTS=tests/workflows/ 46 passed
+CLOSED_PHASE_ACCEPTANCES=185 passed, 1 warning
+  (AT-DP-103, AT-DP-105, Phase 11.21/AT-DP-121, Phase 11.34/AT-DP-134, AT-DP-150)
+PLATFORM_ARCHITECTURE=tests/platform/test_architecture.py 69 passed
+IMPORTS=tests/test_imports.py 1 passed
+EVENT_INVENTORY=tests/**/*event*.py 1270 passed (22 files, unchanged)
+GLOBAL_PYTEST=27622 collected, 27622 passed, 1 warning, 0 failed
+CHANGED_FILE_RUFF=PASS (0 violations in every changed/created file)
+GLOBAL_RUFF_COUNT=810 (`ruff check cmm kernel tests`; V13 baseline 810, no new debt)
+GLOBAL_RUFF_NO_NEW_DEBT=PASS
+FORMAT_CHECK=PASS (every changed/created file `ruff format --check`-clean)
+COMPILEALL=PASS
+GIT_DIFF_CHECK=PASS
+AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0
+```
+
+The V12 production tree measured `5045` in `tests/events/` and `27114` collected
+globally, all passing. The V13 additions are `+345` adversarial regressions in a new
+module and `+163` strengthened `AT-DP-122` connected scenarios, with no
+production-repair case needed this cycle, so `tests/events/` moves `5045 -> 5553`
+(`+508`) and the global collected count moves `27114 -> 27622` (`+508`), the pass
+count moving with it.
+
+`GLOBAL_PYTEST_FAILURES=0` is therefore **met** on the canonical CPython 3.14.7
+runtime, and `GLOBAL_PYTEST_PASS_COUNT=27622` is **at or above** the `27114` floor
+(and above it by `508`). No test was deleted, skipped or xfailed to obtain this: the
+pass count rose by exactly the number of tests added.
+
+### 22.9 Mandatory invariant evidence
+
+```text
+WINDOWS_TRAILING_PERIOD_PATH_COMPONENT_EQUIVALENTS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION=PASS (established this cycle)
+NON_PUBLIC_FILESYSTEM_PATHS_NEVER_ENTER_EVENT_PERSISTENCE=PASS (complete corpus: top-level, wrapped, drive-relative, case-varied, stream-suffixed and trailing-period-equivalent)
+PATH_EQUIVALENT_SPELLINGS_HAVE_IDENTICAL_SAFETY_CLASSIFICATION=PASS
+RAW_TRAVERSAL_SEMANTICS_DETECTED_BEFORE_NORMALIZATION=PASS
+TRAILING_PERIOD_FOLD_IS_ANALYSIS_ONLY_AND_NEVER_REWRITES=PASS
+URI_USERINFO_CREDENTIALS_REJECTED_REGARDLESS_OF_PREFIX_OR_WRAPPER=PASS
+CREDENTIALS_NEVER_ENTER_EVENT_PERSISTENCE=PASS
+PHASE11_22_TIMESTAMP_ACCEPTANCE_IS_INTERPRETER_VERSION_INDEPENDENT=PASS
+WRAPPED_FILE_URI_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_FILE_URI_REFERENCES=PASS
+WRAPPED_WINDOWS_DRIVE_ROOT_REFERENCES_HAVE_THE_SAME_UNSAFE_CLASSIFICATION_AS_TOP_LEVEL_DRIVE_ROOT_REFERENCES=PASS
+WINDOWS_DRIVE_RELATIVE_REFERENCES_NEVER_ENTER_EVENT_PERSISTENCE=PASS (preserved)
+WINDOWS_SENSITIVE_PRIVATE_FILENAME_EQUIVALENTS_NEVER_ENTER_EVENT_PERSISTENCE=PASS (preserved)
+LEXICAL_PATH_ANALYSIS_PERFORMS_NO_FILESYSTEM_IO=PASS
+PERSISTED_IDENTIFIER_IS_NEVER_REWRITTEN_BY_CANONICALIZATION=PASS
+GENERIC_COLON_IDENTIFIERS_REMAIN_VALID=PASS
+GENERIC_NON_SENSITIVE_NAMED_STREAM_REFERENCES_REMAIN_VALID=PASS
+NEAR_MISS_TRAILING_PERIOD_CONTROLS_REMAIN_VALID=PASS
+
+V12_SENSITIVE_FILENAME_REFUSAL=PASS (preserved)
+V11_DRIVE_RELATIVE_REFUSAL=PASS (preserved)
+V10_WRAPPED_DRIVE_ROOT_REFUSAL=PASS (preserved)
+V9_WRAPPED_FILE_URI_REFUSAL=PASS (preserved)
+V9_INTERPRETER_INDEPENDENT_CIVIL_HOUR=PASS (preserved)
+V8_FILESYSTEM_REFERENCE_CLASSIFICATION=PASS (preserved)
+V8_OCCURRENCE_INDEPENDENT_URI_USERINFO=PASS (preserved)
+```
+
+The new invariant is stated only now that it is actually true: the canonical
+analysis form folds the Win32 trailing-period normalization for classification only,
+the raw persisted identifier is never rewritten, `..` traversal is still detected
+before any normalization, and a trailing period can no longer shield an
+already-sensitive path component. The retained V1–V12 invariants are preserved, the
+official in-memory repository is asserted unchanged beside the official file-backed
+one, and the near-miss controls (`provider/release./v1`, `cmm/version./node`,
+`provider/.sshx./config`, `provider/Usersx./alice/config`) remain valid and persist
+with their exact producer spelling.
+
+### 22.10 Warnings
+
+The one retained global warning is the pre-existing unrelated `starlette`
+`anyio`/`httpx` `DeprecationWarning`. No new warning was introduced by Remediation
+V13. No pre-existing warning was suppressed, and no warning filter was added.
+
+### 22.11 Preserved evidence
+
+The immutable Audit V1 report, the immutable Re-audit V2, V3, V4, V5, V6, V7, V8,
+V9, V10, V11, V12 and V13 reports, and the immutable V1, V2, V3, V4, V5, V6, V7,
+V8, V9, V10, V11, V12 and V13 bundles are byte-identical to their audited state;
+each was re-hashed and matched the declared value. All thirteen bundles remain
+untracked, as repository policy does not track audit bundles, and none was
+overwritten. No stash was created, applied, popped or dropped, and no `git reset`,
+`git clean` or `git worktree` was used. `ROADMAP.md` and the current
+evidence/reference/roadmap documents were updated for Remediation V13; no historical
+audit report was rewritten and no historical bundle was touched.
+
+### 22.12 Next step
+
+Fresh independent ChatGPT re-audit of the **V14** exact-HEAD bundle
+(`phase-11.22-event-system-audit-v14.tar.gz`). The phase remains
+`REMEDIATED_AFTER_REAUDIT_V13_PENDING_INDEPENDENT_REAUDIT`: not closed, not
 independently verified, not complete, and neither Phase 11.23 nor Phase 11.24 has
 begun. Only that re-audit may write `BLOCKERS=0`, `MAJORS=0`,
 `DP-122=VERIFIED_EXISTING`, `AT-DP-122=PASS`, `CLOSURE_ELIGIBLE=YES`.
