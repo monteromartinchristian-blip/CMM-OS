@@ -643,6 +643,18 @@ def local_runtime_model_vendors(model_ids: tuple[str, ...]) -> dict[str, str | N
 #: upstream, which one lane-level locality could not honestly describe.
 DISCOVERED_LOCAL_RUNTIME_ID_PREFIX = "local-"
 
+#: The credential variable a discovered local runtime falls back to.
+#:
+#: The canonical OpenAI-compatible transport refuses to construct a client with
+#: an empty bearer. A loopback runtime ignores the value entirely, and the
+#: endpoint is loopback-gated before it is ever used, so a constant placeholder
+#: satisfies the transport without being a credential for anything: it grants
+#: access to a process already reachable without one. The launcher may still
+#: supply a real value through the same variable, and a runtime that *does*
+#: check auth is served by that real value.
+DISCOVERED_LOCAL_RUNTIME_API_KEY_ENV = LOCAL_RUNTIME_API_KEY_ENV
+
+
 
 def register_discovered_local_runtimes(
     *,
@@ -688,9 +700,16 @@ def register_discovered_local_runtimes(
             id=provider_id,
             provider_type="local",
             api_style="chat_completions",
-            api_key_env=endpoint.api_key_env if endpoint is not None else None,
+            api_key_env=(
+                (endpoint.api_key_env if endpoint is not None else None)
+                or DISCOVERED_LOCAL_RUNTIME_API_KEY_ENV
+            ),
+            # The transport addresses the runtime's OpenAI-compatible root, not
+            # the root discovery happened to use: a runtime with a separate
+            # native listing API serves the two from different paths, and
+            # posting chat to the listing root fails every request.
             base_url=(
-                endpoint.base_url
+                endpoint.provider_base_url
                 if endpoint is not None
                 else LOCAL_RUNTIME_DEFAULT_BASE_URL
             ),
@@ -709,8 +728,19 @@ def register_discovered_local_runtimes(
             model_spec = ModelSpec(
                 id=qualified,
                 provider_id=registered.id,
+                # The catalog key is normalized for lookup; the runtime's own
+                # spelling is what has to reach the wire, because a llama.cpp
+                # model is not served under any other casing.
+                upstream_id=entry.id,
                 display_name=entry.display_name,
-                locality=entry.locality,
+                # Two vocabularies meet here and must not be conflated. Discovery
+                # reports an *egress class* — ``local`` or ``remote`` — which
+                # answers "do these weights live on this machine?". The catalog
+                # locality is ``local`` or ``cloud``, which answers the same
+                # question in the selector's vocabulary. A model the runtime
+                # forwards to an upstream is egress-``remote`` and therefore
+                # catalog-``cloud``: never "on this Mac".
+                locality=("local" if entry.locality == "local" else "cloud"),
                 vendor=entry.vendor,
                 version=entry.version,
                 context_window=entry.context_window,

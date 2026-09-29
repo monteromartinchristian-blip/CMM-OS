@@ -56,6 +56,17 @@ class ModelSpec:
     #: rolling alias such as "sonnet" ends up presented as if it named a
     #: specific variant.  ``None`` means the authority published no name.
     display_name: str | None = None
+    #: The identifier the serving authority published, preserved **verbatim**.
+    #:
+    #: ``ModelSpec.id`` is normalized to lowercase because it is the product's
+    #: lookup key, and two providers must be able to hold models of the same
+    #: name. A runtime's own identifier is not a product concept and is often
+    #: case-sensitive — a llama.cpp model advertised as ``Qwen3_5-4B-Q4_K_M`` is
+    #: not served under any other spelling. Sending the normalized form puts a
+    #: model the catalog just discovered into a 404 on first use, so the wire
+    #: value is carried separately. ``None`` means the authority published no
+    #: separate upstream name, and the catalog id is used.
+    upstream_id: str | None = None
     #: Where this model's context actually goes: ``local`` only when the
     #: serving authority stated that the weights are on this machine.
     #:

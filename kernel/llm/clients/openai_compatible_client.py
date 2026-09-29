@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from urllib.parse import urlsplit
 from collections.abc import Iterator, Sequence
 from threading import Event
 from typing import Any
@@ -31,6 +32,21 @@ TIMEOUT_SECONDS_ENV = "CMM_OPENAI_COMPAT_TIMEOUT_SECONDS"
 #: all, and the vendor is a fact about the upstream, never about the model id's
 #: spelling — so it is declared here rather than probed during composition.
 VENDOR_MAP_ENV = "CMM_OPENAI_COMPAT_VENDOR_MAP_JSON"
+
+#: Bearer supplied to a loopback endpoint that was given no credential.
+#:
+#: The OpenAI-compatible transport cannot construct a client without a non-empty
+#: bearer, while a loopback runtime commonly ignores the value entirely. The
+#: endpoint is loopback-gated before it is ever used, so this constant grants
+#: access to nothing a reachable process would not already allow. It is a
+#: transport requirement, not a credential: it is never persisted, never logged
+#: and never sent anywhere but the loopback address it was resolved for. An
+#: endpoint that *does* check authentication is given a real value by its
+#: launcher, which takes precedence.
+LOOPBACK_NO_AUTH_BEARER = "loopback-no-auth-required"
+
+#: Hosts that are this machine, and therefore need no credential to address.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def configured_reasoning_effort_map(
@@ -146,10 +162,18 @@ class OpenAICompatibleClient:
         client: Any | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        provider_id: str | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
         self._base_url = base_url
+        #: The canonical identity of the provider this client speaks for.  Used
+        #: to translate the catalog's *qualified* model id back into the id the
+        #: upstream actually knows: the catalog addresses a model as
+        #: ``<provider>/<model>`` so two providers cannot collide on a bare name,
+        #: but a runtime that discovered its own model has never heard of the
+        #: product's namespace for it.
+        self._provider_id = provider_id
 
     def generate(
         self,
@@ -275,9 +299,21 @@ class OpenAICompatibleClient:
                 except Exception:  # noqa: BLE001, S110 - best effort
                     pass
 
-    @staticmethod
-    def _provider_model_id(model: str) -> str:
-        """Resolve a canonical model id to its opaque upstream provider id."""
+    def _provider_model_id(self, model: str) -> str:
+        """Resolve a canonical model id to its opaque upstream provider id.
+
+        An explicit map still wins — it is how a route whose upstream id is
+        nothing like its catalog id is declared. Absent one, the catalog's own
+        namespace is removed when the id carries it, because a runtime that
+        published this model knows only the name it published.
+        """
+
+        if self._provider_id:
+            prefix = f"{self._provider_id}/"
+            if model.startswith(prefix):
+                stripped = model[len(prefix):]
+                if stripped:
+                    return stripped
 
         raw = os.getenv("CMM_OPENAI_COMPAT_MODEL_ID_MAP_JSON", "").strip()
         if not raw:
@@ -502,8 +538,13 @@ class OpenAICompatibleClient:
             ) from error
 
         parameters: dict[str, Any] = {}
-        if self._api_key is not None:
-            parameters["api_key"] = self._api_key
+        # The same rule the descriptor read uses: a loopback endpoint with no
+        # configured credential gets the documented placeholder so the SDK can
+        # construct a client, while anything off this machine still fails closed
+        # rather than being handed a constant.
+        effective_key = self._effective_api_key()
+        if effective_key is not None:
+            parameters["api_key"] = effective_key
         if self._base_url is not None:
             parameters["base_url"] = self._base_url
         configured_timeout = os.getenv(TIMEOUT_SECONDS_ENV, "").strip()
@@ -536,13 +577,27 @@ class OpenAICompatibleClient:
         raise ProviderError("OpenAI-compatible client has no base URL configured")
 
     def _effective_api_key(self) -> str | None:
-        """The bearer this client is configured with, if any."""
+        """The bearer this client is configured with.
+
+        A loopback endpoint that was given no credential gets the documented
+        placeholder: the transport cannot build a client without a bearer, and
+        a loopback runtime ignores one. Anything reachable off this machine
+        still fails closed with no bearer, because a placeholder must never
+        stand in for a real credential on a network an attacker could see.
+        """
 
         if isinstance(self._api_key, str) and self._api_key:
             return self._api_key
         api_key = getattr(self._client, "api_key", None)
         if isinstance(api_key, str) and api_key:
             return api_key
+        try:
+            base_url = self._effective_base_url()
+        except ProviderError:
+            return None
+        host = urlsplit(base_url).hostname or ""
+        if host.lower() in _LOOPBACK_HOSTS:
+            return LOOPBACK_NO_AUTH_BEARER
         return None
 
     @staticmethod

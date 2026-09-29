@@ -106,6 +106,15 @@ class LocalRuntimeEndpoint:
     own_identities: frozenset[str] = frozenset()
     api_key_env: str | None = None
     enabled: bool = True
+    #: The OpenAI-compatible root used to *invoke* this runtime.
+    #:
+    #: It is a separate field because discovery and inference are not always
+    #: served from the same root. Ollama answers its native API — the one that
+    #: actually reports a model's size, quantisation and hosted tags — at the
+    #: bare port, and its OpenAI-compatible chat at ``<root>/v1``. Using the
+    #: discovery root for chat would post to a path that does not exist and fail
+    #: every request against a model the catalog had just listed as available.
+    chat_base_url: str | None = None
 
     def __post_init__(self) -> None:
         normalized = self.name.strip().lower()
@@ -125,6 +134,28 @@ class LocalRuntimeEndpoint:
         object.__setattr__(
             self, "own_identities", frozenset(i.strip().lower() for i in self.own_identities if i.strip())
         )
+
+        if self.chat_base_url is not None:
+            chat = self.chat_base_url.strip().rstrip("/")
+            if not chat:
+                raise ValueError(f"Local runtime {self.name!r} has a blank chat base URL")
+            object.__setattr__(self, "chat_base_url", chat)
+
+    @property
+    def provider_base_url(self) -> str:
+        """The root the chat transport must address.
+
+        For a runtime whose discovery is already OpenAI-compatible the two
+        roots are the same. For a runtime with a separate native discovery API
+        the OpenAI-compatible root sits under it, which is the documented layout
+        of that protocol rather than a per-model assumption.
+        """
+
+        if self.chat_base_url:
+            return self.chat_base_url
+        if self.protocol == "ollama":
+            return f"{self.base_url}/v1"
+        return self.base_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +250,7 @@ def load_endpoints(raw: str | None = None) -> tuple[LocalRuntimeEndpoint, ...]:
                 own_identities=frozenset(identities),
                 api_key_env=entry.get("apiKeyEnv") or entry.get("api_key_env"),
                 enabled=bool(entry.get("enabled", True)),
+                chat_base_url=entry.get("chatBaseUrl") or entry.get("chat_base_url"),
             )
         )
     return tuple(endpoints)

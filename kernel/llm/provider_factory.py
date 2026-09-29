@@ -61,12 +61,21 @@ class ProviderFactory:
         compatible_client = client or OpenAICompatibleClient(
             api_key=provider.resolve_api_key(),
             base_url=provider.resolve_base_url(),
+            # The client needs the provider's identity so the catalog's
+            # qualified model id can be translated back into the name this
+            # provider published.  Without it every request to a discovered
+            # local model 404s on a namespace the runtime never invented.
+            provider_id=provider.id,
         )
 
         return OpenAICompatibleProvider(
             provider_id=provider.id,
             client=compatible_client,
-            model=model.id,
+            # The wire value is the identifier the authority published, not the
+            # catalog's normalized key. For most lanes they are the same string;
+            # for a runtime with case-sensitive model names they are not, and
+            # using the normalized form makes every discovered model a 404.
+            model=model.upstream_id or model.id,
         )
 
     def create_from_decision(
