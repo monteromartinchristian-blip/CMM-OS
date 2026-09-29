@@ -170,7 +170,10 @@ def test_discovery_advertises_the_lane_over_the_real_socket(router_double) -> No
 
     assert {model.id for model in models} == {MODEL_ONE, MODEL_TWO}
     assert {model.provider_id for model in models} == {"cmmchat-router"}
-    assert all(model.locality == "local" for model in models)
+    # The lane is reached over a real loopback socket, but the router forwards
+    # the context to a vendor subscription cloud, so the honest locality a
+    # selector must show is cloud.
+    assert all(model.locality == "cloud" for model in models)
 
 
 def test_stream_lifecycle_carries_the_bearer_and_the_transcript(router_double) -> None:

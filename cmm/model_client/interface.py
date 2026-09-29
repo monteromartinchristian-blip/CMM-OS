@@ -285,11 +285,14 @@ class ModelClient:
                 availability=model.availability,
                 locality=model.locality,
                 provider_id=model.provider_id,
+                vendor=model.vendor,
                 capabilities=dict(model.capabilities or {}),
                 reasoning_efforts=tuple(model.reasoning_efforts or ()),
                 document_media_types=tuple(model.document_media_types or ()),
                 context_window=model.context_window,
                 streaming=bool(model.streaming),
+                version=model.version,
+                status=model.status,
             )
             for model in models
         )

@@ -51,6 +51,7 @@ from cmm.model_execution.contracts import (
     ResolvedChatModel,
 )
 from cmm.model_execution.errors import ModelExecutionError
+from cmm.model_execution.lanes import lane_locality
 from cmm.orchestration.contracts import ExecutionRoute
 from kernel.llm.capabilities import ReasoningEffort
 from kernel.llm.exceptions import ProviderError, ProviderTimeoutError
@@ -139,6 +140,31 @@ def _require_canonical_role(name: str, implementation: object, contract: type) -
             f"{name} must hold the canonical {contract.__name__} role, "
             f"got {type(implementation).__name__}"
         )
+
+
+def model_status(spec: ModelSpec, provider: ProviderSpec, available: bool) -> str:
+    """Why a model is in the state it is in.
+
+    ``availability`` is the coarse answer a client gates selection on; this is
+    the reason behind it.  A model whose runtime is temporarily down must not
+    be indistinguishable from one that was never discovered, and neither may be
+    silently presented as usable — the distinction is what lets a selector keep
+    a local model visible across a restart without claiming it works.
+    """
+
+    if not available:
+        if spec.availability == "disabled" or provider.availability == "disabled":
+            return "disabled"
+        if spec.availability == "unavailable" or provider.availability == "unavailable":
+            return "offline"
+        if spec.availability == "degraded" or provider.availability == "degraded":
+            return "degraded"
+        return "unavailable"
+    if spec.availability == "unknown" and provider.availability == "unknown":
+        # Nothing has ever probed this lane, so "available" is an assumption
+        # rather than an observation.  Say so instead of asserting health.
+        return "starting"
+    return "available"
 
 
 class CanonicalModelExecutor:
@@ -555,7 +581,6 @@ class CanonicalModelExecutor:
         """Project one canonical catalog entry into a chat selector's view."""
 
         model_id = spec.id
-        display_name = model_id.rsplit("/", 1)[-1].split(":", 1)[0] or model_id
         capabilities = {
             name: bool(getattr(spec.capabilities, name, False))
             for name in CHAT_CAPABILITY_FIELDS
@@ -566,10 +591,20 @@ class CanonicalModelExecutor:
         )
         return NormalizedModel(
             model_id=model_id,
-            display_name=display_name,
+            # The display name the serving authority published, verbatim.  It
+            # used to be re-derived by slicing the id, which threw away
+            # everything the upstream knew -- a bare alias came out as "sonnet"
+            # instead of the real label, and a rolling route was presented as if
+            # it named a specific variant.  Falling back to the id is a
+            # last resort for an authority that published no name at all, not
+            # the normal path.
+            display_name=(spec.display_name or model_id.rsplit("/", 1)[-1]),
             provider_id=provider.id,
-            locality="local" if provider.provider_type == "local" else "cloud",
+            # Per-model egress truth when the authority stated it; the lane
+            # answer is the fallback for a model that declared nothing.
+            locality=spec.locality or lane_locality(provider.id),
             availability="available" if available else "unavailable",
+            vendor=spec.vendor,
             capabilities=capabilities,
             reasoning_efforts=tuple(
                 effort.value for effort in spec.capabilities.reasoning_efforts
@@ -577,6 +612,8 @@ class CanonicalModelExecutor:
             document_media_types=tuple(spec.capabilities.document_media_types),
             context_window=spec.context_window,
             streaming=bool(spec.capabilities.streaming),
+            version=spec.version,
+            status=model_status(spec, provider, available),
         )
 
     def _generated_response(

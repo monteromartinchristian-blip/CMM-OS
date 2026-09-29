@@ -15,7 +15,12 @@ from typing import Any, Mapping
 
 #: The version of this boundary.  A client pins against it; a change that
 #: removes or re-semanticizes a field must bump it.
-MODEL_CLIENT_INTERFACE_VERSION = "1"
+#:
+#: v2 adds ``version`` and ``status`` to :class:`ClientModelDescriptor`.  Both
+#: are additive with honest ``None``/``"available"`` defaults, so a v1 client
+#: keeps decoding a v2 payload; the bump marks that the descriptor now carries
+#: facts a v1 client had no field to show.
+MODEL_CLIENT_INTERFACE_VERSION = "2"
 
 #: The closed error vocabulary the seam can raise.  Messages are the seam's own
 #: and may carry upstream detail, so a client must map the *code* onto its own
@@ -67,11 +72,25 @@ class ClientModelDescriptor:
     availability: str
     locality: str
     provider_id: str
+    #: The vendor the serving authority declared (an OpenAI-compatible listing's
+    #: ``owned_by``), or ``None`` when it declared nothing.  Carried so a client
+    #: shows the real provider rather than guessing one from the id's spelling.
+    vendor: str | None = None
     capabilities: Mapping[str, bool] = field(default_factory=dict)
     reasoning_efforts: tuple[str, ...] = ()
     document_media_types: tuple[str, ...] = ()
     context_window: int | None = None
     streaming: bool = False
+    #: The concrete version/family the serving authority declared, or ``None``
+    #: when it declared none.  A rolling alias has no version to report and is
+    #: never given an invented one, so a client can distinguish "this route is
+    #: currently X" from "this route will be some Y".
+    version: str | None = None
+    #: Lifecycle state of this model.  ``availability`` stays the coarse
+    #: usable/unusable answer a selector gates on; ``status`` says *why*, so a
+    #: local model that is merely offline stays visible and honest instead of
+    #: disappearing or being presented as working.
+    status: str = "available"
 
     def __post_init__(self) -> None:
         object.__setattr__(

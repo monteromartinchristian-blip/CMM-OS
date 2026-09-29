@@ -111,7 +111,10 @@ def test_catalog_projects_normalized_models_from_the_canonical_catalog() -> None
     assert isinstance(model, NormalizedModel)
     assert model.display_name == "medium"
     assert model.availability == "available"
-    assert model.locality == "local"
+    # The router lane runs as a loopback process but forwards the context to a
+    # vendor subscription cloud, so the honest selector locality is cloud: it is
+    # the egress answer, not where the serving process happens to run.
+    assert model.locality == "cloud"
     assert model.provider_id == ROUTER
     assert model.capabilities == {
         "reasoning": True,
@@ -247,7 +250,7 @@ def test_stream_refuses_a_disabled_provider_at_the_stream_boundary() -> None:
             model_id="model-one",
             display_name="model-one",
             provider_id=ROUTER,
-            locality="local",
+            locality="cloud",
             availability="available",
             capabilities={},
         ),

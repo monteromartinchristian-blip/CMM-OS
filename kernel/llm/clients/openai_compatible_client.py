@@ -25,6 +25,13 @@ REASONING_EFFORT_MAP_ENV = "CMM_OPENAI_COMPAT_REASONING_EFFORT_MAP_JSON"
 #: minutes, so no product default is imposed here.
 TIMEOUT_SECONDS_ENV = "CMM_OPENAI_COMPAT_TIMEOUT_SECONDS"
 
+#: Launcher declaration of which vendor actually serves each model of a lane,
+#: e.g. ``{"local-runtime": {"gemini-3.8-flash": "gemini"}}``.  A loopback
+#: runtime that fronts hosted upstreams serves models that are not local at
+#: all, and the vendor is a fact about the upstream, never about the model id's
+#: spelling — so it is declared here rather than probed during composition.
+VENDOR_MAP_ENV = "CMM_OPENAI_COMPAT_VENDOR_MAP_JSON"
+
 
 def configured_reasoning_effort_map(
     provider_id: str,
@@ -79,6 +86,54 @@ def configured_reasoning_effort_map(
                 )
             efforts[effort] = dict(fragment)
         parsed[model_id.strip().lower()] = efforts
+    return parsed
+
+
+def configured_vendor_map(provider_id: str) -> dict[str, str | None]:
+    """Return the launcher-declared serving vendor per model id for one lane.
+
+    Reads :data:`VENDOR_MAP_ENV`, a JSON object keyed by provider id then
+    model id, e.g. ``{"local-runtime": {"gemini-3.8-flash": "gemini"}}``.  A
+    ``null`` value declares "no vendor known"; any other value must be a
+    non-empty string.  This lives beside the effort map because both are
+    operator declarations of upstream facts that the bare model id cannot
+    carry, and both must be parsed where JSON is a permitted dependency.
+    """
+
+    raw = os.getenv(VENDOR_MAP_ENV, "").strip()
+    if not raw:
+        return {}
+
+    try:
+        configured = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ProviderError(
+            "OpenAI-compatible vendor map contains invalid JSON"
+        ) from error
+
+    if not isinstance(configured, dict):
+        raise ProviderError("OpenAI-compatible vendor map must be a JSON object")
+
+    selected = configured.get(provider_id)
+    if selected is None:
+        return {}
+    if not isinstance(selected, dict):
+        raise ProviderError(
+            "OpenAI-compatible vendor map entry must be a JSON object"
+        )
+
+    parsed: dict[str, str | None] = {}
+    for model_id, vendor in selected.items():
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ProviderError("a vendor map key must be a non-empty model id")
+        if vendor is None:
+            parsed[model_id.strip().lower()] = None
+            continue
+        if not isinstance(vendor, str) or not vendor.strip():
+            raise ProviderError(
+                "a vendor map value must be a non-empty string or null"
+            )
+        parsed[model_id.strip().lower()] = vendor.strip()
     return parsed
 
 
@@ -322,6 +377,114 @@ class OpenAICompatibleClient:
 
         return tuple(model_ids)
 
+    def list_model_vendors(self) -> dict[str, str | None]:
+        """Discover each model's serving vendor via the same /models endpoint.
+
+        The vendor is the authority's own declaration — an OpenAI-compatible
+        listing's ``owned_by`` — and is never derived from the model id's
+        spelling.  A listing item that declares nothing maps to ``None``, so a
+        caller can present "unknown vendor" instead of a guess.
+
+        Same guarantees as :meth:`list_models`: no inference, provider order
+        preserved, duplicate ids refused, an empty listing is a valid result.
+        """
+
+        client = self._client or self._build_client()
+
+        try:
+            response = client.models.list()
+        except Exception as error:  # noqa: BLE001
+            self._raise_provider_error(error)
+
+        data = getattr(response, "data", None)
+        if not isinstance(data, list):
+            raise ProviderError(
+                "OpenAI-compatible model listing response had no data list"
+            )
+
+        vendors: dict[str, str | None] = {}
+        for item in data:
+            model_id = getattr(item, "id", None)
+            if not isinstance(model_id, str) or not model_id:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing item lacks a string id: {item!r}"
+                )
+            if model_id in vendors:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing returned duplicate id: {model_id}"
+                )
+            owned_by = getattr(item, "owned_by", None)
+            vendor = owned_by.strip() if isinstance(owned_by, str) else ""
+            vendors[model_id] = vendor or None
+
+        return vendors
+
+    def list_model_descriptors(self) -> dict[str, dict[str, Any]]:
+        """Discover each model's **complete** declared descriptor from the wire.
+
+        :meth:`list_models` and :meth:`list_model_vendors` read the listing
+        through the SDK's typed model, which carries only ``id``, ``object``,
+        ``owned_by`` and ``created`` and silently discards everything else the
+        authority published. That is fine for an identity list and wrong for a
+        catalog: a version, a display name and an egress class that the
+        authority states are exactly the facts a selector needs, and reading
+        them through a lossy type would erase them at the first boundary.
+
+        So this reads ``GET {base_url}/models`` at the wire and keeps every
+        declared field. Absent stays absent — an authority that names no version
+        produces no version, rather than one reconstructed from the id.
+
+        Same guarantees as the other discovery methods: no inference, provider
+        order preserved, duplicate ids refused, malformed items fail closed.
+        """
+
+        base_url = self._effective_base_url()
+        url = f"{base_url}/models"
+        headers = {"Accept": "application/json"}
+        api_key = self._effective_api_key()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        try:
+            httpx = importlib.import_module("httpx")
+        except ImportError as error:  # pragma: no cover - httpx ships with the SDK
+            raise ProviderError(
+                "OpenAI-compatible support is not installed. "
+                "Install CMM OS with the 'openai' extra."
+            ) from error
+
+        try:
+            with httpx.Client(timeout=self._configured_timeout()) as client:
+                response = client.get(url, headers=headers)
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as error:  # noqa: BLE001
+            self._raise_provider_error(error)
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            raise ProviderError(
+                "OpenAI-compatible model listing response had no data list"
+            )
+
+        descriptors: dict[str, dict[str, Any]] = {}
+        for item in data:
+            if not isinstance(item, dict):
+                raise ProviderError(
+                    f"OpenAI-compatible model listing item is not an object: {item!r}"
+                )
+            model_id = item.get("id")
+            if not isinstance(model_id, str) or not model_id:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing item lacks a string id: {item!r}"
+                )
+            if model_id in descriptors:
+                raise ProviderError(
+                    f"OpenAI-compatible model listing returned duplicate id: {model_id}"
+                )
+            descriptors[model_id] = item
+        return descriptors
+
     def _build_client(self) -> Any:
         try:
             dotenv = importlib.import_module("dotenv")
@@ -356,6 +519,43 @@ class OpenAICompatibleClient:
             return openai.OpenAI(**parameters)
         except Exception as error:  # noqa: BLE001
             self._raise_provider_error(error)
+
+    def _effective_base_url(self) -> str:
+        """The base URL this client is configured against.
+
+        Taken from the explicit configuration when present, otherwise read back
+        from an injected SDK client, so a descriptor read cannot silently fall
+        back to the provider's public endpoint.
+        """
+
+        if isinstance(self._base_url, str) and self._base_url.strip():
+            return self._base_url.strip().rstrip("/")
+        base_url = getattr(self._client, "base_url", None)
+        if base_url is not None:
+            return str(base_url).rstrip("/")
+        raise ProviderError("OpenAI-compatible client has no base URL configured")
+
+    def _effective_api_key(self) -> str | None:
+        """The bearer this client is configured with, if any."""
+
+        if isinstance(self._api_key, str) and self._api_key:
+            return self._api_key
+        api_key = getattr(self._client, "api_key", None)
+        if isinstance(api_key, str) and api_key:
+            return api_key
+        return None
+
+    @staticmethod
+    def _configured_timeout() -> float | None:
+        configured = os.getenv(TIMEOUT_SECONDS_ENV, "").strip()
+        if not configured:
+            return None
+        try:
+            return float(configured)
+        except ValueError as error:
+            raise ProviderError(
+                "OpenAI-compatible timeout must be a number of seconds"
+            ) from error
 
     @staticmethod
     def _raise_provider_error(error: Exception) -> None:

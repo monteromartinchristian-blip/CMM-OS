@@ -97,7 +97,11 @@ def _resolved(model: NormalizedModel) -> ResolvedChatModel:
 
 
 def test_the_boundary_exports_one_versioned_surface() -> None:
-    assert MODEL_CLIENT_INTERFACE_VERSION == "1"
+    # v2 added `version` and `status` to ClientModelDescriptor. Both are
+    # additive with honest defaults, so a v1 client still decodes a v2
+    # payload; the pin moves only because the descriptor now carries facts it
+    # previously had no field to show.
+    assert MODEL_CLIENT_INTERFACE_VERSION == "2"
     assert set(boundary.__all__) >= {
         "ModelClient",
         "ModelClientError",

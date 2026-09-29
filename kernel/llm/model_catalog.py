@@ -45,6 +45,27 @@ class ModelSpec:
     cached_input_cost_per_million: Decimal | None = None
     availability: ModelAvailability = "unknown"
     version: str | None = None
+    #: The vendor that actually serves this model, as the serving authority
+    #: declares it (an OpenAI-compatible listing's ``owned_by``), never derived
+    #: from the model id's spelling.  ``None`` means the authority declared
+    #: nothing, which a selector must present as unknown rather than guess.
+    vendor: str | None = None
+    #: The human label the serving authority published for this model.  It is
+    #: carried unchanged so a selector shows what the upstream actually calls
+    #: it, instead of a name reconstructed from the id -- which is how a
+    #: rolling alias such as "sonnet" ends up presented as if it named a
+    #: specific variant.  ``None`` means the authority published no name.
+    display_name: str | None = None
+    #: Where this model's context actually goes: ``local`` only when the
+    #: serving authority stated that the weights are on this machine.
+    #:
+    #: This is deliberately per-model rather than per-provider.  A single
+    #: runtime can serve both on-device weights and models it forwards to a
+    #: hosted upstream, so a lane-level answer would mislabel one of them.  A
+    #: loopback endpoint is not evidence either way: it says where the process
+    #: runs, not where the data goes.  ``None`` means the authority declared
+    #: nothing, and the lane default applies.
+    locality: Literal["local", "cloud"] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -84,6 +105,12 @@ class ModelSpec:
             )
         )
         object.__setattr__(self, "aliases", normalized_aliases)
+
+        if self.vendor is not None:
+            vendor = self.vendor.strip()
+            if not vendor:
+                raise ProviderError("Model vendor cannot be blank")
+            object.__setattr__(self, "vendor", vendor)
 
     @property
     def qualified_id(self) -> str:

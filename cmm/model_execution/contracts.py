@@ -387,6 +387,10 @@ class NormalizedModel:
     provider_id: str
     locality: str  # "local" | "cloud"
     availability: ModelAvailability = "available"
+    #: The vendor the serving authority declared for this model (an
+    #: OpenAI-compatible listing's ``owned_by``), or ``None`` when it declared
+    #: nothing.  A selector shows this instead of guessing a family from the id.
+    vendor: str | None = None
     capabilities: Mapping[str, bool] = field(default_factory=dict)
     #: Canonical reasoning-effort level names the model explicitly supports,
     #: in declaration order.  Empty means "no explicit effort may be sent".
@@ -395,6 +399,15 @@ class NormalizedModel:
     document_media_types: tuple[str, ...] = ()
     context_window: int | None = None
     streaming: bool = False
+    #: The concrete version/family the serving authority declared, or ``None``
+    #: when it declared none.  A rolling alias has no version to report and is
+    #: never given an invented one.
+    version: str | None = None
+    #: Lifecycle state of this model.  ``availability`` stays the coarse
+    #: usable/unusable answer a client gates selection on; ``status`` says
+    #: *why*, so a model that is merely offline is distinguishable from one
+    #: that was never discovered or has been removed.
+    status: str = "available"
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -412,6 +425,11 @@ class NormalizedModel:
             raise ValueError("locality must be 'local' or 'cloud'")
         if self.availability not in ("available", "unavailable"):
             raise ValueError("availability must be 'available' or 'unavailable'")
+        if self.vendor is not None:
+            vendor = self.vendor.strip()
+            if not vendor:
+                raise ValueError("vendor must be a non-empty string or None")
+            object.__setattr__(self, "vendor", vendor)
         object.__setattr__(
             self, "capabilities", MappingProxyType(dict(self.capabilities))
         )

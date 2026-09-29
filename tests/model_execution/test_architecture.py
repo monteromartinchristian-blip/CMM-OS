@@ -38,6 +38,7 @@ FROZEN_MODULES = frozenset(
         "contracts.py",
         "errors.py",
         "executor.py",
+        "lanes.py",
         "turn.py",
     }
 )
