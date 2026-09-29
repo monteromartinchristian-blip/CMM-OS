@@ -5920,3 +5920,582 @@ def test_at_dp_122_v12_generic_named_stream_controls_are_explicitly_supported() 
     ):
         assert is_private_filesystem_reference(control) is False, control
         assert validate_platform_identifier(control, field="probe") == control
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Remediation V13 — AT-DP-122 additions for the V13 trailing-period finding
+#
+# The real composed event system is used throughout: the real Phase 11.1
+# container, the real file-backed canonical repository, the canonical
+# registry/bus/DLQ and the real production ``PlatformOrchestrationEventSink``
+# reached through the real Orchestrator.  No component is replaced by a mock.
+#
+# MAJOR-V13-001 is another equivalence gap inside the same canonical filesystem
+# classification authority: the canonical sensitive path families (``.ssh``,
+# ``.aws``, ``.gnupg``, ``.kube``, ``.docker``, ``.azure``, ``Users``, ``home``)
+# already existed, but the canonical lexical analysis form did not fold ordinary
+# Win32 trailing-period component normalization, so a Windows-equivalent spelling
+# behind an allowlisted public root was accepted and persisted:
+#
+#     provider/.ssh/config           REJECT
+#     provider/.ssh./config          ACCEPT + persist
+#     provider/.ssh../config         ACCEPT + persist
+#     provider/Users/alice/config    REJECT
+#     provider/Users./alice/config   ACCEPT + persist
+#
+# This section re-derives the finding in both directions through the connected
+# boundary: every reported and fresh trailing-period spelling is refused on
+# every shared identifier channel, in both official repositories, through a
+# manual prebuilt ``publish_event(...)`` and through the real orchestration sink
+# and Orchestrator — while every nearby non-equivalent logical identifier
+# (``provider/release./v1``, ``cmm/version./node``, ``provider/.sshx./config``,
+# ``provider/Usersx./alice/config``) and every V6–V12 control keeps its verdict.
+# The durable store itself proves "refused before persistence", and the retained
+# V6–V12 controls are re-run beside it.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: The trailing-period sensitive references the independent Re-audit V13
+#: demonstrated being accepted and durably persisted through the real composition.
+AT_DP_122_V13_REPORTED = (
+    pytest.param("provider/.ssh./config", id="reported_wrapped_ssh_period"),
+    pytest.param("cmm/.ssh./config", id="reported_cmm_ssh_period"),
+    pytest.param("provider/.SSH./config", id="reported_upper_ssh_period"),
+    pytest.param("provider/.aws./config", id="reported_aws_period"),
+    pytest.param("provider/.gnupg./trustdb.gpg", id="reported_gnupg_period"),
+    pytest.param("provider/.kube./config", id="reported_kube_period"),
+    pytest.param("provider/.docker./config.json", id="reported_docker_period"),
+    pytest.param("provider/.azure./profile", id="reported_azure_period"),
+    pytest.param("provider/Users./alice/config", id="reported_users_period"),
+    pytest.param("provider/users./alice/config", id="reported_lower_users_period"),
+    pytest.param("provider/home./alice/config", id="reported_home_period"),
+    pytest.param("cmm/Users./alice/config", id="reported_cmm_users_period"),
+    pytest.param("provider/.ssh../config", id="reported_ssh_double_period"),
+    pytest.param("provider/Users../alice/config", id="reported_users_double_period"),
+)
+
+#: Fresh connected probes: families, casings and depths no literal names.
+AT_DP_122_V13_FRESH = (
+    pytest.param("provider/.ssh.../config", id="fresh_ssh_triple_period"),
+    pytest.param("provider/Users.../alice/config", id="fresh_users_triple_period"),
+    pytest.param("cmm/.aws./credentials", id="fresh_cmm_aws_period"),
+    pytest.param("provider/.gnupg./private-keys-v1.d/key", id="fresh_gnupg_deep"),
+    pytest.param("provider/.netrc./machine", id="fresh_netrc_period"),
+    pytest.param("provider/.git-credentials./config", id="fresh_git_credentials"),
+    pytest.param("cmm/home./alice/config", id="fresh_cmm_home_period"),
+    pytest.param("provider/home../alice/config", id="fresh_home_double_period"),
+    pytest.param("provider/Users./alice/.ssh./config", id="fresh_nested_period"),
+)
+
+#: Every V13 adversarial spelling the connected boundary must refuse.
+AT_DP_122_V13_ALL_ADVERSARIAL = AT_DP_122_V13_REPORTED + AT_DP_122_V13_FRESH
+
+#: The canonical trailing-period reference and its user-home sibling Re-audit V13
+#: proved were persisted through all 13 channels.
+AT_DP_122_V13_CHANNEL_SSH = pytest.param(
+    "provider/.ssh./config", id="channel_ssh_period"
+)
+AT_DP_122_V13_CHANNEL_USERS = pytest.param(
+    "provider/Users./alice/config", id="channel_users_period"
+)
+
+#: Families of spellings of one private location.  A trailing ASCII period (or
+#: several) is the same Win32 location as the canonical spelling, so every member
+#: must receive the identical connected verdict.
+AT_DP_122_V13_EQUIVALENCE_FAMILIES = (
+    pytest.param(
+        (
+            "provider/.ssh/config",
+            "provider/.ssh./config",
+            "provider/.ssh../config",
+            "provider/.ssh.../config",
+        ),
+        id="wrapped_ssh_family",
+    ),
+    pytest.param(
+        ("cmm/.ssh/config", "cmm/.ssh./config", "cmm/.ssh../config"),
+        id="cmm_ssh_family",
+    ),
+    pytest.param(
+        (
+            "provider/Users/alice/config",
+            "provider/Users./alice/config",
+            "provider/Users../alice/config",
+            "provider/Users.../alice/config",
+        ),
+        id="wrapped_users_family",
+    ),
+    pytest.param(
+        (
+            "cmm/Users/alice/config",
+            "cmm/Users./alice/config",
+            "cmm/Users../alice/config",
+        ),
+        id="cmm_users_family",
+    ),
+    pytest.param(
+        ("provider/users/alice/config", "provider/users./alice/config"),
+        id="wrapped_lower_users_family",
+    ),
+    pytest.param(
+        (
+            "provider/home/alice/config",
+            "provider/home./alice/config",
+            "provider/home../alice/config",
+        ),
+        id="wrapped_home_family",
+    ),
+    pytest.param(
+        ("cmm/home/alice/config", "cmm/home./alice/config"), id="cmm_home_family"
+    ),
+    pytest.param(
+        ("provider/.aws/config", "provider/.aws./config"), id="wrapped_aws_family"
+    ),
+    pytest.param(
+        ("provider/.gnupg/trustdb.gpg", "provider/.gnupg./trustdb.gpg"),
+        id="wrapped_gnupg_family",
+    ),
+    pytest.param(
+        ("provider/.kube/config", "provider/.kube./config"), id="wrapped_kube_family"
+    ),
+    pytest.param(
+        ("provider/.docker/config.json", "provider/.docker./config.json"),
+        id="wrapped_docker_family",
+    ),
+    pytest.param(
+        ("provider/.azure/profile", "provider/.azure./profile"),
+        id="wrapped_azure_family",
+    ),
+)
+
+#: Every V13 adversarial value, with the plain-text marker it would leak.
+AT_DP_122_V13_ADVERSARIAL = (
+    pytest.param("provider/.ssh./config", ".ssh", id="wrapped_ssh_period"),
+    pytest.param("cmm/.ssh./config", ".ssh", id="cmm_ssh_period"),
+    pytest.param("provider/.SSH./config", ".SSH", id="upper_ssh_period"),
+    pytest.param("provider/.aws./config", ".aws", id="aws_period"),
+    pytest.param("provider/.gnupg./trustdb.gpg", ".gnupg", id="gnupg_period"),
+    pytest.param("provider/.kube./config", ".kube", id="kube_period"),
+    pytest.param("provider/.docker./config.json", ".docker", id="docker_period"),
+    pytest.param("provider/.azure./profile", ".azure", id="azure_period"),
+    pytest.param("provider/Users./alice/config", "Users", id="users_period"),
+    pytest.param("provider/users./alice/config", "users", id="lower_users_period"),
+    pytest.param("provider/home./alice/config", "home", id="home_period"),
+    pytest.param("cmm/Users./alice/config", "Users", id="cmm_users_period"),
+    pytest.param("provider/.ssh../config", ".ssh", id="ssh_double_period"),
+    pytest.param("provider/Users../alice/config", "Users", id="users_double_period"),
+)
+
+#: Public references the V13 rule must keep, in both directions: the nearby
+#: non-equivalent trailing-period controls, plain slash references, colon
+#: identifiers, generic named-stream controls and credential-free URIs.
+AT_DP_122_V13_LEGITIMATE = (
+    pytest.param("provider/release./v1", id="release_trailing_period"),
+    pytest.param("cmm/version./node", id="version_trailing_period"),
+    pytest.param("provider/.sshx./config", id="near_miss_sshx_period"),
+    pytest.param("provider/Usersx./alice/config", id="near_miss_usersx_period"),
+    pytest.param("provider/model", id="provider_slash"),
+    pytest.param("cmm/orchestration/step", id="cmm_slash"),
+    pytest.param("workflow:123", id="workflow_colon"),
+    pytest.param("domain:legal", id="domain_colon"),
+    pytest.param("foo.txt:stream", id="generic_named_stream"),
+    pytest.param("provider/foo.txt:stream", id="wrapped_generic_named_stream"),
+    pytest.param("https://example.com/model", id="credential_free_https"),
+)
+
+_AT_DP_122_V13_SHARED_CHANNEL_IDS = [case[0] for case in AT_DP_122_V7_SHARED_CHANNELS]
+_AT_DP_122_V13_EQUIVALENCE_IDS = [
+    case.id for case in AT_DP_122_V13_EQUIVALENCE_FAMILIES
+]
+_AT_DP_122_V13_ADVERSARIAL_IDS = [case.id for case in AT_DP_122_V13_ADVERSARIAL]
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V13_ALL_ADVERSARIAL)
+def test_at_dp_122_v13_trailing_period_reference_is_refused_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V13-001: every trailing-period spelling is refused by the real set."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v13-at-private-location"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", {"request_id": reference}, event_id=event_id)
+
+    assert system.repository.get(event_id) is None
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    AT_DP_122_V7_SHARED_CHANNELS,
+    ids=_AT_DP_122_V13_SHARED_CHANNEL_IDS,
+)
+@pytest.mark.parametrize(
+    "reference",
+    (AT_DP_122_V13_CHANNEL_SSH, AT_DP_122_V13_CHANNEL_USERS),
+)
+def test_at_dp_122_v13_trailing_period_is_refused_on_every_shared_channel(
+    connected, label: str, build, reference: str
+) -> None:
+    """MAJOR-V13-001: all 13 shared channels inherit the verdict.
+
+    One ``.ssh.`` example and one ``Users.`` example are carried through the
+    complete shared-channel family, so the inheritance is proven on the whole
+    authority surface rather than on ``request_id`` alone.
+    """
+
+    payload, header_facts = build(reference)
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = f"evt-v13-at-{label}"
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish("message.received", payload, event_id=event_id, **header_facts)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize(
+    "family",
+    AT_DP_122_V13_EQUIVALENCE_FAMILIES,
+    ids=_AT_DP_122_V13_EQUIVALENCE_IDS,
+)
+def test_at_dp_122_v13_equivalent_spellings_share_one_connected_verdict(
+    connected, family: tuple[str, ...]
+) -> None:
+    """MAJOR-V13-001: one private location, one connected verdict — no admitted period."""
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in family:
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v13-at-equivalence",
+            )
+
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V13_ADVERSARIAL,
+    ids=_AT_DP_122_V13_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v13_no_adversarial_value_enters_the_durable_store(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V13-001: refusal leaves no private marker in store or error."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)) as captured:
+        system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v13-at-store",
+        )
+
+    message = str(captured.value)
+    assert reference not in message
+    assert marker not in message
+    assert system.repository.count() == 0
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V13_ALL_ADVERSARIAL)
+def test_at_dp_122_v13_both_official_repositories_refuse_a_trailing_period_reference(
+    connected, reference: str
+) -> None:
+    """MAJOR-V13-001: the refusal is repository-independent.
+
+    The connected acceptance runs the official file-backed repository.  The
+    official in-memory repository is exercised beside it so "the durable store was
+    never the safety boundary" holds for both canonical implementations.
+    """
+
+    from cmm.agent_runtime.runtime_event_repository import (
+        InMemoryAgentRuntimeEventRepository,
+    )
+    from tests.events.test_phase11_22_event_system import build_system
+
+    durable_system = connected["system"]
+    memory_system = build_system(repository=InMemoryAgentRuntimeEventRepository())
+    before_durable = durable_system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        memory_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v13-at-memory",
+        )
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        durable_system.publish(
+            "message.received",
+            {"request_id": reference},
+            event_id="evt-v13-at-durable-repo",
+        )
+
+    assert memory_system.repository.count() == 0
+    assert memory_system.dead_letter_count() == 0
+    assert durable_system.repository.count() == before_durable
+    assert durable_system.dead_letter_count() == 0
+    assert durable_system.repository.get("evt-v13-at-durable-repo") is None
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V13_ALL_ADVERSARIAL)
+def test_at_dp_122_v13_manual_prebuilt_event_cannot_bypass_the_rule(
+    connected, reference: str
+) -> None:
+    """MAJOR-V13-001: the manual canonical boundary re-applies the same rule."""
+
+    from cmm.agent_runtime.runtime_event_contracts import (
+        AgentRuntimeEvent,
+        AgentRuntimeEventHeader,
+        AgentRuntimeEventPayload,
+    )
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    event_id = "evt-v13-at-manual"
+    manual = AgentRuntimeEvent(
+        header=AgentRuntimeEventHeader(
+            event_id=event_id,
+            event_type="message.received",
+            occurred_at=OCCURRED,
+            emitted_at=OCCURRED,
+        ),
+        payload=AgentRuntimeEventPayload(data={"request_id": reference}),
+    )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish_event(manual)
+
+    _at_dp_122_v7_assert_refused(connected, event_id, before_bytes)
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V13_LEGITIMATE)
+def test_at_dp_122_v13_legitimate_references_still_persist_and_reopen(
+    connected, reference: str
+) -> None:
+    """MAJOR-V13-001 control: the trailing-period rule does not over-correct.
+
+    The nearby non-equivalent trailing-period controls are the load-bearing
+    controls: a rule that stripped a whole component away, or that refused these
+    spellings, would refuse them, which the frozen contract forbids.  Accepted
+    event identity/correlation/causation semantics and the stored fingerprint are
+    unchanged by the fix, and the persisted spelling keeps its trailing period.
+    """
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    event_id = f"evt-v13-at-ok-{uuid.uuid4().hex[:10]}"
+
+    result = system.publish(
+        "message.received",
+        {"request_id": "req-v13-at-ok", "workflow_id": reference},
+        event_id=event_id,
+        producer="cmm.orchestration",
+        aggregate_id=reference,
+        correlation_id="CORR-V13-AT",
+        causation_id="CAUSE-V13-AT",
+        permissions=["events:read"],
+    )
+
+    assert result.persisted is True
+    reopened = FileAgentRuntimeEventRepository(store).get(event_id)
+    assert reopened is not None
+    assert reopened.header.workflow_id == reference
+    assert reopened.header.aggregate_id == reference
+    assert reopened.header.producer == "cmm.orchestration"
+    assert reopened.header.permissions == ["events:read"]
+    assert reopened.header.correlation_id == "CORR-V13-AT"
+    assert reopened.header.causation_id == "CAUSE-V13-AT"
+    assert reopened.header.event_id == event_id
+    assert event_fingerprint(result.event) == event_fingerprint(reopened)
+
+
+@pytest.mark.parametrize("reference", AT_DP_122_V13_REPORTED)
+def test_at_dp_122_v13_real_orchestration_sink_refuses_before_persistence(
+    connected, reference: str
+) -> None:
+    """MAJOR-V13-001: the real production adapter cannot persist the shape either."""
+
+    system = connected["system"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+    sink = PlatformOrchestrationEventSink(system)
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        sink.emit(
+            "orchestration.request_received",
+            request_id=reference,
+            payload={"channel": "conversation", "session_id": "session-v13-at"},
+        )
+
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+
+
+@pytest.mark.parametrize(
+    ("reference", "marker"),
+    AT_DP_122_V13_ADVERSARIAL,
+    ids=_AT_DP_122_V13_ADVERSARIAL_IDS,
+)
+def test_at_dp_122_v13_real_orchestrator_fails_closed_without_persistence(
+    connected, reference: str, marker: str
+) -> None:
+    """MAJOR-V13-001: the real Orchestrator's mandatory emission refuses them."""
+
+    system = connected["system"]
+    store: Path = connected["store"]
+    before = system.repository.count()
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    result = _orchestrate(connected, reference)
+
+    assert result.status.value == "failed"
+    assert result.reason_codes == ("ORCHESTRATION_EVENT_EMISSION_FAILED",)
+    assert system.repository.count() == before
+    assert system.dead_letter_count() == 0
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    if store.exists():
+        assert marker.encode() not in store.read_bytes()
+
+
+def test_at_dp_122_v13_the_refusal_message_never_echoes_the_period_location(
+    connected,
+) -> None:
+    """MAJOR-V13-001: the boundary refuses the value without repeating it."""
+
+    system = connected["system"]
+
+    for reference in (
+        "provider/.ssh./config",
+        "cmm/Users./alice/config",
+        "provider/.kube./config",
+    ):
+        with pytest.raises(
+            (PlatformEventPayloadError, TypeError, ValueError)
+        ) as captured:
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v13-at-echo",
+            )
+        message = str(captured.value)
+        assert reference not in message
+        assert ".ssh" not in message.lower()
+        assert "private filesystem location" in message
+
+
+def test_at_dp_122_v13_retains_the_v12_controls_it_builds_on(connected) -> None:
+    """MAJOR-V13-001 control: the V6–V12 rules still hold beside the V13 rule.
+
+    The trailing-period rule must strengthen, not replace, the retained
+    private-filename, drive-relative, rooted, wrapped-rooted, traversal, ``file:``
+    URI, credential and civil-time rules.
+    """
+
+    system = connected["system"]
+    before_bytes = _at_dp_122_connected_bytes(connected)
+
+    for reference in (
+        "ID_RSA",
+        "KNOWN_HOSTS",
+        "id_rsa:stream",
+        "known_hosts:ads",
+        "provider/id_rsa:stream",
+        "cmm/known_hosts:ads",
+        "C:id_rsa",
+        "C:Windows",
+        "C:/Windows/System32/config/SAM",
+        "provider/C:/Windows/System32/config/SAM",
+        "provider/file:C:/Windows/System32/config/SAM",
+        "cmm/file:/Library/Keychains/login.keychain-db",
+        "safe/../../etc/shadow",
+        "etc//shadow",
+        "proc/self/environ",
+        "Windows/System32/config/SAM",
+        "Library/Keychains/login.keychain-db",
+        "~/.ssh/id_rsa",
+        "jdbc:postgresql://alice:***@example.com/db",
+        "provider/https://alice:***@example.com/db",
+    ):
+        with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+            system.publish(
+                "message.received",
+                {"request_id": reference},
+                event_id="evt-v13-at-v12-regression",
+            )
+
+    with pytest.raises((PlatformEventPayloadError, TypeError, ValueError)):
+        system.publish(
+            "message.received",
+            {"request_id": "req-v13-at-v12-ts", "occurred_at": "2026-09-27T24:00:00Z"},
+            event_id="evt-v13-at-v12-ts",
+        )
+
+    assert _at_dp_122_connected_bytes(connected) == before_bytes
+    assert system.repository.count() == 0
+
+    result = system.publish(
+        "message.received",
+        {
+            "request_id": "req-v13-at-v12-control",
+            "workflow_id": "provider/a:1/model",
+            "occurred_at": "2026-09-27T23:59:59Z",
+        },
+        event_id="evt-v13-at-v12-control",
+        aggregate_id="cmm/v2:3/detail",
+        emitted_at=datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+    )
+    assert result.persisted is True
+    stored = system.repository.get("evt-v13-at-v12-control")
+    assert stored is not None
+    assert stored.header.aggregate_id == "cmm/v2:3/detail"
+    assert stored.header.workflow_id == "provider/a:1/model"
+    assert stored.header.occurred_at == datetime(
+        2026, 9, 27, 23, 59, 59, tzinfo=timezone.utc
+    )
+
+
+def test_at_dp_122_v13_near_miss_period_controls_are_explicitly_supported() -> None:
+    """MAJOR-V13-001 control: nearby non-equivalent logical identifiers stay valid.
+
+    ``provider/release./v1``, ``cmm/version./node``, ``provider/.sshx./config``
+    and ``provider/Usersx./alice/config`` are the prompt's named near-miss
+    controls and are asserted at the shared authority itself, so the V13 rule is
+    proven not to strip or refuse a component that is not one of the
+    already-sensitive families rather than merely not exercised on them.
+    """
+
+    from cmm.events.event_payload_safety import (
+        is_private_filesystem_reference,
+        validate_platform_identifier,
+    )
+
+    for control in (
+        "provider/release./v1",
+        "cmm/version./node",
+        "provider/.sshx./config",
+        "provider/Usersx./alice/config",
+        "provider/model",
+        "cmm/orchestration/step",
+        "workflow:123",
+    ):
+        assert is_private_filesystem_reference(control) is False, control
+        assert validate_platform_identifier(control, field="probe") == control
