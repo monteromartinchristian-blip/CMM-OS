@@ -284,3 +284,93 @@ def test_the_composed_seam_never_creates_a_second_registry() -> None:
     assert (
         catalog.get(MODEL_ID, provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID).id == MODEL_ID
     )
+
+
+# ── What the authority declared about each model survives the boundary ────────
+
+
+def test_declared_context_window_and_efforts_reach_the_registered_model() -> None:
+    registry = _registry()
+    catalog = ModelCatalog(registry)
+
+    register_chat_only_router(
+        provider_registry=registry,
+        model_catalog=catalog,
+        model_ids=("claude/claude-opus-5", "claude/claude-sonnet-5"),
+        declared=(
+            (
+                "claude/claude-opus-5",
+                "cmm:claude",
+                "Opus 5",
+                "5",
+                "cloud",
+                1_000_000,
+                ("low", "medium", "high", "extra_high"),
+                "available",
+            ),
+            (
+                "claude/claude-sonnet-5",
+                "cmm:claude",
+                "Sonnet 5",
+                "5",
+                "cloud",
+                200_000,
+                ("low", "medium"),
+                "available",
+            ),
+        ),
+    )
+
+    opus = catalog.get("claude/claude-opus-5", provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID)
+    sonnet = catalog.get("claude/claude-sonnet-5", provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID)
+
+    assert opus.context_window == 1_000_000
+    assert opus.capabilities.reasoning_efforts == ("low", "medium", "high", "extra_high")
+    assert sonnet.context_window == 200_000
+    assert sonnet.capabilities.reasoning_efforts == ("low", "medium")
+
+
+def test_a_model_the_authority_will_not_serve_is_registered_unavailable() -> None:
+    registry = _registry()
+    catalog = ModelCatalog(registry)
+
+    register_chat_only_router(
+        provider_registry=registry,
+        model_catalog=catalog,
+        model_ids=("claude/claude-fable-5-1",),
+        declared=(
+            (
+                "claude/claude-fable-5-1",
+                "cmm:claude",
+                "Fable 5.1",
+                "5.1",
+                "cloud",
+                None,
+                ("low", "medium"),
+                "unavailable",
+            ),
+        ),
+    )
+
+    spec = catalog.get(
+        "claude/claude-fable-5-1", provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID
+    )
+    assert spec.availability == "unavailable"
+
+
+def test_provider_spellings_are_translated_and_untranslatable_levels_dropped() -> None:
+    """A provider's ladder is translated, never renamed, and never invented."""
+
+    assert composition._declared_reasoning_efforts(
+        {"reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]}
+    ) == ("low", "medium", "high", "extra_high")
+    # Nothing canonical exists for `max`, so it is dropped rather than relabelled.
+    assert composition._declared_reasoning_efforts({"reasoning_efforts": ["max"]}) == ()
+    assert composition._declared_reasoning_efforts({}) == ()
+
+
+def test_a_declared_context_window_is_carried_and_a_malformed_one_dropped() -> None:
+    assert composition._declared_context_window({"context_window": 1_000_000}) == 1_000_000
+    assert composition._declared_context_window({"context_window": 0}) is None
+    assert composition._declared_context_window({"context_window": "1000000"}) is None
+    assert composition._declared_context_window({}) is None

@@ -218,14 +218,24 @@ def router_disabled() -> bool:
 
 
 #: One model as the CMMChat Router declares it, as
-#: ``(id, vendor, display_name, version, locality)``.  A plain tuple, not an
+#: ``(id, vendor, display_name, version, locality, context_window,
+#: reasoning_efforts, availability)``.  A plain tuple, not an
 #: owner type: this is a value crossing a boundary, and the transport-neutral
 #: package deliberately owns no vocabulary for one.  Every optional field is the
 #: authority's own statement; ``None`` means the authority declared nothing,
 #: which is carried through as an honest unknown rather than reconstructed from
 #: the id — a rolling alias such as a bare ``sonnet`` route genuinely names no
 #: version, and a display name is a fact the upstream publishes.
-_RouterModel = tuple[str, str | None, str | None, str | None, "Literal['local', 'cloud'] | None"]
+_RouterModel = tuple[
+    str,
+    str | None,
+    str | None,
+    str | None,
+    "Literal['local', 'cloud'] | None",
+    int | None,
+    tuple[str, ...],
+    "Literal['available', 'unavailable'] | None",
+]
 
 
 def _declared_vendor(item: Mapping[str, Any]) -> str | None:
@@ -245,6 +255,63 @@ def _declared_text(item: Mapping[str, Any], key: str) -> str | None:
 def _declared_locality(item: Mapping[str, Any]) -> Literal["local", "cloud"] | None:
     value = item.get("locality")
     if value in ("local", "cloud"):
+        return value
+    return None
+
+
+def _declared_context_window(item: Mapping[str, Any]) -> int | None:
+    """The context window the authority declared, or ``None`` when it declared none.
+
+    Every model has *a* window, so a constant here would be a claim about a
+    model the authority never described. Carrying the declaration through keeps
+    a one-million-token model from being published as a thirty-two-thousand one.
+    """
+
+    value = item.get("context_window")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+#: Provider effort spellings that name a level of the canonical ladder.  A
+#: provider may name levels the canonical ladder does not have (OpenAI's
+#: ``max``, say); those are dropped rather than renamed, because inventing a
+#: level to fit the vocabulary would let a client offer and persist something
+#: the model does not accept.  Dropping under-declares, which is the safe
+#: direction: a control offers less instead of lying.
+_EFFORT_TRANSLATION: Mapping[str, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "extra_high",
+}
+
+
+def _declared_reasoning_efforts(item: Mapping[str, Any]) -> tuple[str, ...]:
+    """The effort levels the authority declared for this exact model.
+
+    Read from that model's own declaration, so two generations of one family
+    keep the different ladders their providers give them, and translated only
+    where the provider's spelling names a canonical level.
+    """
+
+    value = item.get("reasoning_efforts")
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(
+        translated
+        for level in value
+        if isinstance(level, str)
+        for translated in (_EFFORT_TRANSLATION.get(level.strip().lower()),)
+        if translated is not None
+    )
+
+
+def _declared_availability(item: Mapping[str, Any]) -> Literal["available", "unavailable"] | None:
+    """The authority's own verdict on this model, when it published one."""
+
+    value = item.get("availability")
+    if value in ("available", "unavailable"):
         return value
     return None
 
@@ -328,19 +395,34 @@ def discover_chat_only_router_models_full(
                 _declared_text(item, "display_name"),
                 _declared_text(item, "version"),
                 _declared_locality(item),
+                _declared_context_window(item),
+                _declared_reasoning_efforts(item),
+                _declared_availability(item),
             )
             for identity, item in descriptors.items()
         )
     elif callable(list_vendors):
-        advertised = tuple((identity, vendor, None, None, None) for identity, vendor in list_vendors().items())
+        advertised = tuple(
+            (identity, vendor, None, None, None, None, (), None)
+            for identity, vendor in list_vendors().items()
+        )
     else:
         advertised = tuple(
-            (identity, None, None, None, None)
+            (identity, None, None, None, None, None, (), None)
             for identity in tuple(transport.list_models())  # type: ignore[attr-defined]
         )
 
     discovered: list[tuple] = []
-    for identity, vendor, display_name, version, locality in advertised:
+    for (
+        identity,
+        vendor,
+        display_name,
+        version,
+        locality,
+        context_window,
+        reasoning_efforts,
+        availability,
+    ) in advertised:
         if not isinstance(identity, str) or not identity.strip():
             raise ValueError("the CMMChat Router advertised a malformed model id")
         if vendor is not None and (
@@ -350,7 +432,16 @@ def discover_chat_only_router_models_full(
         if locality is not None and locality not in ("local", "cloud"):
             raise ValueError("the CMMChat Router advertised a malformed locality")
         discovered.append(
-            (identity.strip(), vendor, display_name, version, locality)
+            (
+                identity.strip(),
+                vendor,
+                display_name,
+                version,
+                locality,
+                context_window,
+                reasoning_efforts,
+                availability,
+            )
         )
     if not discovered:
         raise ValueError("the CMMChat Router advertised no model")
@@ -447,11 +538,24 @@ def register_chat_only_router(
         # downstream client hid its effort control. The operator-declared effort
         # map is the same sanctioned mechanism the local runtime uses: nothing is
         # invented here, an undeclared model still fails closed to no effort.
-        declared_efforts = tuple(router_effort_map.get(normalized.lower(), {}))
         fact = facts.get(normalized)
         declared_display_name = fact[2] if fact is not None else None
         declared_version = fact[3] if fact is not None else None
         declared_locality = fact[4] if fact is not None else None
+        # The authority's own statement wins when it published one; the
+        # operator-declared map remains the fallback for a model the authority
+        # described without levels, and an undeclared model still fails closed
+        # to no effort.
+        declared_efforts = (
+            tuple(fact[6])
+            if fact is not None and len(fact) > 6 and fact[6]
+            else tuple(router_effort_map.get(normalized.lower(), {}))
+        )
+        declared_context_window = (
+            fact[5]
+            if fact is not None and len(fact) > 5 and fact[5] is not None
+            else CHAT_ONLY_ROUTER_CONTEXT_WINDOW
+        )
         models.append(
             model_catalog.register(
                 ModelSpec(
@@ -463,8 +567,17 @@ def register_chat_only_router(
                     display_name=declared_display_name,
                     locality=declared_locality,
                     version=declared_version,
-                    context_window=CHAT_ONLY_ROUTER_CONTEXT_WINDOW,
+                    context_window=declared_context_window,
                     vendor=fact[1] if fact is not None else vendors.get(normalized),
+                    # The authority's own verdict on this model survives the
+                    # boundary: a model it will not serve (usage credits, a
+                    # runtime requirement) must not be published as usable just
+                    # because the provider answered.
+                    **(
+                        {"availability": fact[7]}
+                        if fact is not None and len(fact) > 7 and fact[7] is not None
+                        else {}
+                    ),
                     capabilities=ModelCapabilities(
                         streaming=True,
                         reasoning=bool(declared_efforts),
