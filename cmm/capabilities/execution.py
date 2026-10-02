@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Iterator
 from queue import Queue
@@ -80,10 +81,23 @@ class CapabilityExecution:
         return {"web_search": {"available": True}, "computer": computer}
 
     def _runtime(self) -> Any:
+        # Product path: the signed native helper (CMM Computer Use) is the
+        # grantable TCC identity, so capability truth is measured on the
+        # process that will actually perform the operation. A bare Python
+        # interpreter has no useful grantable identity, so the direct PyObjC
+        # runtime is development-only, selected explicitly — never a silent
+        # fallback, or a missing helper would still report permissions the
+        # product path never measured.
         if self._computer_runtime is None:
-            from cmm.computer.runtime_macos import MacComputerRuntime
+            mode = os.environ.get("CMM_COMPUTER_MODE", "bridge").strip().lower()
+            if mode == "direct":
+                from cmm.computer.runtime_macos import MacComputerRuntime
 
-            self._computer_runtime = MacComputerRuntime()
+                self._computer_runtime = MacComputerRuntime()
+            else:
+                from cmm.computer.runtime_bridge import BridgeComputerRuntime
+
+                self._computer_runtime = BridgeComputerRuntime()
         return self._computer_runtime
 
     def _computer_available(self) -> bool:
