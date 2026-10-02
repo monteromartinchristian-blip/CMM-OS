@@ -142,8 +142,10 @@ def _runtime(behavior: str, **kwargs) -> BridgeComputerRuntime:
 
 
 def test_missing_helper_is_unavailable_not_granted():
+    # A bare path selects the explicit stdio-child contract (never the
+    # product socket); a missing child is unavailable, never granted.
     runtime = BridgeComputerRuntime(
-        BridgeClient("/nonexistent/CMMComputerUse-missing")
+        BridgeClient(["/nonexistent/CMMComputerUse-missing"])
     )
     assert runtime.available() is False
     service = ComputerUseService(runtime=runtime, plan=lambda *_: "{}")
@@ -151,6 +153,24 @@ def test_missing_helper_is_unavailable_not_granted():
     assert status["runtime_available"] is False
     assert status["available"] is False
     # A missing runtime must not claim permissions it never measured.
+    assert status["permissions"] == {
+        "accessibility": False,
+        "screen_recording": False,
+        "detail": "",
+    }
+
+
+def test_missing_socket_is_unavailable_not_granted():
+    # The product socket transport: nobody listening means unavailable,
+    # never granted, and the service state derives from that truth.
+    runtime = BridgeComputerRuntime(
+        BridgeClient(socket_path="/tmp/cmm-definitely-no-bridge.sock")
+    )
+    assert runtime.available() is False
+    service = ComputerUseService(runtime=runtime, plan=lambda *_: "{}")
+    status = service.status()
+    assert status["runtime_available"] is False
+    assert status["available"] is False
     assert status["permissions"] == {
         "accessibility": False,
         "screen_recording": False,
@@ -335,13 +355,16 @@ def _live_runtime() -> BridgeComputerRuntime:
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS helper")
-def test_live_helper_ping_reports_product_identity():
+def test_live_helper_ping_reports_product_identity(monkeypatch):
     import os as _os
 
     if not _os.path.exists(
         "/Users/chris/Applications/CMMComputerUse.app/Contents/MacOS/CMMComputerUse"
     ) and "CMM_COMPUTER_BRIDGE_APP" not in _os.environ:
         pytest.skip("helper .app not installed")
+    # Direct stdio mode: exercises the helper binary itself, not the
+    # app-served product socket.
+    monkeypatch.setenv("CMM_COMPUTER_BRIDGE_DIRECT", "1")
     runtime = _live_runtime()
     assert runtime.available() is True
     try:
@@ -359,7 +382,7 @@ def test_live_helper_ping_reports_product_identity():
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS helper")
-def test_live_helper_observes_the_real_desktop():
+def test_live_helper_observes_the_real_desktop(monkeypatch):
     import os as _os
 
     exe = _os.environ.get(
@@ -368,6 +391,7 @@ def test_live_helper_observes_the_real_desktop():
     )
     if not _os.path.exists(exe):
         pytest.skip("helper .app not installed")
+    monkeypatch.setenv("CMM_COMPUTER_BRIDGE_DIRECT", "1")
     runtime = BridgeComputerRuntime()
     try:
         assert runtime.available() is True
