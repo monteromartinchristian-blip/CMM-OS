@@ -96,10 +96,16 @@ class ComputerUseService:
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task must be a non-empty string")
         if not getattr(self._runtime, "available", lambda: False)():
-            raise ComputerUseError(
-                "Computer Use is not available on this machine.",
-                code="COMPUTER_RUNTIME_UNAVAILABLE",
-            )
+            # A supervised helper restart (relaunch beat + socket rebind)
+            # reads as briefly unavailable. Runtimes that know their
+            # restarts are transient expose wait_until_ready; every other
+            # runtime fails immediately, exactly as before.
+            waiter = getattr(self._runtime, "wait_until_ready", None)
+            if waiter is None or not waiter(cancel_event=cancel_event):
+                raise ComputerUseError(
+                    "Computer Use is not available on this machine.",
+                    code="COMPUTER_RUNTIME_UNAVAILABLE",
+                )
         permissions = self._runtime.permissions()
         if not permissions.satisfied:
             raise ComputerUseError(

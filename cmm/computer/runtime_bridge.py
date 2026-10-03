@@ -17,6 +17,7 @@ import base64
 import binascii
 import sys
 import tempfile
+import time
 from typing import Any
 
 from cmm.computer.bridge import (
@@ -38,6 +39,24 @@ __all__ = ["BridgeComputerRuntime"]
 
 #: A screenshot larger than this (after base64 decode) is refused.
 SCREENSHOT_BYTES_MAX = 24_000_000
+
+#: Bridge failure codes the planner can adapt to. Returned as failed action
+#: results instead of raised, so the Computer Use loop replans rather than
+#: dying on the first refused native action. Everything else — approval
+#: rejections, permission loss, runtime death, protocol violations — raises
+#: and terminates, because none of those can be planned around or retried.
+_RECOVERABLE_BRIDGE_CODES = frozenset(
+    {"ACTION_FAILED", "COMPUTER_TARGET_UNAVAILABLE"}
+)
+
+
+def _failure_detail(error: ComputerUseError) -> str:
+    """Planner feedback that keeps the code and the safe detail."""
+
+    detail = f"{error.message} [{error.code}]"
+    if error.detail:
+        detail = f"{detail} {error.detail}"
+    return detail[:500]
 
 
 class BridgeComputerRuntime:
@@ -65,6 +84,33 @@ class BridgeComputerRuntime:
         except Exception:  # noqa: BLE001 - unavailable is the honest answer
             return False
         return True
+
+    def wait_until_ready(
+        self,
+        *,
+        timeout: float = 12.0,
+        interval: float = 1.0,
+        cancel_event: Any | None = None,
+    ) -> bool:
+        """True once the helper answers ping; tolerates a restart window.
+
+        The Mac app supervises the helper (relaunch on death or stale view):
+        the relaunch beat plus socket rebind reads as briefly unavailable.
+        That window is seconds, never minutes, so a bounded wait rejoins it
+        instead of failing the run — while a genuinely absent helper still
+        fails honestly after the bound. Never raises; cancellation aborts.
+        """
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            if self.available():
+                return True
+            if cancel_event is not None and cancel_event.is_set():
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(interval, remaining))
 
     def permissions(self) -> PermissionState:
         """Trust state of the helper process itself, not this interpreter."""
@@ -160,7 +206,15 @@ class BridgeComputerRuntime:
                 "action.execute",
                 {"kind": action.kind, "params": dict(action.params)},
             )
-        except ComputerUseError:
+        except ComputerUseError as error:
+            # Recoverable native failures rejoin the loop as failed results so
+            # the planner can adapt on the next step; previously every
+            # ok:false raised straight out of run_task and one refused action
+            # killed the whole run. Fatal conditions still raise: an approval
+            # rejection must stand (never retried as a plain failure),
+            # permission loss and runtime death cannot be planned around.
+            if error.code in _RECOVERABLE_BRIDGE_CODES:
+                return ActionResult(False, _failure_detail(error))
             raise
         except Exception as error:  # noqa: BLE001 - normalized below
             raise BridgeUnavailable(
