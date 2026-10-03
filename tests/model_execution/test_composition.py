@@ -374,3 +374,52 @@ def test_a_declared_context_window_is_carried_and_a_malformed_one_dropped() -> N
     assert composition._declared_context_window({"context_window": 0}) is None
     assert composition._declared_context_window({"context_window": "1000000"}) is None
     assert composition._declared_context_window({}) is None
+
+
+def test_declared_tool_calling_is_literal_never_inferred() -> None:
+    """Only an explicit True counts; absent stays absent (capability closed).
+
+    The CMMChat UI could not reach the capability plane because the
+    authority's own tool declaration was dropped at discovery, so the
+    product saw no tool-capable model. The declaration must be carried
+    verbatim: reconstructing it from the id's family or vendor would
+    invent a capability the serving authority never claimed.
+    """
+
+    assert composition._declared_tool_calling({"tool_calling": True}) is True
+    assert composition._declared_tool_calling({"tool_calling": False}) is False
+    # Absent is an honest unknown, not a yes and not a "probably".
+    assert composition._declared_tool_calling({}) is False
+    assert composition._declared_tool_calling({"tool_calling": "true"}) is False
+    assert composition._declared_tool_calling({"tool_calling": 1}) is False
+
+
+def test_registered_router_model_carries_the_declared_tool_calling() -> None:
+    registry = _registry()
+    catalog = ModelCatalog(registry)
+
+    register_chat_only_router(
+        provider_registry=registry,
+        model_catalog=catalog,
+        model_ids=("claude/claude-sonnet-5-5", "custom/local"),
+        declared=(
+            (
+                "claude/claude-sonnet-5-5", "cmm:claude", "Sonnet 5.5", "5.5",
+                "cloud", 200_000, ("low", "medium"), "available", True,
+            ),
+            # A shorter declared row (no tool field) must still register.
+            (
+                "custom/local", None, None, None, "cloud", None, (), None,
+            ),
+        ),
+    )
+
+    declared_model = catalog.get(
+        "claude/claude-sonnet-5-5", provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID
+    )
+    assert declared_model.capabilities.tool_calling is True
+
+    undeclared_model = catalog.get(
+        "custom/local", provider_id=CHAT_ONLY_ROUTER_PROVIDER_ID
+    )
+    assert undeclared_model.capabilities.tool_calling is False

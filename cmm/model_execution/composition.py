@@ -235,6 +235,7 @@ _RouterModel = tuple[
     int | None,
     tuple[str, ...],
     "Literal['available', 'unavailable'] | None",
+    bool,
 ]
 
 
@@ -314,6 +315,17 @@ def _declared_availability(item: Mapping[str, Any]) -> Literal["available", "una
     if value in ("available", "unavailable"):
         return value
     return None
+
+
+def _declared_tool_calling(item: Mapping[str, Any]) -> bool:
+    """Whether the authority declared tool calling for this exact model.
+
+    Only a literal ``True`` counts: an absent field is an honest unknown
+    (carried as ``False``, i.e. "not declared"), never reconstructed from
+    the id's spelling or assumed from the family.
+    """
+
+    return item.get("tool_calling") is True
 
 
 def discover_chat_only_router_models(
@@ -398,17 +410,18 @@ def discover_chat_only_router_models_full(
                 _declared_context_window(item),
                 _declared_reasoning_efforts(item),
                 _declared_availability(item),
+                _declared_tool_calling(item),
             )
             for identity, item in descriptors.items()
         )
     elif callable(list_vendors):
         advertised = tuple(
-            (identity, vendor, None, None, None, None, (), None)
+            (identity, vendor, None, None, None, None, (), None, False)
             for identity, vendor in list_vendors().items()
         )
     else:
         advertised = tuple(
-            (identity, None, None, None, None, None, (), None)
+            (identity, None, None, None, None, None, (), None, False)
             for identity in tuple(transport.list_models())  # type: ignore[attr-defined]
         )
 
@@ -422,6 +435,7 @@ def discover_chat_only_router_models_full(
         context_window,
         reasoning_efforts,
         availability,
+        tool_calling,
     ) in advertised:
         if not isinstance(identity, str) or not identity.strip():
             raise ValueError("the CMMChat Router advertised a malformed model id")
@@ -441,6 +455,7 @@ def discover_chat_only_router_models_full(
                 context_window,
                 reasoning_efforts,
                 availability,
+                bool(tool_calling),
             )
         )
     if not discovered:
@@ -454,7 +469,7 @@ def discover_chat_only_router_models_full(
             continue
         # Keep the richest truth the authority published for this identity.
         deduplicated[entry[0]] = tuple(
-            existing[index] or entry[index] for index in range(5)
+            existing[index] or entry[index] for index in range(len(entry))
         )
     return tuple(deduplicated.values())
 
@@ -582,6 +597,15 @@ def register_chat_only_router(
                         streaming=True,
                         reasoning=bool(declared_efforts),
                         reasoning_efforts=declared_efforts,
+                        # The authority's own tool declaration for this exact
+                        # model, read generically from its descriptor (index
+                        # 8). Never inferred from the id: undeclared stays
+                        # False, which keeps the capability plane closed.
+                        tool_calling=bool(
+                            fact[8]
+                            if fact is not None and len(fact) > 8
+                            else False
+                        ),
                     ),
                 )
             )
