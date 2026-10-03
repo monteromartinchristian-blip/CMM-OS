@@ -222,3 +222,56 @@ def test_the_local_lane_declares_exactly_the_levels_it_can_transmit(
     assert not declared["qwen3-1.7b"].supports_reasoning_effort(ReasoningEffort.HIGH)
     assert declared["minicpm5-2b"].reasoning is False
     assert declared["minicpm5-2b"].reasoning_efforts == ()
+
+
+def test_max_is_a_canonical_level_and_not_a_spelling_of_extra_high() -> None:
+    """``max`` is representable, and it is a different level from ``extra_high``.
+
+    Before this, ``max`` existed nowhere in the canonical contract, so a model
+    declaring it was projected onto a shorter ladder and a client could never
+    select or forward it. Now both rungs exist and remain distinct.
+    """
+
+    assert ReasoningEffort("max") is ReasoningEffort.MAX
+    assert ReasoningEffort.MAX != ReasoningEffort.EXTRA_HIGH
+    # Declaration order is ladder order: max is the strongest rung.
+    assert list(ReasoningEffort)[-1] is ReasoningEffort.MAX
+
+
+def test_a_declared_max_is_transmitted_verbatim() -> None:
+    """A model that declares ``max`` forwards it unchanged to the lane."""
+
+    client = _StreamClient()
+    executor = _compose(
+        capabilities=ModelCapabilities(
+            reasoning=True, reasoning_efforts=(ReasoningEffort.MAX,)
+        ),
+        client=client,
+        effort_map={ReasoningEffort.MAX: THINKING_FRAGMENT},
+    )
+    resolved = executor.resolve_chat("thinker")
+
+    deltas = list(executor.stream(resolved, prompt="x", reasoning_effort="max"))
+
+    assert "".join(deltas) == "thought"
+    assert client.stream_calls[0]["request_extras"] == THINKING_FRAGMENT
+
+
+def test_max_is_refused_for_a_model_that_does_not_declare_it() -> None:
+    """The new rung widens what can be sent, never what any one model accepts."""
+
+    client = _StreamClient()
+    executor = _compose(
+        capabilities=ModelCapabilities(
+            reasoning=True, reasoning_efforts=(ReasoningEffort.HIGH,)
+        ),
+        client=client,
+        effort_map={ReasoningEffort.MAX: THINKING_FRAGMENT},
+    )
+    resolved = executor.resolve_chat("thinker")
+
+    with pytest.raises(ModelExecutionError) as raised:
+        list(executor.stream(resolved, prompt="x", reasoning_effort="max"))
+
+    assert raised.value.code == "UNSUPPORTED_REASONING_EFFORT"
+    assert client.stream_calls == []

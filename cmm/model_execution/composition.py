@@ -284,7 +284,19 @@ _EFFORT_TRANSLATION: Mapping[str, str] = {
     "low": "low",
     "medium": "medium",
     "high": "high",
+    # A provider may spell a canonical rung either with its own name or with
+    # the canonical one. Both must survive: ``xhigh`` is the provider spelling
+    # of ``extra_high``, and an authority that already speaks ``extra_high``
+    # must not have that level dropped for being spelled correctly.
+    "extra_high": "extra_high",
     "xhigh": "extra_high",
+    # ``max`` is a canonical rung in its own right, NOT a spelling of
+    # ``extra_high``.  A model that declares one and a model that declares the
+    # other describe different ladders, so the two are projected to different
+    # levels and each model keeps exactly what it declared.  Collapsing them
+    # would let a client offer, persist and forward a level the model never
+    # claimed, which is the failure this mapping exists to prevent.
+    "max": "max",
 }
 
 

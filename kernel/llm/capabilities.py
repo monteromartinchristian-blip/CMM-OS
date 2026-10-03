@@ -21,6 +21,7 @@ class ReasoningEffort(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     EXTRA_HIGH = "extra_high"
+    MAX = "max"
 
 
 @dataclass(frozen=True, slots=True)

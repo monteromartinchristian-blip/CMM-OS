@@ -359,13 +359,33 @@ def test_a_model_the_authority_will_not_serve_is_registered_unavailable() -> Non
 
 
 def test_provider_spellings_are_translated_and_untranslatable_levels_dropped() -> None:
-    """A provider's ladder is translated, never renamed, and never invented."""
+    """A provider's ladder is translated, never renamed, and never invented.
+
+    ``max`` is a canonical rung in its own right. It used to be dropped here
+    because nothing canonical existed for it, which silently shortened every
+    five-stop Claude ladder the authority declared. It is now projected as
+    ``max`` and stays DISTINCT from ``extra_high``: a model declaring one and a
+    model declaring the other describe different ladders, and collapsing them
+    would let a client offer and forward a level the model never claimed.
+    """
 
     assert composition._declared_reasoning_efforts(
         {"reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]}
+    ) == ("low", "medium", "high", "extra_high", "max")
+    # Each rung survives on its own; neither absorbs the other.
+    assert composition._declared_reasoning_efforts({"reasoning_efforts": ["max"]}) == (
+        "max",
+    )
+    # An authority that already spells the canonical name keeps that level too:
+    # it used to be dropped here for being spelled correctly.
+    assert composition._declared_reasoning_efforts(
+        {"reasoning_efforts": ["low", "medium", "high", "extra_high"]}
     ) == ("low", "medium", "high", "extra_high")
-    # Nothing canonical exists for `max`, so it is dropped rather than relabelled.
-    assert composition._declared_reasoning_efforts({"reasoning_efforts": ["max"]}) == ()
+    assert composition._declared_reasoning_efforts(
+        {"reasoning_efforts": ["extra_high"]}
+    ) == ("extra_high",)
+    # A genuinely unknown spelling is still dropped rather than invented.
+    assert composition._declared_reasoning_efforts({"reasoning_efforts": ["mega"]}) == ()
     assert composition._declared_reasoning_efforts({}) == ()
 
 
