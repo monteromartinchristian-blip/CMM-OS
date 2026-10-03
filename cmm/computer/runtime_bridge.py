@@ -28,6 +28,7 @@ from cmm.computer.bridge import (
 from cmm.computer.contracts import (
     Action,
     ActionResult,
+    ContentInfo,
     ElementInfo,
     Observation,
     PermissionState,
@@ -289,6 +290,18 @@ def _observation(result: Any, *, include_screenshot: bool) -> Observation:
             for item in (result.get("elements") or [])
             if isinstance(item, dict)
         )
+        content = tuple(
+            ContentInfo(
+                role=str(item.get("role", ""))[:80],
+                text=str(item.get("text", ""))[:200],
+                x=int(item.get("x", 0)),
+                y=int(item.get("y", 0)),
+                width=int(item.get("width", 0)),
+                height=int(item.get("height", 0)),
+            )
+            for item in (result.get("content") or [])
+            if isinstance(item, dict)
+        )
     except (TypeError, ValueError) as error:
         raise BridgeUnavailable(
             "The computer bridge observation is not well-formed.",
@@ -306,6 +319,7 @@ def _observation(result: Any, *, include_screenshot: bool) -> Observation:
         frontmost_bundle=str(result.get("frontmost_bundle", ""))[:200],
         windows=windows,
         elements=elements,
+        content=content,
         screenshot_path=screenshot_path,
         captured_at=captured_at,
     )

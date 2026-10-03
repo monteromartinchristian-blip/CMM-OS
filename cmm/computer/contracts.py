@@ -13,6 +13,7 @@ __all__ = [
     "ApprovalProposal",
     "ComputerTaskOutcome",
     "ComputerUseLimits",
+    "ContentInfo",
     "ElementInfo",
     "Observation",
     "PermissionState",
@@ -61,6 +62,18 @@ class PermissionState:
 
 
 @dataclass(frozen=True, slots=True)
+class ContentInfo:
+    """One read-only node of visible content (never an actionable target)."""
+
+    role: str
+    text: str
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ElementInfo:
     element_id: int
     role: str
@@ -89,6 +102,11 @@ class Observation:
     frontmost_bundle: str
     windows: tuple[WindowInfo, ...]
     elements: tuple[ElementInfo, ...]
+    #: Ordinary visible content: text and values a person can read but
+    #: cannot act on (file names, table rows, message bodies). Kept separate
+    #: from ``elements`` because sharing one budget meant a content area
+    #: never reached the planner once the surrounding toolbars filled it.
+    content: tuple[ContentInfo, ...] = ()
     screenshot_path: str | None = None
     captured_at: float = 0.0
 
@@ -103,6 +121,13 @@ class Observation:
                     f"- {window.app} / “{window.title}” "
                     f"({window.x},{window.y} {window.width}x{window.height})"
                 )
+        if self.content:
+            lines.append(
+                f"Visible content of the frontmost application "
+                f"({len(self.content)} items, read-only):"
+            )
+            for item in self.content[: max_elements * 3]:
+                lines.append(f"- {item.role} “{item.text[:120]}”")
         if self.elements:
             lines.append("Interactive elements of the frontmost application:")
             for element in self.elements[:max_elements]:
