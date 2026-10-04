@@ -76,8 +76,11 @@ class ClientModelDescriptor:
     #: ``owned_by``), or ``None`` when it declared nothing.  Carried so a client
     #: shows the real provider rather than guessing one from the id's spelling.
     vendor: str | None = None
-    capabilities: Mapping[str, bool] = field(default_factory=dict)
-    reasoning_efforts: tuple[str, ...] = ()
+    capabilities: Mapping[str, bool | None] = field(default_factory=dict)
+    #: ``None`` when the authority declared nothing, ``()`` when it declared
+    #: that this model supports no effort level, otherwise the exact ladder.
+    #: The three states are preserved across the client boundary.
+    reasoning_efforts: tuple[str, ...] | None = None
     document_media_types: tuple[str, ...] = ()
     context_window: int | None = None
     streaming: bool = False
@@ -96,7 +99,11 @@ class ClientModelDescriptor:
         object.__setattr__(
             self, "capabilities", MappingProxyType(dict(self.capabilities))
         )
-        object.__setattr__(self, "reasoning_efforts", tuple(self.reasoning_efforts))
+        object.__setattr__(
+            self,
+            "reasoning_efforts",
+            None if self.reasoning_efforts is None else tuple(self.reasoning_efforts),
+        )
         object.__setattr__(
             self, "document_media_types", tuple(self.document_media_types)
         )
@@ -120,9 +127,10 @@ class ClientResolvedModel:
     handle: Any = None
     supports_capability_plane: bool = True
     supports_vision: bool = False
-    reasoning_efforts: tuple[str, ...] = ()
+    #: ``None`` undeclared, ``()`` known-and-empty, otherwise the exact ladder.
+    reasoning_efforts: tuple[str, ...] | None = None
     document_media_types: tuple[str, ...] = ()
-    capabilities: Mapping[str, bool] = field(default_factory=dict)
+    capabilities: Mapping[str, bool | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(

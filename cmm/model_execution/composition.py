@@ -300,24 +300,55 @@ _EFFORT_TRANSLATION: Mapping[str, str] = {
 }
 
 
-def _declared_reasoning_efforts(item: Mapping[str, Any]) -> tuple[str, ...]:
+def _declared_reasoning_efforts(item: Mapping[str, Any]) -> tuple[str, ...] | None:
     """The effort levels the authority declared for this exact model.
 
     Read from that model's own declaration, so two generations of one family
     keep the different ladders their providers give them, and translated only
     where the provider's spelling names a canonical level.
+
+    Three states are preserved rather than collapsed:
+
+    * ``None`` — the authority published no ``reasoning_efforts`` key. An honest
+      unknown.
+    * ``()`` — the authority published an empty list: this model is known to
+      expose no effort control.
+    * a non-empty tuple — the exact declared ladder, translated.
+
+    Collapsing the first two would make a model that is known to have no effort
+    control indistinguishable from one whose capability nobody stated, and the
+    catalog is the validation authority, so that distinction decides whether a
+    level may be sent.
     """
 
     value = item.get("reasoning_efforts")
+    if value is None:
+        return None
     if not isinstance(value, (list, tuple)):
-        return ()
+        return None
     return tuple(
         translated
         for level in value
-        if isinstance(level, str)
-        for translated in (_EFFORT_TRANSLATION.get(level.strip().lower()),)
+        for translated in (
+            (_EFFORT_TRANSLATION.get(level.strip().lower()),)
+            if isinstance(level, str)
+            else (None,)
+        )
         if translated is not None
     )
+
+
+def _derive_reasoning(declared: tuple[str, ...] | None) -> bool | None:
+    """Derive the reasoning capability from a declared ladder.
+
+    ``None`` stays ``None``. It is never collapsed to ``False``, because an
+    undeclared capability and a declared-absent one are different answers and a
+    selector must be able to tell them apart.
+    """
+
+    if declared is None:
+        return None
+    return len(declared) > 0
 
 
 def _declared_availability(item: Mapping[str, Any]) -> Literal["available", "unavailable"] | None:
@@ -607,7 +638,7 @@ def register_chat_only_router(
                     ),
                     capabilities=ModelCapabilities(
                         streaming=True,
-                        reasoning=bool(declared_efforts),
+                        reasoning=_derive_reasoning(declared_efforts),
                         reasoning_efforts=declared_efforts,
                         # The authority's own tool declaration for this exact
                         # model, read generically from its descriptor (index
@@ -739,7 +770,7 @@ def register_local_runtime(
                     capabilities=ModelCapabilities(
                         vision=normalized.lower() in vision_ids,
                         streaming=True,
-                        reasoning=bool(declared_efforts),
+                        reasoning=_derive_reasoning(declared_efforts),
                         reasoning_efforts=declared_efforts,
                     ),
                 )

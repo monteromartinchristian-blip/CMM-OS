@@ -384,9 +384,18 @@ def test_provider_spellings_are_translated_and_untranslatable_levels_dropped() -
     assert composition._declared_reasoning_efforts(
         {"reasoning_efforts": ["extra_high"]}
     ) == ("extra_high",)
-    # A genuinely unknown spelling is still dropped rather than invented.
+    # A genuinely unknown spelling is still dropped rather than invented. The
+    # authority did declare a list, so this is a known-and-empty ladder, not an
+    # undeclared one.
     assert composition._declared_reasoning_efforts({"reasoning_efforts": ["mega"]}) == ()
-    assert composition._declared_reasoning_efforts({}) == ()
+    # No key at all is an honest unknown, which used to arrive here as the same
+    # empty tuple. It is now None so a model nobody described can be told apart
+    # from a model known to support no effort level.
+    assert composition._declared_reasoning_efforts({}) is None
+    # And the two remain distinguishable in both directions.
+    assert composition._declared_reasoning_efforts({}) != (
+        composition._declared_reasoning_efforts({"reasoning_efforts": []})
+    )
 
 
 def test_a_declared_context_window_is_carried_and_a_malformed_one_dropped() -> None:

@@ -42,9 +42,24 @@ class ModelCapabilities:
     "unknown/unsupported" so every pre-existing construction and every existing
     test keeps its exact previous meaning.  Capability truth is always explicit
     here — never inferred from a model name.
+
+    ``reasoning`` and ``reasoning_efforts`` carry three states, not two:
+
+    * ``None`` — the authority declared nothing. This is an honest unknown, and
+      it is NOT the same answer as "this model supports no effort".
+    * ``()`` / ``False`` — the authority declared this model and it supports no
+      reasoning-effort level. A model known to have none.
+    * a non-empty tuple / ``True`` — the exact levels this model declared.
+
+    The distinction matters because the catalog is the validation authority: a
+    model known to expose no effort control must not be treated as one whose
+    capability is merely unstated.
     """
 
-    reasoning: bool = False
+    #: ``None`` when the authority declared nothing about reasoning; ``False``
+    #: when it declared that the model supports no effort level; ``True`` when
+    #: it declared at least one.
+    reasoning: bool | None = None
     tool_calling: bool = False
     structured_output: bool = False
     json_mode: bool = False
@@ -54,18 +69,21 @@ class ModelCapabilities:
     audio_output: bool = False
     embeddings: bool = False
 
-    reasoning_efforts: tuple[ReasoningEffort, ...] = ()
+    #: ``None`` for undeclared, ``()`` for declared-and-empty, otherwise the
+    #: exact declared levels in declaration order.
+    reasoning_efforts: tuple[ReasoningEffort, ...] | None = None
     document_media_types: tuple[str, ...] = ()
     streaming: bool = False
 
     def __post_init__(self) -> None:
-        efforts: list[ReasoningEffort] = []
-        for effort in self.reasoning_efforts:
-            normalized = ReasoningEffort(effort)
-            if normalized in efforts:
-                raise ValueError("reasoning_efforts must be unique")
-            efforts.append(normalized)
-        object.__setattr__(self, "reasoning_efforts", tuple(efforts))
+        if self.reasoning_efforts is not None:
+            efforts: list[ReasoningEffort] = []
+            for effort in self.reasoning_efforts:
+                normalized = ReasoningEffort(effort)
+                if normalized in efforts:
+                    raise ValueError("reasoning_efforts must be unique")
+                efforts.append(normalized)
+            object.__setattr__(self, "reasoning_efforts", tuple(efforts))
 
         media_types: list[str] = []
         for media_type in self.document_media_types:
@@ -84,15 +102,21 @@ class ModelCapabilities:
     def supports_reasoning_effort(self, effort: ReasoningEffort | str) -> bool:
         """Return whether the model explicitly supports ``effort``.
 
-        ``DEFAULT`` means "no explicit override" and is always acceptable; it is
-        never stored in the declared effort set.  Every other level must be
-        declared, so an unknown effort fails closed.
+        ``DEFAULT`` means "no explicit override" and is always acceptable; it
+        is never stored in the declared effort set.  Every other level must be
+        declared, so an undeclared or unsupported effort fails closed.
+
+        An undeclared ladder (``None``) fails closed for every level. That is
+        unchanged behaviour -- a missing declaration was previously projected to
+        an empty tuple and behaved the same way -- and it is the safe direction:
+        a control offers less rather than letting a client send a level the
+        model never claimed.
         """
 
         normalized = ReasoningEffort(effort)
         if normalized is ReasoningEffort.DEFAULT:
             return True
-        return normalized in self.reasoning_efforts
+        return normalized in (self.reasoning_efforts or ())
 
     def supports_document_media_type(self, media_type: str) -> bool:
         """Return whether the model explicitly accepts ``media_type`` documents."""

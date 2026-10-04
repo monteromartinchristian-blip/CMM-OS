@@ -181,6 +181,19 @@ def _require_bool(value: object, *, label: str) -> bool:
     return value
 
 
+def _require_optional_bool(value: object, *, label: str) -> bool | None:
+    """Require a bool or an explicit absence.
+
+    Used only for the three-state capabilities, where ``None`` means the
+    authority declared nothing. Round-tripping an absent declaration as
+    ``False`` is what turned "unknown" into "known to have none" on every
+    reload, so the persisted state keeps the distinction.
+    """
+    if value is None:
+        return None
+    return _require_bool(value, label=label)
+
+
 def _require_int(value: object, *, label: str) -> int:
     """Require an integer; reject bools and floats."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -596,7 +609,11 @@ def _model_from_dict(payload: Mapping[str, object]) -> ModelSpec:
             ),
             capabilities=ModelCapabilities(
                 **{
-                    name: _require_bool(capabilities[name], label=name)
+                    name: (
+                        _require_optional_bool(capabilities[name], label=name)
+                        if name == "reasoning"
+                        else _require_bool(capabilities[name], label=name)
+                    )
                     for name in _MODEL_CAPABILITY_NAMES
                 }
             ),

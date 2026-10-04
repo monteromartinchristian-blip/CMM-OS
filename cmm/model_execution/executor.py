@@ -126,6 +126,20 @@ UNAVAILABLE_PROVIDER_STATES = frozenset({"unavailable", "disabled"})
 CHAT_CAPABILITY_FIELDS = ("reasoning", "vision", "tool_calling", "structured_output")
 
 
+def _capability_value(capabilities: object, name: str) -> bool | None:
+    """Read one capability without collapsing an undeclared ``None``.
+
+    ``reasoning`` is a three-state field: ``None`` means the authority said
+    nothing, which is not the same as ``False``. Coercing it through ``bool()``
+    turned every undeclared capability into a declared absence, which is how a
+    model whose capability nobody stated came to be published as one that has
+    none. The other fields are genuine booleans and keep their old meaning.
+    """
+
+    value = getattr(capabilities, name, False)
+    return value if value is None else bool(value)
+
+
 def _require_canonical_role(name: str, implementation: object, contract: type) -> None:
     """Fail closed unless *implementation* is the canonical *contract*.
 
@@ -582,7 +596,7 @@ class CanonicalModelExecutor:
 
         model_id = spec.id
         capabilities = {
-            name: bool(getattr(spec.capabilities, name, False))
+            name: _capability_value(spec.capabilities, name)
             for name in CHAT_CAPABILITY_FIELDS
         }
         available = (
@@ -606,8 +620,10 @@ class CanonicalModelExecutor:
             availability="available" if available else "unavailable",
             vendor=spec.vendor,
             capabilities=capabilities,
-            reasoning_efforts=tuple(
-                effort.value for effort in spec.capabilities.reasoning_efforts
+            reasoning_efforts=(
+                None
+                if spec.capabilities.reasoning_efforts is None
+                else tuple(effort.value for effort in spec.capabilities.reasoning_efforts)
             ),
             document_media_types=tuple(spec.capabilities.document_media_types),
             context_window=spec.context_window,

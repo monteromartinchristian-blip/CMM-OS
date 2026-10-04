@@ -391,10 +391,19 @@ class NormalizedModel:
     #: OpenAI-compatible listing's ``owned_by``), or ``None`` when it declared
     #: nothing.  A selector shows this instead of guessing a family from the id.
     vendor: str | None = None
-    capabilities: Mapping[str, bool] = field(default_factory=dict)
+    capabilities: Mapping[str, bool | None] = field(default_factory=dict)
     #: Canonical reasoning-effort level names the model explicitly supports,
-    #: in declaration order.  Empty means "no explicit effort may be sent".
-    reasoning_efforts: tuple[str, ...] = ()
+    #: in declaration order.  Three states, never collapsed:
+    #:
+    #: * ``None`` — the authority declared nothing.  Capability unknown.
+    #: * ``()``  — the authority declared this model and it supports no effort
+    #:   level.  Known to have none.
+    #: * a non-empty tuple — the exact declared ladder.
+    #:
+    #: ``None`` and ``()`` are different answers and must stay different: the
+    #: catalog is the validation authority, so a model known to expose no
+    #: effort control must not be treated as one merely unstated.
+    reasoning_efforts: tuple[str, ...] | None = None
     #: Normalized document media types the model explicitly accepts.
     document_media_types: tuple[str, ...] = ()
     context_window: int | None = None
@@ -433,7 +442,11 @@ class NormalizedModel:
         object.__setattr__(
             self, "capabilities", MappingProxyType(dict(self.capabilities))
         )
-        object.__setattr__(self, "reasoning_efforts", tuple(self.reasoning_efforts))
+        object.__setattr__(
+            self,
+            "reasoning_efforts",
+            None if self.reasoning_efforts is None else tuple(self.reasoning_efforts),
+        )
         object.__setattr__(
             self, "document_media_types", tuple(self.document_media_types)
         )

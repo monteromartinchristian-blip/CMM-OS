@@ -287,7 +287,7 @@ class ModelClient:
                 provider_id=model.provider_id,
                 vendor=model.vendor,
                 capabilities=dict(model.capabilities or {}),
-                reasoning_efforts=tuple(model.reasoning_efforts or ()),
+                reasoning_efforts=model.reasoning_efforts,
                 document_media_types=tuple(model.document_media_types or ()),
                 context_window=model.context_window,
                 streaming=bool(model.streaming),
@@ -309,9 +309,10 @@ class ModelClient:
             raise normalize(error) from error
         model = resolved.model
         descriptor = self._descriptor_for(model.model_id)
-        efforts = tuple(
-            descriptor.reasoning_efforts if descriptor is not None else ()
-        )
+        # ``None`` means the authority declared nothing and must survive as
+        # ``None``. A missing descriptor is also unknown, so it stays ``None``
+        # rather than borrowing the meaning of an empty declaration.
+        efforts = None if descriptor is None else descriptor.reasoning_efforts
         documents = tuple(
             descriptor.document_media_types if descriptor is not None else ()
         )
